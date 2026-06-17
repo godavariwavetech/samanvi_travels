@@ -1,0 +1,575 @@
+﻿import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { motion, AnimatePresence } from 'motion/react'
+import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import type { Column } from '@/components/shared'
+import { mastersService } from '@/services/masters.service'
+
+type DataType = string
+
+// ── Staff Type picker with inline "add new" ────────────────────────────────
+function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [newType, setNewType] = useState('')
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const { data } = useQuery({ queryKey: ['staff-types'], queryFn: () => mastersService.getStaffTypes() })
+  const types: any[] = data?.data ?? []
+
+  const { mutate: add, isPending } = useMutation({
+    mutationFn: () => mastersService.addStaffType({ type_name: newType.trim() }),
+    onSuccess: (res) => {
+      if (res.status === 200) {
+        toast.success('Staff type added!')
+        qc.invalidateQueries({ queryKey: ['staff-types'] })
+        onChange(newType.trim())
+        setNewType('')
+        setOpen(false)
+      }
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const openDropdown = () => {
+    if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      if (document.getElementById('st-panel')?.contains(e.target as Node) ||
+          btnRef.current?.contains(e.target as Node)) return
+      setOpen(false); setNewType('')
+    }
+    const onScroll = (e: Event) => {
+      if (document.getElementById('st-panel')?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    window.addEventListener('scroll', onScroll, true)
+    return () => { document.removeEventListener('mousedown', close); window.removeEventListener('scroll', onScroll, true) }
+  }, [open])
+
+  const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
+  const openUpward = spaceBelow < 320
+
+  const panel = open && rect && createPortal(
+    <div id="st-panel"
+      style={{
+        position: 'fixed',
+        top: openUpward ? undefined : rect.bottom + 4,
+        bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
+        left: rect.left, width: rect.width, maxHeight: 300, zIndex: 99999,
+      }}
+      className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col overflow-hidden"
+    >
+      <ul className="overflow-y-auto flex-1">
+        <li onMouseDown={() => { onChange(''); setOpen(false) }}
+          className="px-4 py-2.5 text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">— None —</li>
+        {types.map(t => (
+          <li key={t.id}
+            onMouseDown={() => { onChange(t.type_name); setOpen(false) }}
+            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+              value === t.type_name ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
+            }`}>
+            {t.type_name}
+          </li>
+        ))}
+      </ul>
+      <div className="border-t border-slate-100 p-2 flex gap-2 flex-shrink-0">
+        <input
+          value={newType}
+          onChange={e => setNewType(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && newType.trim() && add()}
+          placeholder="Add new type…"
+          className="flex-1 text-sm px-3 py-1.5 rounded-lg border border-slate-200 outline-none focus:border-blue-400"
+        />
+        <button
+          onMouseDown={() => newType.trim() && add()}
+          disabled={isPending || !newType.trim()}
+          className="px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>,
+    document.body
+  )
+
+  return (
+    <div>
+      <button ref={btnRef} type="button" onClick={openDropdown}
+        className="flex h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className={value ? 'text-slate-900 font-medium' : 'text-slate-400'}>
+          {value || 'Select Designation'}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {panel}
+    </div>
+  )
+}
+
+// ── Termination modal ──────────────────────────────────────────────────────
+function TerminateModal({ person, staffType, onConfirm, onClose, isPending }: {
+  person: any; staffType: string
+  onConfirm: (date: string, reason: string) => void
+  onClose: () => void; isPending: boolean
+}) {
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [reason, setReason] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-7">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+          </div>
+          <div>
+            <h3 className="font-extrabold text-slate-900 text-lg">Terminate {staffType}</h3>
+            <p className="text-sm text-slate-500">Terminating <span className="font-semibold text-red-600">{person?.fullName ?? person?.driver_name ?? person?.helper_name}</span></p>
+          </div>
+          <button onClick={onClose} className="ml-auto text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <Label>Date of Leaving <span className="text-red-500">*</span></Label>
+            <Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <Label>Reason for Termination <span className="text-red-500">*</span></Label>
+            <textarea rows={4} placeholder="Resignation, Misconduct, Contract End…" value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-400 resize-none" />
+          </div>
+        </div>
+        <div className="flex gap-3 mt-6">
+          <Button variant="danger" onClick={() => onConfirm(date, reason)} disabled={isPending || !reason.trim() || !date} className="flex-1">
+            <AlertTriangle className="w-4 h-4" />{isPending ? 'Terminating…' : 'Confirm Termination'}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ── Form state defaults ────────────────────────────────────────────────────
+const emptyStaff = {
+  fullName: '', mobile: '', designation: '', emergencyContact: '', alternativemobilenumber: '',
+  dateOfJoining: '', aadhaar: '', accountHolderName: '', accountNumber: '', ifscCode: '',
+  bankName: '', referencename: '', branchname: '', nickName: '', upiId: '', remarks: '',
+}
+const emptyDriver = {
+  driver_name: '', mobile_number: '', dl_number: '', dl_expiry_date: '',
+  aadhar_number: '', account_number: '', ifsc_code: '', bank_name: '',
+  nickname: '', emergency_mobile_number: '', alternate_number: '', reference: '',
+  date_of_joining: '', account_holder_name: '', branch_name: '', upi_id: '',
+  dldateofbirth: '', drivinglicense_joining_date: '', transportoneissuedate: '',
+  transportvalidityfrom: '', transportvalidityto: '', remarks: '',
+}
+const emptyHelper = {
+  helper_name: '', mobile_number: '', adhar_number: '', account_number: '',
+  ifsc_code: '', bank_name: '', nickname: '', emergency_mobile_number: '',
+  alternate_number: '', reference: '', account_holder_name: '', branch_name: '',
+  upi_id: '', date_of_joining: '', remarks: '',
+}
+
+const FIXED_TYPES = ['Driver', 'Staff', 'Helper', 'Terminated']
+
+// ── Inline "Add new type" input ────────────────────────────────────────────
+function AddCustomTypeInline({ onAdd, isPending }: { onAdd: (name: string) => void; isPending: boolean }) {
+  const [value, setValue] = useState('')
+  const submit = () => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    onAdd(trimmed)
+    setValue('')
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        placeholder="Add new type…"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        className="w-44 h-11"
+      />
+      <Button onClick={submit} disabled={isPending || !value.trim()} variant="primary">
+        <Plus className="w-4 h-4" /> Add
+      </Button>
+    </div>
+  )
+}
+
+const typeColors: Record<string, string> = {
+  Driver: 'bg-gradient-to-r from-emerald-500 to-teal-500',
+  Staff: 'bg-gradient-to-r from-blue-500 to-violet-500',
+  Helper: 'bg-gradient-to-r from-orange-400 to-amber-500',
+}
+
+const today = new Date().toISOString().split('T')[0]
+
+export default function StaffPage() {
+  const qc = useQueryClient()
+  const [dataType, setDataType] = useState<DataType>('')
+  const [showForm, setShowForm] = useState(false)
+  const [terminatePerson, setTerminatePerson] = useState<{ person: any; staffType: string } | null>(null)
+  const [staffForm, setStaffForm] = useState(emptyStaff)
+  const [driverForm, setDriverForm] = useState(emptyDriver)
+  const [helperForm, setHelperForm] = useState(emptyHelper)
+
+  const sf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setStaffForm((f) => ({ ...f, [k]: e.target.value }))
+  const df = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDriverForm((f) => ({ ...f, [k]: e.target.value }))
+  const hf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setHelperForm((f) => ({ ...f, [k]: e.target.value }))
+
+  const isCustomType = dataType !== '' && !FIXED_TYPES.includes(dataType)
+
+  // Queries
+  const { data: staffTypesData } = useQuery({ queryKey: ['staff-types'], queryFn: () => mastersService.getStaffTypes() })
+  const { data: staffData, isLoading: loadStaff } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff(), enabled: dataType === 'Staff' || isCustomType })
+  const { data: driverData, isLoading: loadDrivers } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers(), enabled: dataType === 'Driver' })
+  const { data: helperData, isLoading: loadHelpers } = useQuery({ queryKey: ['active-helpers'], queryFn: () => mastersService.getActiveHelpers(), enabled: dataType === 'Helper' })
+  const { data: terminatedData, isLoading: loadTerminated } = useQuery({ queryKey: ['terminated-staff'], queryFn: () => mastersService.getTerminatedStaff(), enabled: dataType === 'Terminated' })
+
+  const customTypes: any[] = staffTypesData?.data ?? []
+  const allStaffList: any[]    = staffData?.data ?? []
+  const staffList: any[]       = isCustomType
+    ? allStaffList.filter((s: any) => s.designation === dataType)
+    : allStaffList
+  const driverList: any[]     = driverData?.data ?? []
+  const helperList: any[]     = helperData?.data ?? []
+  const terminatedList: any[] = terminatedData?.data ?? []
+
+  // Add / delete custom type
+  const { mutate: addCustomType, isPending: addingCustomType } = useMutation({
+    mutationFn: (name: string) => mastersService.addStaffType({ type_name: name }),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success('Type added!'); qc.invalidateQueries({ queryKey: ['staff-types'] }) }
+      else toast.error('Failed')
+    },
+    onError: () => toast.error('Server error'),
+  })
+  const { mutate: delCustomType } = useMutation({
+    mutationFn: (id: number) => mastersService.deleteStaffType({ id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['staff-types'] }),
+  })
+
+  // Mutations
+  const { mutate: addStaff, isPending: addingStaff } = useMutation({
+    mutationFn: () => mastersService.addStaff({ ...staffForm, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0, document: null }),
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Staff added!'); qc.invalidateQueries({ queryKey: ['active-staff'] }); setStaffForm(emptyStaff); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
+    onError: () => toast.error('Server error'),
+  })
+  const { mutate: addDriver, isPending: addingDriver } = useMutation({
+    mutationFn: () => mastersService.addDriver({ ...driverForm, user_id: localStorage.getItem('user_id'), usr_nm: localStorage.getItem('usr_nm'), uploadind: 0 }),
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Driver added!'); qc.invalidateQueries({ queryKey: ['drivers'] }); setDriverForm(emptyDriver); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
+    onError: () => toast.error('Server error'),
+  })
+  const { mutate: addHelper, isPending: addingHelper } = useMutation({
+    mutationFn: () => mastersService.addHelper({ ...helperForm, user_id: localStorage.getItem('user_id'), usr_nm: localStorage.getItem('usr_nm'), uploadind: 0 }),
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Helper added!'); qc.invalidateQueries({ queryKey: ['active-helpers'] }); setHelperForm(emptyHelper); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
+    onError: () => toast.error('Server error'),
+  })
+  const { mutate: terminate, isPending: terminating } = useMutation({
+    mutationFn: ({ date, reason }: { date: string; reason: string }) =>
+      mastersService.terminateStaff({ id: terminatePerson!.person.id, staff_type: terminatePerson!.staffType, termination_date: date, termination_reason: reason }),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success('Staff terminated'); qc.invalidateQueries({ queryKey: ['active-staff', 'drivers', 'active-helpers', 'terminated-staff'] }); setTerminatePerson(null) }
+      else toast.error('Failed to terminate')
+    },
+    onError: () => toast.error('Server error'),
+  })
+  const { mutate: rejoin } = useMutation({
+    mutationFn: (row: any) => mastersService.rejoinStaff({ id: row.id, staff_type: row.staff_type }),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success('Staff rejoined!'); qc.invalidateQueries({ queryKey: ['active-staff', 'drivers', 'active-helpers', 'terminated-staff'] }) }
+      else toast.error('Failed to rejoin')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const handleTypeChange = (type: string) => {
+    setDataType(type)
+    setShowForm(false)
+    // Pre-fill designation for custom types
+    if (type && !FIXED_TYPES.includes(type)) {
+      setStaffForm(f => ({ ...f, designation: type }))
+    }
+  }
+
+  const mkTerminateBtn = (staffType: string): Column => ({
+    label: 'Action', key: 'id',
+    render: (_: unknown, row: any) => (
+      <button onClick={() => setTerminatePerson({ person: row, staffType })}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 transition-colors">
+        <AlertTriangle className="w-3.5 h-3.5" /> Terminate
+      </button>
+    ),
+  })
+
+  // Table column definitions matching Angular
+  const driverCols: Column[] = [
+    { label: 'Driver ID', key: 'driver_id_number' },
+    { label: 'Aadhar Name', key: 'nickname' },
+    { label: 'Mobile Number', key: 'mobile_number' },
+    { label: 'DL Name', key: 'driver_name', render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'DL Number', key: 'dl_number' },
+    { label: 'Transport Valid To', key: 'transportvalidityto', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+    mkTerminateBtn('driver'),
+  ]
+  const staffCols: Column[] = [
+    { label: 'Full Name', key: 'fullName', render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'Mobile', key: 'mobile' },
+    { label: 'Designation', key: 'designation', render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
+    mkTerminateBtn('staff'),
+  ]
+  const helperCols: Column[] = [
+    { label: 'Helper ID', key: 'helper_id_number' },
+    { label: 'Aadhar Name', key: 'helper_name', render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'Mobile Number', key: 'mobile_number' },
+    { label: 'Aadhar Number', key: 'adhar_number' },
+    mkTerminateBtn('helper'),
+  ]
+  const terminatedCols: Column[] = [
+    { label: 'Name', key: 'name', render: (v) => <span className="font-bold">{String(v ?? '—')}</span> },
+    { label: 'Role', key: 'role', render: (v, r: any) => <div><Badge variant="purple">{String(v ?? '—')}</Badge><div className="text-xs text-slate-400 mt-0.5 capitalize">{r.staff_type}</div></div> },
+    { label: 'Mobile', key: 'mobile' },
+    { label: 'Left On', key: 'leaving_date', render: (v) => <span className="text-sm text-red-500 font-medium">{String(v ?? '—')}</span> },
+    { label: 'Reason', key: 'termination_reason', render: (v) => <span className="text-xs text-slate-500 max-w-[200px] block truncate" title={String(v ?? '')}>{String(v ?? '—')}</span> },
+    { label: 'Action', key: 'id', render: (_, row: any) => <Button variant="success" size="sm" onClick={() => rejoin(row)}><RotateCcw className="w-3.5 h-3.5" /> Rejoin</Button> },
+  ]
+
+  const currentData = dataType === 'Driver' ? driverList
+    : dataType === 'Staff' ? staffList
+    : dataType === 'Helper' ? helperList
+    : dataType === 'Terminated' ? terminatedList
+    : staffList  // custom type — filtered by designation
+  const currentLoading = dataType === 'Driver' ? loadDrivers
+    : dataType === 'Helper' ? loadHelpers
+    : dataType === 'Terminated' ? loadTerminated
+    : loadStaff  // Staff + custom types all use staffData
+  const currentCols = dataType === 'Driver' ? driverCols
+    : dataType === 'Helper' ? helperCols
+    : dataType === 'Terminated' ? terminatedCols
+    : staffCols  // Staff + custom types show same columns
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+      <div className="flex justify-between items-end">
+        <PageHeader title="Staff Register" subtitle="Manage drivers, staff, helpers and terminations" />
+        {dataType && dataType !== 'Terminated' && !showForm && (
+          <Button onClick={() => setShowForm(true)}>
+            <Users className="w-4 h-4" /> Add {dataType}
+          </Button>
+        )}
+      </div>
+
+      {/* Select Data Type card */}
+      <GlassCard className="p-5">
+        <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Select Data Type</h3>
+        <div className="flex flex-wrap gap-4 items-start">
+          {/* Dropdown */}
+          <div className="relative min-w-[220px]">
+            <select
+              value={dataType}
+              onChange={(e) => handleTypeChange(e.target.value)}
+              className="w-full h-11 pl-4 pr-10 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 appearance-none cursor-pointer"
+              style={{ colorScheme: 'light' }}
+            >
+              <option value="">Select Type</option>
+              {FIXED_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              {customTypes.length > 0 && (
+                <optgroup label="── Custom Types ──">
+                  {customTypes.map((t) => <option key={t.id} value={t.type_name}>{t.type_name}</option>)}
+                </optgroup>
+              )}
+            </select>
+            <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
+
+          {/* Add new type inline */}
+          <AddCustomTypeInline
+            onAdd={(name) => addCustomType(name)}
+            isPending={addingCustomType}
+          />
+        </div>
+
+        {/* Custom types chips */}
+        {customTypes.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-slate-100">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider self-center">Custom Types:</span>
+            {customTypes.map((t) => (
+              <span key={t.id}
+                className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-blue-200">
+                {t.type_name}
+                <button
+                  onClick={() => delCustomType(t.id)}
+                  className="text-blue-400 hover:text-red-500 transition-colors ml-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Empty state */}
+      {!dataType && (
+        <GlassCard className="p-12 text-center">
+          <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <h5 className="text-slate-500 font-semibold">Please select a data type to view records</h5>
+          <p className="text-sm text-slate-400 mt-1">Choose from the dropdown above or add a new custom type</p>
+        </GlassCard>
+      )}
+
+      {/* Add form */}
+      <AnimatePresence>
+        {showForm && dataType && dataType !== 'Terminated' && (
+          <motion.div key={`form-${dataType}`} initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }}>
+            <GlassCard className="p-6" colorBar={typeColors[dataType] ?? 'bg-gradient-to-r from-slate-400 to-slate-600'}>
+              <div className="flex justify-between items-center mb-5">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Users className="w-5 h-5" /> Register {dataType}
+                </h2>
+                <button onClick={() => setShowForm(false)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+
+              {/* Driver form */}
+              {dataType === 'Driver' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div><Label>Aadhar Name (Nick Name)</Label><Input value={driverForm.nickname} onChange={df('nickname')} /></div>
+                  <div><Label>DL Name (Full Name) <span className="text-red-500">*</span></Label><Input value={driverForm.driver_name} onChange={df('driver_name')} /></div>
+                  <div><Label>Date of Birth</Label><Input type="date" max={today} value={driverForm.dldateofbirth} onChange={df('dldateofbirth')} /></div>
+                  <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input value={driverForm.mobile_number} onChange={df('mobile_number')} /></div>
+                  <div><Label>Alternate Mobile</Label><Input value={driverForm.alternate_number} onChange={df('alternate_number')} /></div>
+                  <div><Label>Emergency Number</Label><Input value={driverForm.emergency_mobile_number} onChange={df('emergency_mobile_number')} /></div>
+                  <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input value={driverForm.aadhar_number} onChange={df('aadhar_number')} /></div>
+                  <div><Label>DL Number <span className="text-red-500">*</span></Label><Input value={driverForm.dl_number} onChange={df('dl_number')} /></div>
+                  <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={driverForm.account_holder_name} onChange={df('account_holder_name')} /></div>
+                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={driverForm.account_number} onChange={df('account_number')} /></div>
+                  <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={driverForm.bank_name} onChange={df('bank_name')} /></div>
+                  <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={driverForm.branch_name} onChange={df('branch_name')} /></div>
+                  <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={driverForm.ifsc_code} onChange={df('ifsc_code')} /></div>
+                  <div><Label>UPI ID</Label><Input value={driverForm.upi_id} onChange={df('upi_id')} /></div>
+                  <div><Label>DL Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.drivinglicense_joining_date} onChange={df('drivinglicense_joining_date')} /></div>
+                  <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
+                  <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
+                  <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
+                  <div><Label>Transport Valid To <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.transportvalidityto} onChange={df('transportvalidityto')} /></div>
+                  <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.date_of_joining} onChange={df('date_of_joining')} /></div>
+                  <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={driverForm.reference} onChange={df('reference')} /></div>
+                  <div className="md:col-span-2"><Label>Remarks</Label><Input value={driverForm.remarks} onChange={df('remarks')} /></div>
+                </div>
+              )}
+
+              {/* Staff form — also used for custom types */}
+              {(dataType === 'Staff' || isCustomType) && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div>
+                    <Label>Designation <span className="text-red-500">*</span></Label>
+                    {isCustomType
+                      ? <Input value={staffForm.designation} readOnly className="bg-slate-50 text-slate-500 cursor-not-allowed" />
+                      : <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
+                    }
+                  </div>
+                  <div><Label>Nick Name</Label><Input value={staffForm.nickName} onChange={sf('nickName')} /></div>
+                  <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={staffForm.fullName} onChange={sf('fullName')} /></div>
+                  <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input value={staffForm.mobile} onChange={sf('mobile')} /></div>
+                  <div><Label>Alternative Mobile</Label><Input value={staffForm.alternativemobilenumber} onChange={sf('alternativemobilenumber')} /></div>
+                  <div><Label>Emergency Contact</Label><Input value={staffForm.emergencyContact} onChange={sf('emergencyContact')} /></div>
+                  <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input value={staffForm.aadhaar} onChange={sf('aadhaar')} /></div>
+                  <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={staffForm.referencename} onChange={sf('referencename')} /></div>
+                  <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={staffForm.accountHolderName} onChange={sf('accountHolderName')} /></div>
+                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={staffForm.accountNumber} onChange={sf('accountNumber')} /></div>
+                  <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={staffForm.bankName} onChange={sf('bankName')} /></div>
+                  <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={staffForm.branchname} onChange={sf('branchname')} /></div>
+                  <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={staffForm.ifscCode} onChange={sf('ifscCode')} /></div>
+                  <div><Label>UPI ID</Label><Input value={staffForm.upiId} onChange={sf('upiId')} /></div>
+                  <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={staffForm.dateOfJoining} onChange={sf('dateOfJoining')} /></div>
+                  <div className="md:col-span-3"><Label>Remarks</Label>
+                    <textarea rows={2} value={staffForm.remarks} onChange={sf('remarks')} placeholder="Additional notes…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
+                  </div>
+                </div>
+              )}
+
+              {/* Helper form */}
+              {dataType === 'Helper' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div><Label>Nick Name</Label><Input value={helperForm.nickname} onChange={hf('nickname')} /></div>
+                  <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={helperForm.helper_name} onChange={hf('helper_name')} /></div>
+                  <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input value={helperForm.mobile_number} onChange={hf('mobile_number')} /></div>
+                  <div><Label>Alternate Number</Label><Input value={helperForm.alternate_number} onChange={hf('alternate_number')} /></div>
+                  <div><Label>Emergency Mobile</Label><Input value={helperForm.emergency_mobile_number} onChange={hf('emergency_mobile_number')} /></div>
+                  <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input value={helperForm.adhar_number} onChange={hf('adhar_number')} /></div>
+                  <div><Label>Reference <span className="text-red-500">*</span></Label><Input value={helperForm.reference} onChange={hf('reference')} /></div>
+                  <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={helperForm.account_holder_name} onChange={hf('account_holder_name')} /></div>
+                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={helperForm.account_number} onChange={hf('account_number')} /></div>
+                  <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={helperForm.bank_name} onChange={hf('bank_name')} /></div>
+                  <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={helperForm.branch_name} onChange={hf('branch_name')} /></div>
+                  <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={helperForm.ifsc_code} onChange={hf('ifsc_code')} /></div>
+                  <div><Label>UPI ID</Label><Input value={helperForm.upi_id} onChange={hf('upi_id')} /></div>
+                  <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={helperForm.date_of_joining} onChange={hf('date_of_joining')} /></div>
+                  <div className="md:col-span-2"><Label>Remarks</Label><Input value={helperForm.remarks} onChange={hf('remarks')} /></div>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-6">
+                {(dataType === 'Staff' || isCustomType) && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
+                {dataType === 'Driver' && <Button onClick={() => addDriver()} disabled={addingDriver || !driverForm.driver_name}><Save className="w-4 h-4" />{addingDriver ? 'Saving…' : 'Save Driver'}</Button>}
+                {dataType === 'Helper' && <Button onClick={() => addHelper()} disabled={addingHelper || !helperForm.helper_name}><Save className="w-4 h-4" />{addingHelper ? 'Saving…' : 'Save Helper'}</Button>}
+                <Button variant="ghost" onClick={() => setShowForm(false)}><X className="w-4 h-4" /> Cancel</Button>
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Data table */}
+      {dataType && (
+        <>
+          {dataType === 'Terminated' && terminatedList.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {(['staff', 'driver', 'helper'] as const).map((type) => {
+                const count = terminatedList.filter((r: any) => r.staff_type === type).length
+                return (
+                  <GlassCard key={type} className="p-4 bg-red-50">
+                    <div className="text-2xl font-extrabold text-red-600">{count}</div>
+                    <div className="text-xs font-bold text-slate-500 uppercase capitalize">{type}s Terminated</div>
+                  </GlassCard>
+                )
+              })}
+            </div>
+          )}
+          <DataTable
+            title={`${dataType === 'Terminated' ? 'Terminated Staff' : `Active ${dataType}s`} (${currentData.length})${isCustomType ? ` — filtered by designation: ${dataType}` : ''}`}
+            columns={currentCols}
+            data={currentData}
+            loading={currentLoading}
+            onAction={() => {}}
+            actions={[]}
+          />
+        </>
+      )}
+
+      {/* Termination modal */}
+      {terminatePerson && (
+        <TerminateModal
+          person={terminatePerson.person}
+          staffType={terminatePerson.staffType}
+          onConfirm={(date, reason) => terminate({ date, reason })}
+          onClose={() => setTerminatePerson(null)}
+          isPending={terminating}
+        />
+      )}
+    </motion.div>
+  )
+}
