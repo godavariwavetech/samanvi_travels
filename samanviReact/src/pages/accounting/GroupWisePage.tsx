@@ -1,6 +1,7 @@
 ﻿import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, FileDown, FileText, BarChart3, Search, X, Layers, BookOpen } from 'lucide-react'
+import { ChevronDown, FileDown, FileText, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt } from 'lucide-react'
+import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
@@ -34,6 +35,7 @@ interface DropdownOption {
 }
 
 interface TableRow {
+  id: number
   name: string
   type: 'Group' | 'Ledger'
   total: number
@@ -81,6 +83,7 @@ function fmtAmt(n: number): string {
 const today = new Date().toISOString().split('T')[0]
 
 export default function GroupWisePage() {
+  const navigate = useNavigate()
   const { selectedFY } = useFYStore()
   const userId = localStorage.getItem('user_id') ?? ''
   const roleDistrictPayload = {
@@ -318,6 +321,7 @@ export default function GroupWisePage() {
 
   const showAll = (children: GWNode[]) => {
     setTableRows(children.map(c => ({
+      id: c.id,
       name: c.name,
       type: c.nodeType === 'group' ? 'Group' : 'Ledger',
       total: c.totalAmount,
@@ -325,7 +329,20 @@ export default function GroupWisePage() {
   }
 
   const showSingle = (node: GWNode) => {
-    setTableRows([{ name: node.name, type: node.nodeType === 'group' ? 'Group' : 'Ledger', total: node.totalAmount }])
+    setTableRows([{ id: node.id, name: node.name, type: node.nodeType === 'group' ? 'Group' : 'Ledger', total: node.totalAmount }])
+  }
+
+  const handleLedgerClick = (row: TableRow) => {
+    navigate('/accounting/ledger-wise', { state: { ledgerId: row.id } })
+  }
+
+  const handlePayables = (row: TableRow) => {
+    localStorage.setItem('reportViewData', JSON.stringify({
+      groupName: row.name,
+      entries: [{ id: row.id, name: row.name, temple_name: row.name }],
+    }))
+    localStorage.setItem('bs_ledger_name', 'balacesheeet')
+    window.open('/accounting/payables-view', '_blank')
   }
 
   const jumpToNode = useCallback((item: SearchItem) => {
@@ -407,7 +424,7 @@ export default function GroupWisePage() {
     roots.forEach(r => level2Groups.push(...r.children.filter(c => c.nodeType === 'group')))
 
     if (!level2Groups.length) {
-      setTableRows(roots.map(r => ({ name: r.name, type: 'Group', direct: r.amount, total: r.totalAmount })))
+      setTableRows(roots.map(r => ({ id: r.id, name: r.name, type: 'Group' as const, total: r.totalAmount })))
       return
     }
 
@@ -721,7 +738,25 @@ export default function GroupWisePage() {
                 {tableRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
                     <td className="px-4 py-2.5 border-b border-slate-100 font-medium text-slate-800">
-                      {row.name}
+                      {row.type === 'Ledger' ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => handleLedgerClick(row)}
+                            title="View in Ledger Wise"
+                            className="inline-flex items-center gap-1 text-blue-600 font-medium hover:text-blue-800 hover:underline"
+                          >
+                            {row.name}
+                            <ExternalLink className="w-3 h-3 opacity-60 flex-shrink-0" />
+                          </button>
+                          <button
+                            onClick={() => handlePayables(row)}
+                            title="Open Payables for this ledger"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-semibold border border-emerald-300 text-emerald-600 bg-white hover:bg-emerald-50 transition-colors flex-shrink-0"
+                          >
+                            <Receipt className="w-3 h-3" /> Payables
+                          </button>
+                        </div>
+                      ) : row.name}
                     </td>
                     <td className="px-4 py-2.5 border-b border-slate-100">
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${

@@ -54,9 +54,9 @@ const ROUTE_LABELS: Record<string, string> = {
   '/garage/reports': 'Garage Reports',
   '/garage/masters': 'Garage Masters',
   '/mainmasters/voucher-type': 'Voucher Types',
-  '/mainmasters/main-group': 'Main Group',
-  '/mainmasters/sub-group': 'Sub Group',
-  '/mainmasters/child-group': 'Child Group',
+  '/mainmasters/groups': 'Group Management',
+  '/mainmasters/static-entry': 'Static Entry',
+  '/mainmasters/laundry-products': 'Laundry Products',
   '/reports': 'Reports',
 }
 

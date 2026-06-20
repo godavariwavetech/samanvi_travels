@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck } from 'lucide-react'
+import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck, Pencil, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
@@ -23,6 +23,11 @@ interface LineItem {
 interface SelectedStaff { id: number; type: string; name: string }
 
 const emptyDetail = { description: '', valueDate: '', vehicleNo: '', staffValue: '' }
+
+// Assets-section ledgers being credited (i.e. treated as a payable) are only
+// allowed under these voucher types.
+const ASSET_PAYABLE_VOUCHER_TYPES = ['Journal', 'Credit Note']
+const isAssetLedger = (l: Ledger | null) => l?.staticname === 'ASSETS'
 
 function parseStaff(staffValue: string): SelectedStaff | null {
   if (!staffValue) return null
@@ -71,6 +76,7 @@ function LedgerDropdown({ value, ledgers, onChange }: {
   const filtered = ledgers.filter(l =>
     (l.temple_name ?? '').toLowerCase().includes(search.toLowerCase())
   )
+  const groupOf = (l: Ledger) => l.child || l.subchildtwo || ''
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
 
@@ -93,9 +99,17 @@ function LedgerDropdown({ value, ledgers, onChange }: {
         {filtered.length === 0 && <li className="px-4 py-3 text-sm text-slate-400 text-center">No ledgers found</li>}
         {filtered.map(l => (
           <li key={l.id} onMouseDown={() => { onChange(l); setOpen(false); setSearch('') }}
-            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+            title={l.temple_name}
+            className={`px-4 py-2 text-sm cursor-pointer transition-colors flex flex-col gap-0.5 ${
               value?.id === l.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
-            }`}>{l.temple_name}</li>
+            }`}>
+            <span className="truncate">{l.temple_name}</span>
+            {groupOf(l) && (
+              <span className={`text-[10px] font-medium truncate ${
+                value?.id === l.id ? 'text-blue-500' : 'text-slate-400'
+              }`}>{groupOf(l)}</span>
+            )}
+          </li>
         ))}
       </ul>
     </div>,
@@ -104,10 +118,17 @@ function LedgerDropdown({ value, ledgers, onChange }: {
 
   return (
     <div className="flex-1 min-w-0">
-      <button ref={btnRef} type="button" onClick={openDropdown}
-        className="flex h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-        <span className={value ? 'text-slate-900 font-medium truncate min-w-0' : 'text-slate-400 truncate'}>
-          {value?.temple_name || 'Select Ledger'}
+      <button ref={btnRef} type="button" onClick={openDropdown} title={value?.temple_name}
+        className="flex min-h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className="flex flex-col items-start min-w-0 flex-1 text-left">
+          <span className={value ? 'text-slate-900 font-medium truncate w-full' : 'text-slate-400 truncate w-full'}>
+            {value?.temple_name || 'Select Ledger'}
+          </span>
+          {value && groupOf(value) && (
+            <span className="text-[10px] font-medium text-slate-400 truncate w-full">
+              {groupOf(value)}
+            </span>
+          )}
         </span>
         <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -187,13 +208,25 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }:
 }
 
 // ── Committed ledger rows table ────────────────────────────────────────────
-function LedgerTable({ rows, side, onRemove }: {
+function LedgerTable({ rows, side, onRemove, onEditAmount }: {
   rows: LineItem[]
   side: 'debit' | 'credit'
   onRemove: (i: number) => void
+  onEditAmount: (i: number, amount: string) => void
 }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editVal, setEditVal] = useState('')
+
   if (rows.length === 0) return null
   const isDr = side === 'debit'
+
+  const startEdit = (i: number, current: string) => { setEditingIndex(i); setEditVal(current) }
+  const commitEdit = (i: number) => {
+    const trimmed = editVal.trim()
+    if (trimmed && parseFloat(trimmed) > 0) onEditAmount(i, trimmed)
+    setEditingIndex(null)
+  }
+
   return (
     <div className={`border-t pt-3 ${isDr ? 'border-red-100' : 'border-emerald-100'}`}>
       <table className="w-full text-sm">
@@ -202,7 +235,7 @@ function LedgerTable({ rows, side, onRemove }: {
             <th className="text-left pb-1.5 w-6">#</th>
             <th className="text-left pb-1.5">Ledger Account</th>
             <th className="text-right pb-1.5 pr-1">Amount (₹)</th>
-            <th className="w-5"></th>
+            <th className="w-10"></th>
           </tr>
         </thead>
         <tbody>
@@ -210,13 +243,41 @@ function LedgerTable({ rows, side, onRemove }: {
             <tr key={i} className={`border-b last:border-0 ${isDr ? 'border-red-50' : 'border-emerald-50'}`}>
               <td className="py-2 text-xs text-slate-400">{i + 1}</td>
               <td className="py-2 font-medium text-slate-800 truncate max-w-[160px]">{row.ledger?.temple_name}</td>
-              <td className={`py-2 text-right font-bold pr-1 ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
-                {parseFloat(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <td className="py-2 text-right pr-1">
+                {editingIndex === i ? (
+                  <input
+                    type="number" autoFocus value={editVal}
+                    onChange={e => setEditVal(e.target.value)}
+                    onBlur={() => commitEdit(i)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') commitEdit(i)
+                      if (e.key === 'Escape') setEditingIndex(null)
+                    }}
+                    className={`w-24 text-right font-bold rounded-lg border px-1.5 py-0.5 outline-none focus:ring-2 ${
+                      isDr ? 'border-red-300 focus:ring-red-400/30 text-red-600' : 'border-emerald-300 focus:ring-emerald-400/30 text-emerald-600'
+                    }`}
+                  />
+                ) : (
+                  <span className={`font-bold ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {parseFloat(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                )}
               </td>
               <td className="py-2 pl-1">
-                <button type="button" onClick={() => onRemove(i)} className="text-slate-300 hover:text-red-500 transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {editingIndex === i ? (
+                    <button type="button" onClick={() => commitEdit(i)} className="text-emerald-500 hover:text-emerald-600 transition-colors">
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button type="button" onClick={() => startEdit(i, row.amount)} className="text-slate-300 hover:text-blue-500 transition-colors">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onRemove(i)} className="text-slate-300 hover:text-red-500 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
@@ -413,7 +474,10 @@ export default function VoucherEntryPage() {
   const effectiveBalanced = effectiveDr > 0 && Math.abs(effectiveDiff) < 0.001
   const pendingDrValid = !debitInput.amount  || (!!debitInput.ledger  && !!debitInput.amount)
   const pendingCrValid = !creditInput.amount || (!!creditInput.ledger && !!creditInput.amount)
-  const canSave = effectiveBalanced && pendingDrValid && pendingCrValid
+  // Catches the case where the voucher type is changed to something other than
+  // Journal/Credit Note after an Assets ledger was already added on the credit side.
+  const assetCreditViolation = credits.some(c => isAssetLedger(c.ledger)) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(form.vouchertype)
+  const canSave = effectiveBalanced && pendingDrValid && pendingCrValid && !assetCreditViolation
   const isWithinCurrentFY = form.voucherdate >= selectedFY.fromDate && form.voucherdate <= selectedFY.toDate
 
   // Ledgers used on the credit side (including the pending credit input) — blocked from debit dropdown
@@ -504,6 +568,10 @@ export default function VoucherEntryPage() {
 
   const addCredit = () => {
     if (!creditInput.ledger || !creditInput.amount) return
+    if (isAssetLedger(creditInput.ledger) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(form.vouchertype)) {
+      toast.error('Assets ledgers can only be credited under Journal or Credit Note voucher types')
+      return
+    }
     const newCredits = [...credits, creditInput]
     setCredits(newCredits)
     creditAutoFilled.current = false
@@ -806,7 +874,9 @@ export default function VoucherEntryPage() {
                     : `Need ₹${Math.abs(effectiveDiff).toLocaleString('en-IN')} more on debit`}
                 </div>
               )}
-              <LedgerTable rows={debits} side="debit" onRemove={i => setDebits(p => p.filter((_, idx) => idx !== i))} />
+              <LedgerTable rows={debits} side="debit"
+                onRemove={i => setDebits(p => p.filter((_, idx) => idx !== i))}
+                onEditAmount={(i, amount) => updateDebitDetail(i, { amount })} />
             </div>
           </div>
 
@@ -865,7 +935,9 @@ export default function VoucherEntryPage() {
                     : `Need ₹${effectiveDiff.toLocaleString('en-IN')} more on credit`}
                 </div>
               )}
-              <LedgerTable rows={credits} side="credit" onRemove={i => setCredits(p => p.filter((_, idx) => idx !== i))} />
+              <LedgerTable rows={credits} side="credit"
+                onRemove={i => setCredits(p => p.filter((_, idx) => idx !== i))}
+                onEditAmount={(i, amount) => updateCreditDetail(i, { amount })} />
             </div>
           </div>
 
@@ -1011,6 +1083,11 @@ export default function VoucherEntryPage() {
               {effectiveBalanced && (!pendingDrValid || !pendingCrValid) && (
                 <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-500">
                   Select ledger for entered amount
+                </span>
+              )}
+              {assetCreditViolation && (
+                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-500">
+                  Assets ledger on credit side requires Journal or Credit Note voucher type
                 </span>
               )}
             </div>

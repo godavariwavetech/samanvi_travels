@@ -1,9 +1,10 @@
 ﻿import { useState, useMemo } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
-import { Search, X, FileSpreadsheet, Filter, ChevronDown } from 'lucide-react'
+import { motion } from 'motion/react'
+import { Search, X, FileSpreadsheet, ExternalLink, Receipt } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 
 function fmt(dateStr: any): string {
@@ -19,20 +20,28 @@ function fmtAmt(n: number): string {
 }
 
 export default function DayBookPage() {
+  const navigate = useNavigate()
   const today = new Date().toISOString().split('T')[0]
   const [range, setRange] = useState({ fromdate: today, todate: today })
   const [applied, setApplied] = useState(range)
   const [search, setSearch] = useState('')
-  const [colFilters, setColFilters] = useState({
-    c_number: '', vouchertype: '', date: '', amount_type: '',
-    expensives: '', valueDate: '', bus_no: '', name: '', description: '',
-  })
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({
     queryKey: ['daybook', applied],
     queryFn: () => accountingService.getDayBook({ fromdate: applied.fromdate, todate: applied.todate }),
   })
+
+  const { data: ledgersRes } = useQuery({
+    queryKey: ['ledger-names'],
+    queryFn: () => accountingService.getLedgerName(),
+  })
+  const ledgerIdToGroup = useMemo(() => {
+    const m = new Map<number, string>()
+    const list: any[] = ledgersRes?.data ?? []
+    list.forEach(l => { const id = Number(l.id ?? l.ledger_id); if (id) m.set(id, l.child || '') })
+    return m
+  }, [ledgersRes])
 
   const raw = data?.data
   const allRows: any[] = useMemo(() => {
@@ -61,6 +70,8 @@ export default function DayBookPage() {
           vouchertype: item.vouchertype || '—',
           i_ts:        item.i_ts        || item.trip_date || '',
           amount_type: acct,
+          ledger_id:   item.ledger_id   ?? null,
+          group:       ledgerIdToGroup.get(Number(item.ledger_id)) || '',
           expensives:  item.expensives  || '—',
           valueDate:   item.valuedate   || item.valueDate || '',
           bus_no:      item.vehicleNo   || item.bus_no    || '—',
@@ -71,7 +82,7 @@ export default function DayBookPage() {
           balance,
         }
       })
-  }, [allRows])
+  }, [allRows, ledgerIdToGroup])
 
   // Client-side search filter
   const filteredRows = useMemo(() => {
@@ -83,47 +94,62 @@ export default function DayBookPage() {
     )
   }, [tableRows, search])
 
-  const voucherTypeOpts = useMemo(() =>
-    ['', ...Array.from(new Set(tableRows.map(r => r.vouchertype).filter(v => v && v !== '—'))).sort()], [tableRows])
-  const vehicleOpts = useMemo(() =>
-    ['', ...Array.from(new Set(tableRows.map(r => r.bus_no).filter(v => v && v !== '—'))).sort()], [tableRows])
-  const accountTypeOpts = ['', 'Debit Account', 'Credit Account']
+  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'name', 'description'] as const
+
+  const colValue = (row: any, key: string): string => {
+    switch (key) {
+      case 'c_number': return row.c_number
+      case 'vouchertype': return row.vouchertype
+      case 'date': return fmt(row.i_ts)
+      case 'amount_type': return row.amount_type === 'Debit Account' ? 'DR' : row.amount_type === 'Credit Account' ? 'CR' : row.amount_type
+      case 'expensives': return row.expensives
+      case 'valueDate': return fmt(row.valueDate)
+      case 'bus_no': return row.bus_no
+      case 'name': return row.name
+      case 'description': return row.description
+      default: return ''
+    }
+  }
+
+  const filterColOptions = useMemo(() => {
+    const result: Record<string, string[]> = {}
+    FILTER_KEYS.forEach(key => {
+      result[key] = Array.from(new Set(tableRows.map(r => colValue(r, key)))).sort()
+    })
+    return result
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableRows])
 
   const displayRows = useMemo(() => {
-    const cf = colFilters
-    const hasFilter = Object.values(cf).some(v => v !== '')
+    const hasFilter = Object.values(colFilters).some(v => v && v.length > 0)
     if (!hasFilter) return filteredRows
     return filteredRows.filter(row => {
-      if (cf.c_number    && !String(row.c_number).toLowerCase().includes(cf.c_number.toLowerCase()))      return false
-      if (cf.vouchertype && row.vouchertype !== cf.vouchertype)                                            return false
-      if (cf.date        && !String(row.i_ts).startsWith(cf.date))                                         return false
-      if (cf.amount_type && row.amount_type !== cf.amount_type)                                            return false
-      if (cf.expensives  && !String(row.expensives).toLowerCase().includes(cf.expensives.toLowerCase()))  return false
-      if (cf.valueDate   && !String(row.valueDate || '').startsWith(cf.valueDate))                         return false
-      if (cf.bus_no      && row.bus_no !== cf.bus_no)                                                      return false
-      if (cf.name        && !String(row.name).toLowerCase().includes(cf.name.toLowerCase()))               return false
-      if (cf.description && !String(row.description).toLowerCase().includes(cf.description.toLowerCase())) return false
+      for (const [key, vals] of Object.entries(colFilters)) {
+        if (!vals || vals.length === 0) continue
+        if (!vals.includes(colValue(row, key))) return false
+      }
       return true
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRows, colFilters])
 
-  const activeFilterCount = Object.values(colFilters).filter(v => v !== '').length
+  const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
 
   const totalDebit  = tableRows.reduce((s, r) => s + r.debit,  0)
   const totalCredit = tableRows.reduce((s, r) => s + r.credit, 0)
   const difference  = totalDebit - totalCredit
 
   const exportExcel = () => {
-    const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Value Date', 'Vehicle No', 'Name', 'Description', 'Debit', 'Credit', 'Balance']
+    const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', 'Name', 'Description', 'Debit', 'Credit', 'Balance']
     const body = displayRows.map(r => [
       r.i, r.c_number, r.vouchertype, fmt(r.i_ts),
       r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
-      r.expensives, fmt(r.valueDate), r.bus_no, r.name, r.description,
+      r.expensives, r.group, fmt(r.valueDate), r.bus_no, r.name, r.description,
       r.debit || '', r.credit || '',
       r.balance >= 0 ? `${r.balance.toFixed(2)} Dr` : `${Math.abs(r.balance).toFixed(2)} Cr`,
     ])
-    body.push(['', '', '', '', '', '', '', '', '', 'Total', totalDebit || '', totalCredit || '', ''])
-    body.push(['', '', '', '', '', '', '', '', '', 'Difference (Dr - Cr)',
+    body.push(['', '', '', '', '', '', '', '', '', '', 'Total', totalDebit || '', totalCredit || '', ''])
+    body.push(['', '', '', '', '', '', '', '', '', '', 'Difference (Dr - Cr)',
       difference >= 0 ? difference : '',
       difference < 0 ? Math.abs(difference) : '',
       difference === 0 ? 'Balanced' : difference > 0 ? `${difference.toFixed(2)} Dr` : `${Math.abs(difference).toFixed(2)} Cr`,
@@ -132,12 +158,38 @@ export default function DayBookPage() {
     ws['!cols'] = header.map((_, ci) => ({ wch: Math.max(...[header, ...body].map(r => String(r[ci] ?? '').length)) + 2 }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Day Book')
-    XLSX.writeFile(wb, `DayBook_${applied.fromdate}_to_${applied.todate}_${Date.now()}.xlsx`)
+    const dateStamp = new Date().toISOString().split('T')[0]
+    XLSX.writeFile(wb, `DayBook_${applied.fromdate}_to_${applied.todate}_${dateStamp}.xlsx`)
   }
 
-  const TH = ({ children, cls = '' }: { children: React.ReactNode; cls?: string }) => (
+  const handleLedgerClick = (row: { ledger_id: number | null }) => {
+    if (!row.ledger_id) return
+    navigate('/accounting/ledger-wise', { state: { ledgerId: row.ledger_id } })
+  }
+
+  const handlePayables = (row: { ledger_id: number | null; expensives: string }) => {
+    if (!row.ledger_id) return
+    localStorage.setItem('reportViewData', JSON.stringify({
+      groupName: row.expensives,
+      entries: [{ id: row.ledger_id, name: row.expensives, temple_name: row.expensives }],
+    }))
+    localStorage.setItem('bs_ledger_name', 'balacesheeet')
+    window.open('/accounting/payables-view', '_blank')
+  }
+
+  const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
     <th className={`px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 ${cls}`}>
-      {children}
+      <div className="flex items-center gap-1.5">
+        <span>{children}</span>
+        {filterKey && (
+          <ColumnFilterDropdown
+            variant="light"
+            options={filterColOptions[filterKey] ?? []}
+            selected={colFilters[filterKey] ?? []}
+            onChange={vals => setColFilters(f => ({ ...f, [filterKey]: vals }))}
+          />
+        )}
+      </div>
     </th>
   )
 
@@ -176,144 +228,19 @@ export default function DayBookPage() {
           <Button onClick={() => setApplied({ ...range })}>
             <Search className="w-4 h-4" /> Search
           </Button>
-          <button
-            onClick={() => setFilterPanelOpen(p => !p)}
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors shadow-sm border ${
-              activeFilterCount > 0 || filterPanelOpen
-                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <Filter className="w-4 h-4" />
-            Filters{activeFilterCount > 0 && ` (${activeFilterCount})`}
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${filterPanelOpen ? 'rotate-180' : ''}`} />
-          </button>
         </div>
       </GlassCard>
-
-      {/* Column Filter Panel */}
-      <AnimatePresence>
-        {filterPanelOpen && (
-          <motion.div
-            key="col-filter-panel"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.22 }}
-            className="overflow-hidden"
-          >
-            <GlassCard className="p-4">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                <div>
-                  <Label className="text-xs mb-1 block">Ref No</Label>
-                  <input
-                    type="text"
-                    value={colFilters.c_number}
-                    onChange={e => setColFilters(f => ({ ...f, c_number: e.target.value }))}
-                    placeholder="Search ref no…"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Voucher Type</Label>
-                  <select
-                    value={colFilters.vouchertype}
-                    onChange={e => setColFilters(f => ({ ...f, vouchertype: e.target.value }))}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    {voucherTypeOpts.map(v => <option key={v} value={v}>{v || 'All Types'}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Date</Label>
-                  <input
-                    type="date"
-                    value={colFilters.date}
-                    onChange={e => setColFilters(f => ({ ...f, date: e.target.value }))}
-                    onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Account Type</Label>
-                  <select
-                    value={colFilters.amount_type}
-                    onChange={e => setColFilters(f => ({ ...f, amount_type: e.target.value }))}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    {accountTypeOpts.map(v => <option key={v} value={v}>{v || 'All'}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Ledger Name</Label>
-                  <input
-                    type="text"
-                    value={colFilters.expensives}
-                    onChange={e => setColFilters(f => ({ ...f, expensives: e.target.value }))}
-                    placeholder="Search ledger…"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Value Date</Label>
-                  <input
-                    type="date"
-                    value={colFilters.valueDate}
-                    onChange={e => setColFilters(f => ({ ...f, valueDate: e.target.value }))}
-                    onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Vehicle No</Label>
-                  <select
-                    value={colFilters.bus_no}
-                    onChange={e => setColFilters(f => ({ ...f, bus_no: e.target.value }))}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    {vehicleOpts.map(v => <option key={v} value={v}>{v || 'All Vehicles'}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Name</Label>
-                  <input
-                    type="text"
-                    value={colFilters.name}
-                    onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))}
-                    placeholder="Search name…"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Description</Label>
-                  <input
-                    type="text"
-                    value={colFilters.description}
-                    onChange={e => setColFilters(f => ({ ...f, description: e.target.value }))}
-                    placeholder="Search description…"
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  />
-                </div>
-                {activeFilterCount > 0 && (
-                  <div className="flex items-end">
-                    <button
-                      onClick={() => setColFilters({ c_number: '', vouchertype: '', date: '', amount_type: '', expensives: '', valueDate: '', bus_no: '', name: '', description: '' })}
-                      className="h-9 w-full rounded-lg border border-red-200 bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100 transition-colors"
-                    >
-                      Clear All ({activeFilterCount})
-                    </button>
-                  </div>
-                )}
-              </div>
-            </GlassCard>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Summary cards + Excel button */}
       {tableRows.length > 0 && (
         <div className="space-y-3">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-end gap-3">
+            {activeFilterCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active · {displayRows.length} of {tableRows.length} rows
+                <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
+              </span>
+            )}
             <button
               onClick={exportExcel}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
@@ -364,15 +291,15 @@ export default function DayBookPage() {
               <thead>
                 <tr>
                   <TH>S.No</TH>
-                  <TH>Ref No</TH>
-                  <TH>Voucher Type</TH>
-                  <TH>Date</TH>
-                  <TH>Account Type</TH>
-                  <TH>Ledger Name</TH>
-                  <TH>Value Date</TH>
-                  <TH>Vehicle No</TH>
-                  <TH>Name</TH>
-                  <TH>Description</TH>
+                  <TH filterKey="c_number">Ref No</TH>
+                  <TH filterKey="vouchertype">Voucher Type</TH>
+                  <TH filterKey="date">Date</TH>
+                  <TH filterKey="amount_type">Account Type</TH>
+                  <TH filterKey="expensives">Ledger Name</TH>
+                  <TH filterKey="valueDate">Value Date</TH>
+                  <TH filterKey="bus_no">Vehicle No</TH>
+                  <TH filterKey="name">Name</TH>
+                  <TH filterKey="description">Description</TH>
                   <TH cls="text-right">Debit</TH>
                   <TH cls="text-right">Credit</TH>
                   <TH cls="text-right">Balance</TH>
@@ -394,7 +321,29 @@ export default function DayBookPage() {
                         {row.amount_type === 'Debit Account' ? 'DR' : row.amount_type === 'Credit Account' ? 'CR' : row.amount_type}
                       </span>
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[160px] truncate">{row.expensives}</td>
+                    <td className="px-3 py-2 border-b border-slate-100 max-w-[200px] group/ledger">
+                      {row.ledger_id ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleLedgerClick(row)}
+                            title="View in Ledger Wise"
+                            className="inline-flex items-center gap-1 text-blue-600 font-medium hover:text-blue-800 hover:underline truncate"
+                          >
+                            <span className="truncate">{row.expensives}</span>
+                            <ExternalLink className="w-3 h-3 opacity-60 flex-shrink-0" />
+                          </button>
+                          <button
+                            onClick={() => handlePayables(row)}
+                            title="Open Payables for this ledger"
+                            className="flex-shrink-0 p-1 rounded-lg border border-emerald-300 text-emerald-600 bg-white hover:bg-emerald-50 transition-colors"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-slate-700 truncate">{row.expensives}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.valueDate)}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.bus_no}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.name}</td>

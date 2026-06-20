@@ -363,11 +363,16 @@ function groupVoucherRows(rows: any[]): any[] {
 
 const today = new Date().toISOString().split('T')[0]
 
+// Assets-section ledgers being credited (i.e. treated as a payable) are only
+// allowed under these voucher types.
+const ASSET_PAYABLE_VOUCHER_TYPES = ['Journal', 'Credit Note']
+const isAssetLedger = (l: any) => l?.staticname === 'ASSETS'
+
 import ActivityHistory from '@/components/shared/ActivityHistory'
 
 export default function VoucherApprovalsPage() {
   const [tab, setTab] = useState('Pending Approval')
-  const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const [filterInput, setFilterInput] = useState({ fromdate: '', todate: '' })
   const [appliedFilter, setAppliedFilter] = useState({ fromdate: '', todate: '' })
   const [viewModal, setViewModal] = useState<any>(null)
@@ -522,6 +527,10 @@ export default function VoucherApprovalsPage() {
   }
   const addEditCredit = () => {
     if (!editCreditInput.ledger || !editCreditInput.amount) return
+    if (isAssetLedger(editCreditInput.ledger) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(editForm.vouchertype)) {
+      toast.error('Assets ledgers can only be credited under Journal or Credit Note voucher types')
+      return
+    }
     const newCredits = [...editCredits, editCreditInput]
     setEditCredits(newCredits)
     editCreditAutoFilled.current = false
@@ -627,6 +636,10 @@ export default function VoucherApprovalsPage() {
     if (allDebits.length === 0) { toast.error('Add at least one debit entry'); return false }
     if (allCredits.length === 0) { toast.error('Add at least one credit entry'); return false }
     if (Math.abs(totalDr - totalCr) > 0.001) { toast.error(`Debit (${totalDr}) does not equal Credit (${totalCr}) — must balance`); return false }
+    if (allCredits.some(c => isAssetLedger(c.ledger)) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(editForm.vouchertype)) {
+      toast.error('Assets ledgers can only be credited under Journal or Credit Note voucher types')
+      return false
+    }
     return true
   }
 

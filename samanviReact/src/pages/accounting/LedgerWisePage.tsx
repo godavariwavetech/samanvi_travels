@@ -1,10 +1,10 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditCard, BookOpen, History, Filter, ChevronDown } from 'lucide-react'
+import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditCard, BookOpen, History } from 'lucide-react'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Select, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, PageHeader, ColumnFilterDropdown } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
 import * as XLSX from 'xlsx'
@@ -558,6 +558,8 @@ export default function LedgerWisePage() {
 
   const txDebit = rows.reduce((s, r) => s + r.debit, 0)
   const txCredit = rows.reduce((s, r) => s + r.credit, 0)
+  const debitCount = rows.filter(r => r.debit > 0).length
+  const creditCount = rows.filter(r => r.credit > 0).length
   const totalDebit = txDebit
   const totalCredit = txCredit
   const grandDebit = (openingBalance > 0 ? openingBalance : 0) + txDebit + (closingBalance < 0 ? Math.abs(closingBalance) : 0)
@@ -597,97 +599,109 @@ export default function LedgerWisePage() {
   const closeModal = () => setModal({ open: false, entry: null, data: null, loading: false })
 
   // ─── Column filters ────────────────────────────────────────────────────────
-  const [colFilters, setColFilters] = useState<Record<string, string>>({})
-  const [filterPanelOpen, setFilterPanelOpen] = useState(false)
-  const activeFilterCount = Object.values(colFilters).filter(Boolean).length
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
+  const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
 
-  const voucherTypeOpts = useMemo(() =>
-    [...new Set(rows.map(r => r.vouchertype).filter(Boolean))].map(v => ({ label: String(v), value: String(v) }))
-  , [rows])
+  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'name', 'description'] as const
 
-  const vehicleOpts = useMemo(() =>
-    [...new Set(rows.map(r => (r.vehicleNo || r.bus_no)).filter(Boolean))].map(v => ({ label: String(v), value: String(v) }))
-  , [rows])
+  const colValue = useCallback((row: any, key: string): string => {
+    switch (key) {
+      case 'c_number': return row.c_number || '-'
+      case 'date': return fmt(resolveDisplayDate(row))
+      case 'vouchertype': return row.vouchertype || 'N/A'
+      case 'opp_ledgers': return row.opp_ledgers || 'N/A'
+      case 'valueDate': return fmt(row.valueDate)
+      case 'vehicleNo': return (row.vehicleNo || row.bus_no) || '-'
+      case 'name': return row.name || '-'
+      case 'description': return row.description || '-'
+      default: return ''
+    }
+  }, [])
+
+  const filterColOptions = useMemo(() => {
+    const result: Record<string, string[]> = {}
+    FILTER_KEYS.forEach(key => {
+      result[key] = Array.from(new Set(rows.map(r => colValue(r, key)))).sort()
+    })
+    return result
+  }, [rows, colValue])
 
   const displayRows = useMemo(() => {
     if (!activeFilterCount) return rows
     return rows.filter(row => {
-      for (const [key, val] of Object.entries(colFilters)) {
-        if (!val) continue
-        switch (key) {
-          case 'c_number':
-            if (!String(row.c_number || '').toLowerCase().includes(val.toLowerCase())) return false
-            break
-          case 'date': {
-            const d = resolveDisplayDate(row)
-            if (d && !String(d).startsWith(val)) return false
-            break
-          }
-          case 'vouchertype':
-            if (row.vouchertype !== val) return false
-            break
-          case 'opp_ledgers':
-            if (!String(row.opp_ledgers || '').toLowerCase().includes(val.toLowerCase())) return false
-            break
-          case 'valueDate': {
-            const vd = row.valueDate ? String(row.valueDate).split('T')[0] : ''
-            if (!vd.startsWith(val)) return false
-            break
-          }
-          case 'vehicleNo':
-            if ((row.vehicleNo || row.bus_no) !== val) return false
-            break
-          case 'name':
-            if (!String(row.name || '').toLowerCase().includes(val.toLowerCase())) return false
-            break
-          case 'description':
-            if (!String(row.description || '').toLowerCase().includes(val.toLowerCase())) return false
-            break
-        }
+      for (const [key, vals] of Object.entries(colFilters)) {
+        if (!vals || vals.length === 0) continue
+        if (!vals.includes(colValue(row, key))) return false
       }
       return true
     })
-  }, [rows, colFilters, activeFilterCount])
+  }, [rows, colFilters, activeFilterCount, colValue])
+
+  // Opp-Ledger is a comma-joined string of names (possibly several) — map each
+  // back to its parent group via the ledger master list for the exports.
+  const nameToGroup = useMemo(() => {
+    const m = new Map<string, string>()
+    ledgerList.forEach(l => { if (l.temple_name) m.set(String(l.temple_name).trim().toLowerCase(), l.child || '') })
+    return m
+  }, [ledgerList])
+
+  const oppLedgerGroup = useCallback((oppLedgers: string): string => {
+    if (!oppLedgers) return ''
+    const names = oppLedgers.split(',').map((s: string) => s.trim()).filter(Boolean)
+    const groups = [...new Set(names.map(n => nameToGroup.get(n.toLowerCase()) || '').filter(Boolean))]
+    return groups.join(' / ')
+  }, [nameToGroup])
+
+  const downloadDate = () => new Date().toISOString().split('T')[0]
 
   // ─── Excel Export ──────────────────────────────────────────────────────────
   const exportExcel = () => {
     const data: any[][] = [
-      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
+      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
     ]
     if (showOB) {
-      data.push(['', '', '', '', 'Opening Balance', '', '', '', '',
-        openingBalance >= 0 ? fmtN(openingBalance) : '0.00',
-        openingBalance < 0 ? fmtN(Math.abs(openingBalance)) : '0.00',
+      data.push(['', '', '', '', 'Opening Balance', '', '', '', '', '',
+        openingBalance >= 0 ? openingBalance : 0,
+        openingBalance < 0 ? Math.abs(openingBalance) : 0,
         balStr(openingBalance),
       ])
     }
     rows.forEach((r, i) => {
       data.push([
         i + 1, r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
-        r.opp_ledgers || 'N/A', fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
+        r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
         r.name || '-', r.description || '-',
-        fmtN(r.debit), fmtN(r.credit), balStr(r.runningBalance ?? 0),
+        r.debit, r.credit, balStr(r.runningBalance ?? 0),
       ])
     })
-    data.push(['', '', '', '', 'Total', '', '', '', '', fmtN(totalDebit), fmtN(totalCredit), ''])
-    data.push(['', '', '', '', 'Closing Balance', '', '', '', '',
-      closingBalance < 0 ? fmtN(Math.abs(closingBalance)) : '0.00',
-      closingBalance >= 0 ? fmtN(closingBalance) : '0.00',
+    data.push(['', '', '', '', 'Total', '', '', '', '', '', totalDebit, totalCredit, ''])
+    data.push(['', '', '', '', 'Closing Balance', '', '', '', '', '',
+      closingBalance < 0 ? Math.abs(closingBalance) : 0,
+      closingBalance >= 0 ? closingBalance : 0,
       balStr(closingBalance),
     ])
-    data.push(['', '', '', '', 'Grand Total', '', '', '', '', fmtN(grandDebit), fmtN(grandCredit), ''])
+    data.push(['', '', '', '', 'Grand Total', '', '', '', '', '', grandDebit, grandCredit, ''])
 
     const ws = XLSX.utils.aoa_to_sheet(data)
     ws['!cols'] = data[0].map((_: any, ci: number) => ({
       wch: Math.max(...data.map(r => String(r[ci] ?? '').length)) + 2,
     }))
+    // Dr/Cr Amount columns (10, 11) hold real numbers — format them so Excel
+    // treats them as numeric (right-aligned, summable via the status bar).
+    for (let r = 1; r < data.length; r++) {
+      for (const c of [10, 11]) {
+        const cellRef = XLSX.utils.encode_cell({ r, c })
+        const cell = ws[cellRef]
+        if (cell && typeof cell.v === 'number') cell.z = '#,##0.00'
+      }
+    }
     const wb: XLSX.WorkBook = { Sheets: { Report: ws }, SheetNames: ['Report'] }
     const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
     const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${reportTitle.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.xlsx`
+    a.download = `${reportTitle.replace(/[^a-z0-9]/gi, '_')}_${downloadDate()}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -698,13 +712,17 @@ export default function LedgerWisePage() {
     doc.setFontSize(16)
     doc.text(reportTitle, 14, 15)
 
-    const headers = ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance']
+    // jspdf-autotable's columnStyles only apply to the body section, so header
+    // cells need their alignment set explicitly to match each column's data.
+    const colAlign = ['center', 'center', 'center', 'center', 'left', 'left', 'center', 'center', 'center', 'left', 'right', 'right', 'right'] as const
+    const headers = ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance']
+      .map((h, i) => ({ content: h, styles: { halign: colAlign[i] } }))
     const body: any[] = []
 
     if (showOB) {
       body.push(['', '', '', '',
         { content: 'Opening Balance', styles: { fontStyle: 'bold', halign: 'right' } },
-        '', '', '', '',
+        '', '', '', '', '',
         { content: openingBalance >= 0 ? fmtN(openingBalance) : '0.00', styles: { halign: 'right' } },
         { content: openingBalance < 0 ? fmtN(Math.abs(openingBalance)) : '0.00', styles: { halign: 'right' } },
         { content: balStr(openingBalance), styles: { halign: 'right' } },
@@ -714,7 +732,7 @@ export default function LedgerWisePage() {
     rows.forEach((r, i) => {
       body.push([
         String(i + 1), r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
-        r.opp_ledgers || 'N/A', fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
+        r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
         r.name || '-', r.description || '-',
         { content: fmtN(r.debit), styles: { halign: 'right' } },
         { content: fmtN(r.credit), styles: { halign: 'right' } },
@@ -723,42 +741,55 @@ export default function LedgerWisePage() {
     })
 
     body.push(['', '', '', '',
-      { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
+      { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', '',
       { content: fmtN(totalDebit), styles: { fontStyle: 'bold', halign: 'right' } },
       { content: fmtN(totalCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
     body.push(['', '', '', '',
-      { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
+      { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', '',
       { content: closingBalance < 0 ? fmtN(Math.abs(closingBalance)) : '0.00', styles: { halign: 'right' } },
       { content: closingBalance >= 0 ? fmtN(closingBalance) : '0.00', styles: { halign: 'right' } },
       { content: balStr(closingBalance), styles: { halign: 'right' } },
     ])
     body.push(['', '', '', '',
-      { content: 'Grand Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
+      { content: 'Grand Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', '',
       { content: fmtN(grandDebit), styles: { fontStyle: 'bold', halign: 'right' } },
       { content: fmtN(grandCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
 
     autoTable(doc, {
       head: [headers], body, startY: 25, theme: 'grid',
-      headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', halign: 'center' },
+      headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
       styles: { fontSize: 7, cellPadding: 2 },
       columnStyles: {
-        0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 18, halign: 'center' },
-        2: { cellWidth: 20, halign: 'center' }, 3: { cellWidth: 22, halign: 'center' },
-        4: { cellWidth: 36, halign: 'left' },   5: { cellWidth: 20, halign: 'center' },
-        6: { cellWidth: 22, halign: 'center' }, 7: { cellWidth: 24, halign: 'center' },
-        8: { cellWidth: 48, halign: 'left' },   9: { cellWidth: 22, halign: 'right' },
-        10: { cellWidth: 22, halign: 'right' }, 11: { cellWidth: 26, halign: 'right' },
+        // Widths sum to ~257mm, fitting landscape A4's ~269mm printable width
+        // (297mm page minus autoTable's default ~14mm margins each side).
+        0: { cellWidth: 8, halign: 'center' },  1: { cellWidth: 15, halign: 'center' },
+        2: { cellWidth: 17, halign: 'center' }, 3: { cellWidth: 16, halign: 'center' },
+        4: { cellWidth: 26, halign: 'left' },   5: { cellWidth: 20, halign: 'left' },
+        6: { cellWidth: 17, halign: 'center' }, 7: { cellWidth: 16, halign: 'center' },
+        8: { cellWidth: 18, halign: 'center' }, 9: { cellWidth: 34, halign: 'left' },
+        10: { cellWidth: 22, halign: 'right' }, 11: { cellWidth: 22, halign: 'right' },
+        12: { cellWidth: 26, halign: 'right' },
       },
     })
-    doc.save(`${reportTitle.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`)
+    doc.save(`${reportTitle.replace(/[^a-z0-9]/gi, '_')}_${downloadDate()}.pdf`)
   }
 
   // ─── Table helpers ─────────────────────────────────────────────────────────
-  const TH = ({ children, cls = '' }: { children: React.ReactNode; cls?: string }) => (
+  const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
     <th className={`px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-700 border-r border-blue-600 ${cls}`}>
-      {children}
+      <div className="flex items-center gap-1.5">
+        <span>{children}</span>
+        {filterKey && (
+          <ColumnFilterDropdown
+            variant="light"
+            options={filterColOptions[filterKey] ?? []}
+            selected={colFilters[filterKey] ?? []}
+            onChange={vals => setColFilters(f => ({ ...f, [filterKey]: vals }))}
+          />
+        )}
+      </div>
     </th>
   )
 
@@ -839,18 +870,13 @@ export default function LedgerWisePage() {
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <h3 className="font-bold text-slate-700">{reportTitle}</h3>
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => setFilterPanelOpen(o => !o)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${filterPanelOpen || activeFilterCount > 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}
-              >
-                <Filter className="w-3.5 h-3.5" />
-                Filter
-                {activeFilterCount > 0 && (
-                  <span className="ml-0.5 bg-white text-blue-600 text-[11px] font-bold px-1.5 py-0.5 rounded-full leading-none">{activeFilterCount}</span>
-                )}
-                <ChevronDown className={`w-3.5 h-3.5 ml-0.5 transition-transform ${filterPanelOpen ? 'rotate-180' : ''}`} />
-              </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {activeFilterCount > 0 && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                  {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active · {displayRows.length} of {rows.length} rows
+                  <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
+                </span>
+              )}
               <Button variant="outline" onClick={exportExcel} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
                 <FileSpreadsheet className="w-4 h-4" /> Download Excel
               </Button>
@@ -859,167 +885,6 @@ export default function LedgerWisePage() {
               </Button>
             </div>
           </div>
-
-          {/* Expandable filter panel */}
-          <AnimatePresence>
-            {filterPanelOpen && (
-              <motion.div
-                key="filter-panel"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div className="bg-blue-50/60 border border-blue-100 rounded-2xl p-4 space-y-3">
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {/* Ref No */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Ref No.</label>
-                      <div className="relative">
-                        <input
-                          type="text" placeholder="Search…" value={colFilters['c_number'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, c_number: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7"
-                        />
-                        {colFilters['c_number'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, c_number: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Date */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Date</label>
-                      <div className="relative">
-                        <input
-                          type="date" value={colFilters['date'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, date: e.target.value }))}
-                          onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7"
-                        />
-                        {colFilters['date'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, date: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Voucher Type */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Voucher Type</label>
-                      <div className="relative">
-                        <select
-                          value={colFilters['vouchertype'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, vouchertype: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7 appearance-none"
-                        >
-                          <option value="">All</option>
-                          {voucherTypeOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                        {colFilters['vouchertype'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, vouchertype: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Opp-Ledger */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Opp-Ledger</label>
-                      <div className="relative">
-                        <input
-                          type="text" placeholder="Search…" value={colFilters['opp_ledgers'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, opp_ledgers: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7"
-                        />
-                        {colFilters['opp_ledgers'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, opp_ledgers: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Value Date */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Value Date</label>
-                      <div className="relative">
-                        <input
-                          type="date" value={colFilters['valueDate'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, valueDate: e.target.value }))}
-                          onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7"
-                        />
-                        {colFilters['valueDate'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, valueDate: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Vehicle No */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Vehicle No.</label>
-                      <div className="relative">
-                        <select
-                          value={colFilters['vehicleNo'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, vehicleNo: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7 appearance-none"
-                        >
-                          <option value="">All</option>
-                          {vehicleOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
-                        {colFilters['vehicleNo'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, vehicleNo: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Name */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Name</label>
-                      <div className="relative">
-                        <input
-                          type="text" placeholder="Search…" value={colFilters['name'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7"
-                        />
-                        {colFilters['name'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, name: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Description */}
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Description</label>
-                      <div className="relative">
-                        <input
-                          type="text" placeholder="Search…" value={colFilters['description'] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, description: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 pr-7"
-                        />
-                        {colFilters['description'] && (
-                          <button onClick={() => setColFilters(f => ({ ...f, description: '' }))} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {activeFilterCount > 0 && (
-                    <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-blue-100">
-                      <span>{activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active · {displayRows.length} of {rows.length} rows</span>
-                      <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Summary strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1030,10 +895,12 @@ export default function LedgerWisePage() {
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
               <p className="text-[11px] font-bold uppercase tracking-wide text-red-600 mb-1">Total Debit</p>
               <p className="text-base font-bold text-red-700">₹{fmtAmt(txDebit)}</p>
+              <p className="text-[10px] text-red-400 mt-0.5">{debitCount} {debitCount === 1 ? 'entry' : 'entries'}</p>
             </div>
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
               <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 mb-1">Total Credit</p>
               <p className="text-base font-bold text-emerald-700">₹{fmtAmt(txCredit)}</p>
+              <p className="text-[10px] text-emerald-400 mt-0.5">{creditCount} {creditCount === 1 ? 'entry' : 'entries'}</p>
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
               <p className="text-[11px] font-bold uppercase tracking-wide text-amber-600 mb-1">Closing Balance</p>
@@ -1066,14 +933,14 @@ export default function LedgerWisePage() {
               <thead>
                 <tr>
                   <TH>Sl No.</TH>
-                  <TH>Ref No.</TH>
-                  <TH>Date</TH>
-                  <TH>Voucher Type</TH>
-                  <TH>Opp-Ledger</TH>
-                  <TH>Value Date</TH>
-                  <TH>Vehicle No.</TH>
-                  <TH>Name</TH>
-                  <TH>Description</TH>
+                  <TH filterKey="c_number">Ref No.</TH>
+                  <TH filterKey="date">Date</TH>
+                  <TH filterKey="vouchertype">Voucher Type</TH>
+                  <TH filterKey="opp_ledgers">Opp-Ledger</TH>
+                  <TH filterKey="valueDate">Value Date</TH>
+                  <TH filterKey="vehicleNo">Vehicle No.</TH>
+                  <TH filterKey="name">Name</TH>
+                  <TH filterKey="description">Description</TH>
                   <TH cls="text-right">Dr Amount</TH>
                   <TH cls="text-right">Cr Amount</TH>
                   <TH cls="text-right">R Balance</TH>
@@ -1089,7 +956,9 @@ export default function LedgerWisePage() {
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-400 font-medium">—</td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-400 font-medium">—</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-400 font-medium">—</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-bold ${balCls(openingBalance)}`}>
+                      {balStr(openingBalance)}
+                    </td>
                   </tr>
                 )}
 

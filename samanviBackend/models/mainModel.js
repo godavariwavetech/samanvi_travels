@@ -7143,7 +7143,7 @@ exports.getsearchdataMdl = function (data, callback) {
       GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
     FROM expensive_details ed
     LEFT JOIN expensive_details ed2
-      ON ed.c_number = ed2.c_number AND ed2.d_in='0'
+      ON ed.c_number = ed2.c_number AND ed2.d_in='0' AND ed2.ledger_id != ed.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON ed2.ledger_id = mm.id
     WHERE ed.d_in='0' AND ed.admin_status='1'
     ${transExp} ${ledgerExp}
@@ -7154,7 +7154,7 @@ exports.getsearchdataMdl = function (data, callback) {
       GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
     FROM mainvoucher_subt mv
     LEFT JOIN mainvoucher_subt mv2
-      ON mv.c_number = mv2.c_number AND mv2.d_in='0'
+      ON mv.c_number = mv2.c_number AND mv2.d_in='0' AND mv2.ledger_id != mv.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON mv2.ledger_id = mm.id
     WHERE mv.d_in='0' AND mv.status='1'
     ${transVoucher} ${ledgerVoucher}
@@ -7165,7 +7165,7 @@ exports.getsearchdataMdl = function (data, callback) {
       GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
     FROM fuelentry_subt fe
     LEFT JOIN fuelentry_subt fe2
-      ON fe.c_number = fe2.c_number AND fe2.d_in='0'
+      ON fe.c_number = fe2.c_number AND fe2.d_in='0' AND fe2.ledger_id != fe.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON fe2.ledger_id = mm.id
     WHERE fe.d_in='0' AND fe.admin_status='1'
     ${transFuel} ${ledgerFuel}
@@ -7176,7 +7176,7 @@ exports.getsearchdataMdl = function (data, callback) {
       GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
     FROM laundrybill_subt lb
     LEFT JOIN laundrybill_subt lb2
-      ON lb.c_number = lb2.c_number AND lb2.d_in='0'
+      ON lb.c_number = lb2.c_number AND lb2.d_in='0' AND lb2.ledger_id != lb.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON lb2.ledger_id = mm.id
     WHERE lb.d_in='0' AND lb.admin_status='1'
     ${transLaundry} ${ledgerLaundry}

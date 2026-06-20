@@ -239,6 +239,8 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TxRow {
+  id: number
+  c_id: number
   c_number: string
   vouchertype: string
   amount_type: string
@@ -266,17 +268,15 @@ interface TxRow {
   selected: boolean
 }
 
+// `ledger` carries the full ledger-master row (child/staticname/mandal_name/etc.) —
+// the backend's insert needs these group-hierarchy fields, not just id+name.
 interface DebitEntry {
-  ledger_id: number
-  ledger_name: string
-  temple_name: string
+  ledger: any
   amount: number
 }
 
 interface CreditEntry {
-  ledger_id: number
-  ledger_name: string
-  temple_name: string
+  ledger: any
   amount: number
 }
 
@@ -356,24 +356,24 @@ export default function PayablesViewPage() {
   })
 
   const expenseList: any[] = useMemo(() => expenseData?.data ?? [], [expenseData])
+  // Exclude the ledger already being viewed/settled — it can't be its own opposite-side credit entry
+  const creditLedgerOptions = useMemo(
+    () => expenseList.filter((e: any) => Number(e.id) !== Number(ledgerId)),
+    [expenseList, ledgerId]
+  )
 
   // Derived debit entries based on selected rows and their CURRENT payment values
   const debitEntries = useMemo(() => {
-    const map = new Map<string, DebitEntry>()
+    const map = new Map<number, DebitEntry>()
     rows.filter(r => r.selected && r.temppayment > 0).forEach(r => {
       const matchingExpense = expenseList.find((e: any) => Number(e.id) === Number(r.ledger_id))
       if (matchingExpense) {
-        const key = matchingExpense.temple_name || matchingExpense.name || 'Unknown'
+        const key = Number(matchingExpense.id)
         const existing = map.get(key)
         if (existing) {
           existing.amount += r.temppayment
         } else {
-          map.set(key, {
-            ledger_id: Number(matchingExpense.id),
-            ledger_name: key,
-            temple_name: matchingExpense.temple_name ?? '',
-            amount: r.temppayment,
-          })
+          map.set(key, { ledger: matchingExpense, amount: r.temppayment })
         }
       }
     })
@@ -384,6 +384,12 @@ export default function PayablesViewPage() {
     const all: any[] = voucherTypesData?.data ?? []
     return all.filter((v: any) => v.voucher_type?.toLowerCase() === 'payment')
   }, [voucherTypesData])
+
+  // Payables vouchers are always "Payment" — auto-select it and lock the field
+  useEffect(() => {
+    if (voucherTypes.length === 0 || voucherForm.voucher_type_id) return
+    setVoucherForm(f => ({ ...f, voucher_type_id: String(voucherTypes[0].id), vouchertype: voucherTypes[0] }))
+  }, [voucherTypes, voucherForm.voucher_type_id])
   const busList: any[] = useMemo(() => busData?.data ?? [], [busData])
   const employeesList: any[] = useMemo(() => {
     const res = employeesData?.data
@@ -415,6 +421,8 @@ export default function PayablesViewPage() {
         const amt = Math.abs(Number(r.amount ?? 0))
         const origBalance = edited === 0 ? amt : Math.abs(Number(r.balance ?? amt))
         return {
+          id: Number(r.id ?? 0),
+          c_id: Number(r.c_id ?? 0),
           c_number: r.c_number ?? '-',
           vouchertype: r.vouchertype ?? '-',
           amount_type: r.amount_type ?? r.account_type ?? '',
@@ -548,12 +556,7 @@ export default function PayablesViewPage() {
     if (!led) { toast.warning('Invalid ledger'); return }
     const amt = parseFloat(creditAddForm.amount)
     if (amt <= 0) { toast.warning('Amount must be greater than 0'); return }
-    setCreditEntries(prev => [...prev, {
-      ledger_id: Number(led.id),
-      ledger_name: led.temple_name ?? led.name ?? '',
-      temple_name: led.temple_name ?? '',
-      amount: amt,
-    }])
+    setCreditEntries(prev => [...prev, { ledger: led, amount: amt }])
     setCreditAddForm({ ledger_id: '', amount: '' })
     toast.success('Credit entry added')
   }
@@ -583,6 +586,47 @@ export default function PayablesViewPage() {
   const debitTotal = useMemo(() => debitEntries.reduce((s, d) => s + d.amount, 0), [debitEntries])
   const creditTotal = useMemo(() => creditEntries.reduce((s, c) => s + c.amount, 0), [creditEntries])
 
+  // Auto-fill the credit amount with whatever's still needed to match the debit total,
+  // so the user doesn't have to type the same amount that's already shown on the debit side.
+  useEffect(() => {
+    const needed = debitTotal - creditTotal
+    setCreditAddForm(f => ({ ...f, amount: needed > 0 ? String(needed) : '' }))
+  }, [debitTotal, creditTotal])
+
+  // A ledger + amount typed into the Credit Account row counts even before the
+  // user clicks "+" — same "pending entry" pattern Voucher Entry already uses,
+  // so you don't have to click Add just to satisfy validation.
+  const pendingCreditEntry = useMemo<CreditEntry | null>(() => {
+    if (!creditAddForm.ledger_id || !creditAddForm.amount) return null
+    const led = expenseList.find((e: any) => String(e.id) === creditAddForm.ledger_id)
+    const amt = parseFloat(creditAddForm.amount)
+    if (!led || !(amt > 0)) return null
+    return { ledger: led, amount: amt }
+  }, [creditAddForm, expenseList])
+  const effectiveCreditEntries = useMemo(
+    () => pendingCreditEntry ? [...creditEntries, pendingCreditEntry] : creditEntries,
+    [creditEntries, pendingCreditEntry]
+  )
+  const effectiveCreditTotal = useMemo(() => effectiveCreditEntries.reduce((s, c) => s + c.amount, 0), [effectiveCreditEntries])
+
+  // ── Live validation — shown as badges instead of waiting for a Submit click ──
+  const selectedRowCount = rows.filter(r => r.selected).length
+  const balanced = debitEntries.length > 0 && effectiveCreditEntries.length > 0 && Math.abs(debitTotal - effectiveCreditTotal) < 0.01
+  const validationIssues = useMemo(() => {
+    const issues: string[] = []
+    if (selectedRowCount === 0) issues.push('Select at least one transaction')
+    if (!voucherForm.voucherdate) issues.push('Voucher date required')
+    if (!voucherForm.description.trim()) issues.push('Description required')
+    if (debitEntries.length === 0) issues.push('No debit entries — select a transaction above')
+    if (effectiveCreditEntries.length === 0) issues.push('Add a credit entry')
+    if (debitEntries.length > 0 && effectiveCreditEntries.length > 0 && !balanced) {
+      issues.push(`Dr ₹${fmtAmt(debitTotal)} ≠ Cr ₹${fmtAmt(effectiveCreditTotal)}`)
+    }
+    return issues
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRowCount, voucherForm.voucherdate, voucherForm.description, debitEntries, effectiveCreditEntries, debitTotal, effectiveCreditTotal, balanced])
+  const canSubmit = validationIssues.length === 0
+
   // ── Submit ───────────────────────────────────────────────────────────────
   const { mutate: submitVoucher, isPending: submitting } = useMutation({
     mutationFn: (payload: unknown) => accountingService.submitPayablesVoucher(payload),
@@ -591,6 +635,7 @@ export default function PayablesViewPage() {
         toast.success('Voucher submitted successfully!')
         refetch()
         setCreditEntries([])
+        setCreditAddForm({ ledger_id: '', amount: '' })
         setVoucherForm(f => ({ ...f, description: '', voucher_type_id: '', vouchertype: '', valueDate: '', vehicleNo: '', name: '', staff_type: '', staff_type_id: '' }))
       }
  else {
@@ -601,19 +646,8 @@ export default function PayablesViewPage() {
   })
 
   const handleSubmit = () => {
+    if (!canSubmit) return
     const selectedRows = rows.filter(r => r.selected)
-    if (selectedRows.length === 0) { toast.warning('Select at least one transaction'); return }
-    if (!voucherForm.voucher_type_id) { toast.warning('Select a voucher type'); return }
-    if (!voucherForm.voucherdate) { toast.warning('Voucher date is required'); return }
-    if (!voucherForm.description.trim()) { toast.warning('Description is required'); return }
-    if (debitEntries.length === 0) { toast.warning('No debit entries — select transactions to populate debit'); return }
-    if (creditEntries.length === 0) { toast.warning('Add at least one credit entry'); return }
-
-    if (Math.abs(debitTotal - creditTotal) > 0.01) {
-      toast.error(`Debit/Credit mismatch — Dr ₹${fmtAmt(debitTotal)} ≠ Cr ₹${fmtAmt(creditTotal)}`)
-      return
-    }
-
     const selectedLedgersData = selectedRows.map(r => ({
       ...r,
       isedited: r.temppayment >= r.originalBalance ? 2 : 1,
@@ -628,8 +662,18 @@ export default function PayablesViewPage() {
         staff_type: voucherForm.staff_type,
         staff_type_id: voucherForm.staff_type_id,
       },
-      patientsTstdts: debitEntries,
-      creditaddrowdts: creditEntries,
+      // Field names below match what payablessubmitvoucherentrysubtable(seconddata)
+      // actually reads on the backend — NOT the same shape as our DebitEntry/CreditEntry types.
+      patientsTstdts: debitEntries.map(d => ({
+        debitaccount: 'Debit Account',
+        d_test_amount: d.amount,
+        d_test_name: d.ledger,
+      })),
+      creditaddrowdts: effectiveCreditEntries.map(c => ({
+        creditaccount: 'Credit Account',
+        creditamount: c.amount,
+        creditledger: c.ledger,
+      })),
       creditanddebitamount: debitTotal,
       user_id: userId,
       named: localStorage.getItem('usr_nm'),
@@ -971,19 +1015,7 @@ export default function PayablesViewPage() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <Label>Voucher Type <span className="text-red-500">*</span></Label>
-                  <select
-                    value={voucherForm.voucher_type_id}
-                    onChange={e => {
-                      const opt = voucherTypes.find((v: any) => String(v.id) === e.target.value)
-                      setVoucherForm(f => ({ ...f, voucher_type_id: e.target.value, vouchertype: opt ?? '' }))
-                    }}
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="">Select voucher type</option>
-                    {voucherTypes.map((v: any) => (
-                      <option key={v.id} value={v.id}>{v.voucher_type}</option>
-                    ))}
-                  </select>
+                  <Input value="Payment" readOnly className="bg-slate-50 cursor-not-allowed text-slate-600 font-medium" />
                 </div>
                 <div>
                   <Label>Voucher Date <span className="text-red-500">*</span></Label>
@@ -1060,8 +1092,8 @@ export default function PayablesViewPage() {
                           {debitEntries.map((d, i) => (
                             <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                               <td className="px-3 py-2 text-xs text-slate-600">{i + 1}</td>
-                              <td className="px-3 py-2 text-xs text-slate-800">{d.ledger_name}</td>
-                              <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">₹{fmtAmt(debitTotal)}</td>
+                              <td className="px-3 py-2 text-xs text-slate-800">{d.ledger?.temple_name}</td>
+                              <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">₹{fmtAmt(d.amount)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1075,7 +1107,7 @@ export default function PayablesViewPage() {
                   <h4 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
                     <span className="bg-emerald-100 text-emerald-600 text-xs font-bold px-2 py-0.5 rounded">CR</span>
                     Credit Account
-                    <span className="ml-auto text-xs font-semibold text-slate-500">₹{fmtAmt(creditTotal)}</span>
+                    <span className="ml-auto text-xs font-semibold text-slate-500">₹{fmtAmt(effectiveCreditTotal)}</span>
                   </h4>
                   <div className="flex gap-2 mb-3">
                     <select
@@ -1084,7 +1116,7 @@ export default function PayablesViewPage() {
                       className="flex-1 h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
                     >
                       <option value="">Select Ledger</option>
-                      {expenseList.map((e: any) => (
+                      {creditLedgerOptions.map((e: any) => (
                         <option key={e.id} value={e.id}>{e.temple_name ?? e.name}</option>
                       ))}
                     </select>
@@ -1101,7 +1133,7 @@ export default function PayablesViewPage() {
                       <Plus className="w-4 h-4" />
                     </button>
                   </div>
-                  {creditEntries.length === 0 ? (
+                  {effectiveCreditEntries.length === 0 ? (
                     <p className="text-sm text-slate-400 italic py-2">No credit entries added yet.</p>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1118,7 +1150,7 @@ export default function PayablesViewPage() {
                           {creditEntries.map((c, i) => (
                             <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                               <td className="px-3 py-2 text-xs text-slate-600">{i + 1}</td>
-                              <td className="px-3 py-2 text-xs text-slate-800">{c.ledger_name}</td>
+                              <td className="px-3 py-2 text-xs text-slate-800">{c.ledger?.temple_name}</td>
                               <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">₹{fmtAmt(c.amount)}</td>
                               <td className="px-3 py-2 text-center">
                                 <button
@@ -1130,6 +1162,25 @@ export default function PayablesViewPage() {
                               </td>
                             </tr>
                           ))}
+                          {pendingCreditEntry && (
+                            <tr className="bg-emerald-50/60 italic">
+                              <td className="px-3 py-2 text-xs text-slate-400">{creditEntries.length + 1}</td>
+                              <td className="px-3 py-2 text-xs text-emerald-700">
+                                {pendingCreditEntry.ledger?.temple_name}
+                                <span className="ml-1.5 text-[10px] font-semibold not-italic text-emerald-500 bg-emerald-100 px-1.5 py-0.5 rounded">pending</span>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-right tabular-nums text-emerald-700">₹{fmtAmt(pendingCreditEntry.amount)}</td>
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  onClick={addCreditEntry}
+                                  title="Add to list"
+                                  className="text-emerald-500 hover:text-emerald-700 transition-colors"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -1138,21 +1189,30 @@ export default function PayablesViewPage() {
               </div>
 
               {/* Totals summary + Submit */}
-              {(debitEntries.length > 0 || creditEntries.length > 0) && (
-                <div className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium border ${Math.abs(debitTotal - creditTotal) < 0.01 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+              {(debitEntries.length > 0 || effectiveCreditEntries.length > 0) && (
+                <div className={`flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium border ${Math.abs(debitTotal - effectiveCreditTotal) < 0.01 ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
                   <span>Dr: ₹{fmtAmt(debitTotal)}</span>
                   <span className="text-slate-400">|</span>
-                  <span>Cr: ₹{fmtAmt(creditTotal)}</span>
-                  {Math.abs(debitTotal - creditTotal) > 0.01 && (
-                    <span className="ml-auto text-xs">Difference: ₹{fmtAmt(Math.abs(debitTotal - creditTotal))}</span>
+                  <span>Cr: ₹{fmtAmt(effectiveCreditTotal)}</span>
+                  {Math.abs(debitTotal - effectiveCreditTotal) > 0.01 && (
+                    <span className="ml-auto text-xs">Difference: ₹{fmtAmt(Math.abs(debitTotal - effectiveCreditTotal))}</span>
                   )}
                 </div>
               )}
 
-              <div className="flex justify-end pt-2 border-t border-slate-100">
+              <div className="flex flex-col items-end gap-3 pt-2 border-t border-slate-100">
+                {validationIssues.length > 0 && (
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {validationIssues.map(issue => (
+                      <span key={issue} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-600">
+                        {issue}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <Button
                   onClick={handleSubmit}
-                  disabled={submitting}
+                  disabled={submitting || !canSubmit}
                   className="px-8 bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
                   {submitting

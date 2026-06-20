@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { Search, Filter, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, X } from 'lucide-react'
+import { Search, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle } from 'lucide-react'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
 import { Input } from './Input'
+import { ColumnFilterDropdown } from './ColumnFilterDropdown'
 
 export interface Column<T = Record<string, unknown>> {
   label: string
@@ -28,8 +29,8 @@ interface DataTableProps<T extends Record<string, unknown>> {
   sumKey?: string
   onSelectionChange?: (rows: T[]) => void
   selectionActions?: ReactNode
-  columnFilters?: Record<string, string>
-  onColumnFilterChange?: (key: string, val: string) => void
+  columnFilters?: Record<string, string[]>
+  onColumnFilterChange?: (key: string, vals: string[]) => void
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -48,18 +49,35 @@ export function DataTable<T extends Record<string, unknown>>({
   onColumnFilterChange,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
-  const [filterOpen, setFilterOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
 
   const filterableCols = columns.filter(c => c.filterable)
   const activeFilterCount = columnFilters
-    ? Object.values(columnFilters).filter(v => v.trim()).length
+    ? Object.values(columnFilters).filter(v => v && v.length > 0).length
     : 0
 
   const clearAllFilters = () => {
-    filterableCols.forEach(col => onColumnFilterChange?.(col.key, ''))
+    filterableCols.forEach(col => onColumnFilterChange?.(col.key, []))
   }
+
+  const colOptions = useMemo(() => {
+    const result: Record<string, string[]> = {}
+    filterableCols.forEach(col => {
+      if (col.filterOptions) {
+        result[col.key] = col.filterOptions.map(o => o.label)
+        return
+      }
+      const set = new Set<string>()
+      data.forEach(row => {
+        const v = (row as any)[col.key]
+        if (Array.isArray(v)) v.forEach(item => { if (item != null && item !== '') set.add(String(item)) })
+        else if (v != null && v !== '') set.add(String(v))
+      })
+      result[col.key] = Array.from(set).sort()
+    })
+    return result
+  }, [filterableCols, data])
 
   const filtered = data
     .filter((row) =>
@@ -69,11 +87,11 @@ export function DataTable<T extends Record<string, unknown>>({
     )
     .filter((row) => {
       if (!columnFilters) return true
-      return Object.entries(columnFilters).every(([key, val]) => {
-        if (!val) return true
+      return Object.entries(columnFilters).every(([key, vals]) => {
+        if (!vals || vals.length === 0) return true
         const v = (row as any)[key]
-        const str = Array.isArray(v) ? v.join(' ') : String(v ?? '')
-        return str.toLowerCase().includes(val.toLowerCase())
+        if (Array.isArray(v)) return v.some((item: any) => vals.includes(String(item)))
+        return vals.includes(String(v ?? ''))
       })
     })
 
@@ -138,22 +156,15 @@ export function DataTable<T extends Record<string, unknown>>({
             />
           </div>
 
-          {filterableCols.length > 0 && (
+          {activeFilterCount > 0 && (
             <button
-              onClick={() => setFilterOpen(o => !o)}
-              className={`relative inline-flex items-center gap-1.5 h-9 sm:h-10 px-3 rounded-xl border text-sm font-medium transition-all flex-shrink-0
-                ${filterOpen || activeFilterCount > 0
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-200'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
+              onClick={clearAllFilters}
+              className="inline-flex items-center gap-1.5 h-9 sm:h-10 px-3 rounded-xl border text-sm font-medium transition-all flex-shrink-0 bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-200"
             >
-              <Filter className="w-4 h-4" />
-              <span className="hidden sm:inline">Filter</span>
-              {activeFilterCount > 0 && (
-                <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full leading-none
-                  ${filterOpen ? 'bg-white text-blue-600' : 'bg-blue-600 text-white'}`}>
-                  {activeFilterCount}
-                </span>
-              )}
+              <span className="text-[11px] font-bold bg-white text-blue-600 px-1.5 py-0.5 rounded-full leading-none">
+                {activeFilterCount}
+              </span>
+              <span className="hidden sm:inline">Clear filters</span>
             </button>
           )}
 
@@ -162,101 +173,6 @@ export function DataTable<T extends Record<string, unknown>>({
           </Button>
         </div>
       </div>
-
-      {/* Expandable filter panel */}
-      <AnimatePresence>
-        {filterOpen && filterableCols.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden border-b border-blue-100 bg-blue-50/40"
-          >
-            <div className="p-4 sm:p-5">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {filterableCols.map(col => {
-                  const val = columnFilters?.[col.key] ?? ''
-                  const type = col.filterType ?? 'text'
-                  return (
-                    <div key={col.key} className="flex flex-col gap-1">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                        {col.label}
-                      </label>
-
-                      {type === 'select' ? (
-                        <select
-                          value={val}
-                          onChange={e => onColumnFilterChange?.(col.key, e.target.value)}
-                          className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-300 transition-colors appearance-none cursor-pointer text-slate-700"
-                        >
-                          <option value="">All</option>
-                          {col.filterOptions?.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-
-                      ) : type === 'date' ? (
-                        <div className="relative">
-                          <input
-                            type="date"
-                            value={val}
-                            onChange={e => onColumnFilterChange?.(col.key, e.target.value)}
-                            onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-                            className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 pr-7 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-300 transition-colors cursor-pointer"
-                          />
-                          {val && (
-                            <button
-                              onClick={() => onColumnFilterChange?.(col.key, '')}
-                              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-
-                      ) : (
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={val}
-                            onChange={e => onColumnFilterChange?.(col.key, e.target.value)}
-                            placeholder={`Search…`}
-                            className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 pr-7 text-xs shadow-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-400/40 focus:border-blue-300 transition-colors"
-                          />
-                          {val && (
-                            <button
-                              onClick={() => onColumnFilterChange?.(col.key, '')}
-                              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {activeFilterCount > 0 && (
-                <div className="flex items-center justify-between mt-3 pt-3 border-t border-blue-100">
-                  <span className="text-xs text-blue-600 font-semibold">
-                    {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active
-                    {' · '}{filtered.length} result{filtered.length !== 1 ? 's' : ''}
-                  </span>
-                  <button
-                    onClick={clearAllFilters}
-                    className="text-xs text-slate-500 hover:text-red-500 font-medium underline underline-offset-2 transition-colors"
-                  >
-                    Clear all
-                  </button>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Selection summary bar */}
       <AnimatePresence>
@@ -312,8 +228,12 @@ export function DataTable<T extends Record<string, unknown>>({
                 >
                   <div className="flex items-center gap-1.5">
                     {col.label}
-                    {col.filterable && columnFilters?.[col.key] && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                    {col.filterable && (
+                      <ColumnFilterDropdown
+                        options={colOptions[col.key] ?? []}
+                        selected={columnFilters?.[col.key] ?? []}
+                        onChange={vals => onColumnFilterChange?.(col.key, vals)}
+                      />
                     )}
                   </div>
                 </th>

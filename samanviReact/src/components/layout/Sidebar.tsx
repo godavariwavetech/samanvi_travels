@@ -118,13 +118,10 @@ const NAV_ITEMS: NavItem[] = [
   {
     id: 'mainmasters', label: 'Main Masters', icon: Building2,
     children: [
-      { label: 'Static Entry',     path: '/mainmasters/static-entry' },
-      { label: 'Voucher Types',    path: '/mainmasters/voucher-type' },
-      { label: 'Main Group',       path: '/mainmasters/main-group' },
-      { label: 'Sub Group',        path: '/mainmasters/sub-group' },
-      { label: 'Child Group',      path: '/mainmasters/child-group' },
-      { label: 'Sub Child Two',    path: '/mainmasters/sub-child-two' },
-      { label: 'Laundry Products', path: '/mainmasters/laundry-products' },
+      { label: 'Static Entry',       path: '/mainmasters/static-entry' },
+      { label: 'Voucher Types',      path: '/mainmasters/voucher-type' },
+      { label: 'Group Management',   path: '/mainmasters/groups' },
+      { label: 'Laundry Products',   path: '/mainmasters/laundry-products' },
     ],
   },
 ]

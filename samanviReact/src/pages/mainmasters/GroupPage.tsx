@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router'
 import { motion, AnimatePresence } from 'motion/react'
 import {
@@ -88,6 +88,15 @@ function flattenGroups(nodes: HNode[], pathSoFar: string, out: FlatGroup[]): voi
     const p = pathSoFar ? `${pathSoFar} → ${n.name}` : n.name
     out.push({ node: n, path: p })
     flattenGroups(n.children, p, out)
+  }
+}
+
+// Flattens both groups and ledgers — used for the Quick Jump search (Move modal uses flattenGroups, groups only)
+function flattenSearchItems(nodes: HNode[], pathSoFar: string, out: FlatGroup[]): void {
+  for (const n of nodes) {
+    const p = pathSoFar ? `${pathSoFar} → ${n.name}` : n.name
+    out.push({ node: n, path: pathSoFar })
+    if (n.nodeType === 'group') flattenSearchItems(n.children, p, out)
   }
 }
 
@@ -503,14 +512,13 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mastersList, groupsList, subgroupsList, childrenList, ledgerList, isLoading])
 
-  // ── Auto-expand + scroll when arriving from sidebar link ─────────────────────
-  useEffect(() => {
-    if (isLoading || !jumpNodeId) return
-
-    // Walk the tree, expand the target node and all its ancestors
-    const expandPath = (nodes: HNode[], targetId: number): boolean => {
+  // ── Jump to a node: expand its ancestor path + scroll + highlight ────────────
+  // Matches on `${nodeType}-${id}` since group ids and ledger ids come from
+  // different DB tables and can collide.
+  const jumpToNodeId = useCallback((targetId: number, targetType: 'group' | 'ledger' = 'group') => {
+    const expandPath = (nodes: HNode[]): boolean => {
       for (const n of nodes) {
-        if (n.id === targetId || expandPath(n.children, targetId)) {
+        if ((n.id === targetId && n.nodeType === targetType) || expandPath(n.children)) {
           n.expanded = true
           expandedIds.current.add(n.id)
           return true
@@ -521,23 +529,64 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
 
     for (const sec of SECTIONS) {
       const root = sectionRoots[sec.key]
-      if (root) expandPath([root], jumpNodeId)
+      if (root) expandPath([root])
     }
     setRenderTick(t => t + 1)
 
-    // Scroll to the node after the render
     const timer = setTimeout(() => {
-      const el = document.getElementById(`gp-node-${jumpNodeId}`)
+      const el = document.getElementById(`gp-node-${targetId}`)
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      // Brief highlight flash
       el?.classList.add('ring-2', 'ring-teal-400', 'ring-offset-1')
       setTimeout(() => el?.classList.remove('ring-2', 'ring-teal-400', 'ring-offset-1'), 1500)
     }, 120)
 
     return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionRoots])
+
+  // ── Auto-expand + scroll when arriving from sidebar link ─────────────────────
+  useEffect(() => {
+    if (isLoading || !jumpNodeId) return
+    return jumpToNodeId(jumpNodeId, 'group')
   // Run once when data loads or jump target changes
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, jumpNodeId])
+
+  // ── Quick Jump search ──────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  const allSearchItems = useMemo<FlatGroup[]>(() => {
+    const out: FlatGroup[] = []
+    for (const sec of SECTIONS) {
+      const root = sectionRoots[sec.key]
+      if (root) flattenSearchItems(root.children, sec.label, out)
+    }
+    return out
+  }, [sectionRoots])
+
+  const filteredSearchItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return []
+    return allSearchItems
+      .filter(item => item.node.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q))
+      .slice(0, 25)
+  }, [allSearchItems, searchQuery])
+
+  const jumpToSearchResult = (item: FlatGroup) => {
+    setSearchQuery('')
+    setSearchOpen(false)
+    jumpToNodeId(item.node.id, item.node.nodeType)
+  }
 
   // ── Flat list for level-specific view (Main Group / Sub Group / Child Group) ──
   const levelNodes = useMemo<{ node: HNode; path: string; ledgers: HNode[] }[]>(() => {
@@ -770,17 +819,81 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
         /* ── FULL TREE VIEW (default) ──────────────────────────────────────── */
         <>
           {/* Toolbar */}
-          <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-sm flex-wrap">
             <button onClick={handleExpandAll}
-              className="flex items-center gap-2 h-9 px-4 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+              className="flex items-center gap-2 h-9 px-4 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors flex-shrink-0">
               {allExpanded ? <><ChevronsDownUp className="w-4 h-4" /> Collapse All</> : <><ChevronsUpDown className="w-4 h-4" /> Expand All</>}
             </button>
-            <div className="h-5 w-px bg-slate-200" />
-            <div className="flex items-center gap-4 flex-wrap text-xs text-slate-500">
+            <div className="h-5 w-px bg-slate-200 flex-shrink-0" />
+            <div className="flex items-center gap-4 flex-wrap text-xs text-slate-500 flex-shrink-0">
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Main Group</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-violet-500 inline-block" /> Sub Group</span>
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-sky-400 inline-block" /> Child Group</span>
               <span className="flex items-center gap-1.5"><FileText className="w-3 h-3 text-emerald-500" /> Ledger</span>
+            </div>
+
+            {/* Quick Jump search */}
+            <div ref={searchRef} className="relative ml-auto min-w-[240px] flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Jump to a group or ledger…"
+                value={searchQuery}
+                onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true) }}
+                onFocus={() => setSearchOpen(true)}
+                className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-8 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 placeholder:text-slate-400"
+              />
+              {searchQuery && (
+                <button onClick={() => { setSearchQuery(''); setSearchOpen(false) }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <AnimatePresence>
+                {searchOpen && filteredSearchItems.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-2xl border border-slate-200 shadow-2xl max-h-80 overflow-y-auto"
+                  >
+                    <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+                        {filteredSearchItems.length} result{filteredSearchItems.length !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-[11px] text-slate-400">Click to jump directly</span>
+                    </div>
+                    {filteredSearchItems.map((item, idx) => (
+                      <button
+                        key={idx}
+                        onMouseDown={e => { e.preventDefault(); jumpToSearchResult(item) }}
+                        className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0 flex items-start gap-3"
+                      >
+                        <div className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${item.node.nodeType === 'ledger' ? 'bg-emerald-100' : 'bg-blue-100'}`}>
+                          {item.node.nodeType === 'ledger'
+                            ? <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                            : <FolderPlus className="w-3.5 h-3.5 text-blue-600" />}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{item.node.name}</p>
+                          {item.path && <p className="text-xs text-slate-400 truncate mt-0.5">{item.path}</p>}
+                        </div>
+                        <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${item.node.nodeType === 'ledger' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {item.node.nodeType === 'ledger' ? 'Ledger' : LEVEL_LABELS[item.node.level] || 'Group'}
+                        </span>
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+                {searchOpen && searchQuery.trim() && filteredSearchItems.length === 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                    className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-2xl border border-slate-200 shadow-xl px-4 py-6 text-center"
+                  >
+                    <p className="text-sm text-slate-400">No groups or ledgers match "<span className="font-medium text-slate-600">{searchQuery}</span>"</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
