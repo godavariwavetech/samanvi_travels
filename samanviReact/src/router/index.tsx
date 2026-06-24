@@ -75,7 +75,10 @@ import SalaryGenerationPage from '@/pages/payroll/SalaryGenerationPage'
 import RepairEntryPage from '@/pages/garage/RepairEntryPage'
 import RepairTrackingPage from '@/pages/garage/RepairTrackingPage'
 import GarageReportsPage from '@/pages/garage/GarageReportsPage'
-import GarageMastersPage from '@/pages/garage/GarageMastersPage'
+import ServiceRemindersPage from '@/pages/garage/ServiceRemindersPage'
+import TyreInventoryPage from '@/pages/garage/TyreInventoryPage'
+import TyrePositionPage from '@/pages/garage/TyrePositionPage'
+import BatteryManagementPage from '@/pages/garage/BatteryManagementPage'
 
 // Main Masters
 import VoucherTypePage from '@/pages/mainmasters/VoucherTypePage'
@@ -83,6 +86,7 @@ import GroupPage from '@/pages/mainmasters/GroupPage'
 import StaticEntryPage from '@/pages/mainmasters/StaticEntryPage'
 import SubChildTwoPage from '@/pages/mainmasters/SubChildTwoPage'
 import LaundryProductPage from '@/pages/mainmasters/LaundryProductPage'
+import GarageMastersPage from '@/pages/mainmasters/GarageMastersPage'
 
 // Reports
 import ReportsPage from '@/pages/reports/ReportsPage'
@@ -164,12 +168,16 @@ export const router = createBrowserRouter([
       { path: 'garage/repair-entry', element: <RepairEntryPage /> },
       { path: 'garage/tracking', element: <RepairTrackingPage /> },
       { path: 'garage/reports', element: <GarageReportsPage /> },
-      { path: 'garage/masters', element: <GarageMastersPage /> },
+      { path: 'garage/service-reminders', element: <ServiceRemindersPage /> },
+      { path: 'garage/tyre-inventory', element: <TyreInventoryPage /> },
+      { path: 'garage/tyre-position', element: <TyrePositionPage /> },
+      { path: 'garage/battery-management', element: <BatteryManagementPage /> },
 
       // Main Masters
       { path: 'mainmasters/voucher-type',   element: <VoucherTypePage /> },
       { path: 'mainmasters/static-entry',   element: <StaticEntryPage /> },
       { path: 'mainmasters/laundry-products', element: <LaundryProductPage /> },
+      { path: 'mainmasters/garage-masters', element: <GarageMastersPage /> },
       // Group pages — each level gets its own path so NavLink active state works
       { path: 'mainmasters/groups',           element: <GroupPage /> },
       { path: 'mainmasters/main-group',       element: <GroupPage viewLevel={2} /> },

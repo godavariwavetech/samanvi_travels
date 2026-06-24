@@ -1,17 +1,31 @@
-﻿import { useState, useMemo } from 'react'
+﻿import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'motion/react'
-import { Search, X, FileSpreadsheet, ExternalLink, Receipt } from 'lucide-react'
+import { Search, X, FileSpreadsheet, FileText, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown } from '@/components/shared'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
+import { getCurrentFY } from '@/lib/fy'
+import { useFYStore } from '@/store/fy.store'
+
+const currentFY = getCurrentFY()
 
 function fmt(dateStr: any): string {
   if (!dateStr) return '—'
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return '—'
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+// dd-mm-yyyy, hyphen-separated — used in export filenames, which can't contain slashes
+function fmtFileDate(dateStr: any): string {
+  if (!dateStr) return '-'
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return '-'
+  return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`
 }
 
 function fmtAmt(n: number): string {
@@ -22,12 +36,24 @@ function fmtAmt(n: number): string {
 export default function DayBookPage() {
   const navigate = useNavigate()
   const today = new Date().toISOString().split('T')[0]
+  const selectedFY = useFYStore(s => s.selectedFY)
+  const fyMin = selectedFY.fromDate
+  const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
   const [range, setRange] = useState({ fromdate: today, todate: today })
   const [applied, setApplied] = useState(range)
   const [search, setSearch] = useState('')
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
 
-  const { data, isLoading } = useQuery({
+  // Selecting a financial year snaps the range to that year's full span and
+  // re-fetches immediately — otherwise the FY tabs look like they do nothing.
+  useEffect(() => {
+    const next = { fromdate: fyMin, todate: fyMax }
+    setRange(next)
+    setApplied(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
+
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['daybook', applied],
     queryFn: () => accountingService.getDayBook({ fromdate: applied.fromdate, todate: applied.todate }),
   })
@@ -94,7 +120,7 @@ export default function DayBookPage() {
     )
   }, [tableRows, search])
 
-  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'name', 'description'] as const
+  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'name', 'description', 'debit', 'credit'] as const
 
   const colValue = (row: any, key: string): string => {
     switch (key) {
@@ -107,6 +133,8 @@ export default function DayBookPage() {
       case 'bus_no': return row.bus_no
       case 'name': return row.name
       case 'description': return row.description
+      case 'debit': return row.debit ? fmtAmt(row.debit) : '—'
+      case 'credit': return row.credit ? fmtAmt(row.credit) : '—'
       default: return ''
     }
   }
@@ -158,8 +186,79 @@ export default function DayBookPage() {
     ws['!cols'] = header.map((_, ci) => ({ wch: Math.max(...[header, ...body].map(r => String(r[ci] ?? '').length)) + 2 }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Day Book')
-    const dateStamp = new Date().toISOString().split('T')[0]
-    XLSX.writeFile(wb, `DayBook_${applied.fromdate}_to_${applied.todate}_${dateStamp}.xlsx`)
+    const dateStamp = fmtFileDate(new Date())
+    XLSX.writeFile(wb, `DayBook_${fmtFileDate(applied.fromdate)}_to_${fmtFileDate(applied.todate)}_${dateStamp}.xlsx`)
+  }
+
+  // ── Export PDF ────────────────────────────────────────────────────────────
+  const exportPDF = () => {
+    const doc = new jsPDF('landscape')
+    const pageWidth = doc.internal.pageSize.getWidth()
+
+    // App name + date range, centered at the top of the page
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Samanvi Travels', pageWidth / 2, 14, { align: 'center' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(11)
+    doc.text(`Day Book (${fmt(applied.fromdate)} to ${fmt(applied.todate)})`, pageWidth / 2, 22, { align: 'center' })
+
+    // Header cell alignment is set explicitly per column so it matches the
+    // body/columnStyles alignment below (autoTable doesn't otherwise carry
+    // columnStyles' halign over to the head/foot rows, only the body).
+    const colAlign = ['center', 'center', 'center', 'center', 'center', 'left', 'left', 'center', 'center', 'center', 'left', 'right', 'right', 'right'] as const
+    const headers = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', 'Name', 'Description', 'Debit', 'Credit', 'Balance']
+      .map((h, i) => ({ content: h, styles: { halign: colAlign[i] } }))
+
+    // The ₹ glyph isn't in jsPDF's default font — it measures as the wrong
+    // width, which throws off right-alignment. Plain numbers render correctly.
+    const balStr = (b: number) => b >= 0 ? `${fmtAmt(b)} Dr` : `${fmtAmt(Math.abs(b))} Cr`
+
+    const body = displayRows.map(r => [
+      String(r.i), r.c_number, r.vouchertype, fmt(r.i_ts),
+      r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
+      r.expensives, r.group || '-', fmt(r.valueDate), r.bus_no, r.name, r.description,
+      { content: r.debit ? fmtAmt(r.debit) : '-', styles: { halign: 'right' as const } },
+      { content: r.credit ? fmtAmt(r.credit) : '-', styles: { halign: 'right' as const } },
+      { content: balStr(r.balance), styles: { halign: 'right' as const } },
+    ])
+
+    const TABLE_WIDTH_MM = 243
+    const marginX = Math.max((pageWidth - TABLE_WIDTH_MM) / 2, 14)
+
+    autoTable(doc, {
+      startY: 27,
+      head: [headers],
+      body,
+      foot: [[
+        '', '', '', '', '', '', '', '', '', '',
+        { content: 'Total', styles: { halign: 'right' as const } },
+        { content: fmtAmt(totalDebit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(totalCredit), styles: { halign: 'right' as const } },
+        { content: '', styles: { halign: 'right' as const } },
+      ], [
+        '', '', '', '', '', '', '', '', '', '',
+        { content: 'Difference (Dr − Cr)', styles: { halign: 'right' as const } },
+        { content: difference > 0 ? fmtAmt(difference) : '-', styles: { halign: 'right' as const } },
+        { content: difference < 0 ? fmtAmt(Math.abs(difference)) : '-', styles: { halign: 'right' as const } },
+        { content: difference === 0 ? 'Balanced' : balStr(difference), styles: { halign: 'right' as const } },
+      ]],
+      theme: 'grid',
+      margin: { left: marginX, right: marginX },
+      tableWidth: TABLE_WIDTH_MM,
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+      footStyles: { fillColor: [239, 246, 255], textColor: [30, 64, 175], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 8 },  1: { cellWidth: 14 }, 2: { cellWidth: 16 }, 3: { cellWidth: 16 },
+        4: { cellWidth: 14 }, 5: { cellWidth: 24 }, 6: { cellWidth: 18 }, 7: { cellWidth: 16 },
+        8: { cellWidth: 15 }, 9: { cellWidth: 16 }, 10: { cellWidth: 30 },
+        11: { cellWidth: 18, halign: 'right' }, 12: { cellWidth: 18, halign: 'right' }, 13: { cellWidth: 20, halign: 'right' },
+      },
+    })
+    const dateStamp = fmtFileDate(new Date())
+    doc.save(`DayBook_${fmtFileDate(applied.fromdate)}_to_${fmtFileDate(applied.todate)}_${dateStamp}.pdf`)
   }
 
   const handleLedgerClick = (row: { ledger_id: number | null }) => {
@@ -179,7 +278,10 @@ export default function DayBookPage() {
 
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
     <th className={`px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 ${cls}`}>
-      <div className="flex items-center gap-1.5">
+      {/* text-align on the <th> doesn't affect this flex row's own layout —
+          justify-end is needed too so the label+filter icon actually sit on
+          the same side as the right-aligned amount cells below */}
+      <div className={`flex items-center gap-1.5 ${cls.includes('text-right') ? 'justify-end' : ''}`}>
         <span>{children}</span>
         {filterKey && (
           <ColumnFilterDropdown
@@ -199,14 +301,15 @@ export default function DayBookPage() {
 
       {/* Filters */}
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-blue-500 to-indigo-500">
+        <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap">
           <div>
             <Label>From Date</Label>
-            <Input type="date" max={today} value={range.fromdate} onChange={e => setRange(r => ({ ...r, fromdate: e.target.value }))} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
+            <Input type="date" min={fyMin} max={fyMax} value={range.fromdate} onChange={e => setRange(r => ({ ...r, fromdate: e.target.value }))} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
           </div>
           <div>
             <Label>To Date</Label>
-            <Input type="date" max={today} value={range.todate} onChange={e => setRange(r => ({ ...r, todate: e.target.value }))} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
+            <Input type="date" min={fyMin} max={fyMax} value={range.todate} onChange={e => setRange(r => ({ ...r, todate: e.target.value }))} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
           </div>
           <div className="min-w-[260px]">
             <Label>Search</Label>
@@ -228,6 +331,9 @@ export default function DayBookPage() {
           <Button onClick={() => setApplied({ ...range })}>
             <Search className="w-4 h-4" /> Search
           </Button>
+          <Button onClick={() => refetch()} disabled={isFetching} className="bg-slate-600 hover:bg-slate-700">
+            <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
         </div>
       </GlassCard>
 
@@ -246,6 +352,12 @@ export default function DayBookPage() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
             >
               <FileSpreadsheet className="w-4 h-4" /> Download Excel
+            </button>
+            <button
+              onClick={exportPDF}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors shadow-sm"
+            >
+              <FileText className="w-4 h-4" /> Download PDF
             </button>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -300,8 +412,8 @@ export default function DayBookPage() {
                   <TH filterKey="bus_no">Vehicle No</TH>
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="description">Description</TH>
-                  <TH cls="text-right">Debit</TH>
-                  <TH cls="text-right">Credit</TH>
+                  <TH cls="text-right" filterKey="debit">Debit</TH>
+                  <TH cls="text-right" filterKey="credit">Credit</TH>
                   <TH cls="text-right">Balance</TH>
                 </tr>
               </thead>

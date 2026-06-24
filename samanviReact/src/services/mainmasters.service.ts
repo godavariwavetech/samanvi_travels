@@ -40,4 +40,16 @@ export const mainmastersService = {
   addLaundryProduct: (data: unknown) => api.post('/submitlaundrytypemainmasters', securePayload(data)).then((r) => r.data),
   editLaundryProduct: (data: unknown) => api.post('/editvouchername', securePayload(data)).then((r) => r.data),
   deleteLaundryProduct: (data: unknown) => api.post('/deletevouchername', securePayload(data)).then((r) => r.data),
+
+  // ── Garage: Service Reminder Types ────────────────────────
+  getReminderTypes: () => api.get('/reminder-types/getall').then((r) => r.data),
+  addReminderType: (data: unknown) => api.post('/reminder-types/add', securePayload(data)).then((r) => r.data),
+  editReminderType: (data: unknown) => api.post('/reminder-types/edit', securePayload(data)).then((r) => r.data),
+  deleteReminderType: (data: unknown) => api.post('/reminder-types/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Garage: Tyre Positions ────────────────────────────────
+  getTyrePositionsMaster: () => api.get('/tyre-positions-master/getall').then((r) => r.data),
+  addTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/add', securePayload(data)).then((r) => r.data),
+  editTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/edit', securePayload(data)).then((r) => r.data),
+  deleteTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/delete', securePayload(data)).then((r) => r.data),
 }

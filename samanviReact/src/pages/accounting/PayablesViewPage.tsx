@@ -1,11 +1,15 @@
-﻿import { useState, useMemo, useEffect } from 'react'
+﻿import { useState, useMemo, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
-import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText } from 'lucide-react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText, History, Search, ChevronDown, Eye } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
+import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
+import { getCurrentFY } from '@/lib/fy'
+import { useFYStore } from '@/store/fy.store'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -30,6 +34,120 @@ function resolveDateStr(e: any): string {
     laundrybill_subt: e.i_ts,
   }
   return map[e.source_table] || e.i_ts || e.voucherdate || e.trip_date || ''
+}
+
+// ─── InlineRefresh — small icon inside a dropdown trigger that re-hits the
+// source API without stealing width from the trigger (same pattern as
+// VoucherEntryPage's ledger/vehicle/staff dropdowns) ───────────────────────
+function InlineRefresh({ onRefresh, refreshing, title }: {
+  onRefresh: () => void
+  refreshing?: boolean
+  title?: string
+}) {
+  return (
+    <span
+      role="button" tabIndex={0} title={title ?? 'Refresh'}
+      onClick={e => { e.stopPropagation(); if (!refreshing) onRefresh() }}
+      onMouseDown={e => e.stopPropagation()}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!refreshing) onRefresh() } }}
+      className="flex flex-shrink-0 items-center justify-center p-1 -m-1 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+    >
+      <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+    </span>
+  )
+}
+
+// ─── SimpleDropdown — portal-based searchable dropdown with an optional
+// inline reload button, for plain string-value option lists ────────────────
+function SimpleDropdown({ value, options, placeholder = 'Select…', searchable, onChange, onRefresh, refreshing }: {
+  value: string
+  options: { label: string; value: string }[]
+  placeholder?: string
+  searchable?: boolean
+  onChange: (v: string) => void
+  onRefresh?: () => void
+  refreshing?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const PANEL_MAX_H = 240
+
+  const openDropdown = () => {
+    if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
+    setOpen(true)
+    setSearch('')
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      const panel = document.getElementById('payables-simple-portal-panel')
+      if (panel?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
+      setOpen(false); setSearch('')
+    }
+    const onScroll = (e: Event) => {
+      if (document.getElementById('payables-simple-portal-panel')?.contains(e.target as Node)) return
+      setOpen(false); setSearch('')
+    }
+    document.addEventListener('mousedown', close)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+
+  const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
+  const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
+  const filtered = searchable
+    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options
+
+  const panel = open && rect && createPortal(
+    <div id="payables-simple-portal-panel" style={{
+      position: 'fixed',
+      top: openUpward ? undefined : rect.bottom + 4,
+      bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
+      left: rect.left, width: rect.width, maxHeight: PANEL_MAX_H, zIndex: 99999,
+    }} className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col">
+      {searchable && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 flex-shrink-0">
+          <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            className="flex-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 bg-transparent" />
+        </div>
+      )}
+      <div className="overflow-y-auto flex-1">
+        {filtered.length === 0 && <div className="px-4 py-3 text-sm text-slate-400 text-center">No options found</div>}
+        {filtered.map(opt => (
+          <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch('') }}
+            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+              value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
+            }`}>{opt.label}</div>
+        ))}
+      </div>
+    </div>,
+    document.body
+  )
+
+  return (
+    <div className="flex-1 min-w-0">
+      <button ref={btnRef} type="button" onClick={openDropdown}
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className={value ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
+          {options.find(o => o.value === value)?.label || placeholder}
+        </span>
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh options" />}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+      {panel}
+    </div>
+  )
 }
 
 // ─── Modal primitives ─────────────────────────────────────────────────────────
@@ -57,6 +175,66 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
         <X className="w-5 h-5" />
       </button>
     </div>
+  )
+}
+
+// Full settle/reverse timeline for one transaction row — payables_settled_by
+// only ever tracks the single most recent voucher, so this is the only place
+// to see every payment that was ever applied (and undone) against it.
+interface PaymentHistoryEntry {
+  id: number
+  c_number: string
+  payment: number
+  balance_after: number
+  action: 'settled' | 'reversed'
+  created_by_name: string | null
+  created_at: string
+}
+
+function PaymentHistoryModal({ row, data, loading, onClose }: {
+  row: TxRow; data: PaymentHistoryEntry[]; loading: boolean; onClose: () => void
+}) {
+  return (
+    <ModalOverlay onClose={onClose}>
+      <ModalHeader title={`Payment History — ${row.expensives}`} onClose={onClose} />
+      <div className="p-6 space-y-4">
+        <div className="text-xs text-slate-500">
+          Original amount <span className="font-bold text-slate-700">₹{fmtAmt(row.amount)}</span>
+          {' · '}Ref <span className="font-medium text-slate-700">{row.c_number}</span>
+        </div>
+        {loading ? (
+          <div className="space-y-2">
+            {[...Array(3)].map((_, i) => <div key={i} className="h-12 rounded-xl bg-slate-100 animate-pulse" />)}
+          </div>
+        ) : data.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No payments have been recorded against this transaction yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {data.map(entry => (
+              <div key={entry.id} className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
+                entry.action === 'settled' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
+              }`}>
+                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full flex-shrink-0 ${
+                  entry.action === 'settled' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                }`}>
+                  {entry.action === 'settled' ? 'Paid' : 'Reversed'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {entry.action === 'settled' ? 'Payment of' : 'Reversal of'} ₹{fmtAmt(entry.payment)}
+                    <span className="font-normal text-slate-500"> via {entry.c_number}</span>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {fmt(entry.created_at)}{entry.created_by_name ? ` · by ${entry.created_by_name}` : ''}
+                    {' · balance after: '}₹{fmtAmt(entry.balance_after)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </ModalOverlay>
   )
 }
 
@@ -282,9 +460,14 @@ interface CreditEntry {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0]
+const currentFY = getCurrentFY()
 
 export default function PayablesViewPage() {
+  const qc = useQueryClient()
   const userId = localStorage.getItem('user_id') ?? ''
+  const selectedFY = useFYStore(s => s.selectedFY)
+  const fyMin = selectedFY.fromDate
+  const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
   const isFromBalanceSheet = localStorage.getItem('bs_ledger_name') === 'balacesheeet'
 
   const [ledgerData] = useState(() => {
@@ -298,29 +481,62 @@ export default function PayablesViewPage() {
     ? (ledgerData?.entries?.[0]?.name ?? ledgerData?.entries?.[0]?.temple_name ?? '')
     : (ledgerData?.entries?.name ?? ledgerData?.entries?.temple_name ?? '')
 
+  // Set when arriving via "Edit in Payables" from an existing voucher in
+  // Voucher Approvals — pre-fills the form below with that voucher's own
+  // field values instead of opening blank.
+  const editVoucher: {
+    c_number: string; voucherdate: string; valueDate: string; vehicleNo: string
+    name: string; staff_type: string; staff_type_id: string; description: string
+    creditEntries: { ledger_id: number; amount: number }[]
+    entry_by?: string; i_ts?: string
+  } | null = ledgerData?.editVoucher ?? null
+
   // Angular's date filter form is commented out — always start with empty dates (load all records)
   const [filter, setFilter] = useState({ fromdate: '', todate: '' })
   const [applied, setApplied] = useState({ fromdate: '', todate: '' })
+
+  // Clamp any explicitly chosen dates into the newly selected financial year's
+  // bounds — blank stays blank, since that means "no filter, show all".
+  useEffect(() => {
+    setFilter(f => ({
+      fromdate: f.fromdate && f.fromdate < fyMin ? fyMin : f.fromdate && f.fromdate > fyMax ? fyMax : f.fromdate,
+      todate:   f.todate   && f.todate   < fyMin ? fyMin : f.todate   && f.todate   > fyMax ? fyMax : f.todate,
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
   const [rows, setRows] = useState<TxRow[]>([])
   const [creditEntries, setCreditEntries] = useState<CreditEntry[]>([])
-  const [voucherForm, setVoucherForm] = useState({
+  const [voucherForm, setVoucherForm] = useState(() => ({
     vouchertype: '' as any,
     voucher_type_id: '',
-    voucherdate: new Date().toISOString().split('T')[0],
-    valueDate: '',
-    vehicleNo: '',
-    name: '',
-    staff_type: '',
-    staff_type_id: '',
-    description: '',
-  })
+    voucherdate: editVoucher?.voucherdate || new Date().toISOString().split('T')[0],
+    valueDate: editVoucher?.valueDate || '',
+    vehicleNo: editVoucher?.vehicleNo || '',
+    name: editVoucher?.name || '',
+    staff_type: editVoucher?.staff_type || '',
+    staff_type_id: editVoucher?.staff_type_id || '',
+    description: editVoucher?.description || '',
+  }))
   const [creditAddForm, setCreditAddForm] = useState({ ledger_id: '', amount: '' })
+
+  // Clamp the voucher entry sub-form's dates into the newly selected financial year's bounds
+  useEffect(() => {
+    setVoucherForm(f => ({
+      ...f,
+      voucherdate: f.voucherdate < fyMin ? fyMin : f.voucherdate > fyMax ? fyMax : f.voucherdate,
+      valueDate:   f.valueDate && f.valueDate < fyMin ? fyMin : f.valueDate && f.valueDate > fyMax ? fyMax : f.valueDate,
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
   const [modal, setModal] = useState<{ open: boolean; data: any; sourceTable: string; refNo: string; loading: boolean }>({
     open: false, data: null, sourceTable: '', refNo: '', loading: false,
   })
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; row: TxRow | null; data: PaymentHistoryEntry[]; loading: boolean }>({
+    open: false, row: null, data: [], loading: false,
+  })
 
   // ── Queries ──────────────────────────────────────────────────────────────
-  const { data: searchData, isLoading, refetch } = useQuery({
+  const { data: searchData, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['payables-search', applied, ledgerId],
     queryFn: () => accountingService.getSearchData({
       fromdate: applied.fromdate,
@@ -332,7 +548,7 @@ export default function PayablesViewPage() {
     enabled: !!ledgerId,
   })
 
-  const { data: expenseData } = useQuery({
+  const { data: expenseData, refetch: refetchExpenseLedgers, isFetching: expenseLedgersFetching } = useQuery({
     queryKey: ['expense-trip-ledger'],
     queryFn: () => accountingService.getExpenseTripLedger(),
   })
@@ -345,15 +561,34 @@ export default function PayablesViewPage() {
     }),
   })
 
-  const { data: busData } = useQuery({
+  const { data: busData, refetch: refetchBuses, isFetching: busesFetching } = useQuery({
     queryKey: ['buses-payables'],
     queryFn: () => mastersService.getBuses(),
   })
 
-  const { data: employeesData } = useQuery({
+  const { data: employeesData, refetch: refetchEmployees, isFetching: employeesFetching } = useQuery({
     queryKey: ['employees-dropdown-payables'],
     queryFn: () => accountingService.getEmployeesDropdown(),
   })
+
+  // Original transaction rows this voucher settled — used to re-select them
+  // and restore their payment/balance when editing from Voucher Approvals.
+  const { data: settledRowsData } = useQuery({
+    queryKey: ['payables-settled-rows', editVoucher?.c_number],
+    queryFn: () => accountingService.getPayablesSettledRows({ c_number: editVoucher!.c_number }),
+    enabled: !!editVoucher?.c_number,
+  })
+  const settledRows: any[] = useMemo(() => settledRowsData?.data ?? [], [settledRowsData])
+
+  // Full edit history for this voucher — same audit trail Voucher Approvals/
+  // Ledger Wise already show, so edits made here are traceable too.
+  const { data: auditRes } = useQuery({
+    queryKey: ['payables-voucher-audit', editVoucher?.c_number],
+    queryFn: () => accountingService.getVoucherAudit(editVoucher!.c_number),
+    enabled: !!editVoucher?.c_number,
+  })
+  const auditTrail: any[] = auditRes?.data ?? []
+  const [editReason, setEditReason] = useState('')
 
   const expenseList: any[] = useMemo(() => expenseData?.data ?? [], [expenseData])
   // Exclude the ledger already being viewed/settled — it can't be its own opposite-side credit entry
@@ -361,6 +596,23 @@ export default function PayablesViewPage() {
     () => expenseList.filter((e: any) => Number(e.id) !== Number(ledgerId)),
     [expenseList, ledgerId]
   )
+
+  // Pre-fill the Credit Account entries from the voucher being edited, once
+  // the full ledger-master records (needed for resubmission) are available.
+  const editCreditsApplied = useRef(false)
+  useEffect(() => {
+    if (!editVoucher || editCreditsApplied.current || expenseList.length === 0) return
+    const restored: CreditEntry[] = editVoucher.creditEntries
+      .map(c => {
+        const ledger = expenseList.find((e: any) => Number(e.id) === Number(c.ledger_id))
+        return ledger ? { ledger, amount: c.amount } : null
+      })
+      .filter((c): c is CreditEntry => c !== null)
+    if (restored.length > 0) {
+      setCreditEntries(restored)
+      editCreditsApplied.current = true
+    }
+  }, [editVoucher, expenseList])
 
   // Derived debit entries based on selected rows and their CURRENT payment values
   const debitEntries = useMemo(() => {
@@ -403,6 +655,15 @@ export default function PayablesViewPage() {
   // ── Process transactions ──────────────────────────────────────────────────
   useEffect(() => {
     if (!searchData) return
+    // The edit-prefill merge below only ever runs once (settledMergeApplied) —
+    // it intentionally doesn't re-run on every render so it doesn't clobber
+    // in-progress typing. But this effect has no such guard, so a refetch of
+    // searchData mid-edit (e.g. clicking Refresh) was rebuilding `rows` from
+    // scratch and silently discarding that merge — the pre-filled payment
+    // amount would revert to the row's raw (non-edit-specific) balance,
+    // looking like the amount randomly changing. Once an edit session has
+    // been initialized, leave it alone.
+    if (editVoucher && settledMergeApplied.current) return
     const data = searchData?.data ?? searchData
     const tx = data?.transactions ?? {}
     const all = [
@@ -451,8 +712,101 @@ export default function PayablesViewPage() {
         }
       })
     setRows(built)
-    setCreditEntries([])
-  }, [searchData])
+    // Editing an existing voucher restores its own credit entries via a
+    // dedicated effect once expenseList loads — don't clear them here.
+    if (!editVoucher) setCreditEntries([])
+  }, [searchData, editVoucher])
+
+  // Re-select and pre-fill the rows this voucher originally settled, once
+  // both the base row list and the settled-rows lookup have loaded. Rows
+  // that were fully paid (isedited=2) are excluded from the normal fetch —
+  // those are reconstructed here from the settled-rows data so they're still
+  // visible to review/re-select.
+  const settledMergeApplied = useRef(false)
+  useEffect(() => {
+    if (!editVoucher || settledMergeApplied.current || !searchData || settledRowsData === undefined) return
+    settledMergeApplied.current = true
+    if (settledRows.length === 0) return
+
+    setRows(prev => {
+      const settledByKey = new Map(settledRows.map((s: any) => [`${s.source_table}-${s.id}`, s]))
+      const matchedKeys = new Set<string>()
+
+      const updated = prev.map(r => {
+        const key = `${r.source_table}-${r.id}`
+        const s = settledByKey.get(key)
+        if (!s) return r
+        matchedKeys.add(key)
+        const balance = Number(s.balance) || 0
+        // The amount available to THIS voucher specifically — its own share
+        // plus whatever's still unpaid. NOT the row's full original amount:
+        // when another still-valid voucher also holds a share of this row,
+        // that portion isn't this voucher's to claim. The backend computes
+        // this from the row's settle/reverse history (available_balance);
+        // payment+balance is kept only as a fallback for older data without
+        // a history trail, where it happens to equal the full amount anyway.
+        const preVoucherBalance = s.available_balance != null ? Number(s.available_balance) : ((Number(s.payment) || 0) + balance)
+        // s.payment is the row's TOTAL payment across every voucher that's
+        // ever settled it, not just this one's — what belongs in the
+        // Payment box is only what THIS voucher itself contributed, which is
+        // the gap between what was available to it and what's left unpaid.
+        const ownPayment = preVoucherBalance - balance
+        return {
+          ...r,
+          balance: preVoucherBalance,
+          originalBalance: preVoucherBalance,
+          selected: true,
+          temppayment: ownPayment,
+          tempbalance: balance,
+          sameAsAmount: ownPayment === preVoucherBalance && ownPayment > 0,
+        }
+      })
+
+      const extra: TxRow[] = settledRows
+        .filter((s: any) => !matchedKeys.has(`${s.source_table}-${s.id}`))
+        .map((s: any) => {
+          const amt = Math.abs(Number(s.amount ?? 0))
+          const balance = Number(s.balance) || 0
+          // Same reasoning as above — the amount available to THIS voucher,
+          // not the row's full original amount.
+          const preVoucherBalance = s.available_balance != null ? Number(s.available_balance) : ((Number(s.payment) || 0) + balance)
+          // s.payment is the row's running total across every voucher, not
+          // just this one's own contribution — see the matched-rows branch above.
+          const ownPayment = preVoucherBalance - balance
+          return {
+            id: Number(s.id ?? 0),
+            c_id: Number(s.c_id ?? 0),
+            c_number: s.c_number ?? '-',
+            vouchertype: s.vouchertype ?? '-',
+            amount_type: s.amount_type ?? s.account_type ?? '',
+            account_type: s.account_type ?? s.amount_type ?? '',
+            amount: amt,
+            balance: preVoucherBalance,
+            isedited: Number(s.isedited ?? 0),
+            ledger_id: Number(s.ledger_id ?? 0),
+            expensives: s.expensives ?? s.temple_name ?? '-',
+            trip_date: s.trip_date,
+            voucherdate: s.voucherdate,
+            i_ts: s.i_ts,
+            vehicleNo: s.vehicleNo ?? s.bus_no ?? '',
+            bus_no: s.bus_no ?? '',
+            description: s.description ?? '',
+            source_table: s.source_table ?? '',
+            opp_ledgers: s.opp_ledgers ?? '',
+            valueDate: s.valueDate ?? '',
+            name: s.name ?? '',
+            payablesremarks: s.payablesremarks ?? '',
+            sameAsAmount: ownPayment === preVoucherBalance && ownPayment > 0,
+            temppayment: ownPayment,
+            tempbalance: balance,
+            originalBalance: preVoucherBalance,
+            selected: true,
+          }
+        })
+
+      return [...updated, ...extra]
+    })
+  }, [editVoucher, searchData, settledRowsData, settledRows])
 
   // ── Row helpers ───────────────────────────────────────────────────────────
   const isCreditAcct = (r: TxRow) =>
@@ -549,6 +903,18 @@ export default function PayablesViewPage() {
     })
   }
 
+  const openHistoryModal = (row: TxRow) => {
+    setHistoryModal({ open: true, row, data: [], loading: true })
+    accountingService.getPayablesPaymentHistory({ source_table: row.source_table || '', source_id: row.id })
+      .then((res: any) => {
+        setHistoryModal(m => ({ ...m, data: res?.data ?? [], loading: false }))
+      })
+      .catch(() => {
+        toast.error('Error loading payment history')
+        setHistoryModal(m => ({ ...m, loading: false }))
+      })
+  }
+
   const addCreditEntry = () => {
     if (!creditAddForm.ledger_id) { toast.warning('Select a ledger'); return }
     if (!creditAddForm.amount) { toast.warning('Enter an amount'); return }
@@ -627,7 +993,7 @@ export default function PayablesViewPage() {
   }, [selectedRowCount, voucherForm.voucherdate, voucherForm.description, debitEntries, effectiveCreditEntries, debitTotal, effectiveCreditTotal, balanced])
   const canSubmit = validationIssues.length === 0
 
-  // ── Submit ───────────────────────────────────────────────────────────────
+  // ── Submit (create) ─────────────────────────────────────────────────────
   const { mutate: submitVoucher, isPending: submitting } = useMutation({
     mutationFn: (payload: unknown) => accountingService.submitPayablesVoucher(payload),
     onSuccess: (res: any) => {
@@ -645,6 +1011,29 @@ export default function PayablesViewPage() {
     onError: () => toast.error('Server error while submitting'),
   })
 
+  // ── Submit (edit existing voucher) ──────────────────────────────────────
+  // Updates the SAME c_number in place (old rows soft-superseded, audit
+  // entry written) instead of submitVoucher's always-creates-new behaviour.
+  const { mutate: updateVoucher, isPending: updating } = useMutation({
+    mutationFn: (payload: unknown) => accountingService.updatePayablesVoucher(payload),
+    onSuccess: (res: any) => {
+      if (res?.status === 200) {
+        toast.success('Voucher updated!')
+        refetch()
+        qc.invalidateQueries({ queryKey: ['payables-settled-rows', editVoucher?.c_number] })
+        qc.invalidateQueries({ queryKey: ['payables-voucher-audit', editVoucher?.c_number] })
+        setEditReason('')
+        // This page only opens in edit mode from a new tab spawned by Voucher
+        // Approvals (window.open in openInPayables) — closing it here returns
+        // the user to that Approvals tab instead of leaving a dead-end tab open.
+        setTimeout(() => window.close(), 900)
+      } else {
+        toast.error(res?.message || 'Failed to update voucher')
+      }
+    },
+    onError: () => toast.error('Server error while updating'),
+  })
+
   const handleSubmit = () => {
     if (!canSubmit) return
     const selectedRows = rows.filter(r => r.selected)
@@ -655,7 +1044,7 @@ export default function PayablesViewPage() {
       balance: r.tempbalance,
     }))
 
-    submitVoucher({
+    const basePayload = {
       expensedetails: {
         ...voucherForm,
         voucher_type_id: voucherForm.voucher_type_id,
@@ -678,7 +1067,46 @@ export default function PayablesViewPage() {
       user_id: userId,
       named: localStorage.getItem('usr_nm'),
       selectedledgerdata: selectedLedgersData,
-    })
+    }
+
+    if (editVoucher) {
+      const userName = localStorage.getItem('usr_nm') || ''
+      const todayStr = new Date().toISOString().split('T')[0]
+
+      // Lightweight diff for the audit trail — header fields plus which
+      // transactions/credit ledgers are settling this voucher now.
+      type ChangeRow = { side: string; idx: number; ledger: string; field: string; old: string; nw: string }
+      const changes: ChangeRow[] = []
+      const hdr = (field: string, old: string, nw: string) => { if ((old || '') !== (nw || '')) changes.push({ side: 'header', idx: 0, ledger: '', field, old: old || '', nw: nw || '' }) }
+      hdr('Voucher Date', editVoucher.voucherdate, voucherForm.voucherdate)
+      hdr('Value Date', editVoucher.valueDate, voucherForm.valueDate)
+      hdr('Vehicle', editVoucher.vehicleNo, voucherForm.vehicleNo)
+      hdr('Narration', editVoucher.description, voucherForm.description)
+      const oldCreditTotal = editVoucher.creditEntries.reduce((s, c) => s + c.amount, 0)
+      if (Math.abs(oldCreditTotal - creditTotal) > 0.01) hdr('Credit Total', String(oldCreditTotal), String(creditTotal))
+      const oldSettledTotal = settledRows.reduce((s, r: any) => s + (Number(r.payment) || 0), 0)
+      const newSettledTotal = selectedLedgersData.reduce((s, r) => s + (r.payment || 0), 0)
+      if (Math.abs(oldSettledTotal - newSettledTotal) > 0.01) hdr('Settled Total', String(oldSettledTotal), String(newSettledTotal))
+      selectedLedgersData.forEach((r, i) => {
+        changes.push({ side: 'DR', idx: i + 1, ledger: r.expensives || '', field: 'Payment', old: '', nw: fmtAmt(r.payment || 0) })
+      })
+      effectiveCreditEntries.forEach((c, i) => {
+        changes.push({ side: 'CR', idx: i + 1, ledger: c.ledger.temple_name, field: 'Amount', old: '', nw: fmtAmt(c.amount) })
+      })
+
+      updateVoucher({
+        ...basePayload,
+        c_number: editVoucher.c_number,
+        entry_by: editVoucher.entry_by || userName,
+        i_ts: editVoucher.i_ts || todayStr,
+        updatedby_id: userId,
+        updatedby_name: userName,
+        updatedby_date: todayStr,
+        changes_note: JSON.stringify({ reason: editReason.trim(), changes }),
+      })
+    } else {
+      submitVoucher(basePayload)
+    }
   }
 
   const handleStaffChange = (val: string) => {
@@ -788,6 +1216,16 @@ export default function PayablesViewPage() {
             : <VoucherModal data={modal.data} refNo={modal.refNo} onClose={() => setModal(m => ({ ...m, open: false }))} />
       )}
 
+      {/* Payment History Modal */}
+      {historyModal.open && historyModal.row && (
+        <PaymentHistoryModal
+          row={historyModal.row}
+          data={historyModal.data}
+          loading={historyModal.loading}
+          onClose={() => setHistoryModal(m => ({ ...m, open: false }))}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4 flex-wrap">
         <button
@@ -818,6 +1256,46 @@ export default function PayablesViewPage() {
         </div>
       </div>
 
+      {editVoucher && (
+        <GlassCard className="p-4 space-y-4" colorBar="bg-gradient-to-r from-purple-500 to-indigo-500">
+          <div className="flex items-center gap-3 text-sm text-purple-800">
+            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">
+              Editing {editVoucher.c_number}
+            </span>
+            Voucher date, value date, vehicle, staff, description and the credit entry below were pre-filled from this voucher — select the transaction(s) to pay below to complete the edit.
+          </div>
+          <div>
+            <Label>Reason for editing <span className="text-slate-400 font-normal text-xs">(optional, recorded in history)</span></Label>
+            <Input
+              value={editReason}
+              onChange={e => setEditReason(e.target.value)}
+              placeholder="e.g. corrected payment amount"
+            />
+          </div>
+
+          {/* Activity History */}
+          <div className="border-t border-purple-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center shadow-sm">
+                  <History className="w-3.5 h-3.5 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800 leading-tight">Activity History</p>
+                  <p className="text-[10px] text-slate-400 leading-tight">Full audit trail for this voucher</p>
+                </div>
+              </div>
+              {auditTrail.length > 0 && (
+                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2.5 py-1 rounded-full border border-slate-200">
+                  {auditTrail.length} {auditTrail.length === 1 ? 'event' : 'events'}
+                </span>
+              )}
+            </div>
+            <ActivityHistory data={auditTrail} initialCreator={editVoucher.entry_by} initialDate={editVoucher.i_ts} />
+          </div>
+        </GlassCard>
+      )}
+
       {!ledgerId && (
         <GlassCard className="p-8 text-center text-slate-400 text-sm">
           No ledger selected. Open this page from the Balance Sheet by clicking the Payables button on a ledger row.
@@ -828,19 +1306,23 @@ export default function PayablesViewPage() {
         <>
           {/* Date Filter */}
           <GlassCard className="p-5" colorBar="bg-gradient-to-r from-blue-500 to-indigo-500">
+            <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
             <div className="flex items-end gap-4 flex-wrap">
               <div>
                 <Label>From Date</Label>
-                <Input type="date" max={today} value={filter.fromdate}
+                <Input type="date" min={fyMin} max={fyMax} value={filter.fromdate}
                   onChange={e => setFilter(f => ({ ...f, fromdate: e.target.value }))} />
               </div>
               <div>
                 <Label>To Date</Label>
-                <Input type="date" max={today} value={filter.todate}
+                <Input type="date" min={fyMin} max={fyMax} value={filter.todate}
                   onChange={e => setFilter(f => ({ ...f, todate: e.target.value }))} />
               </div>
               <Button onClick={() => setApplied({ ...filter })}>
                 <RefreshCw className="w-4 h-4" /> Load
+              </Button>
+              <Button onClick={() => refetch()} disabled={isFetching} className="bg-slate-600 hover:bg-slate-700">
+                <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
               </Button>
             </div>
           </GlassCard>
@@ -925,13 +1407,23 @@ export default function PayablesViewPage() {
                           </td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
                             {row.c_number && row.c_number !== '-' ? (
-                              <button
-                                onClick={() => openRefNoModal(row)}
-                                disabled={modal.loading}
-                                className="text-blue-600 hover:text-blue-800 font-medium text-sm underline underline-offset-2 transition-colors"
-                              >
-                                {modal.loading && modal.refNo === row.c_number ? '…' : row.c_number}
-                              </button>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => openHistoryModal(row)}
+                                  title="View payment history for this transaction"
+                                  className="text-blue-600 hover:text-blue-800 font-medium text-sm underline underline-offset-2 transition-colors"
+                                >
+                                  {row.c_number}
+                                </button>
+                                <button
+                                  onClick={() => openRefNoModal(row)}
+                                  disabled={modal.loading}
+                                  title="View voucher details"
+                                  className="text-slate-300 hover:text-blue-500 transition-colors flex-shrink-0"
+                                >
+                                  {modal.loading && modal.refNo === row.c_number ? <span className="text-xs">…</span> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
                             ) : (
                               <span className="text-slate-400 text-sm">-</span>
                             )}
@@ -996,7 +1488,19 @@ export default function PayablesViewPage() {
                         Grand Total:
                       </td>
                       <td className="px-3 py-3 text-right text-amber-700 font-bold tabular-nums text-sm">{fmtAmt(grandAmount)}</td>
-                      <td colSpan={2} className="px-3 py-3 text-right text-amber-700 font-bold tabular-nums text-sm">{fmtAmt(grandPayment)}</td>
+                      <td colSpan={2} className="px-3 py-3 text-right text-amber-700 font-bold tabular-nums text-sm">
+                        <div className="flex items-center justify-end gap-2">
+                          <input
+                            type="checkbox"
+                            checked={allSelected}
+                            onChange={handleSelectAll}
+                            disabled={rowsWithPayment.length === 0}
+                            className="w-4 h-4 accent-amber-600 cursor-pointer disabled:opacity-40"
+                            title={allSelected ? 'Deselect all' : 'Select all'}
+                          />
+                          {fmtAmt(grandPayment)}
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-right text-amber-700 font-bold tabular-nums text-sm">{fmtAmt(grandBalance)}</td>
                       <td />
                     </tr>
@@ -1019,39 +1523,37 @@ export default function PayablesViewPage() {
                 </div>
                 <div>
                   <Label>Voucher Date <span className="text-red-500">*</span></Label>
-                  <Input type="date" max={today} value={voucherForm.voucherdate}
+                  <Input type="date" min={fyMin} max={fyMax} value={voucherForm.voucherdate}
                     onChange={e => setVoucherForm(f => ({ ...f, voucherdate: e.target.value }))} />
                 </div>
                 <div>
                   <Label>Value Date</Label>
-                  <Input type="date" max={today} value={voucherForm.valueDate}
+                  <Input type="date" min={fyMin} max={fyMax} value={voucherForm.valueDate}
                     onChange={e => setVoucherForm(f => ({ ...f, valueDate: e.target.value }))} />
                 </div>
                 <div>
                   <Label>Vehicle No</Label>
-                  <select
+                  <SimpleDropdown
                     value={voucherForm.vehicleNo}
-                    onChange={e => setVoucherForm(f => ({ ...f, vehicleNo: e.target.value }))}
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="">Select vehicle</option>
-                    {busList.map((b: any, i: number) => (
-                      <option key={i} value={b.bus_no}>{b.bus_no}</option>
-                    ))}
-                  </select>
+                    placeholder="Select vehicle"
+                    searchable
+                    options={busList.map((b: any) => ({ label: b.bus_no, value: b.bus_no }))}
+                    onChange={v => setVoucherForm(f => ({ ...f, vehicleNo: v }))}
+                    onRefresh={() => refetchBuses()}
+                    refreshing={busesFetching}
+                  />
                 </div>
                 <div>
                   <Label>Staff Name</Label>
-                  <select
+                  <SimpleDropdown
                     value={voucherForm.name}
-                    onChange={e => handleStaffChange(e.target.value)}
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="">Select staff</option>
-                    {employeesList.map((emp: any, i: number) => (
-                      <option key={i} value={emp.name}>{emp.name} ({emp.type})</option>
-                    ))}
-                  </select>
+                    placeholder="Select staff"
+                    searchable
+                    options={employeesList.map((emp: any) => ({ label: `${emp.name} (${emp.type})`, value: emp.name }))}
+                    onChange={handleStaffChange}
+                    onRefresh={() => refetchEmployees()}
+                    refreshing={employeesFetching}
+                  />
                 </div>
                 <div>
                   <Label>Description <span className="text-red-500">*</span></Label>
@@ -1110,16 +1612,15 @@ export default function PayablesViewPage() {
                     <span className="ml-auto text-xs font-semibold text-slate-500">₹{fmtAmt(effectiveCreditTotal)}</span>
                   </h4>
                   <div className="flex gap-2 mb-3">
-                    <select
+                    <SimpleDropdown
                       value={creditAddForm.ledger_id}
-                      onChange={e => setCreditAddForm(f => ({ ...f, ledger_id: e.target.value }))}
-                      className="flex-1 h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    >
-                      <option value="">Select Ledger</option>
-                      {creditLedgerOptions.map((e: any) => (
-                        <option key={e.id} value={e.id}>{e.temple_name ?? e.name}</option>
-                      ))}
-                    </select>
+                      placeholder="Select Ledger"
+                      searchable
+                      options={creditLedgerOptions.map((e: any) => ({ label: e.temple_name ?? e.name, value: String(e.id) }))}
+                      onChange={v => setCreditAddForm(f => ({ ...f, ledger_id: v }))}
+                      onRefresh={() => refetchExpenseLedgers()}
+                      refreshing={expenseLedgersFetching}
+                    />
                     <input
                       type="number" min="0" step="0.01" placeholder="Amount"
                       value={creditAddForm.amount}
@@ -1212,12 +1713,12 @@ export default function PayablesViewPage() {
                 )}
                 <Button
                   onClick={handleSubmit}
-                  disabled={submitting || !canSubmit}
+                  disabled={submitting || updating || !canSubmit}
                   className="px-8 bg-emerald-600 hover:bg-emerald-700 text-white"
                 >
-                  {submitting
-                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Submitting…</>
-                    : <><Send className="w-4 h-4" /> Submit Voucher</>}
+                  {submitting || updating
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> {editVoucher ? 'Updating…' : 'Submitting…'}</>
+                    : <><Send className="w-4 h-4" /> {editVoucher ? 'Update Voucher' : 'Submit Voucher'}</>}
                 </Button>
               </div>
             </GlassCard>

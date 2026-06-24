@@ -52,11 +52,15 @@ const ROUTE_LABELS: Record<string, string> = {
   '/garage/repair-entry': 'Repair Entry',
   '/garage/tracking': 'Repair Tracking',
   '/garage/reports': 'Garage Reports',
-  '/garage/masters': 'Garage Masters',
+  '/garage/service-reminders': 'Service Reminders',
+  '/garage/tyre-inventory': 'Tyre Inventory',
+  '/garage/tyre-position': 'Tyre Position',
+  '/garage/battery-management': 'Battery Management',
   '/mainmasters/voucher-type': 'Voucher Types',
   '/mainmasters/groups': 'Group Management',
   '/mainmasters/static-entry': 'Static Entry',
   '/mainmasters/laundry-products': 'Laundry Products',
+  '/mainmasters/garage-masters': 'Garage Masters',
   '/reports': 'Reports',
 }
 

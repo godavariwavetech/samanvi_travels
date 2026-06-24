@@ -304,6 +304,9 @@ router.post('/getservicenum', verifyToken,routcontroller.getservicenumCtrl);
 router.post('/getpdfpatchdata1', verifyToken,routcontroller.getpdfpatchdata1Ctrl);
 router.post('/getbetadata', verifyToken,routcontroller.getbetadataCtrl);
 router.post('/submitpayablesvoucherentry',verifyToken, routcontroller.submitpayablesvoucherentryCtrl);
+router.post('/updatepayablesvoucherentry',verifyToken, routcontroller.updatepayablesvoucherentryCtrl);
+router.post('/getpayablessettledrows', routcontroller.getpayablessettledrowsCtrl);
+router.post('/getpayablespaymenthistory', verifyToken, routcontroller.getPayablesPaymentHistoryCtrl);
 
 router.get("/getvoucherapproveddata", routcontroller.getvoucherapproveddataCtrl);
 router.post('/getvouchersearchdata', routcontroller.getvouchersearchdataCtrl);
@@ -334,8 +337,40 @@ router.post('/editrepairentry',verifyToken,routcontroller.editrepairentryCtrl);
 router.post('/getpartsentry',verifyToken,routcontroller.getpartsentryCtrl);
 router.post('/submitrepairtracking',verifyToken,routcontroller.submitrepairtrackingCtrl);
 
-//new 
+//new
 router.post('/changeJobSatus',verifyToken,routcontroller.changeJobSatusCtrl)
+
+// Garage extension: Service Reminders, Tyre Management, Battery Management ---
+router.get('/service-reminders/getall', verifyToken, routcontroller.getServiceRemindersCtrl);
+router.post('/service-reminders/add', verifyToken, routcontroller.addServiceReminderCtrl);
+router.post('/service-reminders/edit', verifyToken, routcontroller.editServiceReminderCtrl);
+router.post('/service-reminders/complete', verifyToken, routcontroller.completeServiceReminderCtrl);
+router.post('/service-reminders/delete', verifyToken, routcontroller.deleteServiceReminderCtrl);
+
+router.get('/tyre-inventory/getall', verifyToken, routcontroller.getTyreInventoryCtrl);
+router.post('/tyre-inventory/add', verifyToken, routcontroller.addTyreInventoryCtrl);
+router.post('/tyre-inventory/edit', verifyToken, routcontroller.editTyreInventoryCtrl);
+router.post('/tyre-inventory/delete', verifyToken, routcontroller.deleteTyreInventoryCtrl);
+
+router.get('/tyre-position/getall', verifyToken, routcontroller.getTyrePositionsCtrl);
+router.post('/tyre-position/assign', verifyToken, routcontroller.assignTyrePositionCtrl);
+router.post('/tyre-position/remove', verifyToken, routcontroller.removeTyrePositionCtrl);
+
+router.get('/battery/getall', verifyToken, routcontroller.getBatteriesCtrl);
+router.post('/battery/add', verifyToken, routcontroller.addBatteryCtrl);
+router.post('/battery/edit', verifyToken, routcontroller.editBatteryCtrl);
+router.post('/battery/delete', verifyToken, routcontroller.deleteBatteryCtrl);
+
+// Garage type masters — managed from the Main Masters module
+router.get('/reminder-types/getall', verifyToken, routcontroller.getServiceReminderTypesCtrl);
+router.post('/reminder-types/add', verifyToken, routcontroller.addServiceReminderTypeCtrl);
+router.post('/reminder-types/edit', verifyToken, routcontroller.editServiceReminderTypeCtrl);
+router.post('/reminder-types/delete', verifyToken, routcontroller.deleteServiceReminderTypeCtrl);
+
+router.get('/tyre-positions-master/getall', verifyToken, routcontroller.getTyrePositionsMasterCtrl);
+router.post('/tyre-positions-master/add', verifyToken, routcontroller.addTyrePositionMasterCtrl);
+router.post('/tyre-positions-master/edit', verifyToken, routcontroller.editTyrePositionMasterCtrl);
+router.post('/tyre-positions-master/delete', verifyToken, routcontroller.deleteTyrePositionMasterCtrl);
 
 
 router.get("/getlaundryapproveddata", routcontroller.getlaundryapproveddataCtrl);

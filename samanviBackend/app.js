@@ -136,8 +136,8 @@ sqldb_init.query(`
 
 // Ensure rejection_reason column exists in mainvoucher_t
 sqldb_init.query(`
-    SELECT COLUMN_NAME 
-    FROM INFORMATION_SCHEMA.COLUMNS 
+    SELECT COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_NAME = 'mainvoucher_t' AND COLUMN_NAME = 'rejection_reason'
 `, function(err, results) {
     if (!err && results.length === 0) {
@@ -146,6 +146,206 @@ sqldb_init.query(`
             else console.log('Added rejection_reason column to mainvoucher_t');
         });
     }
+});
+
+// Ensure the Payables feature's columns exist — added after initial deploy,
+// so a fresh/older database (e.g. live) won't have them without this.
+function ensureColumn(table, column, ddl) {
+    sqldb_init.query(`
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '${table}' AND COLUMN_NAME = '${column}'
+    `, function(err, results) {
+        if (!err && results.length === 0) {
+            sqldb_init.query(`ALTER TABLE ${table} ADD COLUMN ${ddl}`, function(alterErr) {
+                if (alterErr) console.error(`Failed to add ${column} column to ${table}:`, alterErr.message);
+                else console.log(`Added ${column} column to ${table}`);
+            });
+        }
+    });
+}
+ensureColumn('mainvoucher_t', 'is_payable', '`is_payable` tinyint(1) NOT NULL DEFAULT 0');
+ensureColumn('mainvoucher_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
+ensureColumn('fuelentry_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
+ensureColumn('laundrybill_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
+ensureColumn('parts_master', 'part_number', '`part_number` varchar(50) DEFAULT NULL');
+ensureColumn('service_reminders', 'is_repeating', '`is_repeating` tinyint(1) NOT NULL DEFAULT 0');
+ensureColumn('service_reminders', 'repeat_interval', '`repeat_interval` int DEFAULT NULL');
+ensureColumn('service_reminders', 'repeat_unit', '`repeat_unit` varchar(10) DEFAULT NULL');
+
+// Auto-create the payables payment-history table if not exists — logs every
+// settle/reverse event against a payable transaction row, so the full
+// payment history (not just the most recent settling voucher) is queryable.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS payables_payment_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        source_table VARCHAR(50) NOT NULL,
+        source_id INT NOT NULL,
+        c_number VARCHAR(50) NOT NULL,
+        payment DECIMAL(12,2) NOT NULL DEFAULT 0,
+        balance_after DECIMAL(12,2) NOT NULL DEFAULT 0,
+        action ENUM('settled','reversed') NOT NULL DEFAULT 'settled',
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_pph_source (source_table, source_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create payables_payment_history table:', err.message);
+    else console.log('payables_payment_history table ready');
+});
+
+// expensive_details can't carry an inline payables_settled_by column like
+// mainvoucher_subt/fuelentry_subt/laundrybill_subt do — it's already at
+// MariaDB's max row size. This side table is the substitute: it's how a
+// payables voucher's settlement of a trip-expense row gets tracked, so
+// rejecting/editing that voucher can still find and unsettle the row instead
+// of leaving it stuck marked "paid" forever.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS payables_settled_links (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        source_table VARCHAR(50) NOT NULL,
+        source_id INT NOT NULL,
+        c_number VARCHAR(50) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_psl_source (source_table, source_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create payables_settled_links table:', err.message);
+    else console.log('payables_settled_links table ready');
+});
+
+// Garage extension: service reminders, tyre inventory/position, battery management
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS service_reminders (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vehicle_number VARCHAR(50) NOT NULL,
+        reminder_type VARCHAR(100) NOT NULL,
+        due_date DATE NULL,
+        due_odometer INT NULL,
+        last_done_date DATE NULL,
+        last_done_odometer INT NULL,
+        status ENUM('Pending','Completed') NOT NULL DEFAULT 'Pending',
+        remarks TEXT,
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        INDEX idx_sr_vehicle (vehicle_number)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create service_reminders table:', err.message);
+    else console.log('service_reminders table ready');
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_master (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tyre_code VARCHAR(50) NOT NULL UNIQUE,
+        brand VARCHAR(100),
+        size VARCHAR(50),
+        purchase_date DATE NULL,
+        cost DECIMAL(10,2) DEFAULT 0,
+        status ENUM('In Stock','In Use','Retreaded','Scrapped') NOT NULL DEFAULT 'In Stock',
+        current_vehicle_number VARCHAR(50) NULL,
+        current_position VARCHAR(20) NULL,
+        remarks TEXT,
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        d_in TINYINT NOT NULL DEFAULT 0
+    )
+`, function(err) {
+    if (err) console.error('Failed to create tyre_master table:', err.message);
+    else console.log('tyre_master table ready');
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_position_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tyre_id INT NOT NULL,
+        vehicle_number VARCHAR(50) NOT NULL,
+        position VARCHAR(20) NOT NULL,
+        odometer_at_fitting INT NULL,
+        fitted_date DATE NULL,
+        removed_date DATE NULL,
+        remarks TEXT,
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        INDEX idx_tpl_tyre (tyre_id),
+        INDEX idx_tpl_vehicle (vehicle_number)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create tyre_position_log table:', err.message);
+    else console.log('tyre_position_log table ready');
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS battery_master (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        battery_code VARCHAR(50) NOT NULL UNIQUE,
+        brand VARCHAR(100),
+        capacity_ah VARCHAR(20),
+        vehicle_number VARCHAR(50) NULL,
+        install_date DATE NULL,
+        warranty_months INT NULL,
+        cost DECIMAL(10,2) DEFAULT 0,
+        status ENUM('Active','Replaced','Scrapped') NOT NULL DEFAULT 'Active',
+        remarks TEXT,
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        d_in TINYINT NOT NULL DEFAULT 0
+    )
+`, function(err) {
+    if (err) console.error('Failed to create battery_master table:', err.message);
+    else console.log('battery_master table ready');
+});
+
+// Garage type masters — managed from the Main Masters module
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS service_reminder_types (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        type_name VARCHAR(100) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create service_reminder_types table:', err.message); return; }
+    console.log('service_reminder_types table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM service_reminder_types', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['Oil Change', 'General Service', 'Insurance Renewal', 'Permit Renewal', 'Fitness Certificate', 'Tyre Rotation', 'Battery Check', 'Other'];
+            sqldb_init.query('INSERT INTO service_reminder_types (type_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed service_reminder_types:', iErr.message);
+                else console.log('Seeded default service reminder types');
+            });
+        }
+    });
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_positions_master (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        position_name VARCHAR(50) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create tyre_positions_master table:', err.message); return; }
+    console.log('tyre_positions_master table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM tyre_positions_master', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['Front Left', 'Front Right', 'Rear Left Outer', 'Rear Left Inner', 'Rear Right Outer', 'Rear Right Inner', 'Spare 1', 'Spare 2'];
+            sqldb_init.query('INSERT INTO tyre_positions_master (position_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed tyre_positions_master:', iErr.message);
+                else console.log('Seeded default tyre positions');
+            });
+        }
+    });
 });
 
 //for local

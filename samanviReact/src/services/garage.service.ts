@@ -24,6 +24,31 @@ export const garageService = {
   editPart: (data: unknown) => api.post('/editrepairparts', securePayload(data)).then((r) => r.data),
   deletePart: (data: unknown) => api.post('/deleterepairparts', securePayload(data)).then((r) => r.data),
 
-  // ── Staff ────────────────────────────────────────────────
+  // ── Staff & Drivers ──────────────────────────────────────
   getStaff: () => api.post('/getstaffdata', {}).then((r) => r.data),
+  getDriversList: () => api.post('/getalldrivers', {}).then((r) => r.data),
+
+  // ── Service Reminders ───────────────────────────────────
+  getServiceReminders: () => api.get('/service-reminders/getall').then((r) => r.data),
+  addServiceReminder: (data: unknown) => api.post('/service-reminders/add', securePayload(data)).then((r) => r.data),
+  editServiceReminder: (data: unknown) => api.post('/service-reminders/edit', securePayload(data)).then((r) => r.data),
+  completeServiceReminder: (data: unknown) => api.post('/service-reminders/complete', securePayload(data)).then((r) => r.data),
+  deleteServiceReminder: (data: unknown) => api.post('/service-reminders/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Tyre Inventory ───────────────────────────────────────
+  getTyreInventory: () => api.get('/tyre-inventory/getall').then((r) => r.data),
+  addTyre: (data: unknown) => api.post('/tyre-inventory/add', securePayload(data)).then((r) => r.data),
+  editTyre: (data: unknown) => api.post('/tyre-inventory/edit', securePayload(data)).then((r) => r.data),
+  deleteTyre: (data: unknown) => api.post('/tyre-inventory/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Tyre Position ────────────────────────────────────────
+  getTyrePositions: () => api.get('/tyre-position/getall').then((r) => r.data),
+  assignTyrePosition: (data: unknown) => api.post('/tyre-position/assign', securePayload(data)).then((r) => r.data),
+  removeTyrePosition: (data: unknown) => api.post('/tyre-position/remove', securePayload(data)).then((r) => r.data),
+
+  // ── Battery Management ───────────────────────────────────
+  getBatteries: () => api.get('/battery/getall').then((r) => r.data),
+  addBattery: (data: unknown) => api.post('/battery/add', securePayload(data)).then((r) => r.data),
+  editBattery: (data: unknown) => api.post('/battery/edit', securePayload(data)).then((r) => r.data),
+  deleteBattery: (data: unknown) => api.post('/battery/delete', securePayload(data)).then((r) => r.data),
 }

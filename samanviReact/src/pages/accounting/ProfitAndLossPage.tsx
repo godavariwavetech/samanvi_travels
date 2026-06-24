@@ -1,11 +1,13 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Plus, Pencil, Trash2, Check, X, FolderPlus, FileText, Info, ExternalLink } from 'lucide-react'
+import { ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Plus, Pencil, Trash2, Check, X, FolderPlus, FileText, Info, ExternalLink, Search, Layers, BookOpen, RefreshCw } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
+import { getCurrentFY } from '@/lib/fy'
+import { useFYStore } from '@/store/fy.store'
 
 const hasGroupChildren = (n: HierarchyNode) => n.children?.some(c => c.nodeType === 'group') ?? false
 const hasLedgerChildren = (n: HierarchyNode) => n.children?.some(c => c.nodeType === 'ledger') ?? false
@@ -71,13 +73,14 @@ const MODAL_HEADER_COLORS: Record<string, string> = {
 // ── Tree row ───────────────────────────────────────────────────────────────
 const LEVEL_COLORS = ['', 'bg-blue-600', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-400', 'bg-pink-400']
 
-function NodeRow({ node, depth, onToggle, onAdd, onEdit, onDelete, onLedgerClick }: {
+function NodeRow({ node, depth, onToggle, onAdd, onEdit, onDelete, onLedgerClick, highlightKey }: {
   node: HierarchyNode; depth: number
   onToggle: (node: HierarchyNode) => void
   onAdd?: (parent: HierarchyNode, type: 'group' | 'ledger') => void
   onEdit?: (node: HierarchyNode, newName: string) => void
   onDelete?: (node: HierarchyNode) => void
   onLedgerClick?: (node: HierarchyNode) => void
+  highlightKey?: string | null
 }) {
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState(node.name)
@@ -85,6 +88,8 @@ function NodeRow({ node, depth, onToggle, onAdd, onEdit, onDelete, onLedgerClick
   const levelColor = LEVEL_COLORS[node.level] ?? 'bg-slate-400'
   const INDENT = 16 + depth * 22
   const subGroupLabel = node.level === 1 ? 'Group' : node.level === 2 ? 'Sub Group' : node.level === 3 ? 'Child' : 'Sub Child'
+  const nodeKey = `${node.nodeType}-${node.id}`
+  const isHighlighted = highlightKey === nodeKey
 
   const levelStyle = node.nodeType === 'ledger'
     ? { bg: 'bg-green-50', leftBorder: '', textColor: 'text-slate-800 font-semibold', iconColor: 'text-green-500', badgeBg: 'bg-green-100 text-green-700', addGroupBtn: '' }
@@ -102,7 +107,10 @@ function NodeRow({ node, depth, onToggle, onAdd, onEdit, onDelete, onLedgerClick
   return (
     <>
       <div
-        className={`flex items-center gap-2 pr-3 py-3 mx-2 mb-1 border border-slate-200 shadow-sm hover:shadow-md transition-all group ${levelStyle.leftBorder} ${levelStyle.bg}`}
+        id={`pl-node-${nodeKey}`}
+        className={`flex items-center gap-2 pr-3 py-3 mx-2 mb-1 border shadow-sm hover:shadow-md transition-all group ${levelStyle.leftBorder} ${levelStyle.bg} ${
+          isHighlighted ? 'border-amber-400 ring-2 ring-amber-300' : 'border-slate-200'
+        }`}
         style={{ paddingLeft: `${INDENT}px` }}
       >
         {/* ── Left: expand + icon + name ── */}
@@ -221,14 +229,14 @@ function NodeRow({ node, depth, onToggle, onAdd, onEdit, onDelete, onLedgerClick
       {/* Children */}
       {node.expanded && hasChildren && node.children!.map(child => (
         <NodeRow key={`${child.nodeType}-${child.id}`} node={child} depth={depth + 1}
-          onToggle={onToggle} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} onLedgerClick={onLedgerClick} />
+          onToggle={onToggle} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} onLedgerClick={onLedgerClick} highlightKey={highlightKey} />
       ))}
     </>
   )
 }
 
 // ── Section ────────────────────────────────────────────────────────────────
-function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, onEdit, onDelete, onLedgerClick }: {
+function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, onEdit, onDelete, onLedgerClick, highlightKey }: {
   title: string; nodes: HierarchyNode[]; bgColor: string; textColor: string
   rootNode?: HierarchyNode
   onToggle: (node: HierarchyNode) => void
@@ -236,6 +244,7 @@ function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, 
   onEdit?: (node: HierarchyNode, newName: string) => void
   onDelete?: (node: HierarchyNode) => void
   onLedgerClick?: (node: HierarchyNode) => void
+  highlightKey?: string | null
 }) {
   const sectionTotal = nodes.reduce((s, n) => s + n.totalAmount, 0)
   return (
@@ -267,7 +276,7 @@ function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, 
         <div>
           {nodes.map(node => (
             <NodeRow key={node.id} node={node} depth={0}
-              onToggle={onToggle} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} onLedgerClick={onLedgerClick} />
+              onToggle={onToggle} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} onLedgerClick={onLedgerClick} highlightKey={highlightKey} />
           ))}
         </div>
       )}
@@ -276,11 +285,25 @@ function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, 
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
+const today = new Date().toISOString().split('T')[0]
+const currentFY = getCurrentFY()
+
+interface SearchItem {
+  node: HierarchyNode
+  label: string
+  path: string
+  sectionLabel: string
+  ancestorIds: number[]
+}
+
 export default function ProfitAndLossPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const userId  = localStorage.getItem('user_id') ?? ''
   const entryBy = localStorage.getItem('usr_nm') ?? ''
+  const selectedFY = useFYStore(s => s.selectedFY)
+  const fyMin = selectedFY.fromDate
+  const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
 
   const [allExpanded, setAllExpanded] = useState(false)
   const [sortMode, setSortMode]       = useState<'name' | 'name_desc'>('name')
@@ -292,12 +315,18 @@ export default function ProfitAndLossPage() {
   const district_id = localStorage.getItem('district_id') ?? '1'
   const qParams = { role_type, district_id }
 
-  const { data: mastersRes }   = useQuery({ queryKey: ['pl-masters'],   queryFn: () => accountingService.getMastersAdd(qParams) })
-  const { data: groupsRes }    = useQuery({ queryKey: ['pl-groups'],    queryFn: () => accountingService.getMastersGroup(qParams) })
-  const { data: subgroupsRes } = useQuery({ queryKey: ['pl-subgroups'], queryFn: () => accountingService.getMainMastersSubgroup() })
-  const { data: childrenRes }  = useQuery({ queryKey: ['pl-children'],  queryFn: () => accountingService.getMainMastersSubchild() })
-  const { data: ledgersRes }   = useQuery({ queryKey: ['pl-ledgers'],   queryFn: () => accountingService.getLedgerData(qParams) })
-  const { data: txRes }        = useQuery({ queryKey: ['pl-transactions'], queryFn: () => accountingService.getTransactionsReport({ fromdate: '', todate: '', ledger_name: '', ledger_id: null, user_id: userId }) })
+  const { data: mastersRes, isFetching: f1, refetch: r1 }   = useQuery({ queryKey: ['pl-masters'],   queryFn: () => accountingService.getMastersAdd(qParams) })
+  const { data: groupsRes, isFetching: f2, refetch: r2 }    = useQuery({ queryKey: ['pl-groups'],    queryFn: () => accountingService.getMastersGroup(qParams) })
+  const { data: subgroupsRes, isFetching: f3, refetch: r3 } = useQuery({ queryKey: ['pl-subgroups'], queryFn: () => accountingService.getMainMastersSubgroup() })
+  const { data: childrenRes, isFetching: f4, refetch: r4 }  = useQuery({ queryKey: ['pl-children'],  queryFn: () => accountingService.getMainMastersSubchild() })
+  const { data: ledgersRes, isFetching: f5, refetch: r5 }   = useQuery({ queryKey: ['pl-ledgers'],   queryFn: () => accountingService.getLedgerData(qParams) })
+  const { data: txRes, isFetching: f6, refetch: r6 }        = useQuery({
+    queryKey: ['pl-transactions', fyMin, fyMax],
+    queryFn: () => accountingService.getTransactionsReport({ fromdate: fyMin, todate: fyMax, ledger_name: '', ledger_id: null, user_id: userId }),
+  })
+
+  const isRefreshing = f1 || f2 || f3 || f4 || f5 || f6
+  const refreshAll = () => { r1(); r2(); r3(); r4(); r5(); r6() }
 
   const mastersList   = mastersRes?.data   ?? []
   const groupsList    = groupsRes?.data    ?? []
@@ -433,6 +462,70 @@ export default function ProfitAndLossPage() {
     return { income, expenses }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mastersList, groupsList, subgroupsList, childrenList, ledgerList, txRawMap, sortMode, isLoading])
+
+  // ── Quick Jump search index ────────────────────────────────────────────
+  const flatSearchItems = useMemo<SearchItem[]>(() => {
+    const items: SearchItem[] = []
+    const traverse = (node: HierarchyNode, ancestors: HierarchyNode[], sectionLabel: string) => {
+      if (node.level >= 2) {
+        const pathParts = ancestors.filter(a => a.level >= 2).map(a => a.name)
+        items.push({
+          node, label: node.name, path: pathParts.join(' › '), sectionLabel,
+          ancestorIds: ancestors.map(a => a.id),
+        })
+      }
+      for (const child of node.children) traverse(child, [...ancestors, node], sectionLabel)
+    }
+    for (const root of income)   traverse(root, [], 'Income')
+    for (const root of expenses) traverse(root, [], 'Expenses')
+    return items
+  }, [income, expenses])
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [highlightKey, setHighlightKey] = useState<string | null>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  const filteredSearchItems = useMemo<SearchItem[]>(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return []
+    return flatSearchItems
+      .filter(item => item.label.toLowerCase().includes(q) || item.path.toLowerCase().includes(q))
+      .slice(0, 25)
+  }, [flatSearchItems, searchQuery])
+
+  const jumpToNode = useCallback((item: SearchItem) => {
+    setSearchQuery('')
+    setSearchOpen(false)
+
+    const ancestorIdSet = new Set(item.ancestorIds)
+    const expandAncestors = (n: HierarchyNode) => {
+      if (ancestorIdSet.has(n.id)) {
+        n.expanded = true
+        expandedIds.current.add(n.id)
+      }
+      n.children.forEach(expandAncestors)
+    }
+    ;[...income, ...expenses].forEach(expandAncestors)
+    setRenderTick(t => t + 1)
+
+    const key = `${item.node.nodeType}-${item.node.id}`
+    setHighlightKey(key)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.getElementById(`pl-node-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    })
+    setTimeout(() => setHighlightKey(k => k === key ? null : k), 2500)
+  }, [income, expenses])
 
   const toggleNode = (node: HierarchyNode) => {
     node.expanded = !node.expanded
@@ -581,26 +674,111 @@ export default function ProfitAndLossPage() {
       <PageHeader title="Profit & Loss" subtitle="Income and expenses hierarchy" />
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={handleExpandAll}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
-        >
-          {allExpanded
-            ? <><ChevronsDownUp className="w-4 h-4" /> Collapse All</>
-            : <><ChevronsUpDown className="w-4 h-4" /> Expand All</>}
-        </button>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-500 font-medium">Sort By</span>
-          <select
-            value={sortMode}
-            onChange={e => setSortMode(e.target.value as any)}
-            style={{ colorScheme: 'light' }}
-            className="h-9 pl-3 pr-8 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none shadow-sm appearance-none"
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+        <FYSelector className="pb-4 border-b border-slate-100" />
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <button
+            onClick={handleExpandAll}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
           >
-            <option value="name">Name (A→Z)</option>
-            <option value="name_desc">Name (Z→A)</option>
-          </select>
+            {allExpanded
+              ? <><ChevronsDownUp className="w-4 h-4" /> Collapse All</>
+              : <><ChevronsUpDown className="w-4 h-4" /> Expand All</>}
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={refreshAll}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors shadow-sm"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+            <span className="text-sm text-slate-500 font-medium">Sort By</span>
+            <select
+              value={sortMode}
+              onChange={e => setSortMode(e.target.value as any)}
+              style={{ colorScheme: 'light' }}
+              className="h-9 pl-3 pr-8 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:outline-none shadow-sm appearance-none"
+            >
+              <option value="name">Name (A→Z)</option>
+              <option value="name_desc">Name (Z→A)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Quick Jump search */}
+        <div ref={searchRef} className="relative pt-4 border-t border-slate-100">
+          <Label>Quick Jump</Label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Type a group or ledger name to jump directly…"
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true) }}
+              onFocus={() => setSearchOpen(true)}
+              disabled={isLoading}
+              className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-8 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 placeholder:text-slate-400 disabled:opacity-50"
+            />
+            {searchQuery && (
+              <button onClick={() => { setSearchQuery(''); setSearchOpen(false) }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <AnimatePresence>
+            {searchOpen && filteredSearchItems.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.15 }}
+                className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-2xl border border-slate-200 shadow-2xl max-h-80 overflow-y-auto"
+              >
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
+                    {filteredSearchItems.length} result{filteredSearchItems.length !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-[11px] text-slate-400">Click to jump directly</span>
+                </div>
+                {filteredSearchItems.map((item, idx) => {
+                  const fullPath = [item.sectionLabel, item.path].filter(Boolean).join(' › ')
+                  return (
+                    <button
+                      key={idx}
+                      onMouseDown={e => { e.preventDefault(); jumpToNode(item) }}
+                      className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b border-slate-50 last:border-0 flex items-start gap-3"
+                    >
+                      <div className={`mt-0.5 w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 ${item.node.nodeType === 'ledger' ? 'bg-emerald-100' : 'bg-blue-100'}`}>
+                        {item.node.nodeType === 'ledger'
+                          ? <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                          : <Layers className="w-3.5 h-3.5 text-blue-600" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{item.label}</p>
+                        {fullPath && (
+                          <p className="text-xs text-slate-400 truncate mt-0.5">{fullPath}</p>
+                        )}
+                      </div>
+                      <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${item.node.nodeType === 'ledger' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {item.node.nodeType === 'ledger' ? 'Ledger' : 'Group'}
+                      </span>
+                    </button>
+                  )
+                })}
+              </motion.div>
+            )}
+            {searchOpen && searchQuery.trim() && filteredSearchItems.length === 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-2xl border border-slate-200 shadow-xl px-4 py-6 text-center"
+              >
+                <p className="text-sm text-slate-400">No groups or ledgers match "<span className="font-medium text-slate-600">{searchQuery}</span>"</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -644,6 +822,7 @@ export default function ProfitAndLossPage() {
             onEdit={(node, newName) => editNode({ node, newName })}
             onDelete={(node) => deleteNode(node)}
             onLedgerClick={handleLedgerClick}
+            highlightKey={highlightKey}
           />
           <Section
             title="Expenses"
@@ -656,6 +835,7 @@ export default function ProfitAndLossPage() {
             onEdit={(node, newName) => editNode({ node, newName })}
             onDelete={(node) => deleteNode(node)}
             onLedgerClick={handleLedgerClick}
+            highlightKey={highlightKey}
           />
 
           {/* P&L Summary */}

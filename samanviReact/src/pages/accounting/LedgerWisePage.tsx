@@ -1,12 +1,14 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditCard, BookOpen, History } from 'lucide-react'
+import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Select, Label, PageHeader, ColumnFilterDropdown } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
+import { getCurrentFY } from '@/lib/fy'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -17,6 +19,22 @@ function fmt(d: any): string {
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '-'
   return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`
+}
+
+// dd/mm/yy — used only in the PDF export, which needs the narrower format
+function fmtShort(d: any): string {
+  if (!d) return '-'
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return '-'
+  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
+}
+
+// dd-mm-yyyy, hyphen-separated — used in export filenames, which can't contain slashes
+function fmtFileDate(d: any): string {
+  if (!d) return '-'
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return '-'
+  return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`
 }
 
 function fmtAmt(n: number): string {
@@ -31,6 +49,13 @@ function balStr(b: number): string {
 
 function balCls(b: number): string {
   return b >= 0 ? 'text-slate-700' : 'text-red-500'
+}
+
+// Opening/closing balance specifically use the conventional debit=red,
+// credit=green scheme — distinct from balCls' neutral per-transaction
+// running balance coloring used elsewhere on this page.
+function obCbCls(b: number): string {
+  return b >= 0 ? 'text-red-500' : 'text-emerald-600'
 }
 
 function resolveDate(e: any): Date {
@@ -463,11 +488,126 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
   )
 }
 
+// ─── Small icon button inside a dropdown trigger that re-hits the options API
+function InlineRefresh({ onRefresh, refreshing, title }: {
+  onRefresh: () => void
+  refreshing?: boolean
+  title?: string
+}) {
+  return (
+    <span
+      role="button" tabIndex={0} title={title ?? 'Refresh'}
+      onClick={e => { e.stopPropagation(); if (!refreshing) onRefresh() }}
+      onMouseDown={e => e.stopPropagation()}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!refreshing) onRefresh() } }}
+      className="flex flex-shrink-0 items-center justify-center p-1 -m-1 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+    >
+      <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+    </span>
+  )
+}
+
+// ─── Searchable ledger filter dropdown (portal-based) ──────────────────────
+function LedgerSelectDropdown({ value, ledgers, onChange, onRefresh, refreshing }: {
+  value: string
+  ledgers: any[]
+  onChange: (id: string) => void
+  onRefresh?: () => void
+  refreshing?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [rect, setRect] = useState<DOMRect | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const PANEL_MAX_H = 280
+
+  const openDropdown = () => {
+    if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
+    setOpen(true); setSearch('')
+  }
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => {
+      const panel = document.getElementById('lw-ldg-panel')
+      if (panel?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
+      setOpen(false); setSearch('')
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  const filtered = ledgers.filter(l => (l.temple_name ?? l.ledger_name ?? '').toLowerCase().includes(search.toLowerCase()))
+  const groupOf = (l: any) => l?.subchildtwo || l?.child || ''
+  const selected = ledgers.find(l => String(l.id) === String(value))
+  const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
+  const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
+
+  const panel = open && rect && createPortal(
+    <div id="lw-ldg-panel" style={{
+      position: 'fixed',
+      top: openUpward ? undefined : rect.bottom + 4,
+      bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
+      left: rect.left, width: rect.width, maxHeight: PANEL_MAX_H, zIndex: 99999,
+    }} className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 flex-shrink-0">
+        <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+        <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Search ledger…"
+          className="flex-1 text-sm outline-none placeholder:text-slate-400 bg-transparent" />
+      </div>
+      <ul className="overflow-y-auto flex-1">
+        <li onMouseDown={() => { onChange(''); setOpen(false) }}
+          className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${!value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-400 hover:bg-slate-50'}`}>
+          All Ledgers
+        </li>
+        {filtered.length === 0 && <li className="px-4 py-3 text-sm text-slate-400 text-center">No ledgers found</li>}
+        {filtered.map(l => (
+          <li key={l.id} onMouseDown={() => { onChange(String(l.id)); setOpen(false); setSearch('') }}
+            className={`px-4 py-2 text-sm cursor-pointer transition-colors flex flex-col gap-0.5 ${
+              String(value) === String(l.id) ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
+            }`}>
+            <span className="truncate">{l.temple_name || l.ledger_name}</span>
+            {groupOf(l) && (
+              <span className={`text-[10px] font-medium truncate ${String(value) === String(l.id) ? 'text-blue-500' : 'text-slate-400'}`}>
+                {groupOf(l)}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>, document.body
+  )
+
+  return (
+    <div className="w-56">
+      <button ref={btnRef} type="button" onClick={openDropdown}
+        className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className="flex flex-col items-start min-w-0 flex-1 text-left">
+          <span className={selected ? 'text-slate-900 font-medium truncate w-full' : 'text-slate-400 truncate w-full'}>
+            {selected ? (selected.temple_name || selected.ledger_name) : 'All Ledgers'}
+          </span>
+          {selected && groupOf(selected) && (
+            <span className="text-[10px] font-medium text-slate-400 truncate w-full">{groupOf(selected)}</span>
+          )}
+        </span>
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh ledgers" />}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+      {panel}
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0]
+const currentFY = getCurrentFY()
 
 export default function LedgerWisePage() {
   const selectedFY = useFYStore(s => s.selectedFY)
+  const fyMin = selectedFY.fromDate
+  const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
   const location = useLocation()
   const inboundLedgerId = (location.state as any)?.ledgerId as number | undefined
   const autoApplied = useRef(false)
@@ -478,16 +618,25 @@ export default function LedgerWisePage() {
     todate: selectedFY.toDate,
   })
   const [applied, setApplied] = useState<typeof filter | null>(null)
+
+  // Selecting a financial year snaps the range to that year's full span and,
+  // if a search is already showing, re-runs it immediately — otherwise the FY
+  // tabs look like they do nothing once a ledger's been searched.
+  useEffect(() => {
+    setFilter(f => ({ ...f, fromdate: fyMin, todate: fyMax }))
+    setApplied(a => a ? { ...a, fromdate: fyMin, todate: fyMax } : a)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
   const [modal, setModal] = useState<{ open: boolean; entry: any; data: any; loading: boolean }>({
     open: false, entry: null, data: null, loading: false,
   })
 
-  const { data: ledgersRes } = useQuery({
+  const { data: ledgersRes, isFetching: ledgersFetching, refetch: refetchLedgers } = useQuery({
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
   })
 
-  const { data: searchRes, isLoading } = useQuery({
+  const { data: searchRes, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['ledger-wise', applied],
     queryFn: () => accountingService.getSearchData({
       fromdate: applied!.fromdate,
@@ -566,11 +715,26 @@ export default function LedgerWisePage() {
   const grandCredit = (openingBalance < 0 ? Math.abs(openingBalance) : 0) + txCredit + (closingBalance > 0 ? closingBalance : 0)
 
   const selectedLedger = ledgerList.find(l => String(l.id) === String(applied?.ledger_id))
-  const reportTitle = selectedLedger
-    ? `${selectedLedger.temple_name || selectedLedger.ledger_name} Ledger Report`
-    : applied
-    ? `Transactions ${applied.fromdate} to ${applied.todate}`
-    : 'Ledger Wise Report'
+  // Always carry the applied date range into the title — it previously only
+  // showed up when no specific ledger was selected, so a single-ledger export
+  // had no from/to date in its filename.
+  let reportTitle = 'Ledger Wise Report'
+  if (applied) {
+    const range = `${fmt(applied.fromdate)} to ${fmt(applied.todate)}`
+    reportTitle = selectedLedger
+      ? `${selectedLedger.temple_name || selectedLedger.ledger_name} Ledger Report (${range})`
+      : `Transactions ${range}`
+  }
+
+  // Export filename — built from raw ISO dates and a collapsed-underscore
+  // ledger name rather than munging reportTitle's "(dd/mm/yyyy to dd/mm/yyyy)"
+  // through a single-char replace, which left double/triple underscores.
+  const fileBaseName = (() => {
+    const ledgerPart = (selectedLedger ? (selectedLedger.temple_name || selectedLedger.ledger_name) : 'AllLedgers')
+      .replace(/[^a-z0-9]+/gi, '_')
+    const range = applied ? `${fmtFileDate(applied.fromdate)}_to_${fmtFileDate(applied.todate)}` : 'AllDates'
+    return `LedgerWise_${ledgerPart}_${range}`
+  })()
 
   const handleSearch = () => setApplied({ ...filter })
   const handleClear = () => {
@@ -602,7 +766,7 @@ export default function LedgerWisePage() {
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
 
-  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'name', 'description'] as const
+  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'name', 'description', 'debitAmount', 'creditAmount'] as const
 
   const colValue = useCallback((row: any, key: string): string => {
     switch (key) {
@@ -614,6 +778,8 @@ export default function LedgerWisePage() {
       case 'vehicleNo': return (row.vehicleNo || row.bus_no) || '-'
       case 'name': return row.name || '-'
       case 'description': return row.description || '-'
+      case 'debitAmount': return row.debit > 0 ? fmtAmt(row.debit) : '-'
+      case 'creditAmount': return row.credit > 0 ? fmtAmt(row.credit) : '-'
       default: return ''
     }
   }, [])
@@ -652,7 +818,7 @@ export default function LedgerWisePage() {
     return groups.join(' / ')
   }, [nameToGroup])
 
-  const downloadDate = () => new Date().toISOString().split('T')[0]
+  const downloadDate = () => fmtFileDate(new Date())
 
   // ─── Excel Export ──────────────────────────────────────────────────────────
   const exportExcel = () => {
@@ -701,28 +867,62 @@ export default function LedgerWisePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${reportTitle.replace(/[^a-z0-9]/gi, '_')}_${downloadDate()}.xlsx`
+    a.download = `${fileBaseName}_${downloadDate()}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }
 
   // ─── PDF Export ────────────────────────────────────────────────────────────
+  // Width the main table is balanced to (see columnStyles below) — reused to
+  // compute a left/right margin that centers both the summary cards and the
+  // table itself on the page instead of hugging the left edge.
+  const TABLE_WIDTH_MM = 257
+
   const exportPDF = () => {
     const doc = new jsPDF('landscape')
+    const pageWidth = doc.internal.pageSize.getWidth()
+    const marginX = Math.max((pageWidth - TABLE_WIDTH_MM) / 2, 14)
+
+    // App name + report title, both centered at the top of the page
     doc.setFontSize(16)
-    doc.text(reportTitle, 14, 15)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Samanvi Travels', pageWidth / 2, 14, { align: 'center' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(11)
+    doc.text(reportTitle, pageWidth / 2, 21, { align: 'center' })
+
+    // Summary cards — mirrors the Opening/Debit/Credit/Closing strip shown
+    // above the table on screen, rendered as one centered row of cells.
+    const cardStyle = (fill: [number, number, number], text: [number, number, number]) => ({
+      fillColor: fill, textColor: text, halign: 'center' as const, fontStyle: 'bold' as const, fontSize: 9,
+    })
+    autoTable(doc, {
+      startY: 26,
+      theme: 'grid',
+      margin: { left: marginX, right: marginX },
+      tableWidth: TABLE_WIDTH_MM,
+      body: [[
+        { content: `Opening Balance\n${showOB ? balStr(openingBalance) : '-'}`, styles: cardStyle([224, 242, 254], [3, 105, 161]) },
+        { content: `Total Debit\n${fmtN(txDebit)} (${debitCount})`, styles: cardStyle([254, 226, 226], [185, 28, 28]) },
+        { content: `Total Credit\n${fmtN(txCredit)} (${creditCount})`, styles: cardStyle([209, 250, 229], [4, 120, 87]) },
+        { content: `Closing Balance\n${balStr(closingBalance)}`, styles: cardStyle([254, 243, 199], [180, 83, 9]) },
+      ]],
+      styles: { cellPadding: 3, lineColor: [226, 232, 240], lineWidth: 0.2 },
+      columnStyles: { 0: { cellWidth: TABLE_WIDTH_MM / 4 }, 1: { cellWidth: TABLE_WIDTH_MM / 4 }, 2: { cellWidth: TABLE_WIDTH_MM / 4 }, 3: { cellWidth: TABLE_WIDTH_MM / 4 } },
+    })
+    const cardsEndY = (doc as any).lastAutoTable.finalY + 6
 
     // jspdf-autotable's columnStyles only apply to the body section, so header
     // cells need their alignment set explicitly to match each column's data.
-    const colAlign = ['center', 'center', 'center', 'center', 'left', 'left', 'center', 'center', 'center', 'left', 'right', 'right', 'right'] as const
-    const headers = ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance']
+    const colAlign = ['center', 'center', 'center', 'center', 'left', 'center', 'center', 'center', 'left', 'right', 'right', 'right'] as const
+    const headers = ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance']
       .map((h, i) => ({ content: h, styles: { halign: colAlign[i] } }))
     const body: any[] = []
 
     if (showOB) {
       body.push(['', '', '', '',
         { content: 'Opening Balance', styles: { fontStyle: 'bold', halign: 'right' } },
-        '', '', '', '', '',
+        '', '', '', '',
         { content: openingBalance >= 0 ? fmtN(openingBalance) : '0.00', styles: { halign: 'right' } },
         { content: openingBalance < 0 ? fmtN(Math.abs(openingBalance)) : '0.00', styles: { halign: 'right' } },
         { content: balStr(openingBalance), styles: { halign: 'right' } },
@@ -731,8 +931,8 @@ export default function LedgerWisePage() {
 
     rows.forEach((r, i) => {
       body.push([
-        String(i + 1), r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
-        r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
+        String(i + 1), r.c_number || '-', fmtShort(resolveDisplayDate(r)), r.vouchertype || 'N/A',
+        r.opp_ledgers || 'N/A', fmtShort(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
         r.name || '-', r.description || '-',
         { content: fmtN(r.debit), styles: { halign: 'right' } },
         { content: fmtN(r.credit), styles: { halign: 'right' } },
@@ -741,45 +941,50 @@ export default function LedgerWisePage() {
     })
 
     body.push(['', '', '', '',
-      { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', '',
+      { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
       { content: fmtN(totalDebit), styles: { fontStyle: 'bold', halign: 'right' } },
       { content: fmtN(totalCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
     body.push(['', '', '', '',
-      { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', '',
+      { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
       { content: closingBalance < 0 ? fmtN(Math.abs(closingBalance)) : '0.00', styles: { halign: 'right' } },
       { content: closingBalance >= 0 ? fmtN(closingBalance) : '0.00', styles: { halign: 'right' } },
       { content: balStr(closingBalance), styles: { halign: 'right' } },
     ])
     body.push(['', '', '', '',
-      { content: 'Grand Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', '',
+      { content: 'Grand Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
       { content: fmtN(grandDebit), styles: { fontStyle: 'bold', halign: 'right' } },
       { content: fmtN(grandCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
 
     autoTable(doc, {
-      head: [headers], body, startY: 25, theme: 'grid',
+      head: [headers], body, startY: cardsEndY, theme: 'grid',
       headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold' },
       styles: { fontSize: 7, cellPadding: 2 },
+      margin: { left: marginX, right: marginX },
+      tableWidth: TABLE_WIDTH_MM,
       columnStyles: {
-        // Widths sum to ~257mm, fitting landscape A4's ~269mm printable width
-        // (297mm page minus autoTable's default ~14mm margins each side).
+        // Widths sum to ~257mm (TABLE_WIDTH_MM) — margin above centers that
+        // on the page instead of the table hugging the left edge. The Group
+        // column's freed width went to Opp-Ledger.
         0: { cellWidth: 8, halign: 'center' },  1: { cellWidth: 15, halign: 'center' },
         2: { cellWidth: 17, halign: 'center' }, 3: { cellWidth: 16, halign: 'center' },
-        4: { cellWidth: 26, halign: 'left' },   5: { cellWidth: 20, halign: 'left' },
-        6: { cellWidth: 17, halign: 'center' }, 7: { cellWidth: 16, halign: 'center' },
-        8: { cellWidth: 18, halign: 'center' }, 9: { cellWidth: 34, halign: 'left' },
-        10: { cellWidth: 22, halign: 'right' }, 11: { cellWidth: 22, halign: 'right' },
-        12: { cellWidth: 26, halign: 'right' },
+        4: { cellWidth: 46, halign: 'left' },   5: { cellWidth: 17, halign: 'center' },
+        6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 18, halign: 'center' },
+        8: { cellWidth: 34, halign: 'left' },   9: { cellWidth: 22, halign: 'right' },
+        10: { cellWidth: 22, halign: 'right' }, 11: { cellWidth: 26, halign: 'right' },
       },
     })
-    doc.save(`${reportTitle.replace(/[^a-z0-9]/gi, '_')}_${downloadDate()}.pdf`)
+    doc.save(`${fileBaseName}_${downloadDate()}.pdf`)
   }
 
   // ─── Table helpers ─────────────────────────────────────────────────────────
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
     <th className={`px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-700 border-r border-blue-600 ${cls}`}>
-      <div className="flex items-center gap-1.5">
+      {/* text-align on the <th> doesn't affect this flex row's own layout —
+          justify-end is needed too so the label+filter icon actually sit on
+          the same side as the right-aligned amount cells below */}
+      <div className={`flex items-center gap-1.5 ${cls.includes('text-right') ? 'justify-end' : ''}`}>
         <span>{children}</span>
         {filterKey && (
           <ColumnFilterDropdown
@@ -798,7 +1003,7 @@ export default function LedgerWisePage() {
       <td colSpan={9} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{dr != null ? fmtAmt(dr) : ''}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{cr != null ? fmtAmt(cr) : ''}</td>
-      <td className={`px-3 py-2.5 text-right tabular-nums ${bal != null ? balCls(bal) : ''}`}>
+      <td className={`px-3 py-2.5 text-right tabular-nums ${bal != null ? obCbCls(bal) : ''}`}>
         {bal != null ? balStr(bal) : ''}
       </td>
     </tr>
@@ -813,6 +1018,35 @@ export default function LedgerWisePage() {
     </tr>
   )
 
+  // Opening/Debit/Credit/Closing cards — shown above the table, and repeated
+  // below it so the totals stay visible without scrolling back up.
+  const SummaryStrip = () => (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-sky-600 mb-1">Opening Balance</p>
+        <p className={`text-base font-bold ${obCbCls(openingBalance)}`}>{showOB ? balStr(openingBalance) : '—'}</p>
+      </div>
+      <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-red-600 mb-1">Total Debit</p>
+        <p className="text-base font-bold text-red-700">₹{fmtAmt(txDebit)}</p>
+        <p className="inline-flex items-center gap-1 text-xs font-bold text-red-700 bg-red-100 border border-red-200 px-2.5 py-0.5 rounded-full mt-1.5">
+          {debitCount} {debitCount === 1 ? 'entry' : 'entries'}
+        </p>
+      </div>
+      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 mb-1">Total Credit</p>
+        <p className="text-base font-bold text-emerald-700">₹{fmtAmt(txCredit)}</p>
+        <p className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-full mt-1.5">
+          {creditCount} {creditCount === 1 ? 'entry' : 'entries'}
+        </p>
+      </div>
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-amber-600 mb-1">Closing Balance</p>
+        <p className={`text-base font-bold ${obCbCls(closingBalance)}`}>{balStr(closingBalance)}</p>
+      </div>
+    </div>
+  )
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -820,27 +1054,25 @@ export default function LedgerWisePage() {
 
       {/* Filter bar */}
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-teal-500 to-blue-500">
+        <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap">
           <div>
             <Label>
               Ledger Name{' '}
               <span className="text-slate-400 font-normal text-xs">(Optional)</span>
             </Label>
-            <Select
+            <LedgerSelectDropdown
               value={filter.ledger_id}
-              onChange={e => setFilter(f => ({ ...f, ledger_id: e.target.value }))}
-              className="w-56"
-            >
-              <option value="">All Ledgers</option>
-              {ledgerList.map(l => (
-                <option key={l.id} value={l.id}>{l.temple_name || l.ledger_name}</option>
-              ))}
-            </Select>
+              ledgers={ledgerList}
+              onChange={id => setFilter(f => ({ ...f, ledger_id: id }))}
+              onRefresh={() => refetchLedgers()}
+              refreshing={ledgersFetching}
+            />
           </div>
           <div>
             <Label>From Date</Label>
             <Input
-              type="date" max={today}
+              type="date" min={fyMin} max={fyMax}
               value={filter.fromdate}
               onChange={e => setFilter(f => ({ ...f, fromdate: e.target.value }))}
             />
@@ -848,7 +1080,7 @@ export default function LedgerWisePage() {
           <div>
             <Label>To Date</Label>
             <Input
-              type="date" max={today}
+              type="date" min={fyMin} max={fyMax}
               value={filter.todate}
               onChange={e => setFilter(f => ({ ...f, todate: e.target.value }))}
             />
@@ -862,11 +1094,16 @@ export default function LedgerWisePage() {
               <X className="w-4 h-4" /> Clear
             </Button>
           )}
+          {applied && (
+            <Button onClick={() => refetch()} disabled={isFetching} className="bg-slate-600 hover:bg-slate-700">
+              <RefreshCw className={`w-4 h-4 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+          )}
         </div>
       </GlassCard>
 
       {/* Report title + export + filter buttons */}
-      {rows.length > 0 && (
+      {!isLoading && applied && (
         <div className="space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <h3 className="font-bold text-slate-700">{reportTitle}</h3>
@@ -887,26 +1124,7 @@ export default function LedgerWisePage() {
           </div>
 
           {/* Summary strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-center">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-sky-600 mb-1">Opening Balance</p>
-              <p className={`text-base font-bold ${balCls(openingBalance)}`}>{showOB ? balStr(openingBalance) : '—'}</p>
-            </div>
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-red-600 mb-1">Total Debit</p>
-              <p className="text-base font-bold text-red-700">₹{fmtAmt(txDebit)}</p>
-              <p className="text-[10px] text-red-400 mt-0.5">{debitCount} {debitCount === 1 ? 'entry' : 'entries'}</p>
-            </div>
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 mb-1">Total Credit</p>
-              <p className="text-base font-bold text-emerald-700">₹{fmtAmt(txCredit)}</p>
-              <p className="text-[10px] text-emerald-400 mt-0.5">{creditCount} {creditCount === 1 ? 'entry' : 'entries'}</p>
-            </div>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-600 mb-1">Closing Balance</p>
-              <p className={`text-base font-bold ${balCls(closingBalance)}`}>{balStr(closingBalance)}</p>
-            </div>
-          </div>
+          <SummaryStrip />
         </div>
       )}
 
@@ -922,11 +1140,8 @@ export default function LedgerWisePage() {
           <BookMarked className="w-8 h-8 mx-auto mb-2 opacity-30" />
           Select a date range and click Search to view transactions.
         </GlassCard>
-      ) : rows.length === 0 ? (
-        <GlassCard className="p-10 text-center text-slate-400 text-sm">
-          No transactions found for the selected criteria.
-        </GlassCard>
       ) : (
+        <>
         <GlassCard className="overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
@@ -941,8 +1156,8 @@ export default function LedgerWisePage() {
                   <TH filterKey="vehicleNo">Vehicle No.</TH>
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="description">Description</TH>
-                  <TH cls="text-right">Dr Amount</TH>
-                  <TH cls="text-right">Cr Amount</TH>
+                  <TH cls="text-right" filterKey="debitAmount">Dr Amount</TH>
+                  <TH cls="text-right" filterKey="creditAmount">Cr Amount</TH>
                   <TH cls="text-right">R Balance</TH>
                 </tr>
               </thead>
@@ -952,21 +1167,43 @@ export default function LedgerWisePage() {
                   <tr className="bg-sky-50 border-b border-sky-200">
                     <td colSpan={9} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
                       Opening Balance —{' '}
-                      <span className={balCls(openingBalance)}>{balStr(openingBalance)}</span>
+                      <span className={obCbCls(openingBalance)}>{balStr(openingBalance)}</span>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-400 font-medium">—</td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-400 font-medium">—</td>
-                    <td className={`px-3 py-2 text-right tabular-nums font-bold ${balCls(openingBalance)}`}>
+                    <td className={`px-3 py-2 text-right tabular-nums font-bold ${obCbCls(openingBalance)}`}>
                       {balStr(openingBalance)}
                     </td>
                   </tr>
                 )}
 
-                {/* Transaction rows */}
-                {displayRows.map((row, idx) => (
+                {/* Empty state — keep the table (with headers) on screen instead
+                    of swapping the whole card out for a blank message */}
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400 text-sm">
+                      No transactions found for the selected criteria.
+                    </td>
+                  </tr>
+                ) : displayRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400 text-sm">
+                      No rows match the active filters.
+                    </td>
+                  </tr>
+                ) : null}
+
+                {/* Transaction rows — tinted red/emerald to match the Debit/Credit
+                    counts shown in the summary strip above */}
+                {displayRows.map((row, idx) => {
+                  const isDebit = row.debit > 0
+                  const isCredit = row.credit > 0
+                  return (
                   <tr
                     key={idx}
-                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-blue-50/40 transition-colors`}
+                    className={`${
+                      isDebit ? 'bg-red-50/50' : isCredit ? 'bg-emerald-50/50' : (idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60')
+                    } hover:bg-blue-50/50 transition-colors`}
                   >
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{idx + 1}</td>
                     <td className="px-3 py-2 border-b border-slate-100 whitespace-nowrap">
@@ -985,7 +1222,7 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 whitespace-nowrap">
                       {row.vouchertype || 'N/A'}
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[160px] truncate">
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[160px] truncate" title={row.opp_ledgers || 'N/A'}>
                       {row.opp_ledgers || 'N/A'}
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
@@ -994,10 +1231,10 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {(row.vehicleNo || row.bus_no) || '-'}
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap" title={row.name || '-'}>
                       {row.name || '-'}
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-500 max-w-[200px] truncate">
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-500 max-w-[200px] truncate" title={row.description || '-'}>
                       {row.description || '-'}
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-right tabular-nums font-medium text-red-600 whitespace-nowrap">
@@ -1010,7 +1247,8 @@ export default function LedgerWisePage() {
                       {balStr(row.runningBalance ?? 0)}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
               <tfoot>
                 <SummaryRow label="Total" dr={totalDebit} cr={totalCredit} />
@@ -1025,6 +1263,10 @@ export default function LedgerWisePage() {
             </table>
           </div>
         </GlassCard>
+
+        {/* Summary strip repeated below the table */}
+        <SummaryStrip />
+        </>
       )}
 
       {/* Ref No. Modals */}

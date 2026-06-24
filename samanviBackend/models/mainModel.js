@@ -7422,6 +7422,10 @@ exports.updatesubmitvoucherentrymaindata = function (
     updatedby_date: data.updatedby_date,
     d_in: 0,
     status: 0,
+    // Preserves the voucher's Payable classification across an edit —
+    // without this the re-inserted row always defaulted to a "normal"
+    // (non-payable) voucher, even when editing a payables voucher.
+    is_payable: data.is_payable || 0,
   };
   const QRY_TO_EXEC = `INSERT INTO mainvoucher_t SET ?;`;
   if (callback && typeof callback === "function") {
@@ -7570,7 +7574,7 @@ ORDER BY fs.voucherdate ASC
 exports.getbusnumberMdl = function (callback) {
   var cntxtDtls = "in getbusnumberMdl";
   const QRY_TO_EXEC = `
-    select * from fuel_entry where d_in=0`;
+    select * from busses where d_in=0`;
   //console.log()QRY_TO_EXEC, 7675);
   if (callback && typeof callback == "function") {
     dbutil.execQuery(
@@ -10494,7 +10498,8 @@ exports.payablessubmitvoucherentrymaindata = function (c_number, c_id, data, cal
     c_number: c_number,
     c_id: c_id,
     entry_by: data.named,
-    user_id: data.user_id
+    user_id: data.user_id,
+    is_payable: 1
   };
   const QRY_TO_EXEC = `INSERT INTO mainvoucher_t SET ?;`;
   console.log(2222222222222222)
@@ -10753,7 +10758,7 @@ exports.payablessubmitvoucherentrysubtableseconddata = function (
 //   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 // };
 
-exports.payablesledgerupdate = function (data, callback) {
+exports.payablesledgerupdate = function (data, settledByCNumber, callback) {
   var cntxtDtls = "in payablesledgerupdate";
 
   const TABLE_MAP = {
@@ -10761,6 +10766,15 @@ exports.payablesledgerupdate = function (data, callback) {
     mainvoucher_subt: 'mainvoucher_subt',
     fuelentry_subt: 'fuelentry_subt',
     laundrybill_subt: 'laundrybill_subt'
+  };
+  // expensive_details is already at MariaDB's max inline row size and can't
+  // take this column — payment/balance still get recorded there, it just
+  // can't be auto-relinked back to the settling voucher for editing later.
+  const SUPPORTS_SETTLED_BY = {
+    expensive_details: false,
+    mainvoucher_subt: true,
+    fuelentry_subt: true,
+    laundrybill_subt: true
   };
 
   let idx = 0;
@@ -10777,21 +10791,44 @@ exports.payablesledgerupdate = function (data, callback) {
       return callback && callback(new Error('Invalid source_table: ' + row.source_table));
     }
 
-    const QRY_TO_EXEC = `
-      UPDATE ${tableName}
-      SET payment = ?, balance = ?, payablesremarks = ?, isedited=?
-      WHERE id = ? AND c_id = ? AND c_number = ? AND d_in='0'
-    `;
+    // `row.payment` from the frontend is only ever THIS settle action's own
+    // contribution (capped at whatever was outstanding when it was typed) —
+    // never a running total across every voucher that's ever touched this
+    // row. Writing it straight to the payment column silently overwrote
+    // (instead of adding to) any other still-valid voucher's earlier share.
+    // `row.balance` is the one value that's always reliable here (always
+    // freshly derived from the row's actual current remaining balance), so
+    // payment is derived from it instead: payment = amount - balance, using
+    // the row's own (immutable) amount column rather than trusting a second
+    // independently-computed number from the client.
+    const QRY_TO_EXEC = SUPPORTS_SETTLED_BY[row.source_table]
+      ? `UPDATE ${tableName}
+         SET payment = (amount - ?), balance = ?, payablesremarks = ?, isedited=?, payables_settled_by = ?
+         WHERE id = ? AND c_id = ? AND c_number = ? AND d_in='0'`
+      : `UPDATE ${tableName}
+         SET payment = (amount - ?), balance = ?, payablesremarks = ?, isedited=?
+         WHERE id = ? AND c_id = ? AND c_number = ? AND d_in='0'`;
 
-    const params = [
-      row.payment || 0,
-      row.balance || 0,
-      row.payablesremarks || null,
-      row.isedited || 0,
-      row.id,
-      row.c_id,
-      row.c_number
-    ];
+    const params = SUPPORTS_SETTLED_BY[row.source_table]
+      ? [
+          row.balance || 0,
+          row.balance || 0,
+          row.payablesremarks || null,
+          row.isedited || 0,
+          settledByCNumber || null,
+          row.id,
+          row.c_id,
+          row.c_number
+        ]
+      : [
+          row.balance || 0,
+          row.balance || 0,
+          row.payablesremarks || null,
+          row.isedited || 0,
+          row.id,
+          row.c_id,
+          row.c_number
+        ];
     console.log(5555555555555555, QRY_TO_EXEC);
 
     dbutil.execQuery(
@@ -10801,6 +10838,22 @@ exports.payablesledgerupdate = function (data, callback) {
       function (err, result) {
         if (err) return callback && callback(err);
         results.push(result);
+
+        // expensive_details has no inline payables_settled_by column (row-size
+        // limit) — record the settling voucher in the side table instead, so
+        // unsettlePayablesRowsMdl/getpayablessettledrowsMdl can still find it.
+        if (row.source_table === 'expensive_details' && settledByCNumber) {
+          const linkQry = `INSERT INTO payables_settled_links (source_table, source_id, c_number)
+            VALUES ('expensive_details', ?, ?)
+            ON DUPLICATE KEY UPDATE c_number = VALUES(c_number)`;
+          dbutil.execQuery(sqldb, { sql: linkQry, values: [row.id, settledByCNumber] }, cntxtDtls, function (linkErr) {
+            if (linkErr) console.error('[payablesledgerupdate] settled-link upsert failed:', linkErr.message);
+            idx++;
+            next();
+          });
+          return;
+        }
+
         idx++;
         next();
       }
@@ -10809,6 +10862,195 @@ exports.payablesledgerupdate = function (data, callback) {
 
   next();
 };
+
+// Read-only version of the history walk in unsettlePayablesRowsMdl below —
+// figures out what a row's balance/settled-by WOULD become if voucher
+// c_number's own settlement of it were undone, without actually undoing
+// anything. Shared by unsettlePayablesRowsMdl (which performs the reset) and
+// getpayablessettledrowsMdl (which needs it to show the edit screen the
+// amount actually available to THIS voucher — not the row's full original
+// amount, which may include other still-valid vouchers' shares).
+function computeRestoreState(sourceTable, sourceId, c_number, cb) {
+  const histQry = `SELECT c_number, balance_after, action FROM payables_payment_history
+    WHERE source_table = ? AND source_id = ? ORDER BY id ASC`;
+  dbutil.execQuery(sqldb, { sql: histQry, values: [sourceTable, sourceId] }, 'computeRestoreState', function (histErr, hist) {
+    if (histErr || !Array.isArray(hist) || !hist.length) return cb(null, { restoreBalance: null, restoreSettledBy: null });
+    let lastVSettleIdx = -1;
+    for (let k = hist.length - 1; k >= 0; k--) {
+      if (hist[k].c_number === c_number && hist[k].action === 'settled') { lastVSettleIdx = k; break; }
+    }
+    let i = lastVSettleIdx - 1;
+    while (i >= 0 && hist[i].c_number === c_number) i--;
+    const prev = i >= 0 ? hist[i] : null;
+    if (!prev) return cb(null, { restoreBalance: null, restoreSettledBy: null });
+    cb(null, {
+      restoreBalance: Number(prev.balance_after) || 0,
+      restoreSettledBy: prev.action === 'settled' ? prev.c_number : null,
+    });
+  });
+}
+
+// Returns the original transaction rows a given payables voucher settled —
+// used to re-select/pre-fill them when editing that voucher from Voucher
+// Approvals. expensive_details rows are looked up via payables_settled_links
+// — see note in payablesledgerupdate. Each row also gets `available_balance`
+// attached: the amount actually available to THIS voucher (its own share +
+// whatever's still unpaid), not the row's full original amount.
+exports.getpayablessettledrowsMdl = function (data, callback) {
+  var cntxtDtls = "in getpayablessettledrowsMdl";
+  const c_number = data.c_number;
+  const QRY_TO_EXEC = `
+    SELECT *, 'mainvoucher_subt' AS source_table FROM mainvoucher_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT *, 'fuelentry_subt' AS source_table FROM fuelentry_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT *, 'laundrybill_subt' AS source_table FROM laundrybill_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT ed.*, 'expensive_details' AS source_table
+      FROM expensive_details ed
+      JOIN payables_settled_links psl ON psl.source_table='expensive_details' AND psl.source_id = ed.id
+      WHERE psl.c_number = ? AND ed.d_in='0';
+  `;
+  const params = [c_number, c_number, c_number, c_number];
+  if (!(callback && typeof callback === "function")) return dbutil.execQuery(sqldb, { sql: QRY_TO_EXEC, values: params }, cntxtDtls);
+
+  dbutil.execQuery(sqldb, { sql: QRY_TO_EXEC, values: params }, cntxtDtls, function (err, results) {
+    if (err) return callback(err, null);
+    const combined = [].concat(results[0] || [], results[1] || [], results[2] || [], results[3] || []);
+    if (combined.length === 0) return callback(null, combined);
+
+    let idx = 0;
+    function next() {
+      if (idx >= combined.length) return callback(null, combined);
+      const row = combined[idx];
+      computeRestoreState(row.source_table, row.id, c_number, function (_e, state) {
+        row.available_balance = state.restoreBalance === null ? (Number(row.amount) || 0) : state.restoreBalance;
+        idx++; next();
+      });
+    }
+    next();
+  });
+};
+
+// Bulk-inserts one payment-history row per entry — 'settled' rows after a
+// voucher settles transactions, 'reversed' rows when that settlement is
+// undone (edit re-selection or rejection). This is the only place the full
+// settle/reverse timeline for a row is recorded — payables_settled_by only
+// ever holds the single most recent voucher.
+exports.insertPayablesPaymentHistoryMdl = function (entries, callback) {
+  var cntxtDtls = "in insertPayablesPaymentHistoryMdl";
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return callback && callback(null, { inserted: 0 });
+  }
+  const QRY_TO_EXEC = `INSERT INTO payables_payment_history
+    (source_table, source_id, c_number, payment, balance_after, action, created_by_id, created_by_name) VALUES ?`;
+  const values = entries.map(e => [
+    e.source_table, e.source_id, e.c_number,
+    e.payment || 0, e.balance_after || 0, e.action || 'settled',
+    e.actor_id || '', e.actor_name || ''
+  ]);
+  dbutil.execQuery(sqldb, { sql: QRY_TO_EXEC, values: [values] }, cntxtDtls, callback);
+};
+
+// Full settle/reverse history for one source transaction row, newest last.
+exports.getPayablesPaymentHistoryMdl = function (sourceTable, sourceId, callback) {
+  var cntxtDtls = "in getPayablesPaymentHistoryMdl";
+  const QRY_TO_EXEC = `SELECT * FROM payables_payment_history WHERE source_table = ? AND source_id = ? ORDER BY created_at ASC, id ASC`;
+  dbutil.execQuery(sqldb, { sql: QRY_TO_EXEC, values: [sourceTable, sourceId] }, cntxtDtls, callback);
+};
+
+// Undoes this payables voucher's settlement of every row it currently holds
+// (payables_settled_by/payables_settled_links pointing at it), restoring each
+// row to whatever it looked like immediately *before* this voucher touched
+// it — NOT a flat wipe to payment=0/balance=amount. A row can be partially
+// paid by more than one voucher over time (payables_settled_by only ever
+// points at the latest one); resetting to the pristine original amount on
+// reject would silently erase an earlier voucher's still-approved payment
+// too. The per-row payables_payment_history trail (every settle/reverse
+// event, in order) is what lets us find that "state right before this
+// voucher" instead — see payablesledgerupdate/getPayablesPaymentHistoryMdl.
+exports.unsettlePayablesRowsMdl = function (c_number, actorId, actorName, callback) {
+  var cntxtDtls = "in unsettlePayablesRowsMdl";
+  const SELECT_QRY = `
+    SELECT id, payment, balance, 'mainvoucher_subt' AS source_table FROM mainvoucher_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT id, payment, balance, 'fuelentry_subt' AS source_table FROM fuelentry_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT id, payment, balance, 'laundrybill_subt' AS source_table FROM laundrybill_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT ed.id, ed.payment, ed.balance, 'expensive_details' AS source_table
+      FROM expensive_details ed
+      JOIN payables_settled_links psl ON psl.source_table='expensive_details' AND psl.source_id = ed.id
+      WHERE psl.c_number = ? AND ed.d_in='0';
+  `;
+  const params = [c_number, c_number, c_number, c_number];
+  const SUPPORTS_SETTLED_BY = { mainvoucher_subt: true, fuelentry_subt: true, laundrybill_subt: true, expensive_details: false };
+
+  dbutil.execQuery(sqldb, { sql: SELECT_QRY, values: params }, cntxtDtls, function (err, results) {
+    if (err || !results) return callback && callback(err);
+    const rows = [].concat(results[0] || [], results[1] || [], results[2] || [], results[3] || []);
+    if (rows.length === 0) return callback && callback(null, { affected: 0 });
+
+    let idx = 0;
+    function next() {
+      if (idx >= rows.length) return callback && callback(null, { affected: rows.length });
+      const row = rows[idx];
+
+      computeRestoreState(row.source_table, row.id, c_number, function (_e, state) {
+        const restoreBalance = state.restoreBalance;
+        const restoreSettledBy = state.restoreSettledBy;
+
+        exports.insertPayablesPaymentHistoryMdl([{
+          source_table: row.source_table, source_id: row.id, c_number,
+          payment: row.payment || 0, balance_after: row.balance || 0,
+          action: 'reversed', actor_id: actorId, actor_name: actorName,
+        }], function (logErr) {
+          if (logErr) console.error('[unsettlePayablesRowsMdl] history log failed for', c_number, row.source_table, row.id);
+
+          const tableName = row.source_table;
+          // Falling all the way back to unpaid uses `balance=amount` (a
+          // column reference, not a bound value) — kept as its own branch
+          // rather than trying to parameterize a column name.
+          const fellBackToZero = restoreBalance === null;
+          // isedited is a tri-state the frontend reads to decide what to show:
+          // 0 = untouched (displays the full original amount, ignoring
+          // balance!), 1 = partially paid, 2 = fully paid/closed. Restoring
+          // payment/balance to a still-partial state but leaving isedited=0
+          // was the actual bug — the row's balance column was correct, but
+          // the frontend ignored it and showed the full amount anyway.
+          const restoredIsEdited = fellBackToZero ? 0 : (restoreBalance > 0 ? 1 : 2);
+          // payment is derived as amount - balance (not written from
+          // restorePayment directly) — same reasoning as payablesledgerupdate:
+          // balance_after in the history trail is reliably cumulative, but a
+          // payment value logged before this fix could itself be stale, so
+          // the row's own amount column is the trustworthy anchor.
+          const finalQry = fellBackToZero
+            ? (SUPPORTS_SETTLED_BY[tableName]
+                ? `UPDATE ${tableName} SET payment=0, balance=amount, payablesremarks=NULL, isedited=0, payables_settled_by=NULL WHERE id=? AND d_in='0'`
+                : `UPDATE ${tableName} SET payment=0, balance=amount, payablesremarks=NULL, isedited=0 WHERE id=? AND d_in='0'`)
+            : (SUPPORTS_SETTLED_BY[tableName]
+                ? `UPDATE ${tableName} SET payment=(amount - ?), balance=?, payablesremarks=NULL, isedited=?, payables_settled_by=? WHERE id=? AND d_in='0'`
+                : `UPDATE ${tableName} SET payment=(amount - ?), balance=?, payablesremarks=NULL, isedited=? WHERE id=? AND d_in='0'`);
+          const finalVals = fellBackToZero
+            ? [row.id]
+            : (SUPPORTS_SETTLED_BY[tableName]
+                ? [restoreBalance, restoreBalance, restoredIsEdited, restoreSettledBy, row.id]
+                : [restoreBalance, restoreBalance, restoredIsEdited, row.id]);
+
+          dbutil.execQuery(sqldb, { sql: finalQry, values: finalVals }, cntxtDtls, function (updErr) {
+            if (updErr) console.error('[unsettlePayablesRowsMdl] row update failed for', c_number, tableName, row.id, updErr.message);
+
+            if (tableName !== 'expensive_details') { idx++; return next(); }
+
+            if (!fellBackToZero && restoreSettledBy) {
+              const linkQry = `INSERT INTO payables_settled_links (source_table, source_id, c_number)
+                VALUES ('expensive_details', ?, ?) ON DUPLICATE KEY UPDATE c_number = VALUES(c_number)`;
+              dbutil.execQuery(sqldb, { sql: linkQry, values: [row.id, restoreSettledBy] }, cntxtDtls, function () { idx++; next() });
+            } else {
+              dbutil.execQuery(sqldb, { sql: `DELETE FROM payables_settled_links WHERE source_table='expensive_details' AND source_id=?`, values: [row.id] }, cntxtDtls, function () { idx++; next() });
+            }
+          });
+        });
+      });
+    }
+    next();
+  });
+};
+
 exports.getvoucherapproveddataMdl = function (callback) {
   var cntxtDtls = "in getvoucherapproveddataMdl";
   var QRY_TO_EXEC = `SELECT mv.*,
@@ -10839,7 +11081,7 @@ exports.getvouchersearchdataMdl = function (data, callback) {
   let check2 = "";
 
   if (data.fromdate != "" && data.todate != "") {
-    check2 = ` AND voucherdate BETWEEN '${data.fromdate}' AND '${data.todate}' `;
+    check2 = ` AND mv.voucherdate BETWEEN '${data.fromdate}' AND '${data.todate}' `;
   }
 
   let check = "";
@@ -10970,62 +11212,21 @@ exports.getallrepairCategoryMdl = function (data, callback) {
 
 exports.addrepaircategoryMdl = function (data, callback) {
   var cntxtDtls = "addrepaircategoryMdl";
-  var QRY_TO_EXEC = `insert into repair_category(name,parent_id) values ('${data.name}',${data.parent_id})`;
-
-  let m = [];
-
-  if (callback && typeof callback == "function")
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      m,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  var QRY_TO_EXEC = `insert into repair_category(name,parent_id) values (?,?)`;
+  var m = [data.name, data.parent_id || null];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
 };
 
 exports.editrepaircategoryMdl = function (data, callback) {
   var cntxtDtls = "editrepaircategoryMdl";
-  var QRY_TO_EXEC = `update repair_category set name='${data.name}' where id = ${data.id}`;
-
-  let m = [];
-
-  if (callback && typeof callback == "function")
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      m,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  var QRY_TO_EXEC = `update repair_category set name=? where id = ?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.name, data.id], cntxtDtls, callback);
 };
 
 exports.deleterepaircategoryMdl = function (data, callback) {
   var cntxtDtls = "deleterepaircategoryMdl";
-  var QRY_TO_EXEC = `update repair_category set d_in=1 where id = ${data.id}`;
-
-  let m = [];
-
-  if (callback && typeof callback == "function")
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      m,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  var QRY_TO_EXEC = `update repair_category set d_in=1 where id = ?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
 };
 
 exports.getallrepairpartsMdl = function (data, callback) {
@@ -11050,65 +11251,22 @@ exports.getallrepairpartsMdl = function (data, callback) {
 
 exports.addrepairpaMdl = function (data, callback) {
   var cntxtDtls = "addrepairpaMdl";
-  var QRY_TO_EXEC = `insert into parts_master(part_name,price) values('${data.part_name}','${data.price}')`;
-
-  let m = [];
-  console.log(QRY_TO_EXEC)
-
-  if (callback && typeof callback == "function")
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      m,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  var QRY_TO_EXEC = `insert into parts_master(part_number,part_name,price) values(?,?,?)`;
+  var m = [data.part_number || '', data.part_name, data.price];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
 };
 
 exports.editrepairpartsMdl = function (data, callback) {
   var cntxtDtls = "editrepairpartsMdl";
-  var QRY_TO_EXEC = `update parts_master set part_name = '${data.part_name}',price = '${data.price}' where part_id ='${data.id}'`;
-
-  let m = [];
-
-  console.log(QRY_TO_EXEC)
-
-  if (callback && typeof callback == "function")
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      m,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  var QRY_TO_EXEC = `update parts_master set part_number=?, part_name=?, price=? where part_id=?`;
+  var m = [data.part_number || '', data.part_name, data.price, data.id];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
 };
 
 exports.deleterepairpartsMdl = function (data, callback) {
   var cntxtDtls = "deleterepairpartsMdl";
-  var QRY_TO_EXEC = `update parts_master set d_in=1 where part_id ='${data.id}'`;
-
-  let m = [];
-
-  if (callback && typeof callback == "function")
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      m,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  var QRY_TO_EXEC = `update parts_master set d_in=1 where part_id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
 };
 
 
@@ -11131,7 +11289,8 @@ exports.addrepairentryMdl = function (c_id, c_number, data, callback) {
 
   console.log(c_id, c_number, data)
   var cntxtDtls = "addrepairentryMdl";
-  var QRY_TO_EXEC = `insert into vehicle_jobs(c_id,job_card_number,vehicle_number,odometer_reading,repair_category_id,priority,reported_driver_id,remarks,assigned_to,state) VALUES('${c_id}','${c_number}','${data.vehicle_number}','${data.odometer_reading}','${data.repair_category_id}','${data.priority}','${data.reported_driver_id}','${data.remarks}','${data.assigned_to}','OPEN');`;
+  var nextDate = data.next_job_date ? `'${data.next_job_date}'` : 'NULL';
+  var QRY_TO_EXEC = `insert into vehicle_jobs(c_id,job_card_number,vehicle_number,odometer_reading,repair_category_id,priority,reported_driver_id,remarks,assigned_to,state,is_repeated_job,next_job_date) VALUES('${c_id}','${c_number}','${data.vehicle_number}','${data.odometer_reading}','${data.repair_category_id}','${data.priority}','${data.reported_driver_id}','${data.remarks}','${data.assigned_to}','OPEN','${data.is_repeated_job || 0}',${nextDate});`;
 
   let m = [];
 
@@ -11271,6 +11430,213 @@ exports.changeJobSatusMdl = function (data, callback) {
       }
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+// Garage Extension: Service Reminders, Tyre Management, Battery Management -------------------------------------------------------------------------------
+
+// ── Service Reminders ───────────────────────────────────────────────────────
+exports.getServiceRemindersMdl = function (data, callback) {
+  var cntxtDtls = "getServiceRemindersMdl";
+  var QRY_TO_EXEC = `SELECT * FROM service_reminders WHERE d_in=0 ORDER BY due_date IS NULL, due_date ASC, id DESC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.addServiceReminderMdl = function (data, callback) {
+  var cntxtDtls = "addServiceReminderMdl";
+  var QRY_TO_EXEC = `INSERT INTO service_reminders
+    (vehicle_number, reminder_type, due_date, due_odometer, remarks, is_repeating, repeat_interval, repeat_unit, created_by_id, created_by_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  var m = [
+    data.vehicle_number, data.reminder_type, data.due_date || null, data.due_odometer || null,
+    data.remarks || '', data.is_repeating ? 1 : 0, data.repeat_interval || null, data.repeat_unit || null,
+    data.user_id || '', data.usr_nm || '',
+  ];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.editServiceReminderMdl = function (data, callback) {
+  var cntxtDtls = "editServiceReminderMdl";
+  var QRY_TO_EXEC = `UPDATE service_reminders SET vehicle_number=?, reminder_type=?, due_date=?, due_odometer=?, remarks=?, is_repeating=?, repeat_interval=?, repeat_unit=? WHERE id=?`;
+  var m = [
+    data.vehicle_number, data.reminder_type, data.due_date || null, data.due_odometer || null, data.remarks || '',
+    data.is_repeating ? 1 : 0, data.repeat_interval || null, data.repeat_unit || null, data.id,
+  ];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.getServiceReminderByIdMdl = function (id, callback) {
+  var cntxtDtls = "getServiceReminderByIdMdl";
+  var QRY_TO_EXEC = `SELECT * FROM service_reminders WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [id], cntxtDtls, callback);
+};
+
+exports.completeServiceReminderMdl = function (data, callback) {
+  var cntxtDtls = "completeServiceReminderMdl";
+  var QRY_TO_EXEC = `UPDATE service_reminders SET status='Completed', last_done_date=?, last_done_odometer=?, completed_at=NOW() WHERE id=?`;
+  var m = [data.last_done_date || null, data.last_done_odometer || null, data.id];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.deleteServiceReminderMdl = function (data, callback) {
+  var cntxtDtls = "deleteServiceReminderMdl";
+  var QRY_TO_EXEC = `UPDATE service_reminders SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Tyre Inventory ───────────────────────────────────────────────────────────
+exports.getTyreInventoryMdl = function (data, callback) {
+  var cntxtDtls = "getTyreInventoryMdl";
+  var QRY_TO_EXEC = `SELECT * FROM tyre_master WHERE d_in=0 ORDER BY id DESC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.addTyreInventoryMdl = function (data, callback) {
+  var cntxtDtls = "addTyreInventoryMdl";
+  var QRY_TO_EXEC = `INSERT INTO tyre_master
+    (tyre_code, brand, size, purchase_date, cost, status, remarks, created_by_id, created_by_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  var m = [
+    data.tyre_code, data.brand || '', data.size || '', data.purchase_date || null,
+    data.cost || 0, data.status || 'In Stock', data.remarks || '',
+    data.user_id || '', data.usr_nm || '',
+  ];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.editTyreInventoryMdl = function (data, callback) {
+  var cntxtDtls = "editTyreInventoryMdl";
+  var QRY_TO_EXEC = `UPDATE tyre_master SET tyre_code=?, brand=?, size=?, purchase_date=?, cost=?, status=?, remarks=? WHERE id=?`;
+  var m = [data.tyre_code, data.brand || '', data.size || '', data.purchase_date || null, data.cost || 0, data.status || 'In Stock', data.remarks || '', data.id];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.deleteTyreInventoryMdl = function (data, callback) {
+  var cntxtDtls = "deleteTyreInventoryMdl";
+  var QRY_TO_EXEC = `UPDATE tyre_master SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Tyre Position ────────────────────────────────────────────────────────────
+exports.getTyrePositionsMdl = function (data, callback) {
+  var cntxtDtls = "getTyrePositionsMdl";
+  var QRY_TO_EXEC = `
+    SELECT tpl.*, tm.tyre_code, tm.brand, tm.size
+    FROM tyre_position_log tpl
+    JOIN tyre_master tm ON tm.id = tpl.tyre_id
+    WHERE tpl.d_in=0 AND tpl.removed_date IS NULL
+    ORDER BY tpl.id DESC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.assignTyrePositionMdl = function (data, callback) {
+  var cntxtDtls = "assignTyrePositionMdl";
+  var QRY_TO_EXEC = `
+    INSERT INTO tyre_position_log (tyre_id, vehicle_number, position, odometer_at_fitting, fitted_date, remarks, created_by_id, created_by_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    UPDATE tyre_master SET status='In Use', current_vehicle_number=?, current_position=? WHERE id=?;
+  `;
+  var m = [
+    data.tyre_id, data.vehicle_number, data.position, data.odometer_at_fitting || null,
+    data.fitted_date || null, data.remarks || '', data.user_id || '', data.usr_nm || '',
+    data.vehicle_number, data.position, data.tyre_id,
+  ];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.removeTyrePositionMdl = function (data, callback) {
+  var cntxtDtls = "removeTyrePositionMdl";
+  var QRY_TO_EXEC = `
+    UPDATE tyre_position_log SET removed_date=? WHERE id=?;
+    UPDATE tyre_master SET status='In Stock', current_vehicle_number=NULL, current_position=NULL WHERE id=?;
+  `;
+  var m = [data.removed_date || null, data.id, data.tyre_id];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+// ── Battery Management ───────────────────────────────────────────────────────
+exports.getBatteriesMdl = function (data, callback) {
+  var cntxtDtls = "getBatteriesMdl";
+  var QRY_TO_EXEC = `SELECT * FROM battery_master WHERE d_in=0 ORDER BY id DESC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.addBatteryMdl = function (data, callback) {
+  var cntxtDtls = "addBatteryMdl";
+  var QRY_TO_EXEC = `INSERT INTO battery_master
+    (battery_code, brand, capacity_ah, vehicle_number, install_date, warranty_months, cost, status, remarks, created_by_id, created_by_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  var m = [
+    data.battery_code, data.brand || '', data.capacity_ah || '', data.vehicle_number || null,
+    data.install_date || null, data.warranty_months || null, data.cost || 0,
+    data.status || 'Active', data.remarks || '', data.user_id || '', data.usr_nm || '',
+  ];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.editBatteryMdl = function (data, callback) {
+  var cntxtDtls = "editBatteryMdl";
+  var QRY_TO_EXEC = `UPDATE battery_master SET battery_code=?, brand=?, capacity_ah=?, vehicle_number=?, install_date=?, warranty_months=?, cost=?, status=?, remarks=? WHERE id=?`;
+  var m = [
+    data.battery_code, data.brand || '', data.capacity_ah || '', data.vehicle_number || null,
+    data.install_date || null, data.warranty_months || null, data.cost || 0,
+    data.status || 'Active', data.remarks || '', data.id,
+  ];
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
+};
+
+exports.deleteBatteryMdl = function (data, callback) {
+  var cntxtDtls = "deleteBatteryMdl";
+  var QRY_TO_EXEC = `UPDATE battery_master SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Garage Type Masters (managed from Main Masters) ─────────────────────────
+exports.getServiceReminderTypesMdl = function (data, callback) {
+  var cntxtDtls = "getServiceReminderTypesMdl";
+  var QRY_TO_EXEC = `SELECT * FROM service_reminder_types WHERE d_in=0 ORDER BY type_name ASC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.addServiceReminderTypeMdl = function (data, callback) {
+  var cntxtDtls = "addServiceReminderTypeMdl";
+  var QRY_TO_EXEC = `INSERT INTO service_reminder_types (type_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.type_name], cntxtDtls, callback);
+};
+
+exports.editServiceReminderTypeMdl = function (data, callback) {
+  var cntxtDtls = "editServiceReminderTypeMdl";
+  var QRY_TO_EXEC = `UPDATE service_reminder_types SET type_name=? WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.type_name, data.id], cntxtDtls, callback);
+};
+
+exports.deleteServiceReminderTypeMdl = function (data, callback) {
+  var cntxtDtls = "deleteServiceReminderTypeMdl";
+  var QRY_TO_EXEC = `UPDATE service_reminder_types SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+exports.getTyrePositionsMasterMdl = function (data, callback) {
+  var cntxtDtls = "getTyrePositionsMasterMdl";
+  var QRY_TO_EXEC = `SELECT * FROM tyre_positions_master WHERE d_in=0 ORDER BY position_name ASC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.addTyrePositionMasterMdl = function (data, callback) {
+  var cntxtDtls = "addTyrePositionMasterMdl";
+  var QRY_TO_EXEC = `INSERT INTO tyre_positions_master (position_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.position_name], cntxtDtls, callback);
+};
+
+exports.editTyrePositionMasterMdl = function (data, callback) {
+  var cntxtDtls = "editTyrePositionMasterMdl";
+  var QRY_TO_EXEC = `UPDATE tyre_positions_master SET position_name=? WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.position_name, data.id], cntxtDtls, callback);
+};
+
+exports.deleteTyrePositionMasterMdl = function (data, callback) {
+  var cntxtDtls = "deleteTyrePositionMasterMdl";
+  var QRY_TO_EXEC = `UPDATE tyre_positions_master SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
 };
 
 

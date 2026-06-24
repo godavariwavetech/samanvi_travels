@@ -58,6 +58,12 @@ export const accountingService = {
   getVoucherSearch: (data: unknown) => api.post('/getvouchersearchdata', data).then((r) => r.data),
   submitPayablesVoucher: (data: unknown) =>
     api.post('/submitpayablesvoucherentry', securePayload(data)).then((r) => r.data),
+  updatePayablesVoucher: (data: unknown) =>
+    api.post('/updatepayablesvoucherentry', securePayload(data)).then((r) => r.data),
+  getPayablesSettledRows: (data: unknown) =>
+    api.post('/getpayablessettledrows', data).then((r) => r.data),
+  getPayablesPaymentHistory: (data: { source_table: string; source_id: number }) =>
+    api.post('/getpayablespaymenthistory', data).then((r) => r.data),
 
   // ── Voucher Types — encrypted ────────────────────────────
   getVoucherTypes: (data: unknown) => api.post('/getvouchertypedata', data).then((r) => r.data),

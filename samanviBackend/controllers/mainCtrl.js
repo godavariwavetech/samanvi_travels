@@ -2968,14 +2968,29 @@ exports.updatevoucherentrystatusCtrl = function (req, res) {
       const changesNote = action === 'rejected' && data.rejection_reason
         ? `Rejection reason: ${data.rejection_reason}`
         : '';
-      appmdl.insertVoucherAuditMdl({
-        c_number: data.voucherdata.c_number,
-        action: action,
-        action_by_id: data.admin_status_by_id || '',
-        action_by_name: data.admin_status_by_name || '',
-        changes_note: changesNote
-      }, function() {});
-      res.send({ status: 200, data: results });
+      const finish = () => {
+        appmdl.insertVoucherAuditMdl({
+          c_number: data.voucherdata.c_number,
+          action: action,
+          action_by_id: data.admin_status_by_id || '',
+          action_by_name: data.admin_status_by_name || '',
+          changes_note: changesNote
+        }, function() {});
+        res.send({ status: 200, data: results });
+      };
+      if (action === 'rejected') {
+        // A rejected voucher never took effect, so any payables transactions
+        // it had settled (payment/balance/payables_settled_by) need to revert
+        // to unpaid — otherwise those amounts stay marked as paid forever even
+        // though the payment voucher that "paid" them was rejected. No-ops
+        // harmlessly for non-payables vouchers (nothing to match).
+        appmdl.unsettlePayablesRowsMdl(data.voucherdata.c_number, data.admin_status_by_id, data.admin_status_by_name, function (err) {
+          if (err) console.error('[updatevoucherentrystatus] unsettlePayablesRowsMdl failed:', err);
+          finish();
+        });
+      } else {
+        finish();
+      }
     });
   } catch (e) {
     console.error('updatevoucherentrystatusCtrl exception:', e.message);
@@ -4768,7 +4783,6 @@ exports.submitpayablesvoucherentryCtrl = function (req, res) {
   const { encryptedPayload, signature } = req.body;
   const data = decryptPayload(encryptedPayload);
 
-
   appmdl.todayVoucherCountMdl(async function (err, cresults1) {
     if (err) {
       //console.log()"err " + err);
@@ -4822,7 +4836,7 @@ exports.submitpayablesvoucherentryCtrl = function (req, res) {
                       message: "Failed to insert sub data",
                     });
                 }
-                appmdl.payablesledgerupdate(data,
+                appmdl.payablesledgerupdate(data, c_number,
                   function (err, results) {
                     if (err) {
                       console.error("ledger update insert failed:", err);
@@ -4834,11 +4848,124 @@ exports.submitpayablesvoucherentryCtrl = function (req, res) {
                         });
                     }
 
+                    const historyEntries = (data.selectedledgerdata || []).map(r => ({
+                      source_table: r.source_table, source_id: r.id, c_number,
+                      payment: r.payment, balance_after: r.balance, action: 'settled',
+                      actor_id: data.user_id, actor_name: data.named,
+                    }));
+                    appmdl.insertPayablesPaymentHistoryMdl(historyEntries, function () {});
+
                     res.send({ status: 200, data: results });
                   });
               });
           });
       });
+  });
+};
+
+// Edits an existing payables voucher in place — same soft-versioning pattern
+// as updatevoucherentryCtrl (old mainvoucher_t/mainvoucher_subt rows marked
+// d_in=2, a fresh row inserted under the SAME c_number) instead of
+// submitpayablesvoucherentryCtrl's always-new-c_number insert, which was
+// creating a duplicate voucher on every edit. Also re-settles the (possibly
+// changed) selected transactions and writes a voucher_audit 'edited' entry
+// so the edit shows up in the same history trail as ordinary voucher edits.
+exports.updatepayablesvoucherentryCtrl = function (req, res) {
+  try {
+    const { encryptedPayload, signature } = req.body;
+    const data = decryptPayload(encryptedPayload);
+    const c_number = data.c_number;
+    if (!c_number) {
+      return res.status(400).json({ status: 400, message: 'Missing c_number' });
+    }
+    const c_id = parseInt((c_number || '').replace(/\D/g, '')) || 0;
+    // updatesubmitvoucherentrymaindata/updatesubmitvoucherentrysubtable(seconddata)
+    // all read c_id/c_number/is_payable off `data` directly (the c_number/c_id
+    // function params are unused) — without these, c_id comes through NULL
+    // (insert fails) and is_payable comes through 0 (voucher silently loses
+    // its Payable classification on every edit).
+    data.c_id = c_id;
+    data.c_number = c_number;
+    data.is_payable = 1;
+
+    appmdl.deletevouchertypebill(data, function (err) {
+      if (err) {
+        console.error('[updatepayablesvoucherentry] deletevouchertypebill failed:', err);
+        return res.status(500).json({ status: 500, message: err.message || 'Delete step failed' });
+      }
+      appmdl.unsettlePayablesRowsMdl(c_number, data.user_id, data.named, function (err) {
+        if (err) {
+          console.error('[updatepayablesvoucherentry] unsettlePayablesRowsMdl failed:', err);
+          return res.status(500).json({ status: 500, message: err.message || 'Unsettle step failed' });
+        }
+        appmdl.updatesubmitvoucherentrymaindata(c_number, c_id, data, function (err, results) {
+          if (err) {
+            console.error('[updatepayablesvoucherentry] main insert failed:', err);
+            return res.status(500).json({ status: 500, message: err.message || 'Main insert failed' });
+          }
+          var p_id = results.insertId;
+          appmdl.updatesubmitvoucherentrysubtable(c_number, c_id, data, p_id, function (err) {
+            if (err) {
+              console.error('[updatepayablesvoucherentry] sub table failed:', err);
+              return res.status(500).json({ status: 500, message: err.message || 'Sub table insert failed' });
+            }
+            appmdl.updatesubmitvoucherentrysubtableseconddata(c_number, c_id, data, p_id, function (err) {
+              if (err) {
+                console.error('[updatepayablesvoucherentry] sub table 2 failed:', err);
+                return res.status(500).json({ status: 500, message: err.message || 'Sub table 2 insert failed' });
+              }
+              appmdl.payablesledgerupdate(data, c_number, function (err, results) {
+                if (err) {
+                  console.error('[updatepayablesvoucherentry] ledger update failed:', err);
+                  return res.status(500).json({ status: 500, message: err.message || 'Failed to update ledger' });
+                }
+                const historyEntries = (data.selectedledgerdata || []).map(r => ({
+                  source_table: r.source_table, source_id: r.id, c_number,
+                  payment: r.payment, balance_after: r.balance, action: 'settled',
+                  actor_id: data.user_id, actor_name: data.named,
+                }));
+                appmdl.insertPayablesPaymentHistoryMdl(historyEntries, function () {});
+
+                const changesNote = data.changes_note || `Payables voucher updated by ${data.named || ''}`;
+                appmdl.insertVoucherAuditMdl({
+                  c_number, action: 'edited',
+                  action_by_id: data.user_id || '', action_by_name: data.named || '',
+                  changes_note: changesNote
+                }, function () {});
+                res.send({ status: 200, data: results });
+              });
+            });
+          });
+        });
+      });
+    });
+  } catch (e) {
+    console.error('[updatepayablesvoucherentry] exception:', e.message);
+    res.status(500).json({ status: 500, message: e.message });
+  }
+};
+
+exports.getpayablessettledrowsCtrl = function (req, res) {
+  var data = req.body;
+  appmdl.getpayablessettledrowsMdl(data, function (err, results) {
+    if (err) {
+      res.send(500, "Server Error");
+      return;
+    }
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.getPayablesPaymentHistoryCtrl = function (req, res) {
+  var data = req.body;
+  if (!data.source_table || !data.source_id) {
+    return res.status(400).json({ status: 400, message: 'Missing source_table or source_id' });
+  }
+  appmdl.getPayablesPaymentHistoryMdl(data.source_table, data.source_id, function (err, results) {
+    if (err) {
+      return res.status(500).json({ status: 500, message: 'DB error' });
+    }
+    res.send({ status: 200, data: results });
   });
 };
 
@@ -4911,39 +5038,9 @@ exports.getallrepairCategoryCtrl = function (req, res) {
   });
 };
 
-exports.addrepaircategoryCtrl = function (req, res) {
-  var data = req.body;
-  appmdl.addrepaircategoryMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
-  });
-};
-
-exports.editrepaircategoryCtrl = function (req, res) {
-  var data = req.body;
-  appmdl.editrepaircategoryMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
-  });
-};
-
-exports.deleterepaircategoryCtrl = function (req, res) {
-  var data = req.body;
-  // console.log(data)
-  appmdl.deleterepaircategoryMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
-  });
-};
+exports.addrepaircategoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.addrepaircategoryMdl); };
+exports.editrepaircategoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.editrepaircategoryMdl); };
+exports.deleterepaircategoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleterepaircategoryMdl); };
 
 exports.getallrepairpartsCtrl = function (req, res) {
   var data = req.body;
@@ -4957,45 +5054,13 @@ exports.getallrepairpartsCtrl = function (req, res) {
   });
 };
 
-exports.addrepairpartsCtrl = function (req, res) {
-  var data = req.body;
-  // console.log(data)
-  appmdl.addrepairpaMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
-  });
-};
-
-exports.editrepairpartsCtrl = function (req, res) {
-  var data = req.body;
-  // console.log(data)
-  appmdl.editrepairpartsMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
-  });
-};
-
-exports.deleterepairpartsCtrl = function (req, res) {
-  var data = req.body;
-  // console.log(data)
-  appmdl.deleterepairpartsMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
-  });
-};
+exports.addrepairpartsCtrl = function (req, res) { decryptedBody(req, res, appmdl.addrepairpaMdl); };
+exports.editrepairpartsCtrl = function (req, res) { decryptedBody(req, res, appmdl.editrepairpartsMdl); };
+exports.deleterepairpartsCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleterepairpartsMdl); };
 
 exports.addrepairentryCtrl = function (req, res) {
-  var data = req.body;
-  // console.log(data)
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
 
   appmdl.JobCarduniquenoMdl(async function (err, cresults1) {
     if (err) {
@@ -5075,6 +5140,141 @@ exports.changeJobSatusCtrl = function (req, res) {
     res.send({ status: 200, data: results });
   });
 };
+
+// Garage Extension Controllers: Service Reminders, Tyre Management, Battery Management -------------------------------------------------------------------
+
+function decryptedBody(req, res, modelFn) {
+  const { encryptedPayload, signature } = req.body;
+  try {
+    validateSignature(encryptedPayload, signature);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid request signature" });
+    return;
+  }
+  let data;
+  try {
+    data = decryptPayload(encryptedPayload);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid payload" });
+    return;
+  }
+  modelFn(data, function (err, results) {
+    if (err) {
+      console.log(err);
+      res.send({ status: 500, data: results });
+      return;
+    }
+    res.send({ status: 200, data: results });
+  });
+}
+
+// ── Service Reminders ───────────────────────────────────────────────────────
+exports.getServiceRemindersCtrl = function (req, res) {
+  appmdl.getServiceRemindersMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addServiceReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.addServiceReminderMdl); };
+exports.editServiceReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.editServiceReminderMdl); };
+
+const REPEAT_UNIT_TO_MOMENT = { Days: 'days', Weeks: 'weeks', Months: 'months', Years: 'years' };
+
+exports.completeServiceReminderCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try { validateSignature(encryptedPayload, signature); } catch (e) {
+    return res.send({ status: 400, msg: "Invalid request signature" });
+  }
+  let data;
+  try { data = decryptPayload(encryptedPayload); } catch (e) {
+    return res.send({ status: 400, msg: "Invalid payload" });
+  }
+
+  appmdl.getServiceReminderByIdMdl(data.id, function (err, rows) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    var reminder = rows && rows[0];
+
+    appmdl.completeServiceReminderMdl(data, function (err2, results) {
+      if (err2) { res.send({ status: 500, data: results }); return; }
+
+      if (reminder && reminder.is_repeating) {
+        var unit = REPEAT_UNIT_TO_MOMENT[reminder.repeat_unit] || 'months';
+        var nextDue = moment(data.last_done_date || new Date()).add(reminder.repeat_interval || 1, unit).format('YYYY-MM-DD');
+        appmdl.addServiceReminderMdl({
+          vehicle_number: reminder.vehicle_number,
+          reminder_type: reminder.reminder_type,
+          due_date: nextDue,
+          due_odometer: null,
+          remarks: reminder.remarks,
+          is_repeating: 1,
+          repeat_interval: reminder.repeat_interval,
+          repeat_unit: reminder.repeat_unit,
+          user_id: reminder.created_by_id,
+          usr_nm: reminder.created_by_name,
+        }, function () {
+          res.send({ status: 200, data: results });
+        });
+      } else {
+        res.send({ status: 200, data: results });
+      }
+    });
+  });
+};
+
+exports.deleteServiceReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteServiceReminderMdl); };
+
+// ── Tyre Inventory ───────────────────────────────────────────────────────────
+exports.getTyreInventoryCtrl = function (req, res) {
+  appmdl.getTyreInventoryMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyreInventoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreInventoryMdl); };
+exports.editTyreInventoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyreInventoryMdl); };
+exports.deleteTyreInventoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreInventoryMdl); };
+
+// ── Tyre Position ────────────────────────────────────────────────────────────
+exports.getTyrePositionsCtrl = function (req, res) {
+  appmdl.getTyrePositionsMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.assignTyrePositionCtrl = function (req, res) { decryptedBody(req, res, appmdl.assignTyrePositionMdl); };
+exports.removeTyrePositionCtrl = function (req, res) { decryptedBody(req, res, appmdl.removeTyrePositionMdl); };
+
+// ── Battery Management ───────────────────────────────────────────────────────
+exports.getBatteriesCtrl = function (req, res) {
+  appmdl.getBatteriesMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addBatteryCtrl = function (req, res) { decryptedBody(req, res, appmdl.addBatteryMdl); };
+exports.editBatteryCtrl = function (req, res) { decryptedBody(req, res, appmdl.editBatteryMdl); };
+exports.deleteBatteryCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteBatteryMdl); };
+
+// ── Garage Type Masters (managed from Main Masters) ──────────────────────────
+exports.getServiceReminderTypesCtrl = function (req, res) {
+  appmdl.getServiceReminderTypesMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addServiceReminderTypeCtrl = function (req, res) { decryptedBody(req, res, appmdl.addServiceReminderTypeMdl); };
+exports.editServiceReminderTypeCtrl = function (req, res) { decryptedBody(req, res, appmdl.editServiceReminderTypeMdl); };
+exports.deleteServiceReminderTypeCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteServiceReminderTypeMdl); };
+
+exports.getTyrePositionsMasterCtrl = function (req, res) {
+  appmdl.getTyrePositionsMasterMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyrePositionMasterCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyrePositionMasterMdl); };
+exports.editTyrePositionMasterCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyrePositionMasterMdl); };
+exports.deleteTyrePositionMasterCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyrePositionMasterMdl); };
 
 
 exports.getlaundryapproveddataCtrl = function (req, res) {

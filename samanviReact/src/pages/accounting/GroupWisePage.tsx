@@ -1,15 +1,16 @@
 ﻿import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, FileDown, FileText, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt } from 'lucide-react'
+import { ChevronDown, FileDown, FileText, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
+import { getCurrentFY } from '@/lib/fy'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GWNode {
@@ -39,6 +40,7 @@ interface TableRow {
   name: string
   type: 'Group' | 'Ledger'
   total: number
+  group: string   // immediate parent group name
 }
 
 interface SearchItem {
@@ -79,12 +81,23 @@ function fmtAmt(n: number): string {
   return Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// dd-mm-yyyy, hyphen-separated — used in export filenames, which can't contain slashes
+function fmtFileDate(d: any): string {
+  if (!d) return '-'
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return '-'
+  return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 const today = new Date().toISOString().split('T')[0]
+const currentFY = getCurrentFY()
 
 export default function GroupWisePage() {
   const navigate = useNavigate()
   const { selectedFY } = useFYStore()
+  const fyMin = selectedFY.fromDate
+  const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
   const userId = localStorage.getItem('user_id') ?? ''
   const roleDistrictPayload = {
     role_type: localStorage.getItem('role_type') ?? '1',
@@ -97,13 +110,22 @@ export default function GroupWisePage() {
   })
   const [applied, setApplied] = useState(filter)
 
+  // Selecting a financial year snaps the range to that year's full span and
+  // re-fetches immediately — otherwise the FY tabs look like they do nothing.
+  useEffect(() => {
+    const next = { fromdate: fyMin, todate: fyMax }
+    setFilter(next)
+    setApplied(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
+
   // ── Data queries (same sources as Balance Sheet) ──────────────────────────
-  const { data: mastersRes, isLoading: l1 }   = useQuery({ queryKey: ['gw-masters'],   queryFn: () => accountingService.getMastersAdd(roleDistrictPayload) })
-  const { data: groupsRes, isLoading: l2 }    = useQuery({ queryKey: ['gw-groups'],    queryFn: () => accountingService.getMastersGroup(roleDistrictPayload) })
-  const { data: subgroupsRes, isLoading: l3 } = useQuery({ queryKey: ['gw-subgroups'], queryFn: () => accountingService.getMainMastersSubgroup() })
-  const { data: childrenRes, isLoading: l4 }  = useQuery({ queryKey: ['gw-children'],  queryFn: () => accountingService.getMainMastersSubchild() })
-  const { data: ledgersRes, isLoading: l5 }   = useQuery({ queryKey: ['gw-ledgers'],   queryFn: () => accountingService.getLedgerData(roleDistrictPayload) })
-  const { data: txRes, isLoading: l6 }        = useQuery({
+  const { data: mastersRes, isLoading: l1, isFetching: f1, refetch: r1 }   = useQuery({ queryKey: ['gw-masters'],   queryFn: () => accountingService.getMastersAdd(roleDistrictPayload) })
+  const { data: groupsRes, isLoading: l2, isFetching: f2, refetch: r2 }    = useQuery({ queryKey: ['gw-groups'],    queryFn: () => accountingService.getMastersGroup(roleDistrictPayload) })
+  const { data: subgroupsRes, isLoading: l3, isFetching: f3, refetch: r3 } = useQuery({ queryKey: ['gw-subgroups'], queryFn: () => accountingService.getMainMastersSubgroup() })
+  const { data: childrenRes, isLoading: l4, isFetching: f4, refetch: r4 }  = useQuery({ queryKey: ['gw-children'],  queryFn: () => accountingService.getMainMastersSubchild() })
+  const { data: ledgersRes, isLoading: l5, isFetching: f5, refetch: r5 }   = useQuery({ queryKey: ['gw-ledgers'],   queryFn: () => accountingService.getLedgerData(roleDistrictPayload) })
+  const { data: txRes, isLoading: l6, isFetching: f6, refetch: r6 }        = useQuery({
     queryKey: ['gw-transactions', applied],
     queryFn: () => accountingService.getTransactionsReport({
       fromdate: applied.fromdate,
@@ -115,6 +137,8 @@ export default function GroupWisePage() {
   })
 
   const isLoading = l1 || l2 || l3 || l4 || l5 || l6
+  const isRefreshing = f1 || f2 || f3 || f4 || f5 || f6
+  const refreshAll = () => { r1(); r2(); r3(); r4(); r5(); r6() }
 
   // ── Build ledger_id → net amount map ─────────────────────────────────────
   const amountMap = useMemo(() => {
@@ -298,6 +322,57 @@ export default function GroupWisePage() {
   const [tableRows, setTableRows] = useState<TableRow[]>([])
   const tableTotal = useMemo(() => tableRows.reduce((s, r) => s + r.total, 0), [tableRows])
 
+  // Selecting a financial year refetches the transaction totals (sectionMap
+  // recomputes from the new amounts), but tableRows is only ever set by
+  // walking the hierarchy in response to a section/dropdown click — it won't
+  // pick up the refreshed numbers on its own. Reset the drill-down so the
+  // user re-enters it against the now up-to-date data, same as Load does.
+  useEffect(() => {
+    setSelectedSection('')
+    setDropdowns([])
+    setSelections([])
+    setTableRows([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
+
+  // ── Column filters (Name / Type) + Total Amount range filter ─────────────
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
+  const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
+  const FILTER_KEYS = ['name', 'type', 'amount'] as const
+  const colValue = useCallback((row: TableRow, key: string): string => {
+    switch (key) {
+      case 'name': return row.name || '-'
+      case 'type': return row.type || '-'
+      case 'amount': return `${row.total < 0 ? '(' : ''}₹${fmtAmt(row.total)}${row.total < 0 ? ')' : ''} ${row.total < 0 ? 'Cr' : 'Dr'}`
+      default: return ''
+    }
+  }, [])
+  const filterColOptions = useMemo(() => {
+    const result: Record<string, string[]> = {}
+    FILTER_KEYS.forEach(key => {
+      result[key] = Array.from(new Set(tableRows.map(r => colValue(r, key)))).sort()
+    })
+    return result
+  }, [tableRows, colValue])
+
+  const [amountFilter, setAmountFilter] = useState<'' | 'zero' | 'above'>('')
+
+  const displayRows = useMemo(() => {
+    let out = tableRows
+    if (amountFilter === 'zero') out = out.filter(r => r.total === 0)
+    else if (amountFilter === 'above') out = out.filter(r => r.total !== 0)
+    if (activeFilterCount) {
+      out = out.filter(row => {
+        for (const [key, vals] of Object.entries(colFilters)) {
+          if (!vals || vals.length === 0) continue
+          if (!vals.includes(colValue(row, key))) return false
+        }
+        return true
+      })
+    }
+    return out
+  }, [tableRows, amountFilter, colFilters, activeFilterCount, colValue])
+
   // ── Quick Jump search state ───────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -319,17 +394,21 @@ export default function GroupWisePage() {
       .slice(0, 25)
   }, [flatSearchItems, searchQuery])
 
-  const showAll = (children: GWNode[]) => {
+  const showAll = (children: GWNode[], parent: GWNode | null = null) => {
     setTableRows(children.map(c => ({
       id: c.id,
       name: c.name,
       type: c.nodeType === 'group' ? 'Group' : 'Ledger',
       total: c.totalAmount,
+      group: parent?.name ?? '',
     })))
   }
 
-  const showSingle = (node: GWNode) => {
-    setTableRows([{ id: node.id, name: node.name, type: node.nodeType === 'group' ? 'Group' : 'Ledger', total: node.totalAmount }])
+  const showSingle = (node: GWNode, parent: GWNode | null = null) => {
+    setTableRows([{
+      id: node.id, name: node.name, type: node.nodeType === 'group' ? 'Group' : 'Ledger',
+      total: node.totalAmount, group: parent?.name ?? '',
+    }])
   }
 
   const handleLedgerClick = (row: TableRow) => {
@@ -387,12 +466,12 @@ export default function GroupWisePage() {
     setSelections(newSelections)
 
     if (item.node.nodeType === 'ledger') {
-      showSingle(item.node)
+      showSingle(item.node, currentParentCtx)
     } else {
       const groups = item.node.children.filter(c => c.nodeType === 'group')
       const ledgers = item.node.children.filter(c => c.nodeType === 'ledger')
       const display = groups.length > 0 ? groups : ledgers.length > 0 ? ledgers : [item.node]
-      showAll(display)
+      showAll(display, item.node)
     }
   }, [sectionMap, showAll, showSingle])
 
@@ -408,7 +487,7 @@ export default function GroupWisePage() {
     setDropdowns(newDropdowns)
     const newSels = [...newSelections.slice(0, level), 'ALL']
     setSelections(newSels)
-    showAll(list)
+    showAll(list, parentCtx)
   }
 
   const onSectionChange = (key: string) => {
@@ -424,7 +503,7 @@ export default function GroupWisePage() {
     roots.forEach(r => level2Groups.push(...r.children.filter(c => c.nodeType === 'group')))
 
     if (!level2Groups.length) {
-      setTableRows(roots.map(r => ({ id: r.id, name: r.name, type: 'Group' as const, total: r.totalAmount })))
+      setTableRows(roots.map(r => ({ id: r.id, name: r.name, type: 'Group' as const, total: r.totalAmount, group: '' })))
       return
     }
 
@@ -434,7 +513,7 @@ export default function GroupWisePage() {
     ]
     setDropdowns([opts])
     setSelections(['ALL'])
-    showAll(level2Groups)
+    showAll(level2Groups, roots[0] ?? null)
   }
 
   const getDropdownLabel = (level: number) => {
@@ -458,25 +537,29 @@ export default function GroupWisePage() {
         const roots = sectionMap.get(selectedSection) ?? []
         const level2: GWNode[] = []
         roots.forEach(r => level2.push(...r.children.filter(c => c.nodeType === 'group')))
-        showAll(level2)
+        showAll(level2, roots[0] ?? null)
         return
       }
       const parent = sel.node
       if (!parent) return
+      // opts[0] is always the "All ..." entry, whose node is the shared
+      // parent of every item at this dropdown level — i.e. parent's own parent.
+      const grandParent = opts[0]?.node ?? null
       const groups = parent.children.filter(c => c.nodeType === 'group')
       const ledgers = parent.children.filter(c => c.nodeType === 'ledger')
       if (groups.length > 0) {
         buildDropdown(groups, level + 1, parent, newSels)
       } else if (ledgers.length > 0) {
-        showAll(ledgers)
+        showAll(ledgers, parent)
       } else {
-        showSingle(parent)
+        showSingle(parent, grandParent)
       }
       return
     }
 
     const node = sel.node!
     calcTotals(node)
+    const nodeParent = opts[0]?.node ?? null
     const groups = node.children.filter(c => c.nodeType === 'group')
     if (groups.length > 0) {
       buildDropdown(groups, level + 1, node, newSels)
@@ -487,7 +570,7 @@ export default function GroupWisePage() {
       buildDropdown(ledgers, level + 1, node, newSels)
       return
     }
-    showSingle(node)
+    showSingle(node, nodeParent)
   }
 
   // ── Reload on date change ─────────────────────────────────────────────────
@@ -497,6 +580,26 @@ export default function GroupWisePage() {
     setDropdowns([])
     setSelections([])
     setTableRows([])
+    setColFilters({})
+    setAmountFilter('')
+  }
+
+  const downloadDate = () => fmtFileDate(new Date())
+
+  // When every visible row shares the same immediate parent group, that group
+  // is the most specific label for what's on screen — falls back to the
+  // section label (Income/Expenses/etc.) when rows span multiple groups.
+  const lastParentLabel = (sectionLabel: string) => {
+    const rowGroups = [...new Set(tableRows.map(r => r.group).filter(Boolean))]
+    return rowGroups.length === 1 ? rowGroups[0] : sectionLabel
+  }
+
+  // Export filename — collapsed-underscore last-parent/section label + the
+  // applied date range + today's date, matching the naming used on the other
+  // report pages instead of a raw epoch timestamp.
+  const fileBaseName = (sectionLabel: string) => {
+    const labelPart = lastParentLabel(sectionLabel).replace(/[^a-z0-9]+/gi, '_')
+    return `GroupWise_${labelPart}_${fmtFileDate(applied.fromdate)}_to_${fmtFileDate(applied.todate)}`
   }
 
   // ── Export Excel ──────────────────────────────────────────────────────────
@@ -509,34 +612,78 @@ export default function GroupWisePage() {
     XLSX.utils.sheet_add_json(ws, [{ 'Name': 'Grand Total', 'Type': '', 'Total Amount': tableTotal }], { skipHeader: true, origin: -1 })
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sectionLabel)
-    XLSX.writeFile(wb, `GroupWise_${sectionLabel}_${Date.now()}.xlsx`)
+    XLSX.writeFile(wb, `${fileBaseName(sectionLabel)}_${downloadDate()}.xlsx`)
   }
 
   // ── Export PDF ────────────────────────────────────────────────────────────
   const exportPDF = () => {
     if (!tableRows.length) { toast.warning('No data to export'); return }
     const sectionLabel = SECTIONS.find(s => s.key === selectedSection)?.label ?? 'Report'
+    const subtitle = lastParentLabel(sectionLabel)
+
     const doc = new jsPDF({ orientation: 'landscape' })
-    doc.setFontSize(14)
-    doc.text('Group Wise Report', doc.internal.pageSize.width / 2, 16, { align: 'center' })
+    const pageWidth = doc.internal.pageSize.getWidth()
+
+    // App name + group/section subtitle, centered at the top of the page
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Samanvi Travels', pageWidth / 2, 14, { align: 'center' })
+    doc.setFont('helvetica', 'normal')
     doc.setFontSize(11)
-    doc.text(sectionLabel, doc.internal.pageSize.width / 2, 24, { align: 'center' })
+    doc.text(subtitle, pageWidth / 2, 22, { align: 'center' })
+
+    // Header cell alignment is set explicitly per column so it matches the
+    // body/columnStyles alignment below (autoTable doesn't otherwise carry
+    // columnStyles' halign over to the head row).
+    const headers = [
+      { content: 'Name', styles: { halign: 'left' as const } },
+      { content: 'Group', styles: { halign: 'left' as const } },
+      { content: 'Type', styles: { halign: 'left' as const } },
+      { content: 'Total Amount', styles: { halign: 'right' as const } },
+    ]
+
+    // The ₹ glyph isn't in jsPDF's default font — it measures as the wrong
+    // width, which throws off right-alignment. Plain numbers (the column
+    // header already says "Amount") render correctly aligned instead.
+    const amt = (n: number) => `${n < 0 ? '(' : ''}${fmtAmt(n)}${n < 0 ? ')' : ''}`
+
+    // Table is centered automatically — no explicit column widths are set,
+    // so autoTable fills the space between the default symmetric margins.
     autoTable(doc, {
-      startY: 30,
-      head: [['Name', 'Type', 'Total Amount']],
-      body: tableRows.map(r => [r.name, r.type, `₹${fmtAmt(r.total)}`]),
-      foot: [['', 'Grand Total', `₹${fmtAmt(tableTotal)}`]],
+      startY: 28,
+      head: [headers],
+      body: tableRows.map(r => [r.name, r.group || '-', r.type, amt(r.total)]),
+      // Foot cells need the same explicit per-column halign as the head —
+      // columnStyles' halign doesn't carry over to head/foot rows, only body.
+      foot: [[
+        '', '',
+        { content: 'Grand Total', styles: { halign: 'right' as const } },
+        { content: amt(tableTotal), styles: { halign: 'right' as const } },
+      ]],
       headStyles: { fillColor: [37, 99, 235] },
       footStyles: { fillColor: [254, 243, 199], textColor: [180, 83, 9], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 2: { halign: 'right' } },
+      columnStyles: { 3: { halign: 'right' } },
     })
-    doc.save(`GroupWise_${sectionLabel}_${Date.now()}.pdf`)
+    doc.save(`${fileBaseName(sectionLabel)}_${downloadDate()}.pdf`)
   }
 
-  const TH = ({ children, cls = '' }: { children: React.ReactNode; cls?: string }) => (
+  const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
     <th className={`px-4 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 ${cls}`}>
-      {children}
+      {/* text-align on the <th> doesn't affect this flex row's own layout —
+          justify-end is needed too so the label+filter icon actually sit on
+          the same side as the right-aligned amount cells below */}
+      <div className={`flex items-center gap-1.5 ${cls.includes('text-right') ? 'justify-end' : ''}`}>
+        <span>{children}</span>
+        {filterKey && (
+          <ColumnFilterDropdown
+            variant="light"
+            options={filterColOptions[filterKey] ?? []}
+            selected={colFilters[filterKey] ?? []}
+            onChange={vals => setColFilters(f => ({ ...f, [filterKey]: vals }))}
+          />
+        )}
+      </div>
     </th>
   )
 
@@ -546,20 +693,24 @@ export default function GroupWisePage() {
 
       {/* Date filter + export buttons */}
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-indigo-500 to-violet-500">
+        <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap justify-between">
           <div className="flex items-end gap-4 flex-wrap">
             <div>
               <Label>From Date</Label>
-              <Input type="date" max={today} value={filter.fromdate}
+              <Input type="date" min={fyMin} max={fyMax} value={filter.fromdate}
                 onChange={e => setFilter(f => ({ ...f, fromdate: e.target.value }))} />
             </div>
             <div>
               <Label>To Date</Label>
-              <Input type="date" max={today} value={filter.todate}
+              <Input type="date" min={fyMin} max={fyMax} value={filter.todate}
                 onChange={e => setFilter(f => ({ ...f, todate: e.target.value }))} />
             </div>
             <Button onClick={handleLoad}>
               <BarChart3 className="w-4 h-4" /> Load
+            </Button>
+            <Button onClick={refreshAll} disabled={isRefreshing} className="bg-slate-600 hover:bg-slate-700">
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} /> Refresh
             </Button>
           </div>
           <div className="flex items-center gap-2">
@@ -693,6 +844,24 @@ export default function GroupWisePage() {
               </div>
             </div>
           ))}
+
+          {/* Total Amount range filter */}
+          {tableRows.length > 0 && (
+            <div className="min-w-[180px] ml-auto">
+              <Label>Total Amount</Label>
+              <div className="relative">
+                <select
+                  value={amountFilter}
+                  onChange={e => setAmountFilter(e.target.value as '' | 'zero' | 'above')}
+                  className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-3 pr-8 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 shadow-sm">
+                  <option value="">All Amounts</option>
+                  <option value="zero">With 0</option>
+                  <option value="above">Without 0</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+          )}
         </div>
         </div>
       </GlassCard>
@@ -725,17 +894,33 @@ export default function GroupWisePage() {
       {/* Results table */}
       {!isLoading && tableRows.length > 0 && (
         <GlassCard className="overflow-hidden">
+          {(activeFilterCount > 0 || amountFilter) && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 px-4 pt-3">
+              Showing {displayRows.length} of {tableRows.length} rows
+              <button
+                onClick={() => { setColFilters({}); setAmountFilter('') }}
+                className="text-blue-600 font-semibold hover:underline">
+                Clear all filters
+              </button>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  <TH>Name</TH>
-                  <TH>Type</TH>
-                  <TH cls="text-right">Total Amount</TH>
+                  <TH filterKey="name">Name</TH>
+                  <TH filterKey="type">Type</TH>
+                  <TH cls="text-right" filterKey="amount">Total Amount</TH>
                 </tr>
               </thead>
               <tbody>
-                {tableRows.map((row, idx) => (
+                {displayRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">
+                      No rows match the active filters.
+                    </td>
+                  </tr>
+                ) : displayRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
                     <td className="px-4 py-2.5 border-b border-slate-100 font-medium text-slate-800">
                       {row.type === 'Ledger' ? (
@@ -770,6 +955,7 @@ export default function GroupWisePage() {
                     <td className="px-4 py-2.5 border-b border-slate-100 text-right font-bold tabular-nums">
                       <span className={row.total < 0 ? 'text-red-500' : 'text-slate-800'}>
                         {row.total < 0 ? '(' : ''}₹{fmtAmt(row.total)}{row.total < 0 ? ')' : ''}
+                        <span className="ml-1 text-[10px] font-bold align-middle">{row.total < 0 ? 'Cr' : 'Dr'}</span>
                       </span>
                     </td>
                   </tr>
@@ -782,6 +968,7 @@ export default function GroupWisePage() {
                   </td>
                   <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">
                     {tableTotal < 0 ? '(' : ''}₹{fmtAmt(tableTotal)}{tableTotal < 0 ? ')' : ''}
+                    <span className="ml-1 text-[10px] font-bold align-middle">{tableTotal < 0 ? 'Cr' : 'Dr'}</span>
                   </td>
                 </tr>
               </tfoot>

@@ -1,14 +1,16 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import { useFYStore } from '@/store/fy.store'
+import { getCurrentFY } from '@/lib/fy'
 
 interface EditLedgerItem {
   ledger: any
@@ -25,9 +27,30 @@ function parseStaff(v: string) {
   return { id: parseInt(id) || 0, type: type ?? '', name: name ?? '' }
 }
 
+// ── InlineRefresh — small icon sat inside a dropdown trigger, re-hits the
+// source API without stealing width from the trigger itself ───────────────
+function InlineRefresh({ onRefresh, refreshing, title }: {
+  onRefresh: () => void
+  refreshing?: boolean
+  title?: string
+}) {
+  return (
+    <span
+      role="button" tabIndex={0} title={title ?? 'Refresh'}
+      onClick={e => { e.stopPropagation(); if (!refreshing) onRefresh() }}
+      onMouseDown={e => e.stopPropagation()}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!refreshing) onRefresh() } }}
+      className="flex flex-shrink-0 items-center justify-center p-1 -m-1 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+    >
+      <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+    </span>
+  )
+}
+
 // ── Portal-based ledger dropdown (immune to overflow:hidden modal) ─────────
-function LedgerDropdown({ value, ledgers, onChange }: {
+function LedgerDropdown({ value, ledgers, onChange, onRefresh, refreshing }: {
   value: any; ledgers: any[]; onChange: (l: any) => void
+  onRefresh?: () => void; refreshing?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -49,6 +72,7 @@ function LedgerDropdown({ value, ledgers, onChange }: {
     return () => document.removeEventListener('mousedown', close)
   }, [open])
   const filtered = ledgers.filter(l => l.temple_name?.toLowerCase().includes(search.toLowerCase()))
+  const groupOf = (l: any) => l?.subchildtwo || l?.child || ''
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
   const panel = open && rect && createPortal(
@@ -67,10 +91,14 @@ function LedgerDropdown({ value, ledgers, onChange }: {
       <ul className="overflow-y-auto flex-1">
         <li onMouseDown={() => { onChange(null); setOpen(false) }}
           className="px-4 py-2.5 text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">— None —</li>
+        {filtered.length === 0 && <li className="px-4 py-3 text-sm text-slate-400 text-center">No ledgers found</li>}
         {filtered.map(l => (
           <li key={l.id} onMouseDown={() => { onChange(l); setOpen(false); setSearch('') }}
-            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${value?.id === l.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'}`}>
-            {l.temple_name}
+            className={`px-4 py-2 text-sm cursor-pointer transition-colors flex flex-col gap-0.5 ${value?.id === l.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'}`}>
+            <span className="truncate">{l.temple_name}</span>
+            {groupOf(l) && (
+              <span className={`text-[10px] font-medium truncate ${value?.id === l.id ? 'text-blue-500' : 'text-slate-400'}`}>{groupOf(l)}</span>
+            )}
           </li>
         ))}
       </ul>
@@ -79,11 +107,19 @@ function LedgerDropdown({ value, ledgers, onChange }: {
   return (
     <div className="flex-1 min-w-0">
       <button ref={btnRef} type="button" onClick={openDropdown}
-        className="flex h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-        <span className={value ? 'text-slate-900 font-medium truncate min-w-0' : 'text-slate-400'}>
-          {value?.temple_name || 'Select Ledger'}
+        className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className="flex flex-col items-start min-w-0 flex-1 text-left">
+          <span className={value ? 'text-slate-900 font-medium truncate w-full' : 'text-slate-400 truncate w-full'}>
+            {value?.temple_name || 'Select Ledger'}
+          </span>
+          {value && groupOf(value) && (
+            <span className="text-[10px] font-medium text-slate-400 truncate w-full">{groupOf(value)}</span>
+          )}
         </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh ledgers" />}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
       </button>
       {panel}
     </div>
@@ -91,53 +127,73 @@ function LedgerDropdown({ value, ledgers, onChange }: {
 }
 
 // ── Portal-based simple dropdown ──────────────────────────────────────────
-function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }: {
-  value: string; options: { label: string; value: string }[]; placeholder?: string; onChange: (v: string) => void
+function SimpleDropdown({ value, options, placeholder = 'Select…', searchable, onChange, onRefresh, refreshing }: {
+  value: string; options: { label: string; value: string }[]; placeholder?: string; searchable?: boolean
+  onChange: (v: string) => void
+  onRefresh?: () => void; refreshing?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const PANEL_MAX_H = 220
   const openDropdown = () => {
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
-    setOpen(true)
+    setOpen(true); setSearch('')
   }
   useEffect(() => {
     if (!open) return
     const close = (e: MouseEvent) => {
       const panel = document.getElementById('ev-sdp-panel')
       if (panel?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
-      setOpen(false)
+      setOpen(false); setSearch('')
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
+  const filtered = searchable ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase())) : options
   const panel = open && rect && createPortal(
     <div id="ev-sdp-panel" style={{
       position: 'fixed',
       top: openUpward ? undefined : rect.bottom + 4,
       bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
       left: rect.left, width: rect.width, maxHeight: PANEL_MAX_H, zIndex: 99999,
-    }} className="rounded-xl border border-slate-200 bg-white shadow-2xl overflow-y-auto">
-      {options.map(opt => (
-        <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false) }}
-          className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'}`}>
-          {opt.label}
+    }} className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col">
+      {searchable && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 flex-shrink-0">
+          <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            className="flex-1 text-sm outline-none placeholder:text-slate-400 bg-transparent" />
         </div>
-      ))}
+      )}
+      <div className="overflow-y-auto flex-1">
+        {filtered.length === 0 && <div className="px-4 py-3 text-sm text-slate-400 text-center">No options found</div>}
+        {filtered.map(opt => (
+          <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch('') }}
+            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'}`}>
+            {opt.label}
+          </div>
+        ))}
+      </div>
     </div>, document.body
   )
   return (
-    <button ref={btnRef} type="button" onClick={openDropdown}
-      className="flex h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-      <span className={value ? 'text-slate-900 font-medium truncate' : 'text-slate-400'}>
-        {options.find(o => o.value === value)?.label || placeholder}
-      </span>
-      <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
+    <div className="flex-1 min-w-0">
+      <button ref={btnRef} type="button" onClick={openDropdown}
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className={value ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
+          {options.find(o => o.value === value)?.label || placeholder}
+        </span>
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh options" />}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
       {panel}
-    </button>
+    </div>
   )
 }
 
@@ -175,7 +231,17 @@ const buildCols = (
   {
     label: 'Voucher Type', key: 'vouchertype', filterable: true, filterType: 'select',
     filterOptions: fOpts.voucherTypes,
-    render: (v: any) => <span className="font-medium text-slate-700">{String(v ?? '—')}</span>,
+    render: (v: any, row: any) => (
+      <div className="flex items-center gap-1.5">
+        <span className="font-medium text-slate-700">{String(v ?? '—')}</span>
+        {Number(row.is_payable) === 1 && (
+          <span title="Created from the Payables settlement screen"
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">
+            Payable
+          </span>
+        )}
+      </div>
+    ),
   },
   {
     label: 'Voucher Date', key: 'voucherdate', filterable: true, filterType: 'date',
@@ -252,9 +318,43 @@ const buildCols = (
 ]
 
 // ── Committed ledger rows table ─────────────────────────────────────────────
-function ELedgerTable({ rows, side, onRemove }: { rows: EditLedgerItem[]; side: 'debit'|'credit'; onRemove:(i:number)=>void }) {
+// Supports inline editing of both the ledger account and the amount for an
+// already-added row, instead of forcing a remove-and-re-add.
+// `offset` shifts the displayed "#" so it matches the same row's number in
+// the Transaction Details cards below — see the matching note on
+// VoucherEntryPage's LedgerTable for why this needs to line up.
+function ELedgerTable({ rows, side, offset = 0, ledgers, onRemove, onUpdate, onRefreshLedgers, ledgersRefreshing }: {
+  rows: EditLedgerItem[]; side: 'debit'|'credit'; offset?: number; ledgers: any[]
+  onRemove: (i: number) => void
+  onUpdate: (i: number, updates: Partial<EditLedgerItem>) => void
+  onRefreshLedgers?: () => void
+  ledgersRefreshing?: boolean
+}) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [draftLedger, setDraftLedger] = useState<any>(null)
+  const [draftAmount, setDraftAmount] = useState('')
+
   if (rows.length === 0) return null
   const isDr = side === 'debit'
+
+  const startEdit = (i: number, row: EditLedgerItem) => {
+    setEditingIndex(i)
+    setDraftLedger(row.ledger)
+    setDraftAmount(row.amount)
+  }
+  const cancelEdit = () => setEditingIndex(null)
+  const commitEdit = (i: number) => {
+    const trimmed = draftAmount.trim()
+    if (!draftLedger || !trimmed || parseFloat(trimmed) <= 0) return
+    onUpdate(i, { ledger: draftLedger, amount: trimmed })
+    setEditingIndex(null)
+  }
+
+  // While editing, keep the row's current ledger selectable even if it's
+  // filtered out of `ledgers` (e.g. locked by the opposite side already).
+  const ledgersFor = (row: EditLedgerItem) =>
+    row.ledger && !ledgers.some(l => l.id === row.ledger.id) ? [row.ledger, ...ledgers] : ledgers
+
   return (
     <div className={`border-t pt-3 ${isDr ? 'border-red-100' : 'border-emerald-100'}`}>
       <table className="w-full text-sm">
@@ -263,21 +363,62 @@ function ELedgerTable({ rows, side, onRemove }: { rows: EditLedgerItem[]; side: 
             <th className="text-left pb-1.5 w-6">#</th>
             <th className="text-left pb-1.5">Ledger Account</th>
             <th className="text-right pb-1.5 pr-1">Amount (₹)</th>
-            <th className="w-5"></th>
+            <th className="w-12"></th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
             <tr key={i} className={`border-b last:border-0 ${isDr ? 'border-red-50' : 'border-emerald-50'}`}>
-              <td className="py-2 text-xs text-slate-400">{i + 1}</td>
-              <td className="py-2 font-medium text-slate-800 truncate max-w-[160px]">{row.ledger?.temple_name}</td>
-              <td className={`py-2 text-right font-bold pr-1 ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
-                {parseFloat(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+              <td className="py-2 align-middle text-xs text-slate-400">{offset + i + 1}</td>
+              <td className="py-2 pr-2 align-middle max-w-[200px]">
+                {editingIndex === i ? (
+                  <LedgerDropdown value={draftLedger} ledgers={ledgersFor(row)} onChange={setDraftLedger}
+                    onRefresh={onRefreshLedgers} refreshing={ledgersRefreshing} />
+                ) : (
+                  <span className="font-medium text-slate-800 truncate max-w-[160px] block">{row.ledger?.temple_name}</span>
+                )}
               </td>
-              <td className="py-2 pl-1">
-                <button type="button" onClick={() => onRemove(i)} className="text-slate-300 hover:text-red-500 transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+              <td className="py-2 pr-1 align-middle text-right">
+                {editingIndex === i ? (
+                  <input
+                    type="number" autoFocus value={draftAmount}
+                    onChange={e => setDraftAmount(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') commitEdit(i)
+                      if (e.key === 'Escape') cancelEdit()
+                    }}
+                    className={`h-10 w-24 text-right font-bold rounded-lg border px-1.5 outline-none focus:ring-2 ${
+                      isDr ? 'border-red-300 focus:ring-red-400/30 text-red-600' : 'border-emerald-300 focus:ring-emerald-400/30 text-emerald-600'
+                    }`}
+                  />
+                ) : (
+                  <span className={`font-bold ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {parseFloat(row.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                )}
+              </td>
+              <td className="py-2 pl-1 align-middle">
+                <div className="flex items-center justify-end gap-2">
+                  {editingIndex === i ? (
+                    <>
+                      <button type="button" onClick={() => commitEdit(i)} className="text-emerald-500 hover:text-emerald-600 transition-colors">
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={cancelEdit} className="text-slate-300 hover:text-red-500 transition-colors">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => startEdit(i, row)} className="text-slate-300 hover:text-blue-500 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => onRemove(i)} className="text-slate-300 hover:text-red-500 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -288,10 +429,15 @@ function ELedgerTable({ rows, side, onRemove }: { rows: EditLedgerItem[]; side: 
 }
 
 // ── Per-ledger transaction detail card ───────────────────────────────────────
-function ELedgerDetailCard({ index, item, side, isPending, busList, staffOptions, onChange, onClear, onApplyToAll }: {
+function ELedgerDetailCard({
+  index, item, side, isPending, busList, staffOptions, onChange, onClear, onApplyToAll,
+  onRefreshVehicles, vehiclesRefreshing, onRefreshStaff, staffRefreshing,
+}: {
   index: number; item: EditLedgerItem; side: 'debit'|'credit'; isPending?: boolean
   busList: {label:string;value:string}[]; staffOptions: {label:string;value:string}[]
   onChange: (u: Partial<EditLedgerItem>) => void; onClear: () => void; onApplyToAll: () => void
+  onRefreshVehicles?: () => void; vehiclesRefreshing?: boolean
+  onRefreshStaff?: () => void; staffRefreshing?: boolean
 }) {
   const isDr = side === 'debit'
   const todayStr = new Date().toISOString().split('T')[0]
@@ -331,14 +477,16 @@ function ELedgerDetailCard({ index, item, side, isPending, busList, staffOptions
         <div>
           <Label>Vehicle No</Label>
           <div className="flex items-center gap-1">
-            <div className="flex-1 min-w-0"><SimpleDropdown value={item.vehicleNo} placeholder="Select Vehicle" options={busList} onChange={v => onChange({ vehicleNo: v })} /></div>
+            <div className="flex-1 min-w-0"><SimpleDropdown value={item.vehicleNo} placeholder="Select Vehicle" options={busList} searchable
+              onChange={v => onChange({ vehicleNo: v })} onRefresh={onRefreshVehicles} refreshing={vehiclesRefreshing} /></div>
             {item.vehicleNo && <button type="button" onClick={() => onChange({ vehicleNo: '' })} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>}
           </div>
         </div>
         <div>
           <Label>Staff Name</Label>
           <div className="flex items-center gap-1">
-            <div className="flex-1 min-w-0"><SimpleDropdown value={item.staffValue} placeholder="Select Staff" options={staffOptions} onChange={v => onChange({ staffValue: v })} /></div>
+            <div className="flex-1 min-w-0"><SimpleDropdown value={item.staffValue} placeholder="Select Staff" options={staffOptions} searchable
+              onChange={v => onChange({ staffValue: v })} onRefresh={onRefreshStaff} refreshing={staffRefreshing} /></div>
             {item.staffValue && <button type="button" onClick={() => onChange({ staffValue: '' })} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>}
           </div>
         </div>
@@ -362,19 +510,27 @@ function groupVoucherRows(rows: any[]): any[] {
 }
 
 const today = new Date().toISOString().split('T')[0]
-
-// Assets-section ledgers being credited (i.e. treated as a payable) are only
-// allowed under these voucher types.
-const ASSET_PAYABLE_VOUCHER_TYPES = ['Journal', 'Credit Note']
-const isAssetLedger = (l: any) => l?.staticname === 'ASSETS'
+const currentFY = getCurrentFY()
 
 import ActivityHistory from '@/components/shared/ActivityHistory'
 
 export default function VoucherApprovalsPage() {
+  const selectedFY = useFYStore(s => s.selectedFY)
+  const fyMin = selectedFY.fromDate
+  const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
   const [tab, setTab] = useState('Pending Approval')
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
-  const [filterInput, setFilterInput] = useState({ fromdate: '', todate: '' })
-  const [appliedFilter, setAppliedFilter] = useState({ fromdate: '', todate: '' })
+  const [filterInput, setFilterInput] = useState({ fromdate: selectedFY.fromDate, todate: fyMax })
+  const [appliedFilter, setAppliedFilter] = useState({ fromdate: selectedFY.fromDate, todate: fyMax })
+
+  // Selecting a financial year snaps the range to that year's full span and
+  // re-fetches immediately — otherwise the FY tabs look like they do nothing.
+  useEffect(() => {
+    const next = { fromdate: fyMin, todate: fyMax }
+    setFilterInput(next)
+    setAppliedFilter(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fyMin, fyMax])
   const [viewModal, setViewModal] = useState<any>(null)
   const [editMode, setEditMode] = useState(false)
   const [editForm, setEditForm] = useState({ vouchertype: '', voucherdate: '', valueDate: '', vehicleNo: '', description: '' })
@@ -405,7 +561,7 @@ export default function VoucherApprovalsPage() {
     queryFn: () => accountingService.getVoucherSearch({ fromdate: '', todate: '', type: '2' }),
   })
 
-  const { data: ledgersRes } = useQuery({
+  const { data: ledgersRes, refetch: refetchLedgers, isFetching: ledgersFetching } = useQuery({
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
   })
@@ -414,20 +570,18 @@ export default function VoucherApprovalsPage() {
     queryKey: ['voucher-types'],
     queryFn: () => accountingService.getVoucherTypes({}),
   })
-  const { data: busesRes } = useQuery({
+  const { data: busesRes, refetch: refetchBuses, isFetching: busesFetching } = useQuery({
     queryKey: ['buses'],
     queryFn: () => mastersService.getBuses(),
   })
-  const { data: employeesRes } = useQuery({
+  const { data: employeesRes, refetch: refetchEmployees, isFetching: employeesFetching } = useQuery({
     queryKey: ['employees-voucher'],
     queryFn: () => accountingService.getEmployeesDropdown(),
   })
 
-  const isFiltered = !!(appliedFilter.fromdate && appliedFilter.todate)
-  const { data: searched, isLoading: loadSearch } = useQuery({
+  const { data: searched, isLoading: loadSearch, isFetching: searchFetching, refetch: refetchSearch } = useQuery({
     queryKey: ['voucher-search', appliedFilter],
     queryFn: () => accountingService.getVoucherSearch(appliedFilter),
-    enabled: isFiltered,
   })
 
   const { data: modalData } = useQuery({
@@ -527,10 +681,6 @@ export default function VoucherApprovalsPage() {
   }
   const addEditCredit = () => {
     if (!editCreditInput.ledger || !editCreditInput.amount) return
-    if (isAssetLedger(editCreditInput.ledger) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(editForm.vouchertype)) {
-      toast.error('Assets ledgers can only be credited under Journal or Credit Note voucher types')
-      return
-    }
     const newCredits = [...editCredits, editCreditInput]
     setEditCredits(newCredits)
     editCreditAutoFilled.current = false
@@ -546,6 +696,54 @@ export default function VoucherApprovalsPage() {
   }
   const updateEditDebitDetail  = (i: number, u: Partial<EditLedgerItem>) => setEditDebits(p => p.map((item, idx) => idx===i ? {...item,...u} : item))
   const updateEditCreditDetail = (i: number, u: Partial<EditLedgerItem>) => setEditCredits(p => p.map((item, idx) => idx===i ? {...item,...u} : item))
+
+  // Removing or editing a committed row's amount changes its side's total,
+  // so whichever side now falls short of the other must have the shortfall
+  // auto-filled into its own pending input to stay balanced — same as the
+  // Voucher Entry page.
+  const rebalanceEditPending = (drTotal: number, crTotal: number) => {
+    const diff = drTotal - crTotal
+    if (diff > 0) {
+      setEditCreditInput(p => ({ ...p, amount: String(diff) }))
+      editCreditAutoFilled.current = true
+      setEditDebitInput(p => ({ ...p, amount: '' }))
+      editDebitAutoFilled.current = false
+    } else if (diff < 0) {
+      setEditDebitInput(p => ({ ...p, amount: String(-diff) }))
+      editDebitAutoFilled.current = true
+      setEditCreditInput(p => ({ ...p, amount: '' }))
+      editCreditAutoFilled.current = false
+    } else {
+      setEditDebitInput(p => ({ ...p, amount: '' }))
+      editDebitAutoFilled.current = false
+      setEditCreditInput(p => ({ ...p, amount: '' }))
+      editCreditAutoFilled.current = false
+    }
+  }
+
+  const removeEditDebit = (i: number) => {
+    const newDebits = editDebits.filter((_, idx) => idx !== i)
+    setEditDebits(newDebits)
+    const newDrTotal = newDebits.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+    rebalanceEditPending(newDrTotal, editTotalCr)
+  }
+  const removeEditCredit = (i: number) => {
+    const newCredits = editCredits.filter((_, idx) => idx !== i)
+    setEditCredits(newCredits)
+    const newCrTotal = newCredits.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+    rebalanceEditPending(editTotalDr, newCrTotal)
+  }
+  const editEditDebitRow = (i: number, u: Partial<EditLedgerItem>) => {
+    updateEditDebitDetail(i, u)
+    const newDrTotal = editDebits.reduce((s, r, idx) => s + (parseFloat(idx === i ? (u.amount ?? r.amount) : r.amount) || 0), 0)
+    rebalanceEditPending(newDrTotal, editTotalCr)
+  }
+  const editEditCreditRow = (i: number, u: Partial<EditLedgerItem>) => {
+    updateEditCreditDetail(i, u)
+    const newCrTotal = editCredits.reduce((s, r, idx) => s + (parseFloat(idx === i ? (u.amount ?? r.amount) : r.amount) || 0), 0)
+    rebalanceEditPending(editTotalDr, newCrTotal)
+  }
+
   const clearEditDetail = (side: 'debit'|'credit', i: number|'pending') => {
     const blank = { description:'', valueDate:'', vehicleNo:'', staffValue:'' }
     if (side==='debit') { if (i==='pending') setEditDebitInput(p=>({...p,...blank})); else updateEditDebitDetail(i as number, blank) }
@@ -618,6 +816,7 @@ export default function VoucherApprovalsPage() {
         qc.invalidateQueries({ queryKey: ['voucher-pending'] })
         qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
         qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
+        qc.invalidateQueries({ queryKey: ['voucher-search'] })
         qc.invalidateQueries({ queryKey: ['voucher-audit', payload.row.c_number] })
       } else toast.error('Failed')
     },
@@ -636,10 +835,6 @@ export default function VoucherApprovalsPage() {
     if (allDebits.length === 0) { toast.error('Add at least one debit entry'); return false }
     if (allCredits.length === 0) { toast.error('Add at least one credit entry'); return false }
     if (Math.abs(totalDr - totalCr) > 0.001) { toast.error(`Debit (${totalDr}) does not equal Credit (${totalCr}) — must balance`); return false }
-    if (allCredits.some(c => isAssetLedger(c.ledger)) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(editForm.vouchertype)) {
-      toast.error('Assets ledgers can only be credited under Journal or Credit Note voucher types')
-      return false
-    }
     return true
   }
 
@@ -756,6 +951,7 @@ export default function VoucherApprovalsPage() {
         qc.invalidateQueries({ queryKey: ['voucher-pending'] })
         qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
         qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
+        qc.invalidateQueries({ queryKey: ['voucher-search'] })
         qc.invalidateQueries({ queryKey: ['voucher-modal', viewModal?.c_number] })
         qc.invalidateQueries({ queryKey: ['voucher-audit', viewModal?.c_number] })
       } else toast.error(res.message ?? 'Update failed')
@@ -795,6 +991,7 @@ export default function VoucherApprovalsPage() {
     qc.invalidateQueries({ queryKey: ['voucher-pending'] })
     qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
     qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
+    qc.invalidateQueries({ queryKey: ['voucher-search'] })
   }
 
   const confirmReject = async () => {
@@ -827,20 +1024,60 @@ export default function VoucherApprovalsPage() {
       qc.invalidateQueries({ queryKey: ['voucher-pending'] })
       qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
       qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
+      qc.invalidateQueries({ queryKey: ['voucher-search'] })
     }
   }
 
-  const searchList: any[] = isFiltered ? (searched?.data ?? []) : []
-  const pending: any[]      = groupVoucherRows(isFiltered ? searchList.filter(r => !r.status || r.status == 0) : (pendingRes?.data ?? []))
-  const approvedList: any[] = groupVoucherRows(isFiltered ? searchList.filter(r => r.status == 1)              : (approvedRes?.data ?? []))
-  const rejectedList: any[] = groupVoucherRows(isFiltered ? searchList.filter(r => r.status == 2)              : (rejectedRes?.data ?? []))
+  const searchList: any[] = searched?.data ?? []
+  const pending: any[]      = groupVoucherRows(searchList.filter(r => !r.status || r.status == 0))
+  const approvedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 1))
+  const rejectedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 2))
 
   const getList = () => tab === 'Pending Approval' ? pending : tab === 'Approved' ? approvedList : rejectedList
   const getMode = () => tab === 'Pending Approval' ? 'pending' : 'view'
 
+  // Column filters are scoped to whichever tab is open — carrying them over
+  // when switching status tabs made the new tab look stuck/empty.
+  const handleTabChange = (key: string) => {
+    setTab(key)
+    setColFilters({})
+  }
+
   const subRows: any[] = Array.isArray(modalData?.data?.[1]) ? modalData.data[1] : []
   const debitRows = subRows.filter(r => r.account_type === 'Debit Account')
   const creditRows = subRows.filter(r => r.account_type === 'Credit Account')
+
+  // Payables vouchers always debit the ledger being settled — same
+  // localStorage handoff used by the "Payables" button elsewhere
+  // (GroupWisePage/DayBookPage's handlePayables). `editVoucher` additionally
+  // carries this specific voucher's own field values + credit entries so the
+  // Payables page can pre-fill them instead of opening blank.
+  const openInPayables = () => {
+    const ledgerRow = debitRows[0]
+    if (!ledgerRow?.ledger_id) { toast.error('Could not determine the ledger for this voucher'); return }
+    localStorage.setItem('reportViewData', JSON.stringify({
+      groupName: ledgerRow.expensives,
+      entries: [{ id: ledgerRow.ledger_id, name: ledgerRow.expensives, temple_name: ledgerRow.expensives }],
+      editVoucher: {
+        c_number: viewModal.c_number,
+        voucherdate: viewModal.voucherdate ? String(viewModal.voucherdate).split('T')[0] : '',
+        valueDate: viewModal.valueDate ? String(viewModal.valueDate).split('T')[0] : '',
+        vehicleNo: viewModal.vehicleNo || '',
+        name: viewModal.name || '',
+        staff_type: viewModal.staff_type || '',
+        staff_type_id: viewModal.staff_type_id || '',
+        description: viewModal.description || '',
+        creditEntries: creditRows.map((r: any) => ({ ledger_id: r.ledger_id, amount: Number(r.amount) || 0 })),
+        // Preserved across the edit so the re-inserted voucher row keeps its
+        // original creator/creation-time, matching updatevoucherentryCtrl's
+        // convention (only updatedby_* tracks who/when made this edit).
+        entry_by: viewModal.entry_by || '',
+        i_ts: viewModal.i_ts || '',
+      },
+    }))
+    localStorage.setItem('bs_ledger_name', 'balacesheeet')
+    window.open('/accounting/payables-view', '_blank')
+  }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -853,7 +1090,7 @@ export default function VoucherApprovalsPage() {
           { label: `Approved (${approvedList.length})`, key: 'Approved', color: 'text-emerald-600' },
           { label: `Rejected (${rejectedList.length})`, key: 'Rejected', color: 'text-red-600' },
         ].map((t) => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => handleTabChange(t.key)}
             className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all ${tab === t.key ? `bg-white shadow-sm ${t.color} border-slate-200` : 'text-slate-500 border-transparent hover:bg-white/60'}`}>
             {t.label}
           </button>
@@ -862,14 +1099,15 @@ export default function VoucherApprovalsPage() {
 
       {/* Search */}
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-slate-500 to-slate-700">
+        <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap">
           <div>
             <Label>From Date</Label>
-            <Input type="date" max={today} value={filterInput.fromdate} onChange={(e) => setFilterInput(f => ({ ...f, fromdate: e.target.value }))} />
+            <Input type="date" min={fyMin} max={fyMax} value={filterInput.fromdate} onChange={(e) => setFilterInput(f => ({ ...f, fromdate: e.target.value }))} />
           </div>
           <div>
             <Label>To Date</Label>
-            <Input type="date" max={today} value={filterInput.todate} onChange={(e) => setFilterInput(f => ({ ...f, todate: e.target.value }))} />
+            <Input type="date" min={fyMin} max={fyMax} value={filterInput.todate} onChange={(e) => setFilterInput(f => ({ ...f, todate: e.target.value }))} />
           </div>
           <Button
             onClick={() => setAppliedFilter({ ...filterInput })}
@@ -877,14 +1115,9 @@ export default function VoucherApprovalsPage() {
           >
             <Search className="w-4 h-4" /> Search
           </Button>
-          {isFiltered && (
-            <Button variant="outline" onClick={() => {
-              setFilterInput({ fromdate: '', todate: '' })
-              setAppliedFilter({ fromdate: '', todate: '' })
-            }}>
-              <X className="w-4 h-4" /> Clear
-            </Button>
-          )}
+          <Button onClick={() => refetchSearch()} disabled={searchFetching} className="bg-slate-600 hover:bg-slate-700">
+            <RefreshCw className={`w-4 h-4 ${searchFetching ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
         </div>
       </GlassCard>
 
@@ -897,7 +1130,7 @@ export default function VoucherApprovalsPage() {
           entryByOpts,
         }) as any}
         data={getList()}
-        loading={loadPending || loadApproved || loadRejected || loadSearch}
+        loading={loadSearch}
         onAction={() => {}}
         actions={[]}
         columnFilters={colFilters}
@@ -958,7 +1191,17 @@ export default function VoucherApprovalsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                   {[
                     ['Voucher Type', viewModal.vouchertype],
-                    ['Total Amount', viewModal.creditanddebitamount ? formatCurrency(Number(viewModal.creditanddebitamount)) : '—'],
+                    ['Total Amount', (() => {
+                      // creditanddebitamount is debit + credit combined; since a
+                      // saved voucher is always balanced, debit_total alone (or
+                      // half of the combined sum as a fallback) is the real total.
+                      const total = viewModal.debit_total != null
+                        ? Number(viewModal.debit_total)
+                        : viewModal.creditanddebitamount != null
+                        ? Number(viewModal.creditanddebitamount) / 2
+                        : null
+                      return total ? formatCurrency(total) : '—'
+                    })()],
                     ['Entry By', viewModal.entry_by || '—'],
                   ].map(([label, value]) => (
                     <div key={label} className="bg-slate-50 rounded-xl p-3">
@@ -973,6 +1216,26 @@ export default function VoucherApprovalsPage() {
                   <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
                     <div className="text-xs text-slate-500 font-bold uppercase tracking-wide mb-1">Description</div>
                     <div className="text-sm text-slate-800 whitespace-pre-wrap">{viewModal.description}</div>
+                  </div>
+                )}
+
+                {/* Payables banner — this voucher was created by settling a
+                    payable, so editing/inspecting it properly happens on the
+                    real Payables page rather than the generic editor below. */}
+                {Number(viewModal.is_payable) === 1 && (
+                  <div className="flex items-center gap-3 bg-purple-50 border border-purple-200 rounded-xl p-3">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">
+                      Payable
+                    </span>
+                    <p className="text-sm text-purple-800 flex-1">
+                      This voucher was generated from a Payables settlement.
+                    </p>
+                    <button
+                      onClick={openInPayables}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 text-white hover:bg-purple-700 transition-colors whitespace-nowrap"
+                    >
+                      Open in Payables
+                    </button>
                   </div>
                 )}
 
@@ -1143,7 +1406,8 @@ export default function VoucherApprovalsPage() {
                             <div className="flex-1 min-w-0">
                               <Label>Choose Ledger Name <span className="text-red-500">*</span></Label>
                               <LedgerDropdown value={editDebitInput.ledger} ledgers={editDebitLedgers}
-                                onChange={l => setEditDebitInput(p => ({ ...p, ledger: l }))} />
+                                onChange={l => setEditDebitInput(p => ({ ...p, ledger: l }))}
+                                onRefresh={() => refetchLedgers()} refreshing={ledgersFetching} />
                             </div>
                             <div className="w-28 flex-shrink-0">
                               <Label>Amount <span className="text-red-500">*</span></Label>
@@ -1168,8 +1432,10 @@ export default function VoucherApprovalsPage() {
                                   : `Need ${Math.abs(editEffectiveDiff).toLocaleString('en-IN')} more on debit`}
                             </p>
                           )}
-                          <ELedgerTable rows={editDebits} side="debit"
-                            onRemove={i => setEditDebits(p => p.filter((_, idx) => idx !== i))} />
+                          <ELedgerTable rows={editDebits} side="debit" ledgers={editDebitLedgers}
+                            onRemove={removeEditDebit}
+                            onUpdate={editEditDebitRow}
+                            onRefreshLedgers={() => refetchLedgers()} ledgersRefreshing={ledgersFetching} />
                         </div>
                       </div>
 
@@ -1200,7 +1466,8 @@ export default function VoucherApprovalsPage() {
                             <div className="flex-1 min-w-0">
                               <Label>Choose Ledger Name <span className="text-red-500">*</span></Label>
                               <LedgerDropdown value={editCreditInput.ledger} ledgers={editCreditLedgers}
-                                onChange={l => setEditCreditInput(p => ({ ...p, ledger: l }))} />
+                                onChange={l => setEditCreditInput(p => ({ ...p, ledger: l }))}
+                                onRefresh={() => refetchLedgers()} refreshing={ledgersFetching} />
                             </div>
                             <div className="w-28 flex-shrink-0">
                               <Label>Amount <span className="text-red-500">*</span></Label>
@@ -1226,7 +1493,11 @@ export default function VoucherApprovalsPage() {
                             </p>
                           )}
                           <ELedgerTable rows={editCredits} side="credit"
-                            onRemove={i => setEditCredits(p => p.filter((_, idx) => idx !== i))} />
+                            offset={editDebits.length + (editDebitInput.ledger && editDebitInput.amount ? 1 : 0)}
+                            ledgers={editCreditLedgers}
+                            onRemove={removeEditCredit}
+                            onUpdate={editEditCreditRow}
+                            onRefreshLedgers={() => refetchLedgers()} ledgersRefreshing={ledgersFetching} />
                         </div>
                       </div>
                     </div>
@@ -1271,6 +1542,8 @@ export default function VoucherApprovalsPage() {
                           {editDebits.map((item, i) => (
                             <ELedgerDetailCard key={`edr-${i}`} index={i + 1} item={item} side="debit"
                               busList={busList} staffOptions={staffOptions}
+                              onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                              onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                               onChange={u => updateEditDebitDetail(i, u)}
                               onClear={() => clearEditDetail('debit', i)}
                               onApplyToAll={() => applyEditDetailToAll(item)} />
@@ -1278,6 +1551,8 @@ export default function VoucherApprovalsPage() {
                           {editDebitInput.ledger && editDebitInput.amount && (
                             <ELedgerDetailCard key="edr-pending" index={editDebits.length + 1} item={editDebitInput} side="debit" isPending
                               busList={busList} staffOptions={staffOptions}
+                              onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                              onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                               onChange={u => setEditDebitInput(p => ({ ...p, ...u }))}
                               onClear={() => clearEditDetail('debit', 'pending')}
                               onApplyToAll={() => applyEditDetailToAll(editDebitInput)} />
@@ -1287,6 +1562,8 @@ export default function VoucherApprovalsPage() {
                               index={editDebits.length + (editDebitInput.ledger && editDebitInput.amount ? 1 : 0) + i + 1}
                               item={item} side="credit"
                               busList={busList} staffOptions={staffOptions}
+                              onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                              onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                               onChange={u => updateEditCreditDetail(i, u)}
                               onClear={() => clearEditDetail('credit', i)}
                               onApplyToAll={() => applyEditDetailToAll(item)} />
@@ -1296,6 +1573,8 @@ export default function VoucherApprovalsPage() {
                               index={editDebits.length + (editDebitInput.ledger && editDebitInput.amount ? 1 : 0) + editCredits.length + 1}
                               item={editCreditInput} side="credit" isPending
                               busList={busList} staffOptions={staffOptions}
+                              onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                              onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                               onChange={u => setEditCreditInput(p => ({ ...p, ...u }))}
                               onClear={() => clearEditDetail('credit', 'pending')}
                               onApplyToAll={() => applyEditDetailToAll(editCreditInput)} />
@@ -1355,7 +1634,12 @@ export default function VoucherApprovalsPage() {
                 <div className="flex justify-between items-center pt-4 border-t border-slate-200">
                   <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
                   <div className="flex gap-3 flex-wrap">
-                    {!editMode && (
+                    {!editMode && Number(viewModal.is_payable) === 1 && (
+                      <Button variant="outline" onClick={openInPayables}>
+                        <Pencil className="w-4 h-4" /> Edit in Payables
+                      </Button>
+                    )}
+                    {!editMode && Number(viewModal.is_payable) !== 1 && (
                       <Button variant="outline" onClick={() => setEditMode(true)}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>

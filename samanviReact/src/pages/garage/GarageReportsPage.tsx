@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { BarChart2, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -26,8 +26,8 @@ export default function GarageReportsPage() {
   const [applied, setApplied] = useState(filter)
 
   const { data, isLoading } = useQuery({ queryKey: ['garage-reports', applied], queryFn: () => garageService.getRepairEntries(applied) })
-  const { data: buses } = useQuery({ queryKey: ['buses'], queryFn: () => fuelService.getBusNumbers() })
-  const { data: categories } = useQuery({ queryKey: ['repair-cats'], queryFn: () => garageService.getCategories() })
+  const { data: buses, refetch: reloadBuses, isFetching: loadingBuses } = useQuery({ queryKey: ['buses'], queryFn: () => fuelService.getBusNumbers() })
+  const { data: categories, refetch: reloadCats, isFetching: loadingCats } = useQuery({ queryKey: ['repair-cats'], queryFn: () => garageService.getCategories() })
 
   const list: any[] = data?.data ?? []
   const totalCost = list.reduce((s, r) => s + (Number(r.total_amount) || 0), 0)
@@ -35,8 +35,8 @@ export default function GarageReportsPage() {
   const busList: any[] = buses?.data ?? []
 
   const chartData = catList.map(c => ({
-    name: c.category_name,
-    cost: list.filter(r => r.category === c.category_name).reduce((s, r) => s + (Number(r.total_amount) || 0), 0)
+    name: c.name,
+    cost: list.filter(r => r.category === c.name).reduce((s, r) => s + (Number(r.total_amount) || 0), 0)
   })).filter(d => d.cost > 0)
 
   return (
@@ -46,15 +46,23 @@ export default function GarageReportsPage() {
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-orange-500 to-red-500">
         <div className="flex items-end gap-4 flex-wrap">
           <div><Label>Bus</Label>
-            <Select value={filter.bus_no} onChange={(e) => setFilter({ ...filter, bus_no: e.target.value })}>
-              <option value="">All Buses</option>
-              {busList.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-            </Select></div>
+            <SearchableSelect
+              value={filter.bus_no}
+              onChange={(v) => setFilter({ ...filter, bus_no: v })}
+              options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
+              placeholder="All Buses"
+              onReload={() => reloadBuses()}
+              reloading={loadingBuses}
+            /></div>
           <div><Label>Category</Label>
-            <Select value={filter.category} onChange={(e) => setFilter({ ...filter, category: e.target.value })}>
-              <option value="">All Categories</option>
-              {catList.map((c) => <option key={c.id} value={c.category_name}>{c.category_name}</option>)}
-            </Select></div>
+            <SearchableSelect
+              value={filter.category}
+              onChange={(v) => setFilter({ ...filter, category: v })}
+              options={catList.map((c) => ({ value: c.name, label: c.name }))}
+              placeholder="All Categories"
+              onReload={() => reloadCats()}
+              reloading={loadingCats}
+            /></div>
           <div><Label>From</Label><Input type="date" max={today} value={filter.from_date} onChange={(e) => setFilter({ ...filter, from_date: e.target.value })} /></div>
           <div><Label>To</Label><Input type="date" max={today} value={filter.to_date} onChange={(e) => setFilter({ ...filter, to_date: e.target.value })} /></div>
           <Button onClick={() => setApplied(filter)}><Search className="w-4 h-4" /> Apply</Button>

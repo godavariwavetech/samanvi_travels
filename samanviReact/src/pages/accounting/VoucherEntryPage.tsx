@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck, Pencil, Check } from 'lucide-react'
+import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck, Pencil, Check, RefreshCw, History } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
@@ -9,6 +9,7 @@ import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY, getFYList, type FinancialYear } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
+import { formatCurrency, formatDate } from '@/lib/utils'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Ledger { id: number; temple_name: string; ledger_id: number; [key: string]: any }
@@ -24,22 +25,42 @@ interface SelectedStaff { id: number; type: string; name: string }
 
 const emptyDetail = { description: '', valueDate: '', vehicleNo: '', staffValue: '' }
 
-// Assets-section ledgers being credited (i.e. treated as a payable) are only
-// allowed under these voucher types.
-const ASSET_PAYABLE_VOUCHER_TYPES = ['Journal', 'Credit Note']
-const isAssetLedger = (l: Ledger | null) => l?.staticname === 'ASSETS'
-
 function parseStaff(staffValue: string): SelectedStaff | null {
   if (!staffValue) return null
   const [id, type, name] = staffValue.split('|')
   return { id: parseInt(id) || 0, type: type ?? '', name: name ?? '' }
 }
 
+const splitLedgerNames = (s: string | null | undefined): string[] =>
+  s ? String(s).split('|').map(x => x.trim()).filter(Boolean) : []
+
+// ── InlineRefresh — small icon sat inside a dropdown trigger, re-hits the
+// source API without stealing width from the trigger itself ───────────────
+function InlineRefresh({ onRefresh, refreshing, title }: {
+  onRefresh: () => void
+  refreshing?: boolean
+  title?: string
+}) {
+  return (
+    <span
+      role="button" tabIndex={0} title={title ?? 'Refresh'}
+      onClick={e => { e.stopPropagation(); if (!refreshing) onRefresh() }}
+      onMouseDown={e => e.stopPropagation()}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!refreshing) onRefresh() } }}
+      className="flex flex-shrink-0 items-center justify-center p-1 -m-1 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+    >
+      <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+    </span>
+  )
+}
+
 // ── LedgerDropdown — portal-based, immune to overflow:hidden parents ───────
-function LedgerDropdown({ value, ledgers, onChange }: {
+function LedgerDropdown({ value, ledgers, onChange, onRefresh, refreshing }: {
   value: Ledger | null
   ledgers: Ledger[]
   onChange: (l: Ledger | null) => void
+  onRefresh?: () => void
+  refreshing?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -76,7 +97,7 @@ function LedgerDropdown({ value, ledgers, onChange }: {
   const filtered = ledgers.filter(l =>
     (l.temple_name ?? '').toLowerCase().includes(search.toLowerCase())
   )
-  const groupOf = (l: Ledger) => l.child || l.subchildtwo || ''
+  const groupOf = (l: Ledger) => l.subchildtwo || l.child || ''
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
 
@@ -119,7 +140,7 @@ function LedgerDropdown({ value, ledgers, onChange }: {
   return (
     <div className="flex-1 min-w-0">
       <button ref={btnRef} type="button" onClick={openDropdown} title={value?.temple_name}
-        className="flex min-h-10 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
         <span className="flex flex-col items-start min-w-0 flex-1 text-left">
           <span className={value ? 'text-slate-900 font-medium truncate w-full' : 'text-slate-400 truncate w-full'}>
             {value?.temple_name || 'Select Ledger'}
@@ -130,7 +151,10 @@ function LedgerDropdown({ value, ledgers, onChange }: {
             </span>
           )}
         </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh ledgers" />}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
       </button>
       {panel}
     </div>
@@ -138,13 +162,17 @@ function LedgerDropdown({ value, ledgers, onChange }: {
 }
 
 // ── SimpleDropdown — portal-based dropdown for plain string options ────────
-function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }: {
+function SimpleDropdown({ value, options, placeholder = 'Select…', searchable, onChange, onRefresh, refreshing }: {
   value: string
   options: { label: string; value: string }[]
   placeholder?: string
+  searchable?: boolean
   onChange: (v: string) => void
+  onRefresh?: () => void
+  refreshing?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const PANEL_MAX_H = 240
@@ -152,6 +180,7 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }:
   const openDropdown = () => {
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
     setOpen(true)
+    setSearch('')
   }
 
   useEffect(() => {
@@ -159,11 +188,11 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }:
     const close = (e: MouseEvent) => {
       const panel = document.getElementById('simple-portal-panel')
       if (panel?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
-      setOpen(false)
+      setOpen(false); setSearch('')
     }
     const onScroll = (e: Event) => {
       if (document.getElementById('simple-portal-panel')?.contains(e.target as Node)) return
-      setOpen(false)
+      setOpen(false); setSearch('')
     }
     document.addEventListener('mousedown', close)
     window.addEventListener('scroll', onScroll, true)
@@ -175,6 +204,9 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }:
 
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
+  const filtered = searchable
+    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    : options
 
   const panel = open && rect && createPortal(
     <div id="simple-portal-panel" style={{
@@ -182,25 +214,39 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }:
       top: openUpward ? undefined : rect.bottom + 4,
       bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
       left: rect.left, width: rect.width, maxHeight: PANEL_MAX_H, zIndex: 99999,
-    }} className="rounded-xl border border-slate-200 bg-white shadow-2xl overflow-y-auto">
-      {options.map(opt => (
-        <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false) }}
-          className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
-            value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
-          }`}>{opt.label}</div>
-      ))}
+    }} className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col">
+      {searchable && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 flex-shrink-0">
+          <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search…"
+            className="flex-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 bg-transparent" />
+        </div>
+      )}
+      <div className="overflow-y-auto flex-1">
+        {filtered.length === 0 && <div className="px-4 py-3 text-sm text-slate-400 text-center">No options found</div>}
+        {filtered.map(opt => (
+          <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch('') }}
+            className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
+              value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
+            }`}>{opt.label}</div>
+        ))}
+      </div>
     </div>,
     document.body
   )
 
   return (
-    <div>
+    <div className="flex-1 min-w-0">
       <button ref={btnRef} type="button" onClick={openDropdown}
-        className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
-        <span className={value ? 'text-slate-900 font-medium' : 'text-slate-400'}>
+        className="flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+        <span className={value ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
           {options.find(o => o.value === value)?.label || placeholder}
         </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="flex items-center gap-1 flex-shrink-0">
+          {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh options" />}
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
       </button>
       {panel}
     </div>
@@ -208,9 +254,15 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', onChange }:
 }
 
 // ── Committed ledger rows table ────────────────────────────────────────────
-function LedgerTable({ rows, side, onRemove, onEditAmount }: {
+// `offset` shifts the displayed "#" so it matches the same row's number in
+// the Transaction Details cards below — those number debit entries first,
+// then continue the count into credit entries, rather than restarting at 1
+// per side. Without this, the same ledger added twice (with different
+// amounts) couldn't be reliably matched to its own detail card by number.
+function LedgerTable({ rows, side, offset = 0, onRemove, onEditAmount }: {
   rows: LineItem[]
   side: 'debit' | 'credit'
+  offset?: number
   onRemove: (i: number) => void
   onEditAmount: (i: number, amount: string) => void
 }) {
@@ -241,7 +293,7 @@ function LedgerTable({ rows, side, onRemove, onEditAmount }: {
         <tbody>
           {rows.map((row, i) => (
             <tr key={i} className={`border-b last:border-0 ${isDr ? 'border-red-50' : 'border-emerald-50'}`}>
-              <td className="py-2 text-xs text-slate-400">{i + 1}</td>
+              <td className="py-2 text-xs text-slate-400">{offset + i + 1}</td>
               <td className="py-2 font-medium text-slate-800 truncate max-w-[160px]">{row.ledger?.temple_name}</td>
               <td className="py-2 text-right pr-1">
                 {editingIndex === i ? (
@@ -288,7 +340,10 @@ function LedgerTable({ rows, side, onRemove, onEditAmount }: {
 }
 
 // ── Per-ledger transaction detail card ────────────────────────────────────
-function LedgerDetailCard({ index, item, side, isPending, busList, staffOptions, onChange, onClear, onApplyToAll }: {
+function LedgerDetailCard({
+  index, item, side, isPending, busList, staffOptions, onChange, onClear, onApplyToAll,
+  onRefreshVehicles, vehiclesRefreshing, onRefreshStaff, staffRefreshing,
+}: {
   index: number
   item: LineItem
   side: 'debit' | 'credit'
@@ -298,6 +353,10 @@ function LedgerDetailCard({ index, item, side, isPending, busList, staffOptions,
   onChange: (updates: Partial<LineItem>) => void
   onClear: () => void
   onApplyToAll: () => void
+  onRefreshVehicles?: () => void
+  vehiclesRefreshing?: boolean
+  onRefreshStaff?: () => void
+  staffRefreshing?: boolean
 }) {
   const isDr = side === 'debit'
   return (
@@ -364,7 +423,10 @@ function LedgerDetailCard({ index, item, side, isPending, busList, staffOptions,
                 value={item.vehicleNo}
                 placeholder="Select Vehicle"
                 options={busList}
+                searchable
                 onChange={v => onChange({ vehicleNo: v })}
+                onRefresh={onRefreshVehicles}
+                refreshing={vehiclesRefreshing}
               />
             </div>
             {item.vehicleNo && (
@@ -383,7 +445,10 @@ function LedgerDetailCard({ index, item, side, isPending, busList, staffOptions,
                 value={item.staffValue}
                 placeholder="Select Staff"
                 options={staffOptions}
+                searchable
                 onChange={v => onChange({ staffValue: v })}
+                onRefresh={onRefreshStaff}
+                refreshing={staffRefreshing}
               />
             </div>
             {item.staffValue && (
@@ -432,7 +497,7 @@ export default function VoucherEntryPage() {
   const [credits, setCredits] = useState<LineItem[]>([])
 
   // ── Queries ───────────────────────────────────────────────────────────────
-  const { data: ledgersRes } = useQuery({
+  const { data: ledgersRes, refetch: refetchLedgers, isFetching: ledgersFetching } = useQuery({
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
   })
@@ -440,19 +505,26 @@ export default function VoucherEntryPage() {
     queryKey: ['voucher-types'],
     queryFn: () => accountingService.getVoucherTypes({}),
   })
-  const { data: busesRes } = useQuery({
+  const { data: busesRes, refetch: refetchBuses, isFetching: busesFetching } = useQuery({
     queryKey: ['buses'],
     queryFn: () => mastersService.getBuses(),
   })
-  const { data: employeesRes } = useQuery({
+  const { data: employeesRes, refetch: refetchEmployees, isFetching: employeesFetching } = useQuery({
     queryKey: ['employees-voucher'],
     queryFn: () => accountingService.getEmployeesDropdown(),
+  })
+  // Same query key the approvals page uses for pending vouchers — submitting a
+  // new voucher here invalidates it, so this list refreshes right after save.
+  const { data: recentVouchersRes, refetch: refetchRecentVouchers, isFetching: recentVouchersFetching } = useQuery({
+    queryKey: ['voucher-pending'],
+    queryFn: () => accountingService.getVoucherEntries(),
   })
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const ledgerList: Ledger[] = ledgersRes?.data ?? []
   const voucherTypeList: any[] = voucherTypesRes?.data ?? []
   const busList = (busesRes?.data ?? []).map((b: any) => ({ label: b.bus_no, value: b.bus_no }))
+  const recentVouchers: any[] = (recentVouchersRes?.data ?? []).slice(0, 5)
   const allStaff = (employeesRes?.data ?? []).flat().map((s: any) => ({
     id: s.staff_id,
     type: s.type as string,
@@ -474,10 +546,7 @@ export default function VoucherEntryPage() {
   const effectiveBalanced = effectiveDr > 0 && Math.abs(effectiveDiff) < 0.001
   const pendingDrValid = !debitInput.amount  || (!!debitInput.ledger  && !!debitInput.amount)
   const pendingCrValid = !creditInput.amount || (!!creditInput.ledger && !!creditInput.amount)
-  // Catches the case where the voucher type is changed to something other than
-  // Journal/Credit Note after an Assets ledger was already added on the credit side.
-  const assetCreditViolation = credits.some(c => isAssetLedger(c.ledger)) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(form.vouchertype)
-  const canSave = effectiveBalanced && pendingDrValid && pendingCrValid && !assetCreditViolation
+  const canSave = effectiveBalanced && pendingDrValid && pendingCrValid
   const isWithinCurrentFY = form.voucherdate >= selectedFY.fromDate && form.voucherdate <= selectedFY.toDate
 
   // Ledgers used on the credit side (including the pending credit input) — blocked from debit dropdown
@@ -568,10 +637,6 @@ export default function VoucherEntryPage() {
 
   const addCredit = () => {
     if (!creditInput.ledger || !creditInput.amount) return
-    if (isAssetLedger(creditInput.ledger) && !ASSET_PAYABLE_VOUCHER_TYPES.includes(form.vouchertype)) {
-      toast.error('Assets ledgers can only be credited under Journal or Credit Note voucher types')
-      return
-    }
     const newCredits = [...credits, creditInput]
     setCredits(newCredits)
     creditAutoFilled.current = false
@@ -603,6 +668,56 @@ export default function VoucherEntryPage() {
 
   const updateCreditDetail = (i: number, updates: Partial<LineItem>) =>
     setCredits(prev => prev.map((item, idx) => idx === i ? { ...item, ...updates } : item))
+
+  // ── Remove / amount-edit handlers ─────────────────────────────────────────
+  // Changing a committed row's amount (or removing it) changes its side's
+  // total, so whichever side now falls short of the other must have the
+  // shortfall auto-filled into its own pending input to stay balanced.
+  const rebalancePending = (drTotal: number, crTotal: number) => {
+    const diff = drTotal - crTotal
+    if (diff > 0) {
+      setCreditInput(p => ({ ...p, amount: String(diff) }))
+      creditAutoFilled.current = true
+      setDebitInput(p => ({ ...p, amount: '' }))
+      debitAutoFilled.current = false
+    } else if (diff < 0) {
+      setDebitInput(p => ({ ...p, amount: String(-diff) }))
+      debitAutoFilled.current = true
+      setCreditInput(p => ({ ...p, amount: '' }))
+      creditAutoFilled.current = false
+    } else {
+      setDebitInput(p => ({ ...p, amount: '' }))
+      debitAutoFilled.current = false
+      setCreditInput(p => ({ ...p, amount: '' }))
+      creditAutoFilled.current = false
+    }
+  }
+
+  const removeDebit = (i: number) => {
+    const newDebits = debits.filter((_, idx) => idx !== i)
+    setDebits(newDebits)
+    const newDrTotal = newDebits.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+    rebalancePending(newDrTotal, totalCr)
+  }
+
+  const removeCredit = (i: number) => {
+    const newCredits = credits.filter((_, idx) => idx !== i)
+    setCredits(newCredits)
+    const newCrTotal = newCredits.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0)
+    rebalancePending(totalDr, newCrTotal)
+  }
+
+  const editDebitAmount = (i: number, amount: string) => {
+    updateDebitDetail(i, { amount })
+    const newDrTotal = debits.reduce((s, r, idx) => s + (parseFloat(idx === i ? amount : r.amount) || 0), 0)
+    rebalancePending(newDrTotal, totalCr)
+  }
+
+  const editCreditAmount = (i: number, amount: string) => {
+    updateCreditDetail(i, { amount })
+    const newCrTotal = credits.reduce((s, r, idx) => s + (parseFloat(idx === i ? amount : r.amount) || 0), 0)
+    rebalancePending(totalDr, newCrTotal)
+  }
 
   const clearDetail = (side: 'debit' | 'credit', i: number | 'pending') => {
     if (side === 'debit') {
@@ -846,7 +961,8 @@ export default function VoucherEntryPage() {
                 <div className="flex-1 min-w-0">
                   <Label>Choose Ledger Name <span className="text-red-500">*</span></Label>
                   <LedgerDropdown value={debitInput.ledger} ledgers={debitLedgers}
-                    onChange={l => setDebitInput(p => ({ ...p, ledger: l }))} />
+                    onChange={l => setDebitInput(p => ({ ...p, ledger: l }))}
+                    onRefresh={() => refetchLedgers()} refreshing={ledgersFetching} />
                 </div>
                 <div className="w-32">
                   <Label>Amount <span className="text-red-500">*</span></Label>
@@ -875,8 +991,8 @@ export default function VoucherEntryPage() {
                 </div>
               )}
               <LedgerTable rows={debits} side="debit"
-                onRemove={i => setDebits(p => p.filter((_, idx) => idx !== i))}
-                onEditAmount={(i, amount) => updateDebitDetail(i, { amount })} />
+                onRemove={removeDebit}
+                onEditAmount={editDebitAmount} />
             </div>
           </div>
 
@@ -907,7 +1023,8 @@ export default function VoucherEntryPage() {
                 <div className="flex-1 min-w-0">
                   <Label>Choose Ledger Name <span className="text-red-500">*</span></Label>
                   <LedgerDropdown value={creditInput.ledger} ledgers={creditLedgers}
-                    onChange={l => setCreditInput(p => ({ ...p, ledger: l }))} />
+                    onChange={l => setCreditInput(p => ({ ...p, ledger: l }))}
+                    onRefresh={() => refetchLedgers()} refreshing={ledgersFetching} />
                 </div>
                 <div className="w-32">
                   <Label>Amount <span className="text-red-500">*</span></Label>
@@ -936,8 +1053,9 @@ export default function VoucherEntryPage() {
                 </div>
               )}
               <LedgerTable rows={credits} side="credit"
-                onRemove={i => setCredits(p => p.filter((_, idx) => idx !== i))}
-                onEditAmount={(i, amount) => updateCreditDetail(i, { amount })} />
+                offset={debits.length + (debitInput.ledger && debitInput.amount ? 1 : 0)}
+                onRemove={removeCredit}
+                onEditAmount={editCreditAmount} />
             </div>
           </div>
 
@@ -991,6 +1109,8 @@ export default function VoucherEntryPage() {
                   side="debit"
                   busList={busList}
                   staffOptions={staffOptions}
+                  onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                  onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                   onChange={updates => updateDebitDetail(i, updates)}
                   onClear={() => clearDetail('debit', i)}
                   onApplyToAll={() => applyDetailToAll(item)}
@@ -1006,6 +1126,8 @@ export default function VoucherEntryPage() {
                   isPending
                   busList={busList}
                   staffOptions={staffOptions}
+                  onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                  onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                   onChange={updates => setDebitInput(p => ({ ...p, ...updates }))}
                   onClear={() => clearDetail('debit', 'pending')}
                   onApplyToAll={() => applyDetailToAll(debitInput)}
@@ -1020,6 +1142,8 @@ export default function VoucherEntryPage() {
                   side="credit"
                   busList={busList}
                   staffOptions={staffOptions}
+                  onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                  onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                   onChange={updates => updateCreditDetail(i, updates)}
                   onClear={() => clearDetail('credit', i)}
                   onApplyToAll={() => applyDetailToAll(item)}
@@ -1035,6 +1159,8 @@ export default function VoucherEntryPage() {
                   isPending
                   busList={busList}
                   staffOptions={staffOptions}
+                  onRefreshVehicles={() => refetchBuses()} vehiclesRefreshing={busesFetching}
+                  onRefreshStaff={() => refetchEmployees()} staffRefreshing={employeesFetching}
                   onChange={updates => setCreditInput(p => ({ ...p, ...updates }))}
                   onClear={() => clearDetail('credit', 'pending')}
                   onApplyToAll={() => applyDetailToAll(creditInput)}
@@ -1085,11 +1211,6 @@ export default function VoucherEntryPage() {
                   Select ledger for entered amount
                 </span>
               )}
-              {assetCreditViolation && (
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-500">
-                  Assets ledger on credit side requires Journal or Credit Note voucher type
-                </span>
-              )}
             </div>
           )}
           <Button
@@ -1102,6 +1223,73 @@ export default function VoucherEntryPage() {
           </Button>
         </div>
 
+      </GlassCard>
+
+      {/* ── Recent Vouchers ───────────────────────────────────────────────── */}
+      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-blue-500 to-indigo-500">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <History className="w-5 h-5 text-blue-500" /> Recent Vouchers
+          </h2>
+          <button
+            type="button" onClick={() => refetchRecentVouchers()} disabled={recentVouchersFetching}
+            title="Refresh"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-blue-500 hover:bg-blue-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${recentVouchersFetching ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+        </div>
+
+        {recentVouchers.length === 0 ? (
+          <div className="py-6 text-center text-sm text-slate-400 italic border border-dashed border-slate-200 rounded-xl">
+            No vouchers entered yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs font-semibold text-slate-400 border-b border-slate-100">
+                  <th className="text-left pb-2">Rf. No.</th>
+                  <th className="text-left pb-2">Type</th>
+                  <th className="text-left pb-2">Date</th>
+                  <th className="text-left pb-2">Dr. Ledger</th>
+                  <th className="text-left pb-2">Cr. Ledger</th>
+                  <th className="text-right pb-2">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentVouchers.map((v: any) => (
+                  <tr key={v.c_number} className="border-b last:border-0 border-slate-50">
+                    <td className="py-2 pr-2">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 whitespace-nowrap">
+                        {v.c_number}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-2 font-medium text-slate-700 whitespace-nowrap">{v.vouchertype}</td>
+                    <td className="py-2 pr-2 whitespace-nowrap text-slate-600">{v.voucherdate ? formatDate(v.voucherdate) : '—'}</td>
+                    <td className="py-2 pr-2">
+                      <div className="flex flex-col gap-0.5">
+                        {splitLedgerNames(v.debit_ledger_name).map((l, i) => (
+                          <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="py-2 pr-2">
+                      <div className="flex flex-col gap-0.5">
+                        {splitLedgerNames(v.credit_ledger_name).map((l, i) => (
+                          <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}</span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="py-2 text-right font-bold text-slate-800 whitespace-nowrap">
+                      {formatCurrency(Number(v.debit_total ?? v.creditanddebitamount ?? 0))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </GlassCard>
 
       {/* ── FY Change Confirmation Modal ─────────────────────────────────── */}

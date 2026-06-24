@@ -5,7 +5,7 @@ import { NavLink, useLocation } from 'react-router'
 import {
   LayoutDashboard, Users, Map, Building2, Briefcase,
   CreditCard, Shirt, Settings, LogOut,
-  Fuel, ChevronDown, ChevronRight, X,
+  Fuel, ChevronDown, ChevronRight, X, Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
@@ -84,6 +84,28 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
+    id: 'garage', label: 'Garage', icon: Wrench,
+    children: [
+      {
+        label: 'Maintenance',
+        children: [
+          { label: 'Job Creation',      path: '/garage/repair-entry' },
+          { label: 'Repair Tracking',   path: '/garage/tracking' },
+          { label: 'Service Reminders', path: '/garage/service-reminders' },
+          { label: 'Reports',           path: '/garage/reports' },
+        ],
+      },
+      {
+        label: 'Tyre Management',
+        children: [
+          { label: 'Tyre Inventory', path: '/garage/tyre-inventory' },
+          { label: 'Tyre Position',  path: '/garage/tyre-position' },
+        ],
+      },
+      { label: 'Battery Management', path: '/garage/battery-management' },
+    ],
+  },
+  {
     id: 'payroll', label: 'Pay Roll', icon: Briefcase,
     children: [
       { label: 'Salary Generation', path: '/payroll/generation' },
@@ -122,6 +144,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Voucher Types',      path: '/mainmasters/voucher-type' },
       { label: 'Group Management',   path: '/mainmasters/groups' },
       { label: 'Laundry Products',   path: '/mainmasters/laundry-products' },
+      { label: 'Garage Masters',     path: '/mainmasters/garage-masters' },
     ],
   },
 ]
