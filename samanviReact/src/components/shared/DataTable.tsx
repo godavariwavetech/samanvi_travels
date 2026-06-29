@@ -31,6 +31,7 @@ interface DataTableProps<T extends Record<string, unknown>> {
   selectionActions?: ReactNode
   columnFilters?: Record<string, string[]>
   onColumnFilterChange?: (key: string, vals: string[]) => void
+  filterBar?: ReactNode
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -47,6 +48,7 @@ export function DataTable<T extends Record<string, unknown>>({
   selectionActions,
   columnFilters,
   onColumnFilterChange,
+  filterBar,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
@@ -137,7 +139,8 @@ export function DataTable<T extends Record<string, unknown>>({
     <GlassCard className="flex flex-col overflow-hidden mt-6">
 
       {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-slate-100 bg-white/40 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4">
+      <div className="border-b border-slate-100 bg-white/40">
+      <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4">
         <div className="flex items-center gap-2 min-w-0">
           {icon}
           <h3 className="font-bold text-slate-900 text-base sm:text-lg truncate">{title}</h3>
@@ -172,6 +175,12 @@ export function DataTable<T extends Record<string, unknown>>({
             <Download className="w-4 h-4" /> <span className="hidden sm:inline">Export</span>
           </Button>
         </div>
+      </div>
+      {filterBar && (
+        <div className="px-4 sm:px-5 pb-3 pt-2 flex flex-wrap items-center gap-2 border-t border-slate-100/80">
+          {filterBar}
+        </div>
+      )}
       </div>
 
       {/* Selection summary bar */}
@@ -210,7 +219,7 @@ export function DataTable<T extends Record<string, unknown>>({
       <div className="overflow-x-auto scrollbar-thin">
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/50">
+            <tr className="bg-blue-600 text-white">
               {selectable && (
                 <th className="pl-5 pr-2 py-4 w-10">
                   <input
@@ -224,7 +233,7 @@ export function DataTable<T extends Record<string, unknown>>({
               {columns.map((col, i) => (
                 <th
                   key={i}
-                  className={`p-4 text-xs font-bold text-slate-500 uppercase tracking-wider ${!selectable && i === 0 ? 'pl-6' : ''}`}
+                  className={`p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${!selectable && i === 0 ? 'pl-6' : ''}`}
                 >
                   <div className="flex items-center gap-1.5">
                     {col.label}
@@ -233,13 +242,14 @@ export function DataTable<T extends Record<string, unknown>>({
                         options={colOptions[col.key] ?? []}
                         selected={columnFilters?.[col.key] ?? []}
                         onChange={vals => onColumnFilterChange?.(col.key, vals)}
+                        variant="light"
                       />
                     )}
                   </div>
                 </th>
               ))}
               {actionButtons.length > 0 && (
-                <th className="p-4 text-right pr-6 text-xs font-bold text-slate-500 uppercase tracking-wider w-[220px]">
+                <th className="p-4 text-right pr-6 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap w-[220px]">
                   Actions
                 </th>
               )}

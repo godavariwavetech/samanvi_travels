@@ -13,12 +13,13 @@ interface SearchableSelectProps {
   onChange: (value: string) => void
   options: SearchableSelectOption[]
   placeholder?: string
+  displayLabel?: string
   onReload?: () => void
   reloading?: boolean
   className?: string
 }
 
-export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', onReload, reloading, className }: SearchableSelectProps) {
+export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading, className }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -105,8 +106,8 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
         onClick={openDropdown}
         className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 px-4 py-2 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white"
       >
-        <span className={cn('truncate', selected ? 'text-slate-900' : 'text-slate-400')}>
-          {selected ? selected.label : placeholder}
+        <span className={cn('truncate', (selected || displayLabel) ? 'text-slate-900' : 'text-slate-400')}>
+          {selected ? selected.label : (displayLabel || placeholder)}
         </span>
         <ChevronDown className={cn('w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform', open && 'rotate-180')} />
       </button>

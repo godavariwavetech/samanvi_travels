@@ -2,6 +2,74 @@ var sqldb = require("../config/dbconnect");
 var dbutil = require(appRoot + "/utils/assets_dbutils");
 var moment = require("moment");
 
+// Garage approval workflow schema migration (runs once on startup)
+(function initGarageWorkflow() {
+  sqldb.query(`CREATE TABLE IF NOT EXISTS job_approval_stages (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    job_card_id INT NOT NULL,
+    job_card_number VARCHAR(30),
+    stage VARCHAR(50) NOT NULL,
+    action VARCHAR(30) NOT NULL,
+    action_by_id INT DEFAULT 0,
+    action_by_name VARCHAR(255) DEFAULT '',
+    action_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    remarks TEXT,
+    d_in INT DEFAULT 0
+  )`, function (err) { if (err) console.log('[DB] job_approval_stages init:', err.message) });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vehicle_jobs' AND COLUMN_NAME = 'current_stage'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE vehicle_jobs ADD COLUMN current_stage VARCHAR(50) DEFAULT 'open'`, function (err) {
+        if (err) console.log('[DB] current_stage migration:', err.message);
+        else console.log('[DB] current_stage column added to vehicle_jobs');
+      });
+    }
+  });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vehicle_jobs' AND COLUMN_NAME = 'job_date'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE vehicle_jobs ADD COLUMN job_date DATE DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] job_date migration:', err.message);
+        else console.log('[DB] job_date column added to vehicle_jobs');
+      });
+    }
+  });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vehicle_jobs' AND COLUMN_NAME = 'created_by'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE vehicle_jobs ADD COLUMN created_by VARCHAR(255) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] created_by migration:', err.message);
+        else console.log('[DB] created_by column added to vehicle_jobs');
+      });
+    }
+  });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vehicle_jobs' AND COLUMN_NAME = 'finish_remarks'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE vehicle_jobs ADD COLUMN finish_remarks TEXT DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] finish_remarks migration:', err.message);
+        else console.log('[DB] finish_remarks column added to vehicle_jobs');
+      });
+    }
+  });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vehicle_jobs' AND COLUMN_NAME = 'approval_remarks'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE vehicle_jobs ADD COLUMN approval_remarks TEXT DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] approval_remarks migration:', err.message);
+        else console.log('[DB] approval_remarks column added to vehicle_jobs');
+      });
+    }
+  });
+  // Create parts_price_history table if it doesn't exist
+  sqldb.query(`CREATE TABLE IF NOT EXISTS parts_price_history (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    part_id INT NOT NULL,
+    old_price DECIMAL(10,2) NOT NULL DEFAULT 0,
+    new_price DECIMAL(10,2) NOT NULL DEFAULT 0,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){ if(err) console.log('[DB] parts_price_history init:', err.message); else console.log('[DB] parts_price_history ready'); });
+  // Seed garage workflow sub-modules for the permissions module (id=200,201 to avoid conflicts)
+  sqldb.query(`INSERT IGNORE INTO sub_modules (id,title,path,module_id,module_order,d_in) VALUES (200,'Job Approval','/garage/repairtracking',19,5,0)`, function(err){ if(err) console.log('[DB] Job Approval sub_module:', err.message); });
+  sqldb.query(`INSERT IGNORE INTO sub_modules (id,title,path,module_id,module_order,d_in) VALUES (201,'Job Completion','/garage/repairtracking',19,6,0)`, function(err){ if(err) console.log('[DB] Job Completion sub_module:', err.message); });
+})();
+
 exports.check_user_mobilenoMdl = function (data, callback) {
   var cntxtDtls = "in check_user_mobilenoMdl";
   var m = [data.number];
@@ -9955,7 +10023,7 @@ exports.getRefDetailsMdl = function (data, callback) {
       break;
     case "mainvoucher_subt":
       statusCondition = "d_in='0' AND t.status='1'";
-      parentJoin = "LEFT JOIN mainvoucher_t p ON t.c_number = p.c_number";
+      parentJoin = "LEFT JOIN mainvoucher_t p ON t.c_number = p.c_number AND p.d_in = 0";
       parentFields = `, p.id as parent_id,
                            p.voucherdate as parent_date,
                            p.vouchertype as parent_vouchertype,
@@ -9997,7 +10065,7 @@ exports.getRefDetailsMdl = function (data, callback) {
                m.temple_name as ledger_name,
                m.staticname as ledger_static_name,
                m.mandal_name as ledger_mandal_name,
-               m.subchildtwo as ledger_subchild_name${parentFields},t.*
+               m.subchildtwo as ledger_subchild_name${parentFields}
         FROM ${tableName} t
         LEFT JOIN mainmasterssubchildtwo m ON t.ledger_id = m.id AND m.d_in = '0'
         ${parentJoin}
@@ -10009,8 +10077,14 @@ exports.getRefDetailsMdl = function (data, callback) {
   const handleResults = (err, results) => {
     if (err) return callback(err);
 
-    // All entries from the specific table only
-    const allEntries = results || [];
+    // Deduplicate by sub-row id (parent JOIN can multiply rows if mainvoucher_t
+    // has more than one row per c_number)
+    const seen = new Set();
+    const allEntries = (results || []).filter(row => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    });
 
     // Primary data is the first entry
     const primaryData = allEntries[0] || null;
@@ -10969,10 +11043,10 @@ exports.getPayablesPaymentHistoryMdl = function (sourceTable, sourceId, callback
 exports.unsettlePayablesRowsMdl = function (c_number, actorId, actorName, callback) {
   var cntxtDtls = "in unsettlePayablesRowsMdl";
   const SELECT_QRY = `
-    SELECT id, payment, balance, 'mainvoucher_subt' AS source_table FROM mainvoucher_subt WHERE payables_settled_by = ? AND d_in='0';
-    SELECT id, payment, balance, 'fuelentry_subt' AS source_table FROM fuelentry_subt WHERE payables_settled_by = ? AND d_in='0';
-    SELECT id, payment, balance, 'laundrybill_subt' AS source_table FROM laundrybill_subt WHERE payables_settled_by = ? AND d_in='0';
-    SELECT ed.id, ed.payment, ed.balance, 'expensive_details' AS source_table
+    SELECT id, payment, balance, amount, 'mainvoucher_subt' AS source_table FROM mainvoucher_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT id, payment, balance, amount, 'fuelentry_subt' AS source_table FROM fuelentry_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT id, payment, balance, amount, 'laundrybill_subt' AS source_table FROM laundrybill_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT ed.id, ed.payment, ed.balance, ed.amount, 'expensive_details' AS source_table
       FROM expensive_details ed
       JOIN payables_settled_links psl ON psl.source_table='expensive_details' AND psl.source_id = ed.id
       WHERE psl.c_number = ? AND ed.d_in='0';
@@ -10994,9 +11068,10 @@ exports.unsettlePayablesRowsMdl = function (c_number, actorId, actorName, callba
         const restoreBalance = state.restoreBalance;
         const restoreSettledBy = state.restoreSettledBy;
 
+        const restoredBalance = restoreBalance !== null ? restoreBalance : (Number(row.amount) || 0);
         exports.insertPayablesPaymentHistoryMdl([{
           source_table: row.source_table, source_id: row.id, c_number,
-          payment: row.payment || 0, balance_after: row.balance || 0,
+          payment: row.payment || 0, balance_after: restoredBalance,
           action: 'reversed', actor_id: actorId, actor_name: actorName,
         }], function (logErr) {
           if (logErr) console.error('[unsettlePayablesRowsMdl] history log failed for', c_number, row.source_table, row.id);
@@ -11128,10 +11203,21 @@ exports.getvouchersearchdataMdl = function (data, callback) {
 exports.getrepairentryMdl = function (data, callback) {
   var cntxtDtls = "getrepairentryMdl";
   var QRY_TO_EXEC = `
-  SELECT vehicle_jobs.*,driver_register.nickname as driver_name,repair_category.name as repair_category_name,staff_register.fullName as staff_name FROM vehicle_jobs join driver_register on driver_register.id=vehicle_jobs.reported_driver_id 
-join repair_category on repair_category.id = vehicle_jobs.repair_category_id
-join staff_register on staff_register.id = vehicle_jobs.assigned_to
-where vehicle_jobs.d_in=0 order by vehicle_jobs.job_card_number DESC;
+  SELECT vj.*,
+    COALESCE(dr.driver_name, dr.nickname, '') AS driver_name,
+    sr.fullName AS staff_name,
+    rc.name AS repair_category_name,
+    (SELECT GROUP_CONCAT(rc2.name ORDER BY jc2.id SEPARATOR ', ')
+     FROM job_categories jc2
+     JOIN repair_category rc2 ON rc2.id = jc2.category_id
+     WHERE jc2.job_card_id = vj.id AND jc2.d_in = 0) AS all_categories,
+    (SELECT COUNT(*) FROM job_categories WHERE job_card_id = vj.id AND d_in = 0) AS category_count
+  FROM vehicle_jobs vj
+  LEFT JOIN driver_register dr ON dr.id = vj.reported_driver_id
+  LEFT JOIN repair_category rc ON rc.id = vj.repair_category_id
+  LEFT JOIN staff_register sr ON sr.id = vj.assigned_to
+  WHERE vj.d_in = 0
+  ORDER BY vj.job_card_number DESC;
   `;
 
   let m = [];
@@ -11231,7 +11317,12 @@ exports.deleterepaircategoryMdl = function (data, callback) {
 
 exports.getallrepairpartsMdl = function (data, callback) {
   var cntxtDtls = "getallrepairpartsMdl";
-  var QRY_TO_EXEC = `select * from parts_master where d_in=0`;
+  var QRY_TO_EXEC = `
+    SELECT p.*, rc.name AS category_name
+    FROM parts_master p
+    LEFT JOIN repair_category rc ON rc.id = p.category_id AND rc.d_in = 0
+    WHERE p.d_in = 0
+  `;
 
   let m = [];
 
@@ -11251,15 +11342,15 @@ exports.getallrepairpartsMdl = function (data, callback) {
 
 exports.addrepairpaMdl = function (data, callback) {
   var cntxtDtls = "addrepairpaMdl";
-  var QRY_TO_EXEC = `insert into parts_master(part_number,part_name,price) values(?,?,?)`;
-  var m = [data.part_number || '', data.part_name, data.price];
+  var QRY_TO_EXEC = `insert into parts_master(part_number,part_name,category_id,price) values(?,?,?,?)`;
+  var m = [data.part_number || '', data.part_name, data.category_id || null, data.price];
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
 };
 
 exports.editrepairpartsMdl = function (data, callback) {
   var cntxtDtls = "editrepairpartsMdl";
-  var QRY_TO_EXEC = `update parts_master set part_number=?, part_name=?, price=? where part_id=?`;
-  var m = [data.part_number || '', data.part_name, data.price, data.id];
+  var QRY_TO_EXEC = `update parts_master set part_number=?, part_name=?, category_id=?, price=? where part_id=?`;
+  var m = [data.part_number || '', data.part_name, data.category_id || null, data.price, data.id];
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
 };
 
@@ -11269,13 +11360,42 @@ exports.deleterepairpartsMdl = function (data, callback) {
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
 };
 
+exports.editPartPriceMdl = function (data, callback) {
+  var cntxtDtls = "editPartPriceMdl";
+  var pid   = parseInt(data.id)   || 0;
+  var price = parseFloat(data.price) || 0;
+  var QRY_TO_EXEC = `
+    INSERT INTO parts_price_history(part_id, old_price, new_price)
+    SELECT part_id, price, ${price} FROM parts_master WHERE part_id = ${pid};
+    UPDATE parts_master SET price = ${price} WHERE part_id = ${pid};
+  `;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.getPartPriceHistoryMdl = function (data, callback) {
+  var cntxtDtls = "getPartPriceHistoryMdl";
+  var pid = parseInt(data.part_id) || 0;
+  var QRY_TO_EXEC = `SELECT * FROM parts_price_history WHERE part_id = ${pid} AND d_in = 0 ORDER BY changed_at DESC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
 
 
 
 exports.JobCarduniquenoMdl = function (callback) {
   var cntxtDtls = "in JobCarduniquenoMdl";
   var QRY_TO_EXEC = `SELECT c_id FROM vehicle_jobs WHERE d_in='0' order by c_id desc limit 1;`;
-  //console.log()QRY_TO_EXEC, 22582);
+  if (callback && typeof callback == "function")
+    dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+      callback(err, results);
+      return;
+    });
+  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+exports.todayJobCountMdl = function (callback) {
+  var cntxtDtls = "in todayJobCountMdl";
+  var QRY_TO_EXEC = `SELECT COUNT(*) as cnt FROM vehicle_jobs WHERE job_card_number LIKE CONCAT('J', DATE_FORMAT(CURDATE(), '%y%m%d'), '%');`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
       callback(err, results);
@@ -11285,12 +11405,69 @@ exports.JobCarduniquenoMdl = function (callback) {
 };
 
 
-exports.addrepairentryMdl = function (c_id, c_number, data, callback) {
+exports.addJobCategoriesMdl = function (jobId, jobCardNumber, jobRows, callback) {
+  var cntxtDtls = "addJobCategoriesMdl";
+  var values = jobRows.map(function(r) {
+    var desc = (r.description || '').replace(/'/g, "''");
+    return `('${jobId}', '${jobCardNumber}', '${r.category}', '${r.priority || 'Medium'}', '${r.technician || 0}', '${desc}')`;
+  }).join(', ');
+  var QRY_TO_EXEC = `INSERT INTO job_categories(job_card_id, job_card_number, category_id, priority, technician_id, description) VALUES ${values}`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
 
-  console.log(c_id, c_number, data)
-  var cntxtDtls = "addrepairentryMdl";
+exports.getJobCategoriesMdl = function (data, callback) {
+  var cntxtDtls = "getJobCategoriesMdl";
+  var jobId = parseInt(data.job_card_id) || 0;
+  var QRY_TO_EXEC = `
+    SELECT jc.*, rc.name AS category_name, sr.fullName AS technician_name
+    FROM job_categories jc
+    LEFT JOIN repair_category rc ON rc.id = jc.category_id
+    LEFT JOIN staff_register sr ON sr.id = jc.technician_id
+    WHERE jc.job_card_id = ${jobId} AND jc.d_in = 0
+    ORDER BY jc.id ASC
+  `;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.editJobMdl = function (data, callback) {
+  var cntxtDtls = "editJobMdl";
+  var jobId = parseInt(data.id) || 0;
+  var firstRow = (data.job_rows || [])[0] || {};
   var nextDate = data.next_job_date ? `'${data.next_job_date}'` : 'NULL';
-  var QRY_TO_EXEC = `insert into vehicle_jobs(c_id,job_card_number,vehicle_number,odometer_reading,repair_category_id,priority,reported_driver_id,remarks,assigned_to,state,is_repeated_job,next_job_date) VALUES('${c_id}','${c_number}','${data.vehicle_number}','${data.odometer_reading}','${data.repair_category_id}','${data.priority}','${data.reported_driver_id}','${data.remarks}','${data.assigned_to}','OPEN','${data.is_repeated_job || 0}',${nextDate});`;
+  var catRows = (data.job_rows || []).filter(function(r) { return r.category; });
+  var catValues = catRows.map(function(r) {
+    var desc = (r.description || '').replace(/'/g, "''");
+    return `('${jobId}', '${data.job_card_number}', '${r.category}', '${r.priority || 'Medium'}', '${r.technician || 0}', '${desc}')`;
+  }).join(', ');
+  var QRY_TO_EXEC = `
+    UPDATE vehicle_jobs SET
+      vehicle_number='${data.vehicle_number}',
+      odometer_reading='${data.odometer_reading || ''}',
+      reported_driver_id='${data.reported_driver_id || 0}',
+      repair_category_id='${firstRow.category || 0}',
+      priority='${firstRow.priority || 'Medium'}',
+      assigned_to='${firstRow.technician || 0}',
+      remarks='${(firstRow.description || '').replace(/'/g, "''")}',
+      is_repeated_job='${data.is_repeated_job || 0}',
+      next_job_date=${nextDate}
+    WHERE id=${jobId};
+    UPDATE job_categories SET d_in=1 WHERE job_card_id=${jobId};
+    ${catValues ? `INSERT INTO job_categories(job_card_id,job_card_number,category_id,priority,technician_id,description) VALUES ${catValues};` : ''}
+  `;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.addrepairentryMdl = function (c_id, c_number, data, callback) {
+  var cntxtDtls = "addrepairentryMdl";
+  var firstRow = (data.job_rows || [])[0] || {};
+  var catId = firstRow.category || data.repair_category_id || 0;
+  var priority = firstRow.priority || data.priority || 'Medium';
+  var technician = firstRow.technician || data.assigned_to || 0;
+  var remarks = (firstRow.description || data.remarks || '').replace(/'/g, "''");
+  var nextDate = data.next_job_date ? `'${data.next_job_date}'` : 'NULL';
+  var jobDate = data.job_date ? `'${data.job_date}'` : 'CURDATE()';
+  var createdBy = (data.usr_nm || '').replace(/'/g, "''");
+  var QRY_TO_EXEC = `insert into vehicle_jobs(c_id,job_card_number,vehicle_number,odometer_reading,repair_category_id,priority,reported_driver_id,remarks,assigned_to,state,is_repeated_job,next_job_date,job_date,created_by) VALUES('${c_id}','${c_number}','${data.vehicle_number}','${data.odometer_reading || ''}','${catId}','${priority}','${data.reported_driver_id || 0}','${remarks}','${technician}','OPEN','${data.is_repeated_job || 0}',${nextDate},${jobDate},'${createdBy}');`;
 
   let m = [];
 
@@ -11306,6 +11483,16 @@ exports.addrepairentryMdl = function (c_id, c_number, data, callback) {
       }
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+exports.addJobPartsMdl = function (jobId, jobCardNumber, parts, callback) {
+  var cntxtDtls = "addJobPartsMdl";
+  var values = parts.map(function(p) {
+    var amount = (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0);
+    return `('${jobId}', '${jobCardNumber}', '${p.part_id}', '${amount}')`;
+  }).join(', ');
+  var QRY_TO_EXEC = `INSERT INTO job_parts_used (job_card_id, job_card_number, part_id, amount) VALUES ${values}`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
 };
 
 
@@ -11364,31 +11551,65 @@ exports.submitrepairtrackingMdl = function (data, callback) {
 
   let cntxtDtls = "submitrepairtrackingMdl";
 
-  // 1?? DELETE OLD PARTS
+  // 0️⃣ ENSURE LEDGER ENTRIES TABLE EXISTS
   let QRY_TO_EXEC = `
-    UPDATE job_parts_used 
-    SET d_in = 2 
+    CREATE TABLE IF NOT EXISTS job_ledger_entries (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      job_card_id VARCHAR(100),
+      job_card_number VARCHAR(100),
+      ledger_id INT,
+      amount DECIMAL(12,2),
+      entry_type ENUM('debit','credit'),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  // 1️⃣ DELETE OLD PARTS
+  QRY_TO_EXEC += `
+    UPDATE job_parts_used
+    SET d_in = 2
     WHERE job_card_id = '${data.id}';
   `;
 
-  // 2?? INSERT NEW PARTS (append multiple VALUES)
-  data.parts.forEach(p => {
+  // 2️⃣ INSERT NEW PARTS
+  (data.parts || []).forEach(p => {
     QRY_TO_EXEC += `
-      INSERT INTO job_parts_used 
-      (job_card_id, job_card_number, part_id, amount) 
+      INSERT INTO job_parts_used
+      (job_card_id, job_card_number, part_id, amount)
       VALUES ('${data.id}', '${data.job_card_number}', '${p.part_id}', '${p.amount}');
     `;
   });
 
-  // 3?? UPDATE VEHICLE JOBS
+  // 3️⃣ UPDATE VEHICLE JOBS
+  var _nextJobDate = (data.next_job_date && data.next_job_date !== 'null') ? `'${data.next_job_date}'` : 'NULL';
+  var _isRepeated  = data.is_job_repeated ? 1 : 0;
   QRY_TO_EXEC += `
     UPDATE vehicle_jobs
     SET amount = '${data.total_amount}',
         is_parts_data_uploaded = 1,
-        is_repeated_job = '${data.is_job_repeated}',
-        next_job_date = '${data.next_job_date}'
+        is_repeated_job = ${_isRepeated},
+        next_job_date = ${_nextJobDate},
+        current_stage = 'completed',
+        state = 'CLOSED'
     WHERE id = '${data.id}';
+    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
+    VALUES ('${data.id}', '${data.job_card_number}', 'accountant', 'completed', '${data.user_id || 0}', '', '');
   `;
+
+  // 4️⃣ LEDGER ENTRIES — clear old then insert new
+  QRY_TO_EXEC += `DELETE FROM job_ledger_entries WHERE job_card_id = '${data.id}';`;
+  (data.debit_ledgers || []).filter(e => e.ledger_id && e.amount).forEach(e => {
+    QRY_TO_EXEC += `
+      INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type)
+      VALUES ('${data.id}', '${data.job_card_number}', '${e.ledger_id}', '${parseFloat(e.amount) || 0}', 'debit');
+    `;
+  });
+  (data.credit_ledgers || []).filter(e => e.ledger_id && e.amount).forEach(e => {
+    QRY_TO_EXEC += `
+      INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type)
+      VALUES ('${data.id}', '${data.job_card_number}', '${e.ledger_id}', '${parseFloat(e.amount) || 0}', 'credit');
+    `;
+  });
 
   console.log(QRY_TO_EXEC); // for debugging
 
@@ -11409,12 +11630,171 @@ exports.submitrepairtrackingMdl = function (data, callback) {
   }
 };
 
+exports.quickCompleteJobMdl = function (data, callback) {
+  const jobId  = (data.id  || '').toString().replace(/'/g, "''");
+  const jobNum = (data.job_card_number || '').replace(/'/g, "''");
+  const desc   = (data.description || '').replace(/'/g, "''");
+  const userId = data.user_id || 0;
+  const QRY_TO_EXEC = `
+    UPDATE vehicle_jobs
+    SET current_stage = 'completed', state = 'CLOSED', approval_remarks = '${desc}'
+    WHERE id = '${jobId}';
+    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
+    VALUES ('${jobId}', '${jobNum}', 'accountant', 'quick_completed', '${userId}', '', '${desc}');
+  `;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], 'quickCompleteJobMdl', callback);
+};
+
+exports.createGarageVouchersMdl = function (data, callback) {
+  const moment    = require('moment');
+  const curDate   = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
+  const vDate     = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+  const datePart  = moment().utcOffset('+05:30').format('YYMMDD');
+
+  dbutil.execupdateQuery(sqldb,
+    `SELECT COUNT(*) as cnt FROM mainvoucher_t WHERE DATE(i_ts) = CURDATE()`,
+    [], 'garageVoucherCount',
+    function (err, countRes) {
+      if (err) return callback(err, []);
+      let baseCount = countRes && countRes[0] ? (parseInt(countRes[0].cnt) || 0) : 0;
+      const blocks = data.voucher_blocks || [];
+      const voucherNumbers = [];
+
+      const insertBlock = function (idx) {
+        if (idx >= blocks.length) return callback(null, voucherNumbers);
+        const block    = blocks[idx];
+        const c_number = 'V' + datePart + String(baseCount + idx + 1).padStart(3, '0');
+        const c_id     = baseCount + idx + 1;
+        const totalAmt = (block.debit || []).reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
+        const descText = ((block.description || '') + ' [Job: ' + (data.job_card_number || '') + ']').trim();
+
+        const mainRec = {
+          description: descText,
+          name: data.entry_by || '',
+          valueDate: vDate,
+          vehicleNo: data.vehicle_number || '',
+          creditanddebitamount: totalAmt,
+          i_ts: curDate,
+          vouchertype: 'Journal',
+          voucherdate: vDate,
+          c_number: c_number,
+          c_id: c_id,
+          entry_by: data.entry_by || '',
+          user_id: data.user_id || 0,
+          d_in: 0,
+          status: 0,
+          source_type: 'job',
+          job_card_number: data.job_card_number || '',
+          driver_name: data.driver_name || '',
+        };
+
+        dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_t SET ?', mainRec, 'garageVoucherMain', function (err, result) {
+          if (err) return callback(err, voucherNumbers);
+          const lastId = result.insertId;
+
+          const subRows = [];
+          (block.debit || []).filter(function (e) { return e.ledger_id && e.amount; }).forEach(function (e) {
+            subRows.push({ lastinsert_id: lastId, account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+          });
+          (block.credit || []).filter(function (e) { return e.ledger_id && e.amount; }).forEach(function (e) {
+            subRows.push({ lastinsert_id: lastId, account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+          });
+
+          var si = 0;
+          var insertSub = function () {
+            if (si >= subRows.length) { voucherNumbers.push(c_number); return insertBlock(idx + 1); }
+            dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_subt SET ?', subRows[si], 'garageVoucherSub', function (err) {
+              if (err) return callback(err, voucherNumbers);
+              si++; insertSub();
+            });
+          };
+          insertSub();
+        });
+      };
+
+      insertBlock(0);
+    }
+  );
+};
+
+exports.updateJobVoucherMdl = function (data, callback) {
+  var moment = require('moment');
+  var curDate = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
+  var vDate   = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+  var c_number = data.c_number;
+  var block   = (data.voucher_blocks || [])[0] || {};
+  var debitEntries  = (block.debit  || []).filter(function (e) { return e.ledger_id && e.amount; });
+  var creditEntries = (block.credit || []).filter(function (e) { return e.ledger_id && e.amount; });
+  var totalAmt = debitEntries.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
+  var descText = (block.description || data.description || '').replace(/'/g, "''");
+  var userId   = data.user_id || 0;
+  var userName = (data.user_name || '').replace(/'/g, "''");
+
+  // 1. Soft-delete existing sub rows
+  dbutil.execupdateQuery(sqldb,
+    "UPDATE mainvoucher_subt SET d_in=1 WHERE c_number='" + c_number + "' AND d_in=0",
+    [], 'updateJobVoucherDelete',
+    function (err) {
+      if (err) return callback(err);
+
+      // 2. Get main row's id for lastinsert_id reference
+      dbutil.execupdateQuery(sqldb,
+        "SELECT id FROM mainvoucher_t WHERE c_number='" + c_number + "' AND d_in=0 LIMIT 1",
+        [], 'updateJobVoucherGetMain',
+        function (err, rows) {
+          if (err) return callback(err);
+          var lastId = rows && rows[0] ? rows[0].id : 0;
+
+          // 3. Update mainvoucher_t header
+          dbutil.execupdateQuery(sqldb,
+            "UPDATE mainvoucher_t SET description='" + descText + "', creditanddebitamount=" + totalAmt + " WHERE c_number='" + c_number + "' AND d_in=0",
+            [], 'updateJobVoucherMain',
+            function (err) {
+              if (err) return callback(err);
+
+              // 4. Insert new subt rows
+              var allEntries = [];
+              debitEntries.forEach(function (e) {
+                allEntries.push({ lastinsert_id: lastId, account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: userId, d_in: 0 });
+              });
+              creditEntries.forEach(function (e) {
+                allEntries.push({ lastinsert_id: lastId, account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: userId, d_in: 0 });
+              });
+
+              if (allEntries.length === 0) return callback(null, { status: 200 });
+              var si = 0;
+              var insertNext = function () {
+                if (si >= allEntries.length) return callback(null, { status: 200 });
+                dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_subt SET ?', allEntries[si], 'updateJobVoucherSub', function (err) {
+                  if (err) return callback(err);
+                  si++; insertNext();
+                });
+              };
+              insertNext();
+            }
+          );
+        }
+      );
+    }
+  );
+};
+
 exports.changeJobSatusMdl = function (data, callback) {
   var cntxtDtls = "changeJobSatusMdl";
-  var QRY_TO_EXEC = `
-  update vehicle_jobs set  state ='CLOSED' where id = '${data.id}'
-  `
-  // console.log(QRY_TO_EXEC)
+  var allowed = ['OPEN', 'FINISHED', 'APPROVED', 'REJECTED', 'CLOSED'];
+  var newState = allowed.includes(data.state) ? data.state : 'CLOSED';
+  var QRY_TO_EXEC;
+  if (newState === 'FINISHED') {
+    var remarks = (data.finish_remarks || '').replace(/'/g, "''");
+    var repeat = data.is_repeated_job ? 1 : 0;
+    var nextDate = data.next_job_date ? `'${data.next_job_date}'` : 'NULL';
+    QRY_TO_EXEC = `UPDATE vehicle_jobs SET state='FINISHED', finish_remarks='${remarks}', is_repeated_job=${repeat}, next_job_date=${nextDate} WHERE id='${data.id}'`;
+  } else if (newState === 'APPROVED') {
+    var approvalRemarks = (data.approval_remarks || '').replace(/'/g, "''");
+    QRY_TO_EXEC = `UPDATE vehicle_jobs SET state='APPROVED', approval_remarks='${approvalRemarks}' WHERE id='${data.id}'`;
+  } else {
+    QRY_TO_EXEC = `UPDATE vehicle_jobs SET state='${newState}' WHERE id='${data.id}'`;
+  }
 
   let m = [];
 
@@ -11429,6 +11809,53 @@ exports.changeJobSatusMdl = function (data, callback) {
         return;
       }
     );
+  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+exports.checkJobPermissionMdl = function (data, callback) {
+  var userId   = data.user_id   || 0;
+  var roleType = data.role_type != null ? String(data.role_type) : '2';
+  if (roleType === '0' || roleType === '1') {
+    return callback(null, [{ can_approve: 1, can_complete: 1 }]);
+  }
+  var QRY_TO_EXEC = `
+    SELECT
+      MAX(CASE WHEN sm.id = 200 AND p.can_add = 1 THEN 1 ELSE 0 END) AS can_approve,
+      MAX(CASE WHEN sm.id = 201 AND p.can_add = 1 THEN 1 ELSE 0 END) AS can_complete
+    FROM permissions p
+    JOIN sub_modules sm ON sm.id = p.sub_module_id
+    WHERE p.user_id = '${userId}' AND sm.module_id = 19 AND p.d_in = 0
+  `;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], 'checkJobPermissionMdl', function(err, results) {
+    callback(err, results);
+  });
+};
+
+exports.jobWorkflowActionMdl = function (data, callback) {
+  const cntxtDtls = 'jobWorkflowActionMdl';
+  const stageMap = { start: 'in_progress', submit: 'pending_manager', approve: 'manager_approved', reject: 'manager_rejected' };
+  const actionLabels = { start: 'started', submit: 'submitted', approve: 'approved', reject: 'rejected' };
+  const stageLabels  = { start: 'technician', submit: 'technician', approve: 'manager', reject: 'manager' };
+  const newStage = stageMap[data.action];
+  if (!newStage) return callback(new Error('Invalid action: ' + data.action));
+  const safeRemarks = (data.remarks || '').replace(/'/g, "''");
+  const safeName    = (data.user_name || '').replace(/'/g, "''");
+  const QRY_TO_EXEC = `
+    UPDATE vehicle_jobs SET current_stage = '${newStage}' WHERE id = '${data.job_card_id}';
+    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
+    VALUES ('${data.job_card_id}', '${data.job_card_number}', '${stageLabels[data.action]}', '${actionLabels[data.action]}', '${data.user_id || 0}', '${safeName}', '${safeRemarks}');
+  `;
+  let m = [];
+  if (callback && typeof callback === 'function')
+    dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, function (err, results) { callback(err, results); });
+  else return dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls);
+};
+
+exports.getJobApprovalHistoryMdl = function (data, callback) {
+  const cntxtDtls = 'getJobApprovalHistoryMdl';
+  const QRY_TO_EXEC = `SELECT * FROM job_approval_stages WHERE job_card_id = '${data.job_card_id}' AND d_in = 0 ORDER BY action_at ASC;`;
+  if (callback && typeof callback === 'function')
+    dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) { callback(err, results); });
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
@@ -11782,6 +12209,159 @@ exports.getDueRepeatedJobs = function (callback) {
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
+// ── Bulk Upload — Bus Numbers ─────────────────────────────────────────────────
+exports.bulkUploadBusesMdl = function (rows, userId, usrNm, callback) {
+  var cntxtDtls = 'in bulkUploadBusesMdl';
+  dbutil.execQuery(sqldb, `SELECT bus_no FROM busses WHERE d_in='0'`, cntxtDtls, function (err, existing) {
+    if (err) return callback(err, null);
+    var date = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+    var existingNos = new Set((existing || []).map(function (r) { return String(r.bus_no || '').toLowerCase().trim(); }));
+    var skipped = [], toInsert = [];
+    rows.forEach(function (r) {
+      if (!r.bus_no) return;
+      var key = String(r.bus_no).toLowerCase().trim();
+      if (existingNos.has(key)) { skipped.push(r.bus_no); return; }
+      toInsert.push(r);
+    });
+    if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+    var vals = toInsert.map(function (r) {
+      return [
+        r.bus_no, r.engine_no || null, r.chassis_no || null,
+        r.insurance_validity || null, r.pollution_validity || null,
+        r.base_point_validity || null, r.date_of_purchase || null,
+        r.atp_validity || null, r.atp_authentication_validity || null,
+        r.fc_validity || null, r.home_tax_validity || null,
+        r.service_out_date || null, r.remarks || null,
+        userId, usrNm, date, r.odometer || null, r.ownername || null,
+        r.vehicle_type || null, r.issparetank || 0
+      ];
+    });
+    var QRY = 'INSERT INTO busses (bus_no, engine_no, chassis_no, insurance_validity, pollution_validity, base_point_validity, date_of_purchase, atp_validity, atp_authentication_validity, fc_validity, home_tax_validity, service_out_date, remarks, user_id, usr_nm, i_ts, odometer, ownername, vehicle_type, issparetank) VALUES ?';
+    dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+      if (err) return callback(err, null);
+      callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+    });
+  });
+};
 
+// ── Bulk Upload — Service Routes ──────────────────────────────────────────────
+exports.bulkUploadServiceRoutesMdl = function (rows, userId, usrNm, callback) {
+  var cntxtDtls = 'in bulkUploadServiceRoutesMdl';
+  dbutil.execQuery(sqldb, `SELECT serviceNo FROM driverone WHERE d_in='0'`, cntxtDtls, function (err, existing) {
+    if (err) return callback(err, null);
+    var date = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+    var existingNos = new Set((existing || []).map(function (r) { return String(r.serviceNo || '').toLowerCase().trim(); }));
+    var skipped = [], toInsert = [];
+    rows.forEach(function (r) {
+      if (!r.serviceNo) return;
+      var key = String(r.serviceNo).toLowerCase().trim();
+      if (existingNos.has(key)) { skipped.push(r.serviceNo); return; }
+      toInsert.push(r);
+    });
+    if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+    var vals = toInsert.map(function (r) {
+      return [
+        r.serviceFor || null, r.serviceNo || null, r.fromCity || null, r.toCity || null,
+        r.viaPlaces || null, r.parkingAmount || 0, r.driverOneBeta || 0, r.driverTwoBeta || 0,
+        r.helperBeta || 0, r.conductorBeta || 0, r.distance || 0, r.optDriver || 0, r.optHelper || 0,
+        r.remarks || null, userId, usrNm, date, r.service_for_id || null
+      ];
+    });
+    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, remarks, user_id, usr_nm, i_ts, service_for_id) VALUES ?';
+    dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+      if (err) return callback(err, null);
+      callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+    });
+  });
+};
 
+// ── Bulk Upload — Staff (Staff / Driver / Helper) ──────────────────────────────
+exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
+  var cntxtDtls = 'in bulkUploadStaffMdl';
+  var date = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+
+  if (type === 'Staff') {
+    dbutil.execQuery(sqldb, `SELECT fullName FROM staff_register WHERE d_in=0`, cntxtDtls, function (err, existing) {
+      if (err) return callback(err, null);
+      var existingKeys = new Set((existing || []).map(function (r) { return String(r.fullName || '').toLowerCase().trim(); }));
+      var skipped = [], toInsert = [];
+      rows.forEach(function (r) {
+        if (!r.fullName) return;
+        var key = r.fullName.toLowerCase().trim();
+        if (existingKeys.has(key)) { skipped.push(r.fullName); return; }
+        toInsert.push(r);
+      });
+      if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      var vals = toInsert.map(function (r) {
+        return [r.designation || null, r.fullName, r.nickName || null, r.mobile || null,
+          r.emergencyContact || null, r.alternativemobilenumber || null, r.dateOfJoining || null,
+          r.aadhaar || null, r.accountHolderName || null, r.accountNumber || null,
+          r.ifscCode || null, r.bankName || null, r.referencename || null, r.branchname || null,
+          r.upiId || null, r.remarks || null, userId, usrNm, date, 0];
+      });
+      var QRY = 'INSERT INTO staff_register (designation, fullName, nickName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, user_id, usr_nm, i_ts, d_in) VALUES ?';
+      dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+        if (err) return callback(err, null);
+        callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+      });
+    });
+
+  } else if (type === 'Driver') {
+    dbutil.execQuery(sqldb, `SELECT driver_name FROM driver_register WHERE d_in=0`, cntxtDtls, function (err, existing) {
+      if (err) return callback(err, null);
+      var existingKeys = new Set((existing || []).map(function (r) { return String(r.driver_name || '').toLowerCase().trim(); }));
+      var skipped = [], toInsert = [];
+      rows.forEach(function (r) {
+        if (!r.driver_name) return;
+        var key = r.driver_name.toLowerCase().trim();
+        if (existingKeys.has(key)) { skipped.push(r.driver_name); return; }
+        toInsert.push(r);
+      });
+      if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      var vals = toInsert.map(function (r) {
+        return [r.driver_name, r.nickname || null, r.dldateofbirth || null, r.mobile_number || null,
+          r.alternate_number || null, r.emergency_mobile_number || null, r.aadhar_number || null,
+          r.dl_number || null, r.dl_expiry_date || null, r.account_holder_name || null,
+          r.account_number || null, r.bank_name || null, r.branch_name || null,
+          r.ifsc_code || null, r.upi_id || null, r.drivinglicense_joining_date || null,
+          r.transportoneissuedate || null, r.transportvalidityfrom || null, r.transportvalidityto || null,
+          r.date_of_joining || null, r.reference || null, r.remarks || null, userId, usrNm, date, 0];
+      });
+      var QRY = 'INSERT INTO driver_register (driver_name, nickname, dldateofbirth, mobile_number, alternate_number, emergency_mobile_number, aadhar_number, dl_number, dl_expiry_date, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, drivinglicense_joining_date, transportoneissuedate, transportvalidityfrom, transportvalidityto, date_of_joining, reference, remarks, user_id, usr_nm, i_ts, d_in) VALUES ?';
+      dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+        if (err) return callback(err, null);
+        callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+      });
+    });
+
+  } else if (type === 'Helper') {
+    dbutil.execQuery(sqldb, `SELECT helper_name FROM helper_register WHERE d_in=0`, cntxtDtls, function (err, existing) {
+      if (err) return callback(err, null);
+      var existingKeys = new Set((existing || []).map(function (r) { return String(r.helper_name || '').toLowerCase().trim(); }));
+      var skipped = [], toInsert = [];
+      rows.forEach(function (r) {
+        if (!r.helper_name) return;
+        var key = r.helper_name.toLowerCase().trim();
+        if (existingKeys.has(key)) { skipped.push(r.helper_name); return; }
+        toInsert.push(r);
+      });
+      if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      var vals = toInsert.map(function (r) {
+        return [r.helper_name, r.nickname || null, r.mobile_number || null, r.alternate_number || null,
+          r.emergency_mobile_number || null, r.adhar_number || null, r.account_holder_name || null,
+          r.account_number || null, r.bank_name || null, r.branch_name || null,
+          r.ifsc_code || null, r.upi_id || null, r.date_of_joining || null,
+          r.reference || null, r.remarks || null, userId, usrNm, date, 0];
+      });
+      var QRY = 'INSERT INTO helper_register (helper_name, nickname, mobile_number, alternate_number, emergency_mobile_number, adhar_number, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, date_of_joining, reference, remarks, user_id, usr_nm, i_ts, d_in) VALUES ?';
+      dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+        if (err) return callback(err, null);
+        callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+      });
+    });
+
+  } else {
+    callback(null, { inserted: 0, skipped: [], total: 0 });
+  }
+};
 

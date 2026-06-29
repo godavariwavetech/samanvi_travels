@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
@@ -204,104 +205,138 @@ interface FilterOpts {
   entryByOpts: { label: string; value: string }[]
 }
 
+// Required columns — always visible, no checkbox in the picker.
+const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Voucher Date', 'Dr. Ledger', 'Cr. Ledger', 'Amount'] as const
+// Optional columns — user can toggle visibility via checkboxes.
+const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
+const ALL_VOUCHER_COLS = [...REQUIRED_VOUCHER_COLS, ...OPTIONAL_VOUCHER_COLS] as const
+type VoucherColId = typeof ALL_VOUCHER_COLS[number]
+const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Bus / Vehicle', 'Driver'])
+
 const buildCols = (
   onApprove: (row: any) => void,
   onReject: (row: any) => void,
   onView: (row: any) => void,
   mode: string,
-  fOpts: FilterOpts
-): Column[] => [
-  {
-    label: '#', key: 'id',
-    render: (_: any, __: any, i: number) => (
-      <span className="text-xs font-bold text-slate-400">{i + 1}</span>
-    ),
-  },
-  {
-    label: 'Rf. No.', key: 'c_number', filterable: true, filterType: 'text',
-    render: (v: any, row: any) => (
-      <span
-        onClick={() => onView(row)}
-        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 whitespace-nowrap cursor-pointer hover:bg-blue-200 transition-colors"
-      >
-        {String(v ?? '—')}
-      </span>
-    ),
-  },
-  {
+  fOpts: FilterOpts,
+  optCols: Set<string>
+): Column[] => {
+  // Required cols always show; optional cols depend on the picker
+  const show = (id: string) => (REQUIRED_VOUCHER_COLS as readonly string[]).includes(id) || optCols.has(id)
+  const cols: Column[] = [
+    {
+      label: '#', key: 'id',
+      render: (_: any, __: any, i: number) => (
+        <span className="text-xs font-bold text-slate-400">{i + 1}</span>
+      ),
+    },
+    {
+      label: 'Rf. No.', key: 'c_number', filterable: true, filterType: 'text',
+      render: (v: any, row: any) => (
+        <span
+          onClick={() => onView(row)}
+          className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700 whitespace-nowrap cursor-pointer hover:bg-blue-200 transition-colors"
+        >
+          {String(v ?? '—')}
+        </span>
+      ),
+    },
+  ]
+
+  if (show('Voucher Type')) cols.push({
     label: 'Voucher Type', key: 'vouchertype', filterable: true, filterType: 'select',
     filterOptions: fOpts.voucherTypes,
     render: (v: any, row: any) => (
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <span className="font-medium text-slate-700">{String(v ?? '—')}</span>
         {Number(row.is_payable) === 1 && (
-          <span title="Created from the Payables settlement screen"
-            className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">
-            Payable
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">Payable</span>
+        )}
+        {(row.source_type === 'job' || row.job_card_number) && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 border border-orange-200 whitespace-nowrap">
+            <Wrench className="w-2.5 h-2.5" /> Job
           </span>
         )}
       </div>
     ),
-  },
-  {
+  })
+
+  if (show('Voucher Date')) cols.push({
     label: 'Voucher Date', key: 'voucherdate', filterable: true, filterType: 'date',
     render: (v: any) => <span className="whitespace-nowrap">{v ? formatDate(v) : '—'}</span>,
-  },
-  {
-    label: 'Dr. Ledger Name', key: 'debit_ledger_names', filterable: true, filterType: 'text',
+  })
+
+  if (show('Job Ref')) cols.push({
+    label: 'Job Ref', key: 'job_card_number', filterable: true, filterType: 'text',
+    render: (v: any) => v
+      ? <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded whitespace-nowrap">{String(v)}</span>
+      : <span className="text-slate-300">—</span>,
+  })
+
+  if (show('Bus / Vehicle')) cols.push({
+    label: 'Bus / Vehicle', key: 'vehicleNo', filterable: true, filterType: 'select',
+    filterOptions: fOpts.busList,
+    render: (v: any) => v ? <span className="font-medium text-slate-700">{String(v)}</span> : <span className="text-slate-300">—</span>,
+  })
+
+  if (show('Driver')) cols.push({
+    label: 'Driver', key: 'driver_name', filterable: true, filterType: 'text',
+    render: (v: any) => v ? <span className="text-slate-700">{String(v)}</span> : <span className="text-slate-300">—</span>,
+  })
+
+  if (show('Dr. Ledger')) cols.push({
+    label: 'Dr. Ledger', key: 'debit_ledger_names', filterable: true, filterType: 'text',
     render: (v: any) => {
       const items: string[] = Array.isArray(v) ? v : []
-      return items.length ? (
-        <div className="flex flex-col gap-0.5">
-          {items.map((l, i) => <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}</span>)}
-        </div>
-      ) : <span className="text-slate-300">—</span>
+      return items.length
+        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}</span>)}</div>
+        : <span className="text-slate-300">—</span>
     },
-  },
-  {
-    label: 'Cr. Ledger Name', key: 'credit_ledger_names', filterable: true, filterType: 'text',
+  })
+
+  if (show('Cr. Ledger')) cols.push({
+    label: 'Cr. Ledger', key: 'credit_ledger_names', filterable: true, filterType: 'text',
     render: (v: any) => {
       const items: string[] = Array.isArray(v) ? v : []
-      return items.length ? (
-        <div className="flex flex-col gap-0.5">
-          {items.map((l, i) => <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}</span>)}
-        </div>
-      ) : <span className="text-slate-300">—</span>
+      return items.length
+        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}</span>)}</div>
+        : <span className="text-slate-300">—</span>
     },
-  },
-  {
+  })
+
+  if (show('Amount')) cols.push({
     label: 'Amount', key: 'debit_total', filterable: true, filterType: 'text',
     render: (v: any, row: any) => {
       const amount = v != null ? v : row.creditanddebitamount
       return <span className="font-bold text-slate-800">{amount != null ? formatCurrency(Number(amount)) : '—'}</span>
     },
-  },
-  {
+  })
+
+  if (show('Value Date')) cols.push({
     label: 'Value Date', key: 'valueDate', filterable: true, filterType: 'date',
     render: (v: any) => <span className="whitespace-nowrap">{v ? formatDate(v) : '—'}</span>,
-  },
-  {
-    label: 'Vehicle No', key: 'vehicleNo', filterable: true, filterType: 'select',
-    filterOptions: fOpts.busList,
-    render: (v: any) => <span>{String(v ?? '—')}</span>,
-  },
-  {
+  })
+
+  if (show('Staff Name')) cols.push({
     label: 'Staff Name', key: 'staff_type', filterable: true, filterType: 'select',
     filterOptions: fOpts.staffOptions,
     render: (v: any) => <span>{String(v ?? '—')}</span>,
-  },
-  {
+  })
+
+  if (show('Description')) cols.push({
     label: 'Description', key: 'description', filterable: true, filterType: 'text',
     render: (v: any) => v
       ? <span className="text-sm text-slate-600 max-w-[160px] line-clamp-2 block">{String(v)}</span>
       : <span className="text-slate-300 text-sm">—</span>,
-  },
-  {
+  })
+
+  if (show('Entry By')) cols.push({
     label: 'Entry By', key: 'entry_by', filterable: true, filterType: 'select',
     filterOptions: fOpts.entryByOpts,
     render: (v: any) => <span>{String(v ?? '—')}</span>,
-  },
-  {
+  })
+
+  cols.push({
     label: 'Actions', key: 'id',
     render: (_: any, row: any) => (
       <div className="flex gap-1.5">
@@ -314,8 +349,10 @@ const buildCols = (
         )}
       </div>
     ),
-  },
-]
+  })
+
+  return cols
+}
 
 // ── Committed ledger rows table ─────────────────────────────────────────────
 // Supports inline editing of both the ledger account and the amount for an
@@ -515,6 +552,7 @@ const currentFY = getCurrentFY()
 import ActivityHistory from '@/components/shared/ActivityHistory'
 
 export default function VoucherApprovalsPage() {
+  const navigate = useNavigate()
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
@@ -546,6 +584,7 @@ export default function VoucherApprovalsPage() {
   const [selectedRows, setSelectedRows] = useState<any[]>([])
   const [rejectModal, setRejectModal] = useState<{ mode: 'single' | 'bulk'; row?: any } | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [optionalCols, setOptionalCols] = useState<Set<string>>(new Set(DEFAULT_VISIBLE_OPTIONAL))
   const qc = useQueryClient()
 
   const { data: pendingRes, isLoading: loadPending } = useQuery({
@@ -584,7 +623,7 @@ export default function VoucherApprovalsPage() {
     queryFn: () => accountingService.getVoucherSearch(appliedFilter),
   })
 
-  const { data: modalData } = useQuery({
+  const { data: modalData, isLoading: modalLoading } = useQuery({
     queryKey: ['voucher-modal', viewModal?.c_number],
     queryFn: () => accountingService.getVoucherModalData({ serviceNo: viewModal?.c_number }),
     enabled: !!viewModal?.c_number,
@@ -797,6 +836,37 @@ export default function VoucherApprovalsPage() {
     }
   }, [modalData, ledgerList])
 
+  // Reload when returning from "Edit in Payables" tab
+  useEffect(() => {
+    const handleFocus = () => {
+      const payableReturn = localStorage.getItem('payables_edit_return')
+      if (payableReturn) {
+        localStorage.removeItem('payables_edit_return')
+        window.location.reload()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [])
+
+  // Sync viewModal header fields when modalData refetches (e.g. after editing via Payables tab)
+  useEffect(() => {
+    const fresh = modalData?.data?.[0]?.[0]
+    if (!fresh || !viewModal) return
+    setViewModal((v: any) => v ? {
+      ...v,
+      vouchertype: fresh.vouchertype ?? v.vouchertype,
+      voucherdate: fresh.voucherdate ?? v.voucherdate,
+      description: fresh.description ?? v.description,
+      creditanddebitamount: fresh.creditanddebitamount ?? v.creditanddebitamount,
+      debit_total: fresh.debit_total ?? v.debit_total,
+      status: fresh.status ?? v.status,
+      source_type: fresh.source_type ?? v.source_type,
+      job_card_number: fresh.job_card_number ?? v.job_card_number,
+      driver_name: fresh.driver_name ?? v.driver_name,
+    } : v)
+  }, [modalData])
+
   // Reset edit mode when modal changes
   useEffect(() => { setEditMode(false); setEditReason('') }, [viewModal?.c_number])
 
@@ -938,9 +1008,12 @@ export default function VoucherApprovalsPage() {
         })(),
       })
     },
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       if (res.status === 200) {
         toast.success('Voucher updated!')
+        // Refetch modal data first so view mode shows fresh debit/credit rows
+        await qc.refetchQueries({ queryKey: ['voucher-modal', viewModal?.c_number] })
+        await qc.refetchQueries({ queryKey: ['voucher-audit', viewModal?.c_number] })
         setEditMode(false)
         setViewModal((v: any) => v ? {
           ...v,
@@ -952,8 +1025,6 @@ export default function VoucherApprovalsPage() {
         qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
         qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
         qc.invalidateQueries({ queryKey: ['voucher-search'] })
-        qc.invalidateQueries({ queryKey: ['voucher-modal', viewModal?.c_number] })
-        qc.invalidateQueries({ queryKey: ['voucher-audit', viewModal?.c_number] })
       } else toast.error(res.message ?? 'Update failed')
     },
     onError: () => toast.error('Server error'),
@@ -1052,6 +1123,16 @@ export default function VoucherApprovalsPage() {
   // (GroupWisePage/DayBookPage's handlePayables). `editVoucher` additionally
   // carries this specific voucher's own field values + credit entries so the
   // Payables page can pre-fill them instead of opening blank.
+  const openInJobCard = () => {
+    const jcn = viewModal?.job_card_number
+    if (!jcn) { toast.error('No job card reference for this voucher'); return }
+    navigate('/garage/tracking', { state: {
+      job_card_number: jcn,
+      c_number:        viewModal.c_number,
+      is_edit_mode:    true,
+    }})
+  }
+
   const openInPayables = () => {
     const ledgerRow = debitRows[0]
     if (!ledgerRow?.ledger_id) { toast.error('Could not determine the ledger for this voucher'); return }
@@ -1076,6 +1157,7 @@ export default function VoucherApprovalsPage() {
       },
     }))
     localStorage.setItem('bs_ledger_name', 'balacesheeet')
+    localStorage.setItem('payables_edit_return', viewModal?.c_number ?? '')
     window.open('/accounting/payables-view', '_blank')
   }
 
@@ -1086,13 +1168,18 @@ export default function VoucherApprovalsPage() {
       {/* Status tabs */}
       <div className="flex gap-3 flex-wrap">
         {[
-          { label: `Pending (${pending.length})`, key: 'Pending Approval', color: 'text-amber-600' },
-          { label: `Approved (${approvedList.length})`, key: 'Approved', color: 'text-emerald-600' },
-          { label: `Rejected (${rejectedList.length})`, key: 'Rejected', color: 'text-red-600' },
+          { label: 'Awaiting Approval', desc: 'Needs review', count: pending.length, key: 'Pending Approval', color: 'text-amber-700', activeBg: 'bg-amber-50', activeBorder: 'border-amber-300', dotColor: 'bg-amber-400', Icon: Clock },
+          { label: 'Approved', desc: 'Posted & confirmed', count: approvedList.length, key: 'Approved', color: 'text-emerald-700', activeBg: 'bg-emerald-50', activeBorder: 'border-emerald-300', dotColor: 'bg-emerald-500', Icon: CheckCircle },
+          { label: 'Rejected', desc: 'Declined / not posted', count: rejectedList.length, key: 'Rejected', color: 'text-red-700', activeBg: 'bg-red-50', activeBorder: 'border-red-300', dotColor: 'bg-red-500', Icon: XCircle },
         ].map((t) => (
           <button key={t.key} onClick={() => handleTabChange(t.key)}
-            className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all ${tab === t.key ? `bg-white shadow-sm ${t.color} border-slate-200` : 'text-slate-500 border-transparent hover:bg-white/60'}`}>
-            {t.label}
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${tab === t.key ? `${t.activeBg} shadow-sm ${t.color} ${t.activeBorder}` : 'bg-white/60 text-slate-500 border-transparent hover:bg-white/80 hover:border-slate-200'}`}>
+            <t.Icon className="w-4 h-4 flex-shrink-0" />
+            <span className="flex flex-col items-start leading-tight">
+              <span>{t.label}</span>
+              <span className={`text-[10px] font-normal leading-none mt-0.5 ${tab === t.key ? 'opacity-70' : 'text-slate-400'}`}>{t.desc}</span>
+            </span>
+            <span className={`ml-1 text-xs px-2 py-0.5 rounded-full font-black flex-shrink-0 ${tab === t.key ? 'bg-white border border-current/30' : 'bg-slate-100 text-slate-500'}`}>{t.count}</span>
           </button>
         ))}
       </div>
@@ -1121,6 +1208,26 @@ export default function VoucherApprovalsPage() {
         </div>
       </GlassCard>
 
+      {/* Column picker — required columns always on, only optional columns are toggleable */}
+      <div className="flex items-center gap-2 flex-wrap px-1">
+        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">Show columns:</span>
+        {OPTIONAL_VOUCHER_COLS.map(col => (
+          <label key={col} className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="w-3.5 h-3.5 accent-blue-600"
+              checked={optionalCols.has(col)}
+              onChange={() => setOptionalCols(prev => {
+                const next = new Set(prev)
+                next.has(col) ? next.delete(col) : next.add(col)
+                return next
+              })}
+            />
+            <span className={`text-xs font-semibold ${optionalCols.has(col) ? 'text-slate-700' : 'text-slate-400'}`}>{col}</span>
+          </label>
+        ))}
+      </div>
+
       <DataTable
         title={tab}
         columns={buildCols(handleApprove, handleReject, handleView, getMode(), {
@@ -1128,7 +1235,7 @@ export default function VoucherApprovalsPage() {
           busList,
           staffOptions: staffFilterOpts,
           entryByOpts,
-        }) as any}
+        }, optionalCols) as any}
         data={getList()}
         loading={loadSearch}
         onAction={() => {}}
@@ -1176,30 +1283,45 @@ export default function VoucherApprovalsPage() {
                   <h3 className="text-xl font-bold flex items-center gap-2">
                     <CreditCard className="w-5 h-5" /> {viewModal.c_number}
                   </h3>
-                  <p className="text-purple-200 text-sm mt-0.5">
-                    {viewModal.vouchertype} · {viewModal.voucherdate ? formatDate(viewModal.voucherdate) : '—'}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span className="text-white/80 text-sm">
+                      {viewModal.vouchertype} · {viewModal.voucherdate ? formatDate(viewModal.voucherdate) : '—'}
+                    </span>
+                  </div>
                 </div>
-                <button onClick={() => setViewModal(null)} className="text-white/70 hover:text-white mt-0.5">
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      qc.refetchQueries({ queryKey: ['voucher-modal', viewModal.c_number] })
+                      qc.refetchQueries({ queryKey: ['voucher-audit', viewModal.c_number] })
+                    }}
+                    className="text-white/70 hover:text-white mt-0.5"
+                    title="Refresh"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setViewModal(null)} className="text-white/70 hover:text-white mt-0.5">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               <div className="p-6 space-y-5">
 
                 {/* Voucher meta */}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                   {[
                     ['Voucher Type', viewModal.vouchertype],
                     ['Total Amount', (() => {
-                      // creditanddebitamount is debit + credit combined; since a
-                      // saved voucher is always balanced, debit_total alone (or
-                      // half of the combined sum as a fallback) is the real total.
-                      const total = viewModal.debit_total != null
-                        ? Number(viewModal.debit_total)
-                        : viewModal.creditanddebitamount != null
-                        ? Number(viewModal.creditanddebitamount) / 2
+                      // Prefer computing from freshly-fetched debitRows so the
+                      // card stays correct after a Payables edit without a full
+                      // page reload (React Query refetches on window focus).
+                      const fromRows = debitRows.length > 0
+                        ? debitRows.reduce((s: number, r: any) => s + Number(r.amount || 0), 0)
                         : null
+                      const total = fromRows
+                        ?? (viewModal.debit_total != null ? Number(viewModal.debit_total) : null)
+                        ?? (viewModal.creditanddebitamount != null ? Number(viewModal.creditanddebitamount) / 2 : null)
                       return total ? formatCurrency(total) : '—'
                     })()],
                     ['Entry By', viewModal.entry_by || '—'],
@@ -1209,6 +1331,7 @@ export default function VoucherApprovalsPage() {
                       <div className="font-semibold text-slate-900 mt-0.5 truncate">{value ?? '—'}</div>
                     </div>
                   ))}
+
                 </div>
 
                 {/* Description */}
@@ -1216,6 +1339,25 @@ export default function VoucherApprovalsPage() {
                   <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
                     <div className="text-xs text-slate-500 font-bold uppercase tracking-wide mb-1">Description</div>
                     <div className="text-sm text-slate-800 whitespace-pre-wrap">{viewModal.description}</div>
+                  </div>
+                )}
+
+                {/* Job voucher banner */}
+                {(viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                  <div className="flex items-center gap-3 bg-orange-50 border border-orange-200 rounded-xl p-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 border border-orange-200 whitespace-nowrap">
+                      <Wrench className="w-3 h-3" /> JOB
+                    </span>
+                    <p className="text-sm text-orange-800 flex-1">
+                      This voucher was generated from job card{' '}
+                      <span className="font-bold">{viewModal.job_card_number || '—'}</span>.
+                    </p>
+                    <button
+                      onClick={openInJobCard}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-600 text-white hover:bg-orange-700 transition-colors whitespace-nowrap"
+                    >
+                      Open in Job Card
+                    </button>
                   </div>
                 )}
 
@@ -1639,7 +1781,12 @@ export default function VoucherApprovalsPage() {
                         <Pencil className="w-4 h-4" /> Edit in Payables
                       </Button>
                     )}
-                    {!editMode && Number(viewModal.is_payable) !== 1 && (
+                    {!editMode && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                      <Button variant="outline" onClick={openInJobCard} className="border-orange-300 text-orange-700 hover:bg-orange-50">
+                        <Wrench className="w-4 h-4" /> Edit in Job Card
+                      </Button>
+                    )}
+                    {!editMode && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={() => setEditMode(true)}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>

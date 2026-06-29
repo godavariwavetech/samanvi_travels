@@ -5057,29 +5057,47 @@ exports.getallrepairpartsCtrl = function (req, res) {
 exports.addrepairpartsCtrl = function (req, res) { decryptedBody(req, res, appmdl.addrepairpaMdl); };
 exports.editrepairpartsCtrl = function (req, res) { decryptedBody(req, res, appmdl.editrepairpartsMdl); };
 exports.deleterepairpartsCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleterepairpartsMdl); };
+exports.editPartPriceCtrl = function (req, res) { decryptedBody(req, res, appmdl.editPartPriceMdl); };
+exports.getPartPriceHistoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.getPartPriceHistoryMdl); };
 
 exports.addrepairentryCtrl = function (req, res) {
   var data;
   try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
 
-  appmdl.JobCarduniquenoMdl(async function (err, cresults1) {
-    if (err) {
-      //console.log()"err " + err);
-      res.status(500).send("Server Error");
-      return;
-    }
-    let c_id = cresults1[0] ? cresults1[0].c_id : 0;
-    c_id = c_id * 1 + 1;
-    const c_number = "JOB-00" + c_id;
+  const jobRows = (data.job_rows || []).filter(function(r) { return r.category; });
+  if (!jobRows.length) {
+    return res.send({ status: 400, msg: 'No category provided' });
+  }
 
-    appmdl.addrepairentryMdl(c_id, c_number, data, function (err, results) {
-      if (err) {
-        console.log(err);
-        res.send({ status: 500, data: results });
-        return;
+  appmdl.todayJobCountMdl(function (err, cresults1) {
+    if (err) { res.status(500).send("Server Error"); return; }
+    const todayCount = cresults1[0] ? cresults1[0].cnt * 1 : 0;
+
+    const createdJobs = [];
+    let idx = 0;
+
+    function insertNext() {
+      if (idx >= jobRows.length) {
+        return res.send({ status: 200, data: createdJobs });
       }
-      res.send({ status: 200, data: results });
-    });
+      const row = jobRows[idx];
+      const seqNum = todayCount + idx + 1;
+      const c_number = `J${moment().format('YYMMDD')}${String(seqNum).padStart(3, '0')}`;
+      const c_id = seqNum;
+      const rowData = Object.assign({}, data, { job_rows: [row] });
+
+      appmdl.addrepairentryMdl(c_id, c_number, rowData, function (err2, result2) {
+        if (err2) {
+          console.log(err2);
+          return res.send({ status: 500, data: null });
+        }
+        createdJobs.push({ job_card_number: c_number, id: result2.insertId });
+        idx++;
+        insertNext();
+      });
+    }
+
+    insertNext();
   });
 };
 
@@ -5113,30 +5131,85 @@ exports.getpartsentryCtrl = function (req, res) {
 
 
 
+exports.getJobCategoriesCtrl = function (req, res) { decryptedBody(req, res, appmdl.getJobCategoriesMdl); };
+exports.editJobCtrl = function (req, res) { decryptedBody(req, res, appmdl.editJobMdl); };
+
 exports.submitrepairtrackingCtrl = function (req, res) {
-  var data = req.body;
-  console.log(data)
-  appmdl.submitrepairtrackingMdl(data, function (err, results) {
-    if (err) {
-      console.log(err);
-      res.send({ status: 500, data: results });
-      return;
-    }
-    res.send({ status: 200, data: results });
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+
+  if (data.quick_complete) {
+    appmdl.quickCompleteJobMdl(data, function (err) {
+      if (err) { console.log(err); return res.send({ status: 500 }); }
+      res.send({ status: 200, voucher_numbers: [] });
+    });
+    return;
+  }
+
+  appmdl.submitrepairtrackingMdl(data, function (err) {
+    if (err) { console.log(err); return res.send({ status: 500 }); }
+    var blocks = data.voucher_blocks || [];
+    if (blocks.length === 0) return res.send({ status: 200, voucher_numbers: [] });
+    appmdl.createGarageVouchersMdl(data, function (err2, voucherNumbers) {
+      if (err2) { console.log(err2); return res.send({ status: 200, voucher_numbers: [] }); }
+      res.send({ status: 200, voucher_numbers: voucherNumbers || [] });
+    });
   });
 };
 
 
 
+exports.updateJobVoucherCtrl = function (req, res) {
+  try {
+    var data = decryptPayload(req.body.encryptedPayload);
+    appmdl.updateJobVoucherMdl(data, function (err) {
+      if (err) { console.error('[updateJobVoucher] error:', err); return res.status(500).json({ status: 500 }); }
+      res.send({ status: 200 });
+    });
+  } catch (e) {
+    res.status(500).json({ status: 500, message: e.message });
+  }
+};
+
 exports.changeJobSatusCtrl = function (req, res) {
-  var data = req.body;
-  // console.log(data)
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  console.log('[changeJobSatus] id:', data.id, '| state:', data.state);
   appmdl.changeJobSatusMdl(data, function (err, results) {
     if (err) {
-      console.log(err);
+      console.log('[changeJobSatus] DB error:', err);
       res.send({ status: 500, data: results });
       return;
     }
+    console.log('[changeJobSatus] affectedRows:', results && results.affectedRows);
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.checkJobPermissionCtrl = function (req, res) {
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  appmdl.checkJobPermissionMdl(data, function (err, results) {
+    if (err) { console.log(err); res.send({ status: 500 }); return; }
+    var row = (results && results[0]) || { can_approve: 0, can_complete: 0 };
+    res.send({ status: 200, can_approve: row.can_approve ? 1 : 0, can_complete: row.can_complete ? 1 : 0 });
+  });
+};
+
+exports.jobWorkflowActionCtrl = function (req, res) {
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  appmdl.jobWorkflowActionMdl(data, function (err, results) {
+    if (err) { console.log(err); res.send({ status: 500 }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.getJobApprovalHistoryCtrl = function (req, res) {
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  appmdl.getJobApprovalHistoryMdl(data, function (err, results) {
+    if (err) { console.log(err); res.send({ status: 500 }); return; }
     res.send({ status: 200, data: results });
   });
 };
@@ -5353,5 +5426,48 @@ exports.handleRepeatedJobs = async () => {
 
   } catch (error) {
     console.log("Cron Error:", error);
+  }
+};
+
+// ── Bulk Upload Controllers ────────────────────────────────────────────────────
+exports.bulkUploadBusesCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try {
+    validateSignature(encryptedPayload, signature);
+    const payload = decryptPayload(encryptedPayload);
+    appmdl.bulkUploadBusesMdl(payload.rows, payload.user_id, payload.usr_nm, function (err, result) {
+      if (err) return res.send({ status: 500, msg: 'Server Error' });
+      res.send({ status: 200, data: result });
+    });
+  } catch (e) {
+    res.send({ status: 400, msg: 'Invalid request' });
+  }
+};
+
+exports.bulkUploadServiceRoutesCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try {
+    validateSignature(encryptedPayload, signature);
+    const payload = decryptPayload(encryptedPayload);
+    appmdl.bulkUploadServiceRoutesMdl(payload.rows, payload.user_id, payload.usr_nm, function (err, result) {
+      if (err) return res.send({ status: 500, msg: 'Server Error' });
+      res.send({ status: 200, data: result });
+    });
+  } catch (e) {
+    res.send({ status: 400, msg: 'Invalid request' });
+  }
+};
+
+exports.bulkUploadStaffCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try {
+    validateSignature(encryptedPayload, signature);
+    const payload = decryptPayload(encryptedPayload);
+    appmdl.bulkUploadStaffMdl(payload.type, payload.rows, payload.user_id, payload.usr_nm, function (err, result) {
+      if (err) return res.send({ status: 500, msg: 'Server Error' });
+      res.send({ status: 200, data: result });
+    });
+  } catch (e) {
+    res.send({ status: 400, msg: 'Invalid request' });
   }
 };

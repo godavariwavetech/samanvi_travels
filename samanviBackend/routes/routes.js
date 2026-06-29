@@ -45,6 +45,11 @@ router.post('/deletebusnumber',verifyToken,routcontroller.deletebusnumber);
 router.post('/deleteservicenumber',verifyToken, routcontroller.deleteservicenumber);
 router.post('/deletedriverone', verifyToken, routcontroller.deleteDriveroneCtrl);
 
+// Bulk Excel Upload
+router.post('/bulkuploadbuses', verifyToken, routcontroller.bulkUploadBusesCtrl);
+router.post('/bulkuploadserviceroutes', verifyToken, routcontroller.bulkUploadServiceRoutesCtrl);
+router.post('/bulkuploadstaff', verifyToken, routcontroller.bulkUploadStaffCtrl);
+
 // Staff Types
 router.get('/getstafftypes', verifyToken, routcontroller.getStaffTypesCtrl);
 router.post('/addstafftype', verifyToken, routcontroller.addStaffTypeCtrl);
@@ -330,15 +335,23 @@ router.get('/getallrepairparts',verifyToken,routcontroller.getallrepairpartsCtrl
 router.post('/addrepairparts',verifyToken,routcontroller.addrepairpartsCtrl);
 router.post('/editrepairparts',verifyToken,routcontroller.editrepairpartsCtrl);
 router.post('/deleterepairparts',verifyToken,routcontroller.deleterepairpartsCtrl);
+router.post('/parts/edit-price',verifyToken,routcontroller.editPartPriceCtrl);
+router.post('/parts/price-history',verifyToken,routcontroller.getPartPriceHistoryCtrl);
 
 
 router.post('/addrepairentry',verifyToken,routcontroller.addrepairentryCtrl);
 router.post('/editrepairentry',verifyToken,routcontroller.editrepairentryCtrl);
 router.post('/getpartsentry',verifyToken,routcontroller.getpartsentryCtrl);
 router.post('/submitrepairtracking',verifyToken,routcontroller.submitrepairtrackingCtrl);
+router.post('/garage/job-categories',verifyToken,routcontroller.getJobCategoriesCtrl);
+router.post('/garage/edit-job',verifyToken,routcontroller.editJobCtrl);
 
 //new
 router.post('/changeJobSatus',verifyToken,routcontroller.changeJobSatusCtrl)
+router.post('/updatejobvoucher',verifyToken,routcontroller.updateJobVoucherCtrl)
+router.post('/garage/workflow-action',verifyToken,routcontroller.jobWorkflowActionCtrl)
+router.post('/garage/job-approval-history',verifyToken,routcontroller.getJobApprovalHistoryCtrl)
+router.post('/garage/check-permission',verifyToken,routcontroller.checkJobPermissionCtrl)
 
 // Garage extension: Service Reminders, Tyre Management, Battery Management ---
 router.get('/service-reminders/getall', verifyToken, routcontroller.getServiceRemindersCtrl);

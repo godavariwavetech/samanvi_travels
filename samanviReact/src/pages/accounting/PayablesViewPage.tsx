@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
-import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText, History, Search, ChevronDown, Eye } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
@@ -191,47 +191,336 @@ interface PaymentHistoryEntry {
   created_at: string
 }
 
-function PaymentHistoryModal({ row, data, loading, onClose }: {
-  row: TxRow; data: PaymentHistoryEntry[]; loading: boolean; onClose: () => void
+// Normalize a PaymentHistoryEntry so all numeric fields are actual numbers,
+// not strings (the API sometimes returns them as strings).
+function normEntry(e: PaymentHistoryEntry): PaymentHistoryEntry {
+  return { ...e, payment: Number(e.payment) || 0, balance_after: Number(e.balance_after) || 0 }
+}
+
+function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
+  row: TxRow; data: PaymentHistoryEntry[]; auditMap: Record<string, any[]>; loading: boolean; onClose: () => void
 }) {
+  // Normalise all numeric fields up-front so reduce/arithmetic below never
+  // accidentally does string concatenation (API can return numbers as strings).
+  const safeData = data.map(normEntry)
+
+  // Collapse a 'reversed' immediately followed by a 'settled' into a single
+  // 'edited' event — that pattern is what the backend writes when a settlement
+  // voucher is updated: it reverses the old amount then re-records the new one.
+  type PaymentTimelineItem =
+    | { kind: 'settled' | 'reversed'; entry: PaymentHistoryEntry; originalIdx: number }
+    | { kind: 'edited'; reversal: PaymentHistoryEntry; resettlement: PaymentHistoryEntry; lastOriginalIdx: number }
+    | { kind: 'approved' | 'rejected'; c_number: string; by_name: string; at: string; note: string }
+
+  const paymentItems: PaymentTimelineItem[] = []
+  let i = 0
+  while (i < safeData.length) {
+    if (
+      safeData[i].action === 'reversed' &&
+      i + 1 < safeData.length &&
+      safeData[i + 1].action === 'settled'
+    ) {
+      paymentItems.push({ kind: 'edited', reversal: safeData[i], resettlement: safeData[i + 1], lastOriginalIdx: i + 1 })
+      i += 2
+    } else {
+      paymentItems.push({ kind: safeData[i].action as 'settled' | 'reversed', entry: safeData[i], originalIdx: i })
+      i++
+    }
+  }
+
+  // Find the LAST index in paymentItems for each c_number so audit events are
+  // injected after the final payment event (not after the first occurrence).
+  const cnLastIdx: Record<string, number> = {}
+  paymentItems.forEach((item, idx) => {
+    const cn = item.kind === 'edited' ? item.resettlement.c_number : (item as any).entry?.c_number ?? ''
+    if (cn) cnLastIdx[cn] = idx
+  })
+
+  const timeline: PaymentTimelineItem[] = []
+  paymentItems.forEach((item, idx) => {
+    timeline.push(item)
+    const cn = item.kind === 'edited' ? item.resettlement.c_number : (item as any).entry?.c_number ?? ''
+    if (cn && cnLastIdx[cn] === idx) {
+      const audits: any[] = auditMap[cn] ?? []
+      for (const a of audits) {
+        if (a.action === 'approved' || a.action === 'rejected') {
+          timeline.push({ kind: a.action, c_number: cn, by_name: a.action_by_name || '—', at: a.action_at || '', note: a.changes_note || '' })
+        }
+      }
+    }
+  })
+
+  // Net paid = settled amounts minus reversed amounts (reversed cancel out settled)
+  const totalPaid = safeData.reduce((s, e) => e.action === 'settled' ? s + e.payment : e.action === 'reversed' ? s - e.payment : s, 0)
+  const currentBalance = safeData.length > 0 ? safeData[safeData.length - 1].balance_after : Number(row.amount) || 0
+  const editCount = timeline.filter(t => t.kind === 'edited').length
+
   return (
     <ModalOverlay onClose={onClose}>
-      <ModalHeader title={`Payment History — ${row.expensives}`} onClose={onClose} />
-      <div className="p-6 space-y-4">
-        <div className="text-xs text-slate-500">
-          Original amount <span className="font-bold text-slate-700">₹{fmtAmt(row.amount)}</span>
-          {' · '}Ref <span className="font-medium text-slate-700">{row.c_number}</span>
+      {/* Gradient header */}
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 rounded-t-2xl flex items-start justify-between">
+        <div className="min-w-0">
+          <h3 className="font-bold text-white text-lg leading-tight truncate">{row.expensives}</h3>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="text-[11px] font-bold bg-white/20 text-white border border-white/30 px-2 py-0.5 rounded-full">{row.c_number}</span>
+            <span className="text-white/70 text-xs">{fmt(resolveDateStr(row))}</span>
+          </div>
         </div>
+        <button onClick={onClose} className="text-white/70 hover:text-white mt-0.5 flex-shrink-0 ml-3">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="p-6 space-y-5">
+
+        {/* Summary cards */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl border-2 border-slate-200 bg-slate-50 p-3 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Original Amount</p>
+            <p className="text-lg font-extrabold text-slate-800 tabular-nums">₹{fmtAmt(row.amount)}</p>
+          </div>
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-1">Net Paid</p>
+            <p className="text-lg font-extrabold text-emerald-700 tabular-nums">₹{fmtAmt(totalPaid)}</p>
+          </div>
+          <div className={`rounded-xl border-2 p-3 text-center ${currentBalance > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${currentBalance > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>Balance Left</p>
+            <p className={`text-lg font-extrabold tabular-nums ${currentBalance > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>₹{fmtAmt(currentBalance)}</p>
+          </div>
+        </div>
+
+        {editCount > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700">
+            <Pencil className="w-3.5 h-3.5 flex-shrink-0" />
+            This payment was edited {editCount} time{editCount !== 1 ? 's' : ''}. Edited entries show the before → after amounts.
+          </div>
+        )}
+
+        {/* Timeline */}
         {loading ? (
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => <div key={i} className="h-12 rounded-xl bg-slate-100 animate-pulse" />)}
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-slate-100 animate-pulse" />)}
           </div>
-        ) : data.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-6">No payments have been recorded against this transaction yet.</p>
+        ) : timeline.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center border-2 border-dashed border-slate-200 rounded-xl">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+              <History className="w-6 h-6 text-slate-300" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-400">No payments recorded yet</p>
+              <p className="text-xs text-slate-300 mt-0.5">Payments will appear here once this transaction is settled</p>
+            </div>
+          </div>
         ) : (
-          <div className="space-y-2">
-            {data.map(entry => (
-              <div key={entry.id} className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
-                entry.action === 'settled' ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
-              }`}>
-                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full flex-shrink-0 ${
-                  entry.action === 'settled' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {entry.action === 'settled' ? 'Paid' : 'Reversed'}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800">
-                    {entry.action === 'settled' ? 'Payment of' : 'Reversal of'} ₹{fmtAmt(entry.payment)}
-                    <span className="font-normal text-slate-500"> via {entry.c_number}</span>
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {fmt(entry.created_at)}{entry.created_by_name ? ` · by ${entry.created_by_name}` : ''}
-                    {' · balance after: '}₹{fmtAmt(entry.balance_after)}
-                  </p>
-                </div>
+          <>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Payment Timeline</p>
+            <div className="relative pl-10">
+              <div className="absolute left-[14px] top-3 bottom-3 w-0.5 bg-gradient-to-b from-emerald-300 via-amber-200 to-slate-200 rounded-full" />
+              <div className="space-y-4">
+                {timeline.map((item, idx) => {
+
+                  /* ── EDITED entry ─────────────────────────────────────── */
+                  if (item.kind === 'edited') {
+                    const { reversal, resettlement } = item
+                    const diff = resettlement.payment - reversal.payment
+                    const isIncrease = diff > 0
+                    const isLast = item.lastOriginalIdx === safeData.length - 1
+                    return (
+                      <div key={`edited-${resettlement.id}`} className="relative">
+                        {/* Amber dot */}
+                        <div className="absolute -left-[29px] top-4 w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-md ring-2 ring-white z-10">
+                          <Pencil className="w-3 h-3 text-white" />
+                        </div>
+
+                        <div className="rounded-xl border-2 border-amber-200 overflow-hidden shadow-sm">
+                          {/* Header */}
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-amber-50">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border bg-amber-100 text-amber-700 border-amber-300 flex-shrink-0">
+                                Edited
+                              </span>
+                              <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                                {resettlement.c_number}
+                              </span>
+                            </div>
+                            {/* Before → After amounts */}
+                            <div className="flex items-center gap-1.5 tabular-nums">
+                              <span className="text-sm font-bold text-slate-400 line-through">₹{fmtAmt(reversal.payment)}</span>
+                              <span className="text-slate-300 font-bold">→</span>
+                              <span className="text-xl font-extrabold text-amber-700">₹{fmtAmt(resettlement.payment)}</span>
+                            </div>
+                          </div>
+
+                          {/* Change indicator row */}
+                          <div className="flex items-center gap-3 px-4 py-2 bg-white border-b border-amber-100">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex-shrink-0">Change</p>
+                            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border font-bold text-sm ${
+                              diff === 0
+                                ? 'bg-slate-50 border-slate-200 text-slate-500'
+                                : isIncrease
+                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                  : 'bg-red-50 border-red-200 text-red-600'
+                            }`}>
+                              <span className="text-lg font-extrabold">{diff === 0 ? '=' : isIncrease ? '▲' : '▼'}</span>
+                              {diff !== 0 && (
+                                <span>
+                                  {isIncrease ? '+' : '−'}₹{fmtAmt(Math.abs(diff))}
+                                  <span className="text-xs font-semibold ml-1 opacity-70">
+                                    ({isIncrease ? 'increased' : 'decreased'})
+                                  </span>
+                                </span>
+                              )}
+                              {diff === 0 && <span>No amount change</span>}
+                            </div>
+                            {/* Mini before/after pills */}
+                            <div className="ml-auto flex items-center gap-1 text-[11px] tabular-nums">
+                              <span className="bg-red-50 border border-red-200 text-red-500 px-2 py-0.5 rounded font-semibold">Before ₹{fmtAmt(reversal.payment)}</span>
+                              <span className="text-slate-300">→</span>
+                              <span className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded font-semibold">After ₹{fmtAmt(resettlement.payment)}</span>
+                            </div>
+                          </div>
+
+                          {/* Body */}
+                          <div className="px-4 py-3 bg-white grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Edited On</p>
+                              <p className="font-semibold text-slate-700">{fmt(resettlement.created_at)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Edited By</p>
+                              <p className="font-semibold text-slate-700">{resettlement.created_by_name || '—'}</p>
+                            </div>
+                            <div className="col-span-2">
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Balance After Edit</p>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-base font-extrabold tabular-nums ${resettlement.balance_after > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                  ₹{fmtAmt(resettlement.balance_after)}
+                                </span>
+                                {resettlement.balance_after === 0 && (
+                                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">Fully Settled</span>
+                                )}
+                                {isLast && resettlement.balance_after > 0 && (
+                                  <span className="text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">Outstanding</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  /* ── APPROVED / REJECTED entry ───────────────────────── */
+                  if (item.kind === 'approved' || item.kind === 'rejected') {
+                    const isApproved = item.kind === 'approved'
+                    return (
+                      <div key={`audit-${item.c_number}-${item.kind}-${idx}`} className="relative">
+                        <div className={`absolute -left-[29px] top-4 w-7 h-7 rounded-full flex items-center justify-center shadow-md ring-2 ring-white z-10 ${
+                          isApproved ? 'bg-gradient-to-br from-violet-500 to-indigo-600' : 'bg-gradient-to-br from-red-400 to-red-600'
+                        }`}>
+                          {isApproved
+                            ? <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            : <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                          }
+                        </div>
+                        <div className={`rounded-xl border-2 overflow-hidden shadow-sm ${isApproved ? 'border-violet-200' : 'border-red-200'}`}>
+                          <div className={`flex items-center justify-between px-4 py-2.5 ${isApproved ? 'bg-violet-50' : 'bg-red-50'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                                isApproved ? 'bg-violet-100 text-violet-700 border-violet-300' : 'bg-red-100 text-red-600 border-red-200'
+                              }`}>
+                                {isApproved ? 'Approved' : 'Rejected'}
+                              </span>
+                              <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                                {item.c_number}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="px-4 py-3 bg-white grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">{isApproved ? 'Approved On' : 'Rejected On'}</p>
+                              <p className="font-semibold text-slate-700">{fmt(item.at)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">{isApproved ? 'Approved By' : 'Rejected By'}</p>
+                              <p className="font-semibold text-slate-700">{item.by_name}</p>
+                            </div>
+                            {!isApproved && item.note && (
+                              <div className="col-span-2">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Reason</p>
+                                <p className="font-semibold text-red-700">{item.note}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  /* ── SETTLED / REVERSED entry ─────────────────────────── */
+                  if (item.kind !== 'settled' && item.kind !== 'reversed') return null
+                  const { entry, originalIdx } = item
+                  const isPaid = item.kind === 'settled'
+                  const isLast = originalIdx === safeData.length - 1
+                  return (
+                    <div key={entry.id} className="relative">
+                      <div className={`absolute -left-[29px] top-4 w-7 h-7 rounded-full flex items-center justify-center shadow-md ring-2 ring-white z-10 ${
+                        isPaid ? 'bg-gradient-to-br from-emerald-400 to-emerald-600' : 'bg-gradient-to-br from-red-400 to-red-600'
+                      }`}>
+                        {isPaid
+                          ? <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          : <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        }
+                      </div>
+
+                      <div className={`rounded-xl border-2 overflow-hidden shadow-sm ${isPaid ? 'border-emerald-200' : 'border-red-200'}`}>
+                        <div className={`flex items-center justify-between px-4 py-2.5 ${isPaid ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                              isPaid ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-600 border-red-200'
+                            }`}>
+                              {isPaid ? 'Paid' : 'Reversed'}
+                            </span>
+                            <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
+                              {entry.c_number}
+                            </span>
+                          </div>
+                          <span className={`text-xl font-extrabold tabular-nums ${isPaid ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {isPaid ? '+' : '−'}₹{fmtAmt(entry.payment)}
+                          </span>
+                        </div>
+
+                        <div className="px-4 py-3 bg-white grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Date</p>
+                            <p className="font-semibold text-slate-700">{fmt(entry.created_at)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Done By</p>
+                            <p className="font-semibold text-slate-700">{entry.created_by_name || '—'}</p>
+                          </div>
+                          <div className="col-span-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">Balance After</p>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-base font-extrabold tabular-nums ${entry.balance_after > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                ₹{fmtAmt(entry.balance_after)}
+                              </span>
+                              {entry.balance_after === 0 && (
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full">Fully Settled</span>
+                              )}
+                              {isLast && entry.balance_after > 0 && (
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">Outstanding</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            ))}
-          </div>
+            </div>
+          </>
         )}
       </div>
     </ModalOverlay>
@@ -483,13 +772,18 @@ export default function PayablesViewPage() {
 
   // Set when arriving via "Edit in Payables" from an existing voucher in
   // Voucher Approvals — pre-fills the form below with that voucher's own
-  // field values instead of opening blank.
-  const editVoucher: {
+  // field values instead of opening blank. Also settable in-page when the
+  // user clicks the Pencil edit button on an already-settled row.
+  type EditVoucherShape = {
     c_number: string; voucherdate: string; valueDate: string; vehicleNo: string
     name: string; staff_type: string; staff_type_id: string; description: string
     creditEntries: { ledger_id: number; amount: number }[]
     entry_by?: string; i_ts?: string
-  } | null = ledgerData?.editVoucher ?? null
+  }
+  const [editVoucher, setEditVoucher] = useState<EditVoucherShape | null>(() => ledgerData?.editVoucher ?? null)
+  // 'external' = opened via VoucherApprovals new-tab (close tab on save);
+  // 'internal' = triggered by Pencil button in this page (just clear state).
+  const editSource = useRef<'external' | 'internal'>(ledgerData?.editVoucher ? 'external' : 'internal')
 
   // Angular's date filter form is commented out — always start with empty dates (load all records)
   const [filter, setFilter] = useState({ fromdate: '', todate: '' })
@@ -518,6 +812,8 @@ export default function PayablesViewPage() {
     description: editVoucher?.description || '',
   }))
   const [creditAddForm, setCreditAddForm] = useState({ ledger_id: '', amount: '' })
+  const [editingCreditIdx, setEditingCreditIdx] = useState<number | null>(null)
+  const [editingCreditForm, setEditingCreditForm] = useState({ ledger_id: '', amount: '' })
 
   // Clamp the voucher entry sub-form's dates into the newly selected financial year's bounds
   useEffect(() => {
@@ -531,8 +827,8 @@ export default function PayablesViewPage() {
   const [modal, setModal] = useState<{ open: boolean; data: any; sourceTable: string; refNo: string; loading: boolean }>({
     open: false, data: null, sourceTable: '', refNo: '', loading: false,
   })
-  const [historyModal, setHistoryModal] = useState<{ open: boolean; row: TxRow | null; data: PaymentHistoryEntry[]; loading: boolean }>({
-    open: false, row: null, data: [], loading: false,
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; row: TxRow | null; data: PaymentHistoryEntry[]; auditMap: Record<string, any[]>; loading: boolean }>({
+    open: false, row: null, data: [], auditMap: {}, loading: false,
   })
 
   // ── Queries ──────────────────────────────────────────────────────────────
@@ -589,6 +885,62 @@ export default function PayablesViewPage() {
   })
   const auditTrail: any[] = auditRes?.data ?? []
   const [editReason, setEditReason] = useState('')
+  const [editRowLoading, setEditRowLoading] = useState<number | null>(null)
+
+  const triggerEditMode = async (row: TxRow) => {
+    setEditRowLoading(row.id)
+    try {
+      const histRes = await accountingService.getPayablesPaymentHistory({ source_table: row.source_table || '', source_id: row.id })
+      const history: PaymentHistoryEntry[] = histRes?.data ?? []
+      const lastSettlement = [...history].reverse().find((h: PaymentHistoryEntry) => h.action === 'settled')
+      if (!lastSettlement?.c_number) { toast.error('No settlement found for this row'); return }
+
+      const detailRes = await accountingService.getRefDetails({ c_number: lastSettlement.c_number, source_table: 'mainvoucher_subt', user_id: userId })
+      if (!detailRes?.data?.success) { toast.error('Could not load settlement details'); return }
+
+      const primary = detailRes.data.primary_data || {}
+      const entries: any[] = detailRes.data.all_entries || []
+      const creditRows = entries.filter((e: any) => e.account_type === 'Credit Account' || e.amount_type === 'Credit Account')
+      const toDate = (v: any) => v ? String(v).split('T')[0] : ''
+
+      settledMergeApplied.current = false
+      editCreditsApplied.current = false
+      editSource.current = 'internal'
+      setEditReason('')
+      setCreditEntries([])
+
+      const newEdit: EditVoucherShape = {
+        c_number: lastSettlement.c_number,
+        voucherdate: toDate(primary.parent_date || primary.voucherdate),
+        valueDate: toDate(primary.parent_valueDate || primary.valueDate),
+        vehicleNo: primary.parent_vehicleNo || primary.vehicleNo || primary.bus_no || '',
+        name: primary.parent_name || primary.name || '',
+        staff_type: primary.staff_type || '',
+        staff_type_id: String(primary.staff_type_id || ''),
+        description: primary.parent_description || primary.description || '',
+        creditEntries: creditRows.map((r: any) => ({ ledger_id: Number(r.ledger_id), amount: Number(r.amount) || 0 })),
+        entry_by: primary.entry_by || '',
+        i_ts: toDate(primary.i_ts || primary.parent_date),
+      }
+      setEditVoucher(newEdit)
+      setVoucherForm(f => ({
+        ...f,
+        voucherdate: newEdit.voucherdate || f.voucherdate,
+        valueDate: newEdit.valueDate,
+        vehicleNo: newEdit.vehicleNo,
+        name: newEdit.name,
+        staff_type: newEdit.staff_type,
+        staff_type_id: newEdit.staff_type_id,
+        description: newEdit.description,
+      }))
+      setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      toast.success(`Edit mode: ${lastSettlement.c_number}`)
+    } catch {
+      toast.error('Error loading settlement for editing')
+    } finally {
+      setEditRowLoading(null)
+    }
+  }
 
   const expenseList: any[] = useMemo(() => expenseData?.data ?? [], [expenseData])
   // Exclude the ledger already being viewed/settled — it can't be its own opposite-side credit entry
@@ -903,16 +1255,24 @@ export default function PayablesViewPage() {
     })
   }
 
-  const openHistoryModal = (row: TxRow) => {
-    setHistoryModal({ open: true, row, data: [], loading: true })
-    accountingService.getPayablesPaymentHistory({ source_table: row.source_table || '', source_id: row.id })
-      .then((res: any) => {
-        setHistoryModal(m => ({ ...m, data: res?.data ?? [], loading: false }))
-      })
-      .catch(() => {
-        toast.error('Error loading payment history')
-        setHistoryModal(m => ({ ...m, loading: false }))
-      })
+  const openHistoryModal = async (row: TxRow) => {
+    setHistoryModal({ open: true, row, data: [], auditMap: {}, loading: true })
+    try {
+      const res = await accountingService.getPayablesPaymentHistory({ source_table: row.source_table || '', source_id: row.id })
+      const histData: PaymentHistoryEntry[] = res?.data ?? []
+      const cNumbers = [...new Set(histData.map((e: PaymentHistoryEntry) => e.c_number).filter(Boolean))]
+      const auditMap: Record<string, any[]> = {}
+      await Promise.all(cNumbers.map(async cn => {
+        try {
+          const auditRes = await accountingService.getVoucherAudit(cn)
+          auditMap[cn] = auditRes?.data ?? []
+        } catch { auditMap[cn] = [] }
+      }))
+      setHistoryModal(m => ({ ...m, data: histData, auditMap, loading: false }))
+    } catch {
+      toast.error('Error loading payment history')
+      setHistoryModal(m => ({ ...m, loading: false }))
+    }
   }
 
   const addCreditEntry = () => {
@@ -1023,10 +1383,13 @@ export default function PayablesViewPage() {
         qc.invalidateQueries({ queryKey: ['payables-settled-rows', editVoucher?.c_number] })
         qc.invalidateQueries({ queryKey: ['payables-voucher-audit', editVoucher?.c_number] })
         setEditReason('')
-        // This page only opens in edit mode from a new tab spawned by Voucher
-        // Approvals (window.open in openInPayables) — closing it here returns
-        // the user to that Approvals tab instead of leaving a dead-end tab open.
-        setTimeout(() => window.close(), 900)
+        if (editSource.current === 'external') {
+          // Opened in a new tab via VoucherApprovals — close tab to return user there.
+          setTimeout(() => window.close(), 900)
+        } else {
+          // Triggered in-page via Pencil button — just clear edit mode.
+          setEditVoucher(null)
+        }
       } else {
         toast.error(res?.message || 'Failed to update voucher')
       }
@@ -1221,6 +1584,7 @@ export default function PayablesViewPage() {
         <PaymentHistoryModal
           row={historyModal.row}
           data={historyModal.data}
+          auditMap={historyModal.auditMap}
           loading={historyModal.loading}
           onClose={() => setHistoryModal(m => ({ ...m, open: false }))}
         />
@@ -1258,11 +1622,22 @@ export default function PayablesViewPage() {
 
       {editVoucher && (
         <GlassCard className="p-4 space-y-4" colorBar="bg-gradient-to-r from-purple-500 to-indigo-500">
-          <div className="flex items-center gap-3 text-sm text-purple-800">
-            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">
-              Editing {editVoucher.c_number}
-            </span>
-            Voucher date, value date, vehicle, staff, description and the credit entry below were pre-filled from this voucher — select the transaction(s) to pay below to complete the edit.
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 text-sm text-purple-800 flex-1 min-w-0">
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200 whitespace-nowrap">
+                Editing {editVoucher.c_number}
+              </span>
+              Voucher date, value date, vehicle, staff, description and the credit entry below were pre-filled from this voucher — select the transaction(s) to pay below to complete the edit.
+            </div>
+            {editSource.current === 'internal' && (
+              <button
+                onClick={() => setEditVoucher(null)}
+                title="Cancel editing"
+                className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:text-red-600 border border-purple-200 hover:border-red-300 px-2.5 py-1 rounded-lg transition-colors flex-shrink-0"
+              >
+                <X className="w-3.5 h-3.5" /> Cancel Edit
+              </button>
+            )}
           </div>
           <div>
             <Label>Reason for editing <span className="text-slate-400 font-normal text-xs">(optional, recorded in history)</span></Label>
@@ -1423,6 +1798,18 @@ export default function PayablesViewPage() {
                                 >
                                   {modal.loading && modal.refNo === row.c_number ? <span className="text-xs">…</span> : <Eye className="w-3.5 h-3.5" />}
                                 </button>
+                                {row.isedited > 0 && (
+                                  <button
+                                    onClick={() => triggerEditMode(row)}
+                                    disabled={editRowLoading === row.id}
+                                    title="Edit settlement voucher"
+                                    className="text-slate-300 hover:text-amber-500 transition-colors flex-shrink-0 disabled:opacity-40"
+                                  >
+                                    {editRowLoading === row.id
+                                      ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      : <Pencil className="w-3.5 h-3.5" />}
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               <span className="text-slate-400 text-sm">-</span>
@@ -1648,21 +2035,84 @@ export default function PayablesViewPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {creditEntries.map((c, i) => (
-                            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                              <td className="px-3 py-2 text-xs text-slate-600">{i + 1}</td>
-                              <td className="px-3 py-2 text-xs text-slate-800">{c.ledger?.temple_name}</td>
-                              <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">₹{fmtAmt(c.amount)}</td>
-                              <td className="px-3 py-2 text-center">
-                                <button
-                                  onClick={() => setCreditEntries(prev => prev.filter((_, j) => j !== i))}
-                                  className="text-red-400 hover:text-red-600 transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                          {creditEntries.map((c, i) => {
+                            const isEditing = editingCreditIdx === i
+                            return (
+                              <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                <td className="px-3 py-2 text-xs text-slate-600">{i + 1}</td>
+                                <td className="px-3 py-2 text-xs text-slate-800">
+                                  {isEditing ? (
+                                    <SimpleDropdown
+                                      value={editingCreditForm.ledger_id}
+                                      placeholder="Select Ledger"
+                                      searchable
+                                      options={creditLedgerOptions.map((e: any) => ({ label: e.temple_name ?? e.name, value: String(e.id) }))}
+                                      onChange={v => setEditingCreditForm(f => ({ ...f, ledger_id: v }))}
+                                    />
+                                  ) : c.ledger?.temple_name}
+                                </td>
+                                <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">
+                                  {isEditing ? (
+                                    <input
+                                      type="number" min="0" step="0.01"
+                                      value={editingCreditForm.amount}
+                                      onChange={e => setEditingCreditForm(f => ({ ...f, amount: e.target.value }))}
+                                      onWheel={e => e.currentTarget.blur()}
+                                      className="w-28 px-2 py-0.5 text-right text-xs rounded border border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                                      autoFocus
+                                    />
+                                  ) : `₹${fmtAmt(c.amount)}`}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  {isEditing ? (
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button
+                                        onClick={() => {
+                                          const amt = parseFloat(editingCreditForm.amount)
+                                          const led = expenseList.find((e: any) => String(e.id) === editingCreditForm.ledger_id)
+                                          if (amt > 0 && led) {
+                                            setCreditEntries(prev => prev.map((entry, j) => j === i ? { ledger: led, amount: amt } : entry))
+                                          }
+                                          setEditingCreditIdx(null)
+                                        }}
+                                        className="text-emerald-600 hover:text-emerald-800 transition-colors"
+                                        title="Save"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingCreditIdx(null)}
+                                        className="text-slate-400 hover:text-slate-600 transition-colors"
+                                        title="Cancel"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center justify-center gap-2">
+                                      <button
+                                        onClick={() => {
+                                          setEditingCreditIdx(i)
+                                          setEditingCreditForm({ ledger_id: String(c.ledger?.id ?? ''), amount: String(c.amount) })
+                                        }}
+                                        className="text-blue-400 hover:text-blue-600 transition-colors"
+                                        title="Edit"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => setCreditEntries(prev => prev.filter((_, j) => j !== i))}
+                                        className="text-red-400 hover:text-red-600 transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
                           {pendingCreditEntry && (
                             <tr className="bg-emerald-50/60 italic">
                               <td className="px-3 py-2 text-xs text-slate-400">{creditEntries.length + 1}</td>
