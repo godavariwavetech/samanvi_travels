@@ -150,6 +150,28 @@ export default function RepairTrackingPage() {
   const driverOptions = driverList.map((d: any) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))
   const staffOptions  = staffList.map((s: any) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))
 
+  const findLedger = (keyword: string): LedgerEntry => {
+    const match = ledgerList.find((l: any) =>
+      (l.temple_name || l.name || '').toLowerCase().includes(keyword.toLowerCase())
+    )
+    return match
+      ? { ledger_id: String(match.id), amount: '', ledger_name: match.temple_name || match.name || '' }
+      : emptyLedgerEntry()
+  }
+
+  const defaultDebitEntries = (): LedgerEntry[] => [
+    findLedger('mechanical'),
+    findLedger('spare'),
+  ]
+
+  const defaultVoucherBlock = (category_name = '', description = ''): VoucherBlock => ({
+    description,
+    category_name,
+    parts:  [emptySimplePartRow()],
+    debit:  defaultDebitEntries(),
+    credit: [emptyLedgerEntry()],
+  })
+
   const blockPartsTotals = voucherBlocks.map(b =>
     b.parts.reduce((s, p) => s + (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0), 0)
   )
@@ -341,12 +363,8 @@ export default function RepairTrackingPage() {
   const openCompleteFromView = () => {
     const job = viewModal.job
     const blocks = jobCategories.length > 0
-      ? jobCategories.map((c: any) => ({
-          ...emptyVoucherBlock(),
-          category_name: c.category_name || '',
-          description: c.category_name || '',
-        }))
-      : [emptyVoucherBlock()]
+      ? jobCategories.map((c: any) => defaultVoucherBlock(c.category_name || '', c.category_name || ''))
+      : [defaultVoucherBlock()]
     setVoucherBlocks(blocks)
     setQuickCompleteMode(false)
     setQuickCompleteDesc('')
@@ -705,7 +723,7 @@ export default function RepairTrackingPage() {
                           </button>
                         )}
                         {isApproved && canComplete && (
-                          <button onClick={() => { setVoucherBlocks([emptyVoucherBlock()]); setQuickCompleteMode(false); setCreatedVouchers([]); setCompleteModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
+                          <button onClick={() => { setVoucherBlocks([defaultVoucherBlock()]); setQuickCompleteMode(false); setCreatedVouchers([]); setCompleteModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
                             Complete
                           </button>
                         )}
