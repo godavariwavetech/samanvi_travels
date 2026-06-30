@@ -171,6 +171,20 @@ ensureColumn('laundrybill_subt', 'payables_settled_by', '`payables_settled_by` v
 ensureColumn('parts_master', 'part_number', '`part_number` varchar(50) DEFAULT NULL');
 ensureColumn('job_parts_used', 'qty',  '`qty`  DECIMAL(10,2) DEFAULT 1');
 ensureColumn('job_parts_used', 'rate', '`rate` DECIMAL(10,2) DEFAULT 0');
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS job_ledger_entries (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        job_card_id VARCHAR(100),
+        job_card_number VARCHAR(100),
+        ledger_id INT,
+        amount DECIMAL(12,2),
+        entry_type ENUM('debit','credit'),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) console.error('Failed to create job_ledger_entries table:', err.message);
+    else console.log('job_ledger_entries table ready');
+});
 ensureColumn('service_reminders', 'is_repeating', '`is_repeating` tinyint(1) NOT NULL DEFAULT 0');
 ensureColumn('service_reminders', 'repeat_interval', '`repeat_interval` int DEFAULT NULL');
 ensureColumn('service_reminders', 'repeat_unit', '`repeat_unit` varchar(10) DEFAULT NULL');

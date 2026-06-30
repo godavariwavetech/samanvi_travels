@@ -11796,7 +11796,17 @@ exports.changeJobSatusMdl = function (data, callback) {
   var jobId     = String(data.id || '').replace(/'/g, "''");
   var jobNum    = (data.job_card_number || '').replace(/'/g, "''");
   var totalAmt  = parseFloat(data.total_amount) || 0;
-  var QRY_TO_EXEC = '';
+  var QRY_TO_EXEC = `
+    CREATE TABLE IF NOT EXISTS job_ledger_entries (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      job_card_id VARCHAR(100),
+      job_card_number VARCHAR(100),
+      ledger_id INT,
+      amount DECIMAL(12,2),
+      entry_type ENUM('debit','credit'),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
 
   if (newState === 'FINISHED') {
     var remarks  = (data.finish_remarks || '').replace(/'/g, "''");
