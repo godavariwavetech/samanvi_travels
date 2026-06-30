@@ -11821,6 +11821,13 @@ exports.changeJobSatusMdl = function (data, callback) {
   }
 
   if (newState === 'FINISHED' || newState === 'APPROVED') {
+    var partCount = (data.parts || []).filter(function(p) { return p.part_id; }).length;
+    var ledgerDebitCount = 0, ledgerCreditCount = 0;
+    (data.voucher_blocks || []).forEach(function(b) {
+      ledgerDebitCount  += (b.debit  || []).filter(function(e) { return e.ledger_id; }).length;
+      ledgerCreditCount += (b.credit || []).filter(function(e) { return e.ledger_id; }).length;
+    });
+    console.log('[changeJobSatus] saving', newState, '| jobId:', jobId, '| parts:', partCount, '| debit ledgers:', ledgerDebitCount, '| credit ledgers:', ledgerCreditCount);
     // Save parts
     QRY_TO_EXEC += `UPDATE job_parts_used SET d_in = 2 WHERE job_card_id = '${jobId}';`;
     (data.parts || []).filter(function(p) { return p.part_id; }).forEach(function(p) {
@@ -11833,10 +11840,10 @@ exports.changeJobSatusMdl = function (data, callback) {
     // Save ledger entries from voucher blocks
     QRY_TO_EXEC += `DELETE FROM job_ledger_entries WHERE job_card_id = '${jobId}';`;
     (data.voucher_blocks || []).forEach(function(block) {
-      (block.debit || []).filter(function(e) { return e.ledger_id && e.amount; }).forEach(function(e) {
+      (block.debit || []).filter(function(e) { return e.ledger_id; }).forEach(function(e) {
         QRY_TO_EXEC += `INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type) VALUES ('${jobId}', '${jobNum}', '${e.ledger_id}', '${parseFloat(e.amount)||0}', 'debit');`;
       });
-      (block.credit || []).filter(function(e) { return e.ledger_id && e.amount; }).forEach(function(e) {
+      (block.credit || []).filter(function(e) { return e.ledger_id; }).forEach(function(e) {
         QRY_TO_EXEC += `INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type) VALUES ('${jobId}', '${jobNum}', '${e.ledger_id}', '${parseFloat(e.amount)||0}', 'credit');`;
       });
     });

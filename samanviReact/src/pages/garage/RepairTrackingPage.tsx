@@ -173,7 +173,6 @@ export default function RepairTrackingPage() {
 
   const defaultDebitEntries = (): LedgerEntry[] => [
     findLedger('mechanical'),
-    findLedger('spare'),
   ]
 
   const defaultVoucherBlock = (category_name = '', description = ''): VoucherBlock => ({
@@ -362,10 +361,16 @@ export default function RepairTrackingPage() {
     setFinishVoucherBlocks(blocks => blocks.map((b, bi) => {
       const t = finishBlockPartsTotals[bi] ?? 0
       if (t === 0) return b
+      const debitWithId  = b.debit.filter(e => e.ledger_id)
+      const creditWithId = b.credit.filter(e => e.ledger_id)
       return {
         ...b,
-        debit:  b.debit.length  === 1 ? [{ ...b.debit[0],  amount: String(t) }] : b.debit,
-        credit: b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
+        debit:  debitWithId.length === 1
+          ? b.debit.map(e => e.ledger_id ? { ...e, amount: String(t) } : e)
+          : b.debit.length === 1 ? [{ ...b.debit[0], amount: String(t) }] : b.debit,
+        credit: creditWithId.length === 1
+          ? b.credit.map(e => e.ledger_id ? { ...e, amount: String(t) } : e)
+          : b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
       }
     }))
   }, [finishBlockPartsTotals.join(','), finishModal.open])
@@ -376,10 +381,16 @@ export default function RepairTrackingPage() {
     setApproveVoucherBlocks(blocks => blocks.map((b, bi) => {
       const t = approveBlockPartsTotals[bi] ?? 0
       if (t === 0) return b
+      const debitWithId  = b.debit.filter(e => e.ledger_id)
+      const creditWithId = b.credit.filter(e => e.ledger_id)
       return {
         ...b,
-        debit:  b.debit.length  === 1 ? [{ ...b.debit[0],  amount: String(t) }] : b.debit,
-        credit: b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
+        debit:  debitWithId.length === 1
+          ? b.debit.map(e => e.ledger_id ? { ...e, amount: String(t) } : e)
+          : b.debit.length === 1 ? [{ ...b.debit[0], amount: String(t) }] : b.debit,
+        credit: creditWithId.length === 1
+          ? b.credit.map(e => e.ledger_id ? { ...e, amount: String(t) } : e)
+          : b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
       }
     }))
   }, [approveBlockPartsTotals.join(','), approveModal.open])
@@ -636,8 +647,8 @@ export default function RepairTrackingPage() {
         .filter(b => b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id))
         .map(b => ({
           description: b.description,
-          debit:  b.debit.filter(e => e.ledger_id && e.amount),
-          credit: b.credit.filter(e => e.ledger_id && e.amount),
+          debit:  b.debit.filter(e => !!e.ledger_id),
+          credit: b.credit.filter(e => !!e.ledger_id),
         }))
       return garageService.changeJobStatus({
         id:               finishModal.job?.id,
@@ -679,8 +690,8 @@ export default function RepairTrackingPage() {
         .filter(b => b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id))
         .map(b => ({
           description: b.description,
-          debit:  b.debit.filter(e => e.ledger_id && e.amount),
-          credit: b.credit.filter(e => e.ledger_id && e.amount),
+          debit:  b.debit.filter(e => !!e.ledger_id),
+          credit: b.credit.filter(e => !!e.ledger_id),
         }))
       return garageService.changeJobStatus({
         id:               approveModal.job?.id,

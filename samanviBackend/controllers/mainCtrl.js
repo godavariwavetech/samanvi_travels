@@ -5201,8 +5201,10 @@ exports.changeJobSatusCtrl = function (req, res) {
 exports.getJobStageDataCtrl = function (req, res) {
   var data;
   try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  console.log('[getJobStageData] job id:', data.id);
   appmdl.getJobStageDataMdl(data, function (err, result) {
     if (err) { console.log('[getJobStageData] error:', err); return res.send({ status: 500 }); }
+    console.log('[getJobStageData] parts found:', result.parts.length, '| ledgers found:', result.ledgers.length);
     res.send({ status: 200, parts: result.parts, ledgers: result.ledgers });
   });
 };
