@@ -1000,7 +1000,6 @@ export default function RepairTrackingPage() {
                   </div>
                 )}
               </div>
-            </div>
 
               {/* Parts used */}
               {stageParts.length > 0 && (
