@@ -5149,7 +5149,11 @@ exports.submitrepairtrackingCtrl = function (req, res) {
   appmdl.submitrepairtrackingMdl(data, function (err) {
     if (err) { console.log(err); return res.send({ status: 500 }); }
     var blocks = data.voucher_blocks || [];
-    if (blocks.length === 0) return res.send({ status: 200, voucher_numbers: [] });
+    var targetState = (data.target_state || 'CLOSED').toUpperCase();
+    // Only create accounting vouchers when closing the job
+    if (targetState !== 'CLOSED' || blocks.length === 0) {
+      return res.send({ status: 200, voucher_numbers: [] });
+    }
     appmdl.createGarageVouchersMdl(data, function (err2, voucherNumbers) {
       if (err2) { console.log(err2); return res.send({ status: 200, voucher_numbers: [] }); }
       res.send({ status: 200, voucher_numbers: voucherNumbers || [] });
@@ -5158,6 +5162,14 @@ exports.submitrepairtrackingCtrl = function (req, res) {
 };
 
 
+
+exports.getScheduledJobsCtrl = function (req, res) {
+  var data = {};
+  appmdl.getScheduledJobsMdl(data, function (err, results) {
+    if (err) { console.log(err); return res.send({ status: 500, data: [] }); }
+    res.send({ status: 200, data: results });
+  });
+};
 
 exports.updateJobVoucherCtrl = function (req, res) {
   try {
@@ -5183,6 +5195,15 @@ exports.changeJobSatusCtrl = function (req, res) {
     }
     console.log('[changeJobSatus] affectedRows:', results && results.affectedRows);
     res.send({ status: 200, data: results });
+  });
+};
+
+exports.getJobStageDataCtrl = function (req, res) {
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  appmdl.getJobStageDataMdl(data, function (err, result) {
+    if (err) { console.log('[getJobStageData] error:', err); return res.send({ status: 500 }); }
+    res.send({ status: 200, parts: result.parts, ledgers: result.ledgers });
   });
 };
 

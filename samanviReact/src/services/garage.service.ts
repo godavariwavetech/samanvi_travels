@@ -12,10 +12,12 @@ export const garageService = {
   changeJobStatus: (data: unknown) => api.post('/changeJobSatus', securePayload(data)).then((r) => r.data),
   jobWorkflowAction: (data: unknown) => api.post('/garage/workflow-action', securePayload(data)).then((r) => r.data),
   getJobApprovalHistory: (data: unknown) => api.post('/garage/job-approval-history', securePayload(data)).then((r) => r.data),
+  getScheduledJobs: () => api.get('/garage/scheduled-jobs').then((r) => r.data),
   getJobCategories: (data: unknown) => api.post('/garage/job-categories', securePayload(data)).then((r) => r.data),
   editJob: (data: unknown) => api.post('/garage/edit-job', securePayload(data)).then((r) => r.data),
   updateJobVoucher: (data: unknown) => api.post('/updatejobvoucher', securePayload(data)).then((r) => r.data),
   checkJobPermission: (data: unknown) => api.post('/garage/check-permission', securePayload(data)).then((r) => r.data),
+  getJobStageData: (data: unknown) => api.post('/getjobstagedata', securePayload(data)).then((r) => r.data),
 
   // ── Categories ───────────────────────────────────────────
   getCategories: () => api.get('/repair-category/getall').then((r) => r.data),

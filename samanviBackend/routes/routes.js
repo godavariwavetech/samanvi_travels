@@ -352,6 +352,8 @@ router.post('/updatejobvoucher',verifyToken,routcontroller.updateJobVoucherCtrl)
 router.post('/garage/workflow-action',verifyToken,routcontroller.jobWorkflowActionCtrl)
 router.post('/garage/job-approval-history',verifyToken,routcontroller.getJobApprovalHistoryCtrl)
 router.post('/garage/check-permission',verifyToken,routcontroller.checkJobPermissionCtrl)
+router.post('/getjobstagedata',verifyToken,routcontroller.getJobStageDataCtrl)
+router.get('/garage/scheduled-jobs',verifyToken,routcontroller.getScheduledJobsCtrl)
 
 // Garage extension: Service Reminders, Tyre Management, Battery Management ---
 router.get('/service-reminders/getall', verifyToken, routcontroller.getServiceRemindersCtrl);

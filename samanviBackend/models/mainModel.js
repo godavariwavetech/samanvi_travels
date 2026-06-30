@@ -11581,19 +11581,29 @@ exports.submitrepairtrackingMdl = function (data, callback) {
   });
 
   // 3️⃣ UPDATE VEHICLE JOBS
-  var _nextJobDate = (data.next_job_date && data.next_job_date !== 'null') ? `'${data.next_job_date}'` : 'NULL';
-  var _isRepeated  = data.is_job_repeated ? 1 : 0;
+  var _nextJobDate    = (data.next_job_date && data.next_job_date !== 'null') ? `'${data.next_job_date}'` : 'NULL';
+  var _isRepeated     = data.is_job_repeated ? 1 : 0;
+  var _targetState    = ['FINISHED','APPROVED','CLOSED'].includes((data.target_state||'').toUpperCase()) ? data.target_state.toUpperCase() : 'CLOSED';
+  var _stageLabel     = _targetState === 'CLOSED' ? 'completed' : _targetState.toLowerCase();
+  var _stageActor     = _targetState === 'FINISHED' ? 'technician' : (_targetState === 'APPROVED' ? 'manager' : 'accountant');
+  var _stageRemarks   = (data.finish_remarks || data.approval_remarks || '').replace(/'/g, "''");
+  var _entryBy        = (data.entry_by || '').replace(/'/g, "''");
+  var _extraCols      = _targetState === 'FINISHED'
+    ? `, finish_remarks='${(data.finish_remarks||'').replace(/'/g,"''")}'`
+    : _targetState === 'APPROVED'
+    ? `, approval_remarks='${(data.approval_remarks||'').replace(/'/g,"''")}'`
+    : '';
   QRY_TO_EXEC += `
     UPDATE vehicle_jobs
     SET amount = '${data.total_amount}',
-        is_parts_data_uploaded = 1,
+        is_parts_data_uploaded = ${_targetState === 'CLOSED' ? 1 : 0},
         is_repeated_job = ${_isRepeated},
         next_job_date = ${_nextJobDate},
-        current_stage = 'completed',
-        state = 'CLOSED'
+        current_stage = '${_stageLabel}',
+        state = '${_targetState}'${_extraCols}
     WHERE id = '${data.id}';
     INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
-    VALUES ('${data.id}', '${data.job_card_number}', 'accountant', 'completed', '${data.user_id || 0}', '', '');
+    VALUES ('${data.id}', '${data.job_card_number}', '${_stageActor}', '${_stageLabel}', '${data.user_id || 0}', '${_entryBy}', '${_stageRemarks}');
   `;
 
   // 4️⃣ LEDGER ENTRIES — clear old then insert new
@@ -11783,17 +11793,43 @@ exports.changeJobSatusMdl = function (data, callback) {
   var cntxtDtls = "changeJobSatusMdl";
   var allowed = ['OPEN', 'FINISHED', 'APPROVED', 'REJECTED', 'CLOSED'];
   var newState = allowed.includes(data.state) ? data.state : 'CLOSED';
-  var QRY_TO_EXEC;
+  var jobId     = String(data.id || '').replace(/'/g, "''");
+  var jobNum    = (data.job_card_number || '').replace(/'/g, "''");
+  var totalAmt  = parseFloat(data.total_amount) || 0;
+  var QRY_TO_EXEC = '';
+
   if (newState === 'FINISHED') {
-    var remarks = (data.finish_remarks || '').replace(/'/g, "''");
-    var repeat = data.is_repeated_job ? 1 : 0;
-    var nextDate = data.next_job_date ? `'${data.next_job_date}'` : 'NULL';
-    QRY_TO_EXEC = `UPDATE vehicle_jobs SET state='FINISHED', finish_remarks='${remarks}', is_repeated_job=${repeat}, next_job_date=${nextDate} WHERE id='${data.id}'`;
+    var remarks  = (data.finish_remarks || '').replace(/'/g, "''");
+    var repeat   = data.is_repeated_job ? 1 : 0;
+    var nextDate = (data.next_job_date && data.next_job_date !== 'null') ? `'${data.next_job_date}'` : 'NULL';
+    QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='FINISHED', current_stage='finished', finish_remarks='${remarks}', is_repeated_job=${repeat}, next_job_date=${nextDate}, amount='${totalAmt}' WHERE id='${jobId}';`;
   } else if (newState === 'APPROVED') {
     var approvalRemarks = (data.approval_remarks || '').replace(/'/g, "''");
-    QRY_TO_EXEC = `UPDATE vehicle_jobs SET state='APPROVED', approval_remarks='${approvalRemarks}' WHERE id='${data.id}'`;
+    QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='APPROVED', current_stage='approved', approval_remarks='${approvalRemarks}', amount='${totalAmt}' WHERE id='${jobId}';`;
   } else {
-    QRY_TO_EXEC = `UPDATE vehicle_jobs SET state='${newState}' WHERE id='${data.id}'`;
+    QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='${newState}' WHERE id='${jobId}';`;
+  }
+
+  if (newState === 'FINISHED' || newState === 'APPROVED') {
+    // Save parts
+    QRY_TO_EXEC += `UPDATE job_parts_used SET d_in = 2 WHERE job_card_id = '${jobId}';`;
+    (data.parts || []).filter(function(p) { return p.part_id; }).forEach(function(p) {
+      var pId   = String(p.part_id || '').replace(/'/g, "''");
+      var pQty  = parseFloat(p.qty)  || 1;
+      var pRate = parseFloat(p.rate) || 0;
+      var pAmt  = parseFloat(p.amount) || (pQty * pRate);
+      QRY_TO_EXEC += `INSERT INTO job_parts_used (job_card_id, job_card_number, part_id, amount, qty, rate) VALUES ('${jobId}', '${jobNum}', '${pId}', '${pAmt}', '${pQty}', '${pRate}');`;
+    });
+    // Save ledger entries from voucher blocks
+    QRY_TO_EXEC += `DELETE FROM job_ledger_entries WHERE job_card_id = '${jobId}';`;
+    (data.voucher_blocks || []).forEach(function(block) {
+      (block.debit || []).filter(function(e) { return e.ledger_id && e.amount; }).forEach(function(e) {
+        QRY_TO_EXEC += `INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type) VALUES ('${jobId}', '${jobNum}', '${e.ledger_id}', '${parseFloat(e.amount)||0}', 'debit');`;
+      });
+      (block.credit || []).filter(function(e) { return e.ledger_id && e.amount; }).forEach(function(e) {
+        QRY_TO_EXEC += `INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type) VALUES ('${jobId}', '${jobNum}', '${e.ledger_id}', '${parseFloat(e.amount)||0}', 'credit');`;
+      });
+    });
   }
 
   let m = [];
@@ -11810,6 +11846,48 @@ exports.changeJobSatusMdl = function (data, callback) {
       }
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+exports.getJobStageDataMdl = function (data, callback) {
+  var jobId = String(data.id || '').replace(/'/g, "''");
+  var QRY_TO_EXEC = `
+    SELECT jp.part_id, jp.amount, jp.qty, jp.rate, pm.part_name
+    FROM job_parts_used jp
+    LEFT JOIN parts_master pm ON pm.part_id = jp.part_id
+    WHERE jp.job_card_id = '${jobId}' AND jp.d_in = 0;
+
+    SELECT jle.ledger_id, jle.amount, jle.entry_type, ms.temple_name AS ledger_name
+    FROM job_ledger_entries jle
+    LEFT JOIN mainmasterssubchildtwo ms ON ms.id = jle.ledger_id
+    WHERE jle.job_card_id = '${jobId}';
+  `;
+  dbutil.execQuery(sqldb, QRY_TO_EXEC, 'getJobStageDataMdl', function (err, results) {
+    if (err) return callback(err);
+    callback(null, { parts: (results && results[0]) || [], ledgers: (results && results[1]) || [] });
+  });
+};
+
+exports.getScheduledJobsMdl = function (data, callback) {
+  var QRY_TO_EXEC = `
+    SELECT vj.*,
+      COALESCE(dr.driver_name, dr.nickname, '') AS driver_name,
+      rc.name AS repair_category_name,
+      (SELECT GROUP_CONCAT(rc2.name ORDER BY jc2.id SEPARATOR ', ')
+       FROM job_categories jc2
+       JOIN repair_category rc2 ON rc2.id = jc2.category_id
+       WHERE jc2.job_card_id = vj.id AND jc2.d_in = 0) AS all_categories,
+      DATEDIFF(vj.next_job_date, CURDATE()) AS days_until
+    FROM vehicle_jobs vj
+    LEFT JOIN driver_register dr ON dr.id = vj.reported_driver_id
+    LEFT JOIN repair_category rc ON rc.id = vj.repair_category_id
+    WHERE vj.d_in = 0
+      AND (
+        (vj.is_repeated_job = 1 AND vj.next_job_date IS NOT NULL)
+        OR vj.insertion_type = 'Automatic'
+      )
+    ORDER BY vj.next_job_date ASC, vj.id DESC
+  `;
+  dbutil.execQuery(sqldb, QRY_TO_EXEC, 'getScheduledJobsMdl', callback);
 };
 
 exports.checkJobPermissionMdl = function (data, callback) {

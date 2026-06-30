@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import {
-  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, FileSpreadsheet, FileText, Pencil, RefreshCw, XCircle, Wrench,
+  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, FileSpreadsheet, FileText, Pencil, RefreshCw, XCircle,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -64,15 +64,17 @@ export default function RepairTrackingPage() {
   const [completeRepeatDate, setCompleteRepeatDate] = useState('')
   const [editJobRows, setEditJobRows] = useState<JobRow[]>([emptyJobRow()])
 
-  // Reject modal
-  const [finishModal, setFinishModal]       = useState<{ open: boolean; job: any }>({ open: false, job: null })
-  const [finishRemarks, setFinishRemarks]   = useState('')
-  const [finishRepeat, setFinishRepeat]     = useState(false)
+  // Finish modal
+  const [finishModal, setFinishModal]           = useState<{ open: boolean; job: any }>({ open: false, job: null })
+  const [finishRemarks, setFinishRemarks]       = useState('')
+  const [finishRepeat, setFinishRepeat]         = useState(false)
   const [finishRepeatDate, setFinishRepeatDate] = useState('')
+  const [finishVoucherBlocks, setFinishVoucherBlocks] = useState<VoucherBlock[]>([emptyVoucherBlock()])
 
   // Approve modal
-  const [approveModal, setApproveModal] = useState<{ open: boolean; job: any }>({ open: false, job: null })
-  const [approveRemarks, setApproveRemarks] = useState('')
+  const [approveModal, setApproveModal]             = useState<{ open: boolean; job: any }>({ open: false, job: null })
+  const [approveRemarks, setApproveRemarks]         = useState('')
+  const [approveVoucherBlocks, setApproveVoucherBlocks] = useState<VoucherBlock[]>([emptyVoucherBlock()])
 
   const [rejectModal, setRejectModal] = useState<{ open: boolean; job: any }>({ open: false, job: null })
   const [rejectReason, setRejectReason] = useState('')
@@ -134,6 +136,13 @@ export default function RepairTrackingPage() {
   })
   const jobCategories: any[] = jobCatsData?.data ?? []
 
+  // Stage data (parts + ledgers) saved during FINISH — used to pre-fill Approve modal
+  const { data: stageDataRaw } = useQuery({
+    queryKey: ['job-stage-data', approveModal.job?.id],
+    queryFn: () => garageService.getJobStageData({ id: approveModal.job?.id }),
+    enabled: approveModal.open && !!approveModal.job?.id,
+  })
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const list: any[]        = data?.data ?? []
   const partsList: any[]   = partsData?.data ?? []
@@ -191,6 +200,44 @@ export default function RepairTrackingPage() {
     return d > 0 && d === c
   })
 
+  // Finish modal computed values
+  const finishBlockPartsTotals = finishVoucherBlocks.map(b =>
+    b.parts.reduce((s, p) => s + (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0), 0)
+  )
+  const finishTotal = finishBlockPartsTotals.reduce((s, t) => s + t, 0)
+  const finishBlockTotals = finishVoucherBlocks.map(b => ({
+    debit:  b.debit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
+    credit: b.credit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
+  }))
+  const totalFinishDebit  = finishBlockTotals.reduce((s, t) => s + t.debit, 0)
+  const totalFinishCredit = finishBlockTotals.reduce((s, t) => s + t.credit, 0)
+  const allFinishBlocksBalanced = finishVoucherBlocks.every((b, i) => {
+    const hasEntry = b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id)
+    if (!hasEntry) return true
+    const d = Math.round(finishBlockTotals[i].debit  * 100)
+    const c = Math.round(finishBlockTotals[i].credit * 100)
+    return d > 0 && d === c
+  })
+
+  // Approve modal computed values
+  const approveBlockPartsTotals = approveVoucherBlocks.map(b =>
+    b.parts.reduce((s, p) => s + (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0), 0)
+  )
+  const approveTotal = approveBlockPartsTotals.reduce((s, t) => s + t, 0)
+  const approveBlockTotals = approveVoucherBlocks.map(b => ({
+    debit:  b.debit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
+    credit: b.credit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
+  }))
+  const totalApproveDebit  = approveBlockTotals.reduce((s, t) => s + t.debit, 0)
+  const totalApproveCredit = approveBlockTotals.reduce((s, t) => s + t.credit, 0)
+  const allApproveBlocksBalanced = approveVoucherBlocks.every((b, i) => {
+    const hasEntry = b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id)
+    if (!hasEntry) return true
+    const d = Math.round(approveBlockTotals[i].debit  * 100)
+    const c = Math.round(approveBlockTotals[i].credit * 100)
+    return d > 0 && d === c
+  })
+
   const getJobState = (r: any): string => r.state || 'OPEN'
 
   const colValue = (r: any, key: string): string => {
@@ -228,7 +275,8 @@ export default function RepairTrackingPage() {
   const countByState = (s: string) => list.filter((r: any) => getJobState(r) === s).length
 
   // Auto-open complete modal when navigated here via "Edit in Job Card"
-  const editModalOpened = useRef(false)
+  const editModalOpened  = useRef(false)
+  const approvePreFilled = useRef(false)
   useEffect(() => {
     if (!isEditMode || !editJobNum || list.length === 0) return
     if (!editVoucherRaw?.data) return
@@ -305,6 +353,65 @@ export default function RepairTrackingPage() {
       }
     }))
   }, [blockPartsTotals.join(','), quickCompleteMode])
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!finishModal.open) return
+    setFinishVoucherBlocks(blocks => blocks.map((b, bi) => {
+      const t = finishBlockPartsTotals[bi] ?? 0
+      if (t === 0) return b
+      return {
+        ...b,
+        debit:  b.debit.length  === 1 ? [{ ...b.debit[0],  amount: String(t) }] : b.debit,
+        credit: b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
+      }
+    }))
+  }, [finishBlockPartsTotals.join(','), finishModal.open])
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!approveModal.open) return
+    setApproveVoucherBlocks(blocks => blocks.map((b, bi) => {
+      const t = approveBlockPartsTotals[bi] ?? 0
+      if (t === 0) return b
+      return {
+        ...b,
+        debit:  b.debit.length  === 1 ? [{ ...b.debit[0],  amount: String(t) }] : b.debit,
+        credit: b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
+      }
+    }))
+  }, [approveBlockPartsTotals.join(','), approveModal.open])
+
+  // Pre-fill Approve modal with parts + ledgers saved during Finish stage
+  useEffect(() => {
+    if (!approveModal.open) {
+      approvePreFilled.current = false
+      return
+    }
+    if (approvePreFilled.current) return
+    if (!stageDataRaw) return
+    approvePreFilled.current = true
+    const parts:   any[] = stageDataRaw.parts   ?? []
+    const ledgers: any[] = stageDataRaw.ledgers ?? []
+    const debitEntries: LedgerEntry[] = ledgers
+      .filter((l: any) => l.entry_type === 'debit')
+      .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
+    const creditEntries: LedgerEntry[] = ledgers
+      .filter((l: any) => l.entry_type === 'credit')
+      .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
+    const partsRows: SimplePartRow[] = parts.map((p: any) => ({
+      part_id: String(p.part_id),
+      qty:     String(p.qty || 1),
+      rate:    String(p.rate || 0),
+    }))
+    setApproveVoucherBlocks([{
+      description:   '',
+      category_name: '',
+      parts:  partsRows.length  > 0 ? partsRows        : [emptySimplePartRow()],
+      debit:  debitEntries.length  > 0 ? debitEntries  : defaultDebitEntries(),
+      credit: creditEntries.length > 0 ? creditEntries : [emptyLedgerEntry()],
+    }])
+  }, [approveModal.open, stageDataRaw])
 
   // ── Downloads ────────────────────────────────────────────────────────────────
   const downloadExcel = () => {
@@ -514,13 +621,34 @@ export default function RepairTrackingPage() {
   })
 
   const { mutate: saveFinish, isPending: savingFinish } = useMutation({
-    mutationFn: () => garageService.changeJobStatus({
-      id:              finishModal.job?.id,
-      state:           'FINISHED',
-      finish_remarks:  finishRemarks,
-      is_repeated_job: finishRepeat ? 1 : 0,
-      next_job_date:   finishRepeat ? finishRepeatDate : null,
-    }),
+    mutationFn: () => {
+      const allParts = finishVoucherBlocks.flatMap(b =>
+        b.parts.filter(p => p.part_id).map(p => ({
+          part_id: p.part_id,
+          qty:     parseFloat(p.qty)  || 1,
+          rate:    parseFloat(p.rate) || 0,
+          amount:  (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0),
+        }))
+      )
+      const blocks = finishVoucherBlocks
+        .filter(b => b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id))
+        .map(b => ({
+          description: b.description,
+          debit:  b.debit.filter(e => e.ledger_id && e.amount),
+          credit: b.credit.filter(e => e.ledger_id && e.amount),
+        }))
+      return garageService.changeJobStatus({
+        id:               finishModal.job?.id,
+        job_card_number:  finishModal.job?.job_card_number,
+        state:            'FINISHED',
+        finish_remarks:   finishRemarks,
+        is_repeated_job:  finishRepeat ? 1 : 0,
+        next_job_date:    finishRepeat ? finishRepeatDate : null,
+        parts:            allParts,
+        total_amount:     finishTotal,
+        voucher_blocks:   blocks,
+      })
+    },
     onSuccess: (res: any) => {
       if (res.status === 200) {
         toast.success('Job marked as finished!')
@@ -528,6 +656,7 @@ export default function RepairTrackingPage() {
         setFinishRemarks('')
         setFinishRepeat(false)
         setFinishRepeatDate('')
+        setFinishVoucherBlocks([emptyVoucherBlock()])
         qc.invalidateQueries({ queryKey: ['repair-tracking'] })
       } else toast.error('Failed to finish job')
     },
@@ -535,16 +664,38 @@ export default function RepairTrackingPage() {
   })
 
   const { mutate: saveApprove, isPending: savingApprove } = useMutation({
-    mutationFn: () => garageService.changeJobStatus({
-      id:               approveModal.job?.id,
-      state:            'APPROVED',
-      approval_remarks: approveRemarks,
-    }),
+    mutationFn: () => {
+      const allParts = approveVoucherBlocks.flatMap(b =>
+        b.parts.filter(p => p.part_id).map(p => ({
+          part_id: p.part_id,
+          qty:     parseFloat(p.qty)  || 1,
+          rate:    parseFloat(p.rate) || 0,
+          amount:  (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0),
+        }))
+      )
+      const blocks = approveVoucherBlocks
+        .filter(b => b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id))
+        .map(b => ({
+          description: b.description,
+          debit:  b.debit.filter(e => e.ledger_id && e.amount),
+          credit: b.credit.filter(e => e.ledger_id && e.amount),
+        }))
+      return garageService.changeJobStatus({
+        id:               approveModal.job?.id,
+        job_card_number:  approveModal.job?.job_card_number,
+        state:            'APPROVED',
+        approval_remarks: approveRemarks,
+        parts:            allParts,
+        total_amount:     approveTotal,
+        voucher_blocks:   blocks,
+      })
+    },
     onSuccess: (res: any) => {
       if (res.status === 200) {
         toast.success('Job approved!')
         setApproveModal({ open: false, job: null })
         setApproveRemarks('')
+        setApproveVoucherBlocks([emptyVoucherBlock()])
         qc.invalidateQueries({ queryKey: ['repair-tracking'] })
       } else toast.error('Failed to approve job')
     },
@@ -691,11 +842,24 @@ export default function RepairTrackingPage() {
                   <tr key={r.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40 transition-colors`}>
                     <td className="px-3 py-3 border-b border-slate-100 text-slate-500 text-center">{i + 1}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-100 text-orange-600 text-[10px] font-bold tracking-wide">
-                          <Wrench className="w-2.5 h-2.5" /> JOB
-                        </span>
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-blue-700">{r.job_card_number}</span>
+                        {r.insertion_type === 'Automatic' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-bold">
+                            <RefreshCw className="w-2.5 h-2.5" /> AUTO
+                          </span>
+                        )}
+                        {r.parent_job_card_number && (
+                          <span className="text-[10px] text-slate-400 font-medium">from {r.parent_job_card_number}</span>
+                        )}
+                        {r.next_job_date && (() => {
+                          const days = Math.ceil((new Date(r.next_job_date).getTime() - Date.now()) / 86400000)
+                          return (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${days < 0 ? 'bg-red-100 text-red-600' : days <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                              Next: {days < 0 ? `${Math.abs(days)}d overdue` : `${days}d`}
+                            </span>
+                          )
+                        })()}
                       </div>
                     </td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{fmtDate(r.job_date || r.created_at)}</td>
@@ -713,12 +877,12 @@ export default function RepairTrackingPage() {
                           View
                         </button>
                         {isOpen && (
-                          <button onClick={() => { setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate(''); setFinishModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
+                          <button onClick={() => { setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate(''); setFinishVoucherBlocks([defaultVoucherBlock()]); setFinishModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
                             Finish
                           </button>
                         )}
                         {isFinished && canApprove && (
-                          <button onClick={() => { setApproveRemarks(''); setApproveModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
+                          <button onClick={() => { setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
                             Approve
                           </button>
                         )}
@@ -858,8 +1022,13 @@ export default function RepairTrackingPage() {
                           <XCircle className="w-4 h-4" /> Reject
                         </Button>
                       )}
+                      {vs === 'OPEN' && (
+                        <Button variant="outline" onClick={() => { setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate(''); setFinishVoucherBlocks([defaultVoucherBlock()]); setFinishModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
+                          <CheckCircle className="w-4 h-4 text-blue-500" /> Finish Job
+                        </Button>
+                      )}
                       {vs === 'FINISHED' && canApprove && (
-                        <Button variant="purple" onClick={() => { setApproveRemarks(''); setApproveModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
+                        <Button variant="purple" onClick={() => { setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
                           <CheckCircle className="w-4 h-4" /> Approve
                         </Button>
                       )}
@@ -1315,35 +1484,180 @@ export default function RepairTrackingPage() {
       {/* ── Finish Job Modal ──────────────────────────────────────────────────── */}
       {finishModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
               <div>
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-blue-500" /> Finish Job
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-blue-500" /> Finish Job
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">{finishModal.job?.job_card_number} · {finishModal.job?.vehicle_number}</p>
+                <p className="text-xs text-blue-600 font-semibold mt-0.5">{finishModal.job?.job_card_number} · {finishModal.job?.vehicle_number}</p>
               </div>
               <button onClick={() => setFinishModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4">
+
+            <div className="p-6 space-y-6">
+              {/* Remarks */}
               <div>
-                <Label>Comments</Label>
+                <Label>Comments / Work Done</Label>
                 <textarea
-                  rows={3}
-                  placeholder="Add any remarks or notes about the work done…"
+                  rows={2}
+                  placeholder="Add remarks about the work done…"
                   value={finishRemarks}
                   onChange={(e) => setFinishRemarks(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
                 />
               </div>
+
+              {/* Voucher blocks */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-slate-700">Accounting Entry</h4>
+                  <button
+                    onClick={() => setFinishVoucherBlocks(bs => [...bs, emptyVoucherBlock()])}
+                    className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Voucher
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  {finishVoucherBlocks.map((block, bIdx) => {
+                    const bDebit   = finishBlockTotals[bIdx]?.debit  ?? 0
+                    const bCredit  = finishBlockTotals[bIdx]?.credit ?? 0
+                    const bBalanced = bDebit > 0 && Math.round(bDebit * 100) === Math.round(bCredit * 100)
+                    const bHasEntry = block.debit.some(e => e.ledger_id) || block.credit.some(e => e.ledger_id)
+                    return (
+                      <div key={bIdx} className="rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+                          <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{bIdx + 1}</span>
+                          <Input
+                            className="flex-1 text-xs h-7 border-0 bg-transparent p-0 font-semibold text-slate-700 focus:ring-0 placeholder:text-slate-400"
+                            placeholder="Voucher description (optional)"
+                            value={block.description}
+                            onChange={e => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, description: e.target.value }))}
+                          />
+                          {finishVoucherBlocks.length > 1 && (
+                            <button onClick={() => setFinishVoucherBlocks(bs => bs.filter((_, i) => i !== bIdx))} className="text-slate-400 hover:text-red-500 p-0.5 transition-colors flex-shrink-0">
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+                          <div>
+                            <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
+                              <span className="text-xs font-bold text-white">Debit Accounts</span>
+                              <button onClick={() => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, debit: [...b.debit, emptyLedgerEntry()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-blue-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {block.debit.map((entry, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                                      onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setFinishVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm }) })) }}
+                                      options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                                  </div>
+                                  <div className="flex-[2] min-w-0">
+                                    <Input type="number" placeholder="Amount" value={entry.amount}
+                                      onChange={e => setFinishVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }) }))} />
+                                  </div>
+                                  {block.debit.length > 1 && (
+                                    <button onClick={() => setFinishVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.filter((_, ei) => ei !== i) }))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              {bDebit > 0 && <div className="text-right text-xs font-extrabold text-blue-700 pt-1">Total: ₹{bDebit.toLocaleString('en-IN')}</div>}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between px-4 py-2 bg-emerald-600">
+                              <span className="text-xs font-bold text-white">Credit Accounts</span>
+                              <button onClick={() => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, credit: [...b.credit, emptyLedgerEntry()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-emerald-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {block.credit.map((entry, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                                      onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setFinishVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm }) })) }}
+                                      options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                                  </div>
+                                  <div className="flex-[2] min-w-0">
+                                    <Input type="number" placeholder="Amount" value={entry.amount}
+                                      onChange={e => setFinishVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }) }))} />
+                                  </div>
+                                  {block.credit.length > 1 && (
+                                    <button onClick={() => setFinishVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.filter((_, ei) => ei !== i) }))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              {bCredit > 0 && <div className="text-right text-xs font-extrabold text-emerald-700 pt-1">Total: ₹{bCredit.toLocaleString('en-IN')}</div>}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Spare parts */}
+                        <div className="border-t border-slate-100">
+                          <div className="flex items-center justify-between px-4 py-2 bg-slate-50">
+                            <span className="text-xs font-bold text-slate-600">Spare Parts</span>
+                            <button onClick={() => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: [...b.parts, emptySimplePartRow()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"><Plus className="w-3 h-3" /> Add Part</button>
+                          </div>
+                          <div className="p-3">
+                            <DynamicRows
+                              title=""
+                              columns={[
+                                { label: 'Part', className: 'flex-[3]' },
+                                { label: 'Qty', className: 'flex-[0.8]' },
+                                { label: 'Rate (₹)', className: 'flex-[1.5]' },
+                                { label: 'Total', className: 'flex-[1.5]' },
+                              ]}
+                              rows={block.parts}
+                              onAdd={() => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: [...b.parts, emptySimplePartRow()] }))}
+                              onRemove={(pIdx) => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.filter((_, pi) => pi !== pIdx) }))}
+                              renderRow={(p, pIdx) => (
+                                <>
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={p.part_id}
+                                      onChange={v => { const found = partsList.find((pt: any) => String(pt.part_id) === v); setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, part_id: v, rate: found?.price ? String(found.price) : pt.rate }) })) }}
+                                      options={partsOptions} placeholder="Select Part" onReload={() => reloadParts()} reloading={loadingParts} />
+                                  </div>
+                                  <div className="flex-[0.8] min-w-0">
+                                    <Input type="number" min="1" value={p.qty} onChange={e => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, qty: e.target.value }) }))} />
+                                  </div>
+                                  <div className="flex-[1.5] min-w-0">
+                                    <Input type="number" placeholder="0.00" value={p.rate} onChange={e => setFinishVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, rate: e.target.value }) }))} />
+                                  </div>
+                                  <div className="flex-[1.5] min-w-0">
+                                    <Input className="bg-slate-100 font-bold text-right" disabled value={((parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0)).toLocaleString('en-IN')} />
+                                  </div>
+                                </>
+                              )}
+                            />
+                            {finishBlockPartsTotals[bIdx] > 0 && (
+                              <div className="flex justify-end mt-1.5 text-xs font-bold text-emerald-700">
+                                Parts Subtotal: ₹{finishBlockPartsTotals[bIdx].toLocaleString('en-IN')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {bHasEntry && (
+                          bBalanced ? (
+                            <div className="px-4 py-2 bg-emerald-50 border-t border-emerald-100 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" /> Voucher {bIdx + 1} balanced — ₹{bDebit.toLocaleString('en-IN')}
+                            </div>
+                          ) : (
+                            <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 flex items-center gap-1.5 text-xs font-semibold text-amber-600">
+                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> Debit ₹{bDebit.toLocaleString('en-IN')} ≠ Credit ₹{bCredit.toLocaleString('en-IN')} — must balance before saving
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Repeat job */}
               <div className="pt-2 border-t border-slate-100">
                 <label className="flex items-center gap-2 cursor-pointer select-none w-fit">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 accent-amber-500"
-                    checked={finishRepeat}
-                    onChange={(e) => { setFinishRepeat(e.target.checked); setFinishRepeatDate('') }}
-                  />
+                  <input type="checkbox" className="w-4 h-4 accent-amber-500" checked={finishRepeat} onChange={(e) => { setFinishRepeat(e.target.checked); setFinishRepeatDate('') }} />
                   <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
                     <RefreshCw className="w-3.5 h-3.5 text-amber-500" /> Repeat Job
                   </span>
@@ -1356,11 +1670,29 @@ export default function RepairTrackingPage() {
                 )}
               </div>
             </div>
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
-              <Button variant="outline" onClick={() => setFinishModal({ open: false, job: null })}>Cancel</Button>
-              <Button onClick={() => saveFinish()} disabled={savingFinish}>
-                <CheckCircle className="w-4 h-4" />{savingFinish ? 'Saving…' : 'Mark as Finished'}
-              </Button>
+
+            <div className="sticky bottom-0 border-t border-slate-200 bg-white rounded-b-2xl">
+              <div className="flex items-center gap-4 px-6 py-3 flex-wrap">
+                <div className="flex items-center gap-2 text-xs text-slate-500 font-semibold">
+                  Parts Total: <span className="text-slate-800 font-extrabold tabular-nums">₹{finishTotal.toLocaleString('en-IN')}</span>
+                </div>
+                {totalFinishDebit > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs font-bold text-blue-700 tabular-nums">
+                    Dr: ₹{totalFinishDebit.toLocaleString('en-IN')}
+                  </div>
+                )}
+                {totalFinishCredit > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 tabular-nums">
+                    Cr: ₹{totalFinishCredit.toLocaleString('en-IN')}
+                  </div>
+                )}
+                <div className="ml-auto flex gap-3">
+                  <Button variant="outline" onClick={() => setFinishModal({ open: false, job: null })}>Cancel</Button>
+                  <Button onClick={() => saveFinish()} disabled={savingFinish}>
+                    <CheckCircle className="w-4 h-4" />{savingFinish ? 'Saving…' : 'Mark as Finished'}
+                  </Button>
+                </div>
+              </div>
             </div>
           </motion.div>
         </div>
@@ -1369,36 +1701,203 @@ export default function RepairTrackingPage() {
       {/* ── Approve Job Modal ────────────────────────────────────────────────── */}
       {approveModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
               <div>
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-violet-500" /> Approve Job
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-violet-500" /> Approve Job
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">{approveModal.job?.job_card_number} · {approveModal.job?.vehicle_number}</p>
+                <p className="text-xs text-violet-600 font-semibold mt-0.5">{approveModal.job?.job_card_number} · {approveModal.job?.vehicle_number}</p>
               </div>
               <button onClick={() => setApproveModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
             </div>
-            <div className="p-6 space-y-4">
+
+            <div className="p-6 space-y-6">
               <div className="rounded-xl bg-violet-50 border border-violet-100 px-4 py-3 text-sm text-violet-700 font-medium">
-                Approving this job will allow it to be completed with ledger and spare parts entry.
+                Review and record accounting entries for approval. Vouchers are saved for reference — they are not posted until job completion.
               </div>
+
+              {/* Remarks */}
               <div>
-                <Label>Remarks (optional)</Label>
+                <Label>Approval Remarks (optional)</Label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="Add any approval notes…"
                   value={approveRemarks}
                   onChange={(e) => setApproveRemarks(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-violet-300"
                 />
               </div>
+
+              {/* Voucher blocks */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-slate-700">Accounting Entry</h4>
+                  <button
+                    onClick={() => setApproveVoucherBlocks(bs => [...bs, emptyVoucherBlock()])}
+                    className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Voucher
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  {approveVoucherBlocks.map((block, bIdx) => {
+                    const bDebit   = approveBlockTotals[bIdx]?.debit  ?? 0
+                    const bCredit  = approveBlockTotals[bIdx]?.credit ?? 0
+                    const bBalanced = bDebit > 0 && Math.round(bDebit * 100) === Math.round(bCredit * 100)
+                    const bHasEntry = block.debit.some(e => e.ledger_id) || block.credit.some(e => e.ledger_id)
+                    return (
+                      <div key={bIdx} className="rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+                          <span className="w-5 h-5 rounded-full bg-violet-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{bIdx + 1}</span>
+                          <Input
+                            className="flex-1 text-xs h-7 border-0 bg-transparent p-0 font-semibold text-slate-700 focus:ring-0 placeholder:text-slate-400"
+                            placeholder="Voucher description (optional)"
+                            value={block.description}
+                            onChange={e => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, description: e.target.value }))}
+                          />
+                          {approveVoucherBlocks.length > 1 && (
+                            <button onClick={() => setApproveVoucherBlocks(bs => bs.filter((_, i) => i !== bIdx))} className="text-slate-400 hover:text-red-500 p-0.5 transition-colors flex-shrink-0">
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+                          <div>
+                            <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
+                              <span className="text-xs font-bold text-white">Debit Accounts</span>
+                              <button onClick={() => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, debit: [...b.debit, emptyLedgerEntry()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-blue-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {block.debit.map((entry, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                                      onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setApproveVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm }) })) }}
+                                      options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                                  </div>
+                                  <div className="flex-[2] min-w-0">
+                                    <Input type="number" placeholder="Amount" value={entry.amount}
+                                      onChange={e => setApproveVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }) }))} />
+                                  </div>
+                                  {block.debit.length > 1 && (
+                                    <button onClick={() => setApproveVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.filter((_, ei) => ei !== i) }))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              {bDebit > 0 && <div className="text-right text-xs font-extrabold text-blue-700 pt-1">Total: ₹{bDebit.toLocaleString('en-IN')}</div>}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between px-4 py-2 bg-emerald-600">
+                              <span className="text-xs font-bold text-white">Credit Accounts</span>
+                              <button onClick={() => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, credit: [...b.credit, emptyLedgerEntry()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-emerald-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {block.credit.map((entry, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                                      onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setApproveVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm }) })) }}
+                                      options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                                  </div>
+                                  <div className="flex-[2] min-w-0">
+                                    <Input type="number" placeholder="Amount" value={entry.amount}
+                                      onChange={e => setApproveVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }) }))} />
+                                  </div>
+                                  {block.credit.length > 1 && (
+                                    <button onClick={() => setApproveVoucherBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.filter((_, ei) => ei !== i) }))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              {bCredit > 0 && <div className="text-right text-xs font-extrabold text-emerald-700 pt-1">Total: ₹{bCredit.toLocaleString('en-IN')}</div>}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Spare parts */}
+                        <div className="border-t border-slate-100">
+                          <div className="flex items-center justify-between px-4 py-2 bg-slate-50">
+                            <span className="text-xs font-bold text-slate-600">Spare Parts</span>
+                            <button onClick={() => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: [...b.parts, emptySimplePartRow()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"><Plus className="w-3 h-3" /> Add Part</button>
+                          </div>
+                          <div className="p-3">
+                            <DynamicRows
+                              title=""
+                              columns={[
+                                { label: 'Part', className: 'flex-[3]' },
+                                { label: 'Qty', className: 'flex-[0.8]' },
+                                { label: 'Rate (₹)', className: 'flex-[1.5]' },
+                                { label: 'Total', className: 'flex-[1.5]' },
+                              ]}
+                              rows={block.parts}
+                              onAdd={() => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: [...b.parts, emptySimplePartRow()] }))}
+                              onRemove={(pIdx) => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.filter((_, pi) => pi !== pIdx) }))}
+                              renderRow={(p, pIdx) => (
+                                <>
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={p.part_id}
+                                      onChange={v => { const found = partsList.find((pt: any) => String(pt.part_id) === v); setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, part_id: v, rate: found?.price ? String(found.price) : pt.rate }) })) }}
+                                      options={partsOptions} placeholder="Select Part" onReload={() => reloadParts()} reloading={loadingParts} />
+                                  </div>
+                                  <div className="flex-[0.8] min-w-0">
+                                    <Input type="number" min="1" value={p.qty} onChange={e => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, qty: e.target.value }) }))} />
+                                  </div>
+                                  <div className="flex-[1.5] min-w-0">
+                                    <Input type="number" placeholder="0.00" value={p.rate} onChange={e => setApproveVoucherBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, rate: e.target.value }) }))} />
+                                  </div>
+                                  <div className="flex-[1.5] min-w-0">
+                                    <Input className="bg-slate-100 font-bold text-right" disabled value={((parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0)).toLocaleString('en-IN')} />
+                                  </div>
+                                </>
+                              )}
+                            />
+                            {approveBlockPartsTotals[bIdx] > 0 && (
+                              <div className="flex justify-end mt-1.5 text-xs font-bold text-emerald-700">
+                                Parts Subtotal: ₹{approveBlockPartsTotals[bIdx].toLocaleString('en-IN')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {bHasEntry && (
+                          bBalanced ? (
+                            <div className="px-4 py-2 bg-emerald-50 border-t border-emerald-100 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" /> Voucher {bIdx + 1} balanced — ₹{bDebit.toLocaleString('en-IN')}
+                            </div>
+                          ) : (
+                            <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 flex items-center gap-1.5 text-xs font-semibold text-amber-600">
+                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> Debit ₹{bDebit.toLocaleString('en-IN')} ≠ Credit ₹{bCredit.toLocaleString('en-IN')} — must balance before saving
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
-              <Button variant="outline" onClick={() => setApproveModal({ open: false, job: null })}>Cancel</Button>
-              <Button variant="purple" onClick={() => saveApprove()} disabled={savingApprove}>
-                <CheckCircle className="w-4 h-4" />{savingApprove ? 'Approving…' : 'Confirm Approve'}
-              </Button>
+
+            <div className="sticky bottom-0 border-t border-slate-200 bg-white rounded-b-2xl">
+              <div className="flex items-center gap-4 px-6 py-3 flex-wrap">
+                <div className="flex items-center gap-2 text-xs text-slate-500 font-semibold">
+                  Parts Total: <span className="text-slate-800 font-extrabold tabular-nums">₹{approveTotal.toLocaleString('en-IN')}</span>
+                </div>
+                {totalApproveDebit > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs font-bold text-blue-700 tabular-nums">
+                    Dr: ₹{totalApproveDebit.toLocaleString('en-IN')}
+                  </div>
+                )}
+                {totalApproveCredit > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 tabular-nums">
+                    Cr: ₹{totalApproveCredit.toLocaleString('en-IN')}
+                  </div>
+                )}
+                <div className="ml-auto flex gap-3">
+                  <Button variant="outline" onClick={() => setApproveModal({ open: false, job: null })}>Cancel</Button>
+                  <Button variant="purple" onClick={() => saveApprove()} disabled={savingApprove}>
+                    <CheckCircle className="w-4 h-4" />{savingApprove ? 'Approving…' : 'Confirm Approve'}
+                  </Button>
+                </div>
+              </div>
             </div>
           </motion.div>
         </div>
