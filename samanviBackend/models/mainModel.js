@@ -11217,7 +11217,7 @@ exports.getrepairentryMdl = function (data, callback) {
   LEFT JOIN repair_category rc ON rc.id = vj.repair_category_id
   LEFT JOIN staff_register sr ON sr.id = vj.assigned_to
   WHERE vj.d_in = 0
-  ORDER BY vj.job_card_number DESC;
+  ORDER BY vj.id DESC;
   `;
 
   let m = [];
