@@ -11432,12 +11432,13 @@ exports.getJobCategoriesMdl = function (data, callback) {
 exports.editJobMdl = function (data, callback) {
   var cntxtDtls = "editJobMdl";
   var jobId = parseInt(data.id) || 0;
+  var jobNum = (data.job_card_number || '').replace(/'/g, "''");
   var firstRow = (data.job_rows || [])[0] || {};
   var nextDate = data.next_job_date ? `'${data.next_job_date}'` : 'NULL';
   var catRows = (data.job_rows || []).filter(function(r) { return r.category; });
   var catValues = catRows.map(function(r) {
     var desc = (r.description || '').replace(/'/g, "''");
-    return `('${jobId}', '${data.job_card_number}', '${r.category}', '${r.priority || 'Medium'}', '${r.technician || 0}', '${desc}')`;
+    return `('${jobId}', '${jobNum}', '${r.category}', '${r.priority || 'Medium'}', '${r.technician || 0}', '${desc}')`;
   }).join(', ');
   var QRY_TO_EXEC = `
     UPDATE vehicle_jobs SET
@@ -11454,6 +11455,34 @@ exports.editJobMdl = function (data, callback) {
     UPDATE job_categories SET d_in=1 WHERE job_card_id=${jobId};
     ${catValues ? `INSERT INTO job_categories(job_card_id,job_card_number,category_id,priority,technician_id,description) VALUES ${catValues};` : ''}
   `;
+  // Save spare parts if provided
+  var parts = (data.parts || []).filter(function(p) { return p.part_id; });
+  if (parts.length > 0) {
+    QRY_TO_EXEC += `UPDATE job_parts_used SET d_in = 2 WHERE job_card_id = '${jobId}';`;
+    parts.forEach(function(p) {
+      var pId  = String(p.part_id || '').replace(/'/g, "''");
+      var pQty = parseFloat(p.qty)  || 1;
+      var pRate = parseFloat(p.rate) || 0;
+      var pAmt  = parseFloat(p.amount) || (pQty * pRate);
+      QRY_TO_EXEC += `INSERT INTO job_parts_used (job_card_id, job_card_number, part_id, amount, qty, rate) VALUES ('${jobId}', '${jobNum}', '${pId}', '${pAmt}', '${pQty}', '${pRate}');`;
+    });
+  }
+  // Save ledger entries if provided
+  var blocks = data.voucher_blocks || [];
+  var hasLedgers = blocks.some(function(b) {
+    return (b.debit || []).some(function(e) { return e.ledger_id; }) || (b.credit || []).some(function(e) { return e.ledger_id; });
+  });
+  if (hasLedgers) {
+    QRY_TO_EXEC += `DELETE FROM job_ledger_entries WHERE job_card_id = '${jobId}';`;
+    blocks.forEach(function(block) {
+      (block.debit || []).filter(function(e) { return e.ledger_id; }).forEach(function(e) {
+        QRY_TO_EXEC += `INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type) VALUES ('${jobId}', '${jobNum}', '${e.ledger_id}', '${parseFloat(e.amount)||0}', 'debit');`;
+      });
+      (block.credit || []).filter(function(e) { return e.ledger_id; }).forEach(function(e) {
+        QRY_TO_EXEC += `INSERT INTO job_ledger_entries (job_card_id, job_card_number, ledger_id, amount, entry_type) VALUES ('${jobId}', '${jobNum}', '${e.ledger_id}', '${parseFloat(e.amount)||0}', 'credit');`;
+      });
+    });
+  }
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
 };
 

@@ -63,6 +63,9 @@ export default function RepairTrackingPage() {
   const [completeRepeat, setCompleteRepeat] = useState(false)
   const [completeRepeatDate, setCompleteRepeatDate] = useState('')
   const [editJobRows, setEditJobRows] = useState<JobRow[]>([emptyJobRow()])
+  const [editStageParts, setEditStageParts] = useState<SimplePartRow[]>([emptySimplePartRow()])
+  const [editDebit, setEditDebit]   = useState<LedgerEntry[]>([emptyLedgerEntry()])
+  const [editCredit, setEditCredit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
 
   // Finish modal
   const [finishModal, setFinishModal]           = useState<{ open: boolean; job: any }>({ open: false, job: null })
@@ -136,12 +139,12 @@ export default function RepairTrackingPage() {
   })
   const jobCategories: any[] = jobCatsData?.data ?? []
 
-  // Stage data (parts + ledgers) — fetched when view or approve modal is open
-  const stageJobId = viewModal.job?.id ?? approveModal.job?.id
+  // Stage data (parts + ledgers) — fetched when view, approve, or edit modal is open
+  const stageJobId = viewModal.job?.id ?? approveModal.job?.id ?? editModal.job?.id
   const { data: stageDataRaw } = useQuery({
     queryKey: ['job-stage-data', stageJobId],
     queryFn:  () => garageService.getJobStageData({ id: stageJobId }),
-    enabled:  !!stageJobId && (viewModal.open || approveModal.open),
+    enabled:  !!stageJobId && (viewModal.open || approveModal.open || editModal.open),
   })
   const stageParts:   any[] = stageDataRaw?.parts   ?? []
   const stageLedgers: any[] = stageDataRaw?.ledgers ?? []
@@ -512,6 +515,17 @@ export default function RepairTrackingPage() {
       edit_reason: '',
     })
     setEditJobRows(rows)
+    // Pre-fill spare parts + ledgers from already-loaded stage data
+    const preParts: SimplePartRow[] = stageParts.length > 0
+      ? stageParts.map((p: any) => ({ part_id: String(p.part_id), qty: String(p.qty || 1), rate: String(p.rate || 0) }))
+      : [emptySimplePartRow()]
+    const preDebit: LedgerEntry[] = stageLedgers.filter((l: any) => l.entry_type === 'debit')
+      .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
+    const preCredit: LedgerEntry[] = stageLedgers.filter((l: any) => l.entry_type === 'credit')
+      .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
+    setEditStageParts(preParts)
+    setEditDebit(preDebit.length > 0 ? preDebit : [emptyLedgerEntry()])
+    setEditCredit(preCredit.length > 0 ? preCredit : [emptyLedgerEntry()])
     setViewModal({ open: false, job: null })
     setEditModal({ open: true, job })
   }
@@ -582,24 +596,39 @@ export default function RepairTrackingPage() {
   })
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
-    mutationFn: () => garageService.editJob({
-      id:                 editModal.job?.id,
-      job_card_number:    editModal.job?.job_card_number,
-      vehicle_number:     editForm.bus_no,
-      odometer_reading:   editForm.odometer,
-      reported_driver_id: editForm.driver,
-      is_repeated_job:    0,
-      next_job_date:      null,
-      job_rows:           editJobRows,
-      edit_reason:        editForm.edit_reason,
-      user_id:            localStorage.getItem('user_id'),
-    }),
+    mutationFn: () => {
+      const allParts = editStageParts.filter(p => !!p.part_id).map(p => ({
+        part_id: p.part_id,
+        qty:    parseFloat(p.qty)  || 1,
+        rate:   parseFloat(p.rate) || 0,
+        amount: (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0),
+      }))
+      const voucher_blocks = [{
+        debit:  editDebit.filter(e => !!e.ledger_id),
+        credit: editCredit.filter(e => !!e.ledger_id),
+      }]
+      return garageService.editJob({
+        id:                 editModal.job?.id,
+        job_card_number:    editModal.job?.job_card_number,
+        vehicle_number:     editForm.bus_no,
+        odometer_reading:   editForm.odometer,
+        reported_driver_id: editForm.driver,
+        is_repeated_job:    0,
+        next_job_date:      null,
+        job_rows:           editJobRows,
+        edit_reason:        editForm.edit_reason,
+        user_id:            localStorage.getItem('user_id'),
+        parts:              allParts,
+        voucher_blocks,
+      })
+    },
     onSuccess: (res: any) => {
       if (res.status === 200) {
         toast.success('Job updated!')
         setEditModal({ open: false, job: null })
         qc.invalidateQueries({ queryKey: ['repair-tracking'] })
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
+        qc.invalidateQueries({ queryKey: ['job-stage-data'] })
       } else toast.error('Failed to update')
     },
     onError: () => toast.error('Server error'),
@@ -909,7 +938,7 @@ export default function RepairTrackingPage() {
                             Reject
                           </button>
                         )}
-                        {(isDone || isRejected) && (
+                        {(isDone || isRejected || isFinished || isApproved) && (
                           <button onClick={() => updateStatus({ id: r.id, state: 'OPEN' })} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 transition-colors">
                             Reopen
                           </button>
@@ -1122,6 +1151,11 @@ export default function RepairTrackingPage() {
                       {vs === 'APPROVED' && canComplete && (
                         <Button onClick={openCompleteFromView} disabled={loadingJobCats}>
                           <CheckCircle className="w-4 h-4" /> Complete Job
+                        </Button>
+                      )}
+                      {(vs === 'FINISHED' || vs === 'APPROVED' || vs === 'CLOSED' || vs === 'COMPLETED' || vs === 'REJECTED') && (
+                        <Button variant="outline" onClick={() => { updateStatus({ id: viewModal.job.id, state: 'OPEN' }); setViewModal({ open: false, job: null }) }}>
+                          Reopen
                         </Button>
                       )}
                     </>
@@ -1544,6 +1578,94 @@ export default function RepairTrackingPage() {
                   </>
                 )}
               />
+
+              {/* Spare Parts */}
+              <div className="pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-bold text-slate-700">Spare Parts</h4>
+                  <button onClick={() => setEditStageParts(p => [...p, emptySimplePartRow()])} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
+                    <Plus className="w-3.5 h-3.5" /> Add Part
+                  </button>
+                </div>
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="grid grid-cols-[3fr_1fr_1.5fr_1.5fr_auto] gap-0 text-xs font-bold text-slate-500 bg-slate-50 border-b border-slate-200 px-3 py-2">
+                    <span>Part</span><span className="text-center">Qty</span><span className="text-center">Rate (₹)</span><span className="text-right">Total</span><span></span>
+                  </div>
+                  {editStageParts.map((p, pIdx) => (
+                    <div key={pIdx} className="grid grid-cols-[3fr_1fr_1.5fr_1.5fr_auto] gap-2 items-center px-3 py-2 border-b border-slate-100 last:border-0">
+                      <SearchableSelect value={p.part_id}
+                        onChange={v => { const found = partsList.find((pt: any) => String(pt.part_id) === v); setEditStageParts(prev => prev.map((pt, pi) => pi !== pIdx ? pt : { ...pt, part_id: v, rate: found?.price ? String(found.price) : pt.rate })) }}
+                        options={partsOptions} placeholder="Select Part" onReload={() => reloadParts()} reloading={loadingParts} />
+                      <Input type="number" min="1" value={p.qty} onChange={e => setEditStageParts(prev => prev.map((pt, pi) => pi !== pIdx ? pt : { ...pt, qty: e.target.value }))} />
+                      <Input type="number" placeholder="0.00" value={p.rate} onChange={e => setEditStageParts(prev => prev.map((pt, pi) => pi !== pIdx ? pt : { ...pt, rate: e.target.value }))} />
+                      <Input className="bg-slate-100 text-right font-bold" disabled value={((parseFloat(p.qty)||0)*(parseFloat(p.rate)||0)).toLocaleString('en-IN')} />
+                      {editStageParts.length > 1 && (
+                        <button onClick={() => setEditStageParts(prev => prev.filter((_, i) => i !== pIdx))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                      )}
+                    </div>
+                  ))}
+                  {editStageParts.some(p => p.part_id) && (
+                    <div className="px-3 py-2 bg-blue-50 text-right text-xs font-extrabold text-blue-700">
+                      Total: ₹{editStageParts.reduce((s, p) => s + (parseFloat(p.qty)||0)*(parseFloat(p.rate)||0), 0).toLocaleString('en-IN')}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Ledger Entries */}
+              <div className="border-t border-slate-100 pt-2">
+                <h4 className="text-sm font-bold text-slate-700 mb-3">Accounting Entries</h4>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Debit */}
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
+                      <span className="text-xs font-bold text-white">Debit Accounts</span>
+                      <button onClick={() => setEditDebit(d => [...d, emptyLedgerEntry()])} className="inline-flex items-center gap-1 text-xs font-bold text-blue-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                    </div>
+                    <div className="p-3 space-y-2">
+                      {editDebit.map((entry, i) => (
+                        <div key={i} className="flex gap-2 items-center">
+                          <div className="flex-[3] min-w-0">
+                            <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                              onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setEditDebit(d => d.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm })) }}
+                              options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                          </div>
+                          <div className="flex-[2] min-w-0">
+                            <Input type="number" placeholder="Amount" value={entry.amount} onChange={e => setEditDebit(d => d.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }))} />
+                          </div>
+                          {editDebit.length > 1 && (
+                            <button onClick={() => setEditDebit(d => d.filter((_, ei) => ei !== i))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Credit */}
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2 bg-emerald-600">
+                      <span className="text-xs font-bold text-white">Credit Accounts</span>
+                      <button onClick={() => setEditCredit(c => [...c, emptyLedgerEntry()])} className="inline-flex items-center gap-1 text-xs font-bold text-emerald-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                    </div>
+                    <div className="p-3 space-y-2">
+                      {editCredit.map((entry, i) => (
+                        <div key={i} className="flex gap-2 items-center">
+                          <div className="flex-[3] min-w-0">
+                            <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                              onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setEditCredit(c => c.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm })) }}
+                              options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                          </div>
+                          <div className="flex-[2] min-w-0">
+                            <Input type="number" placeholder="Amount" value={entry.amount} onChange={e => setEditCredit(c => c.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }))} />
+                          </div>
+                          {editCredit.length > 1 && (
+                            <button onClick={() => setEditCredit(c => c.filter((_, ei) => ei !== i))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               {/* Reason for Edit */}
               <div className="pt-2 border-t border-slate-100">
