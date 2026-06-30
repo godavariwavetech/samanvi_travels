@@ -278,8 +278,7 @@ export default function RepairTrackingPage() {
   const countByState = (s: string) => list.filter((r: any) => getJobState(r) === s).length
 
   // Auto-open complete modal when navigated here via "Edit in Job Card"
-  const editModalOpened     = useRef(false)
-  const approveFilledForJob = useRef<any>(null)
+  const editModalOpened = useRef(false)
   useEffect(() => {
     if (!isEditMode || !editJobNum || list.length === 0) return
     if (!editVoucherRaw?.data) return
@@ -385,31 +384,36 @@ export default function RepairTrackingPage() {
     }))
   }, [approveBlockPartsTotals.join(','), approveModal.open])
 
-  // Pre-fill Approve modal with parts + ledgers saved during Finish stage
-  useEffect(() => {
-    if (!approveModal.open || !approveModal.job) return
-    if (!stageDataRaw) return
-    if (approveFilledForJob.current === approveModal.job.id) return
-    approveFilledForJob.current = approveModal.job.id
-    const debitEntries: LedgerEntry[] = stageLedgers
-      .filter((l: any) => l.entry_type === 'debit')
-      .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
-    const creditEntries: LedgerEntry[] = stageLedgers
-      .filter((l: any) => l.entry_type === 'credit')
-      .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
-    const partsRows: SimplePartRow[] = stageParts.map((p: any) => ({
-      part_id: String(p.part_id),
-      qty:     String(p.qty || 1),
-      rate:    String(p.rate || 0),
-    }))
-    setApproveVoucherBlocks([{
-      description:   '',
-      category_name: '',
-      parts:  partsRows.length  > 0 ? partsRows        : [emptySimplePartRow()],
-      debit:  debitEntries.length  > 0 ? debitEntries  : defaultDebitEntries(),
-      credit: creditEntries.length > 0 ? creditEntries : [emptyLedgerEntry()],
-    }])
-  }, [approveModal.open, approveModal.job?.id, stageDataRaw])
+  // Open approve modal and immediately pre-fill from finish-stage data
+  const openApproveModal = async (job: any) => {
+    setApproveRemarks('')
+    setApproveVoucherBlocks([defaultVoucherBlock()])
+    setApproveModal({ open: true, job })
+    try {
+      const res = await garageService.getJobStageData({ id: job.id })
+      const parts:   any[] = res?.parts   ?? []
+      const ledgers: any[] = res?.ledgers ?? []
+      const debitEntries: LedgerEntry[] = ledgers
+        .filter((l: any) => l.entry_type === 'debit')
+        .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
+      const creditEntries: LedgerEntry[] = ledgers
+        .filter((l: any) => l.entry_type === 'credit')
+        .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
+      const partsRows: SimplePartRow[] = parts.map((p: any) => ({
+        part_id: String(p.part_id),
+        qty:     String(p.qty || 1),
+        rate:    String(p.rate || 0),
+      }))
+      setApproveVoucherBlocks([{
+        description: '', category_name: '',
+        parts:  partsRows.length     > 0 ? partsRows        : [emptySimplePartRow()],
+        debit:  debitEntries.length  > 0 ? debitEntries     : defaultDebitEntries(),
+        credit: creditEntries.length > 0 ? creditEntries    : [emptyLedgerEntry()],
+      }])
+    } catch {
+      // keep the defaultVoucherBlock already set above
+    }
+  }
 
   // ── Downloads ────────────────────────────────────────────────────────────────
   const downloadExcel = () => {
@@ -880,7 +884,7 @@ export default function RepairTrackingPage() {
                           </button>
                         )}
                         {isFinished && canApprove && (
-                          <button onClick={() => { approveFilledForJob.current = null; setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
+                          <button onClick={() => openApproveModal(r)} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
                             Approve
                           </button>
                         )}
@@ -1100,7 +1104,7 @@ export default function RepairTrackingPage() {
                         </Button>
                       )}
                       {vs === 'FINISHED' && canApprove && (
-                        <Button variant="purple" onClick={() => { approveFilledForJob.current = null; setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
+                        <Button variant="purple" onClick={() => { const j = viewModal.job; setViewModal({ open: false, job: null }); openApproveModal(j) }} disabled={loadingJobCats}>
                           <CheckCircle className="w-4 h-4" /> Approve
                         </Button>
                       )}
@@ -1781,7 +1785,7 @@ export default function RepairTrackingPage() {
                 </h3>
                 <p className="text-xs text-violet-600 font-semibold mt-0.5">{approveModal.job?.job_card_number} · {approveModal.job?.vehicle_number}</p>
               </div>
-              <button onClick={() => { setApproveModal({ open: false, job: null }); approveFilledForJob.current = null }} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+              <button onClick={() => setApproveModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="p-6 space-y-6">
