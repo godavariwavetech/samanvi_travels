@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'motion/react'
-import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, FileSpreadsheet, FileText } from 'lucide-react'
+import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, FileSpreadsheet, FileText, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown } from '@/components/shared'
@@ -23,7 +23,7 @@ export default function RepairEntryPage() {
   const [jobRows, setJobRows] = useState<JobRow[]>([{ category: '', priority: 'Medium', technician: '', description: '' }])
   const [submitted, setSubmitted] = useState(false)
 
-  const [colFilters, setColFilters] = useState<Record<string, string[]>>({ status: ['Open'] })
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
 
   // Complete Job modal
   const [completeModal, setCompleteModal] = useState<{ open: boolean; jobCardNo: string; jobCardId: number | null; job: any }>({
@@ -39,6 +39,10 @@ export default function RepairEntryPage() {
   const [finishRemarks, setFinishRemarks]       = useState('')
   const [finishRepeat, setFinishRepeat]         = useState(false)
   const [finishRepeatDate, setFinishRepeatDate] = useState('')
+  const [finishDebitLedgerId, setFinishDebitLedgerId]   = useState('')
+  const [finishCreditLedgerId, setFinishCreditLedgerId] = useState('')
+
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; job: any; jobCardId: number | null }>({ open: false, job: null, jobCardId: null })
 
   // New part creation inline form
   const [showNewPart, setShowNewPart] = useState(false)
@@ -53,6 +57,11 @@ export default function RepairEntryPage() {
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({
     queryKey: ['ledger-names-garage'],
     queryFn: () => accountingService.getLedgerName(),
+  })
+  const { data: jobHistoryData, isLoading: loadingHistory } = useQuery({
+    queryKey: ['job-history', historyModal.jobCardId],
+    queryFn: () => garageService.getJobApprovalHistory({ job_card_id: historyModal.jobCardId }),
+    enabled: historyModal.open && !!historyModal.jobCardId,
   })
 
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(s => ({ ...s, [k]: e.target.value }))
@@ -104,14 +113,16 @@ export default function RepairEntryPage() {
 
   const filteredEntryList = useMemo(() => {
     const hasFilter = Object.values(colFilters).some(v => v && v.length > 0)
-    if (!hasFilter) return entryList
-    return entryList.filter(r => {
-      for (const [key, vals] of Object.entries(colFilters)) {
-        if (!vals || vals.length === 0) continue
-        if (!vals.includes(colValue(r, key))) return false
-      }
-      return true
-    })
+    const list = hasFilter
+      ? entryList.filter(r => {
+          for (const [key, vals] of Object.entries(colFilters)) {
+            if (!vals || vals.length === 0) continue
+            if (!vals.includes(colValue(r, key))) return false
+          }
+          return true
+        })
+      : entryList
+    return list.slice(0, 10)
   }, [entryList, colFilters])
 
   const downloadExcel = () => {
@@ -222,11 +233,13 @@ export default function RepairEntryPage() {
 
   const { mutate: saveFinish, isPending: savingFinish } = useMutation({
     mutationFn: () => garageService.changeJobStatus({
-      id:              finishModal.job?.id,
-      state:           'FINISHED',
-      finish_remarks:  finishRemarks,
-      is_repeated_job: finishRepeat ? 1 : 0,
-      next_job_date:   finishRepeat ? finishRepeatDate : null,
+      id:                finishModal.job?.id,
+      state:             'FINISHED',
+      finish_remarks:    finishRemarks,
+      is_repeated_job:   finishRepeat ? 1 : 0,
+      next_job_date:     finishRepeat ? finishRepeatDate : null,
+      debit_ledger_id:   finishDebitLedgerId,
+      credit_ledger_id:  finishCreditLedgerId,
     }),
     onSuccess: (res: any) => {
       if (res.status === 200) {
@@ -235,6 +248,8 @@ export default function RepairEntryPage() {
         setFinishRemarks('')
         setFinishRepeat(false)
         setFinishRepeatDate('')
+        setFinishDebitLedgerId('')
+        setFinishCreditLedgerId('')
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
       } else toast.error('Failed to finish job')
     },
@@ -433,7 +448,7 @@ export default function RepairEntryPage() {
               <h3 className="text-sm font-bold text-slate-700">
                 Active Job Cards
                 <span className="ml-2 text-xs font-normal text-slate-400">
-                  {filteredEntryList.length !== entryList.length ? `${filteredEntryList.length} of ${entryList.length}` : entryList.length}
+                  last {filteredEntryList.length}{entryList.length > filteredEntryList.length ? ` of ${entryList.length}` : ''}
                 </span>
               </h3>
               <div className="flex gap-1.5">
@@ -446,7 +461,7 @@ export default function RepairEntryPage() {
                 {activeFilterCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                     {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active ·{' '}
-                    <button onClick={() => setColFilters({ status: ['Open'] })} className="text-blue-600 font-semibold hover:underline">Reset</button>
+                    <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Reset</button>
                   </span>
                 )}
               </div>
@@ -465,7 +480,6 @@ export default function RepairEntryPage() {
                       { label: 'Assigned To',     fk: 'assignedTo' },
                       { label: 'Created By',       fk: 'createdBy' },
                       { label: 'Status',           fk: 'status' },
-                      { label: 'Action' },
                     ] as { label: string; fk?: string }[]).map(({ label, fk }) => (
                       <th key={label} className="px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
                         <div className="flex items-center gap-1.5">
@@ -485,72 +499,49 @@ export default function RepairEntryPage() {
                 </thead>
                 <tbody>
                   {isLoading ? (
-                    <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
                   ) : filteredEntryList.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
                   ) : filteredEntryList.map((r: any, i: number) => {
                     const state: string = r.state || 'OPEN'
-                    const isOpen     = state === 'OPEN'
                     const isFinished = state === 'FINISHED'
+                    const isApproved = state === 'APPROVED'
                     const isDone     = state === 'CLOSED' || state === 'COMPLETED'
                     const isRejected = state === 'REJECTED'
+                    const rowBg      = i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
                     const statusBadge = isDone
                       ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">Completed</span>
                       : isRejected
                       ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-600">Rejected</span>
+                      : isApproved
+                      ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">Approved</span>
                       : isFinished
                       ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">Finished</span>
                       : <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">Open</span>
                     return (
-                      <tr key={r.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40 transition-colors`}>
-                        <td className="px-3 py-3 border-b border-slate-100 text-slate-500 text-center">{i + 1}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap font-semibold text-blue-700">{r.job_card_number}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{fmtDate(r.job_date || r.created_at)}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 text-center">
-                          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">{dueDays(r.job_date || r.created_at)}</span>
-                        </td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700">{r.vehicle_number}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 text-slate-700">{r.repair_category_name || r.all_categories || '-'}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.staff_name || '-'}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.created_by || '-'}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">{statusBadge}</td>
-                        <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            {isOpen && (
-                              <button
-                                onClick={() => { setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate(''); setFinishModal({ open: true, job: r }) }}
-                                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-                              >
-                                Finish
-                              </button>
-                            )}
-                            {(isOpen || isFinished) && (
-                              <button
-                                onClick={() => openCompleteModal(r)}
-                                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                              >
-                                Complete
-                              </button>
-                            )}
-                            {(isOpen || isFinished) && (
-                              <button
-                                onClick={() => updateStatus({ id: r.id, state: 'REJECTED' })}
-                                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
-                              >
-                                Reject
-                              </button>
-                            )}
-                            {(isDone || isRejected) && (
-                              <button
-                                onClick={() => updateStatus({ id: r.id, state: 'OPEN' })}
-                                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 transition-colors"
-                              >
-                                Reopen
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                      <>
+                        <tr key={r.id} className={`${rowBg} hover:bg-blue-50/40 transition-colors`}>
+                          <td className="px-3 py-3 border-b border-slate-100 text-slate-500 text-center">{i + 1}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
+                            <button
+                              onClick={() => setHistoryModal({ open: true, job: r, jobCardId: r.id })}
+                              className="font-semibold text-blue-700 hover:text-blue-900 hover:underline underline-offset-2 transition-colors flex items-center gap-1"
+                            >
+                              <History className="w-3 h-3 opacity-60" />
+                              {r.job_card_number}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{fmtDate(r.job_date || r.created_at)}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 text-center">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600">{dueDays(r.job_date || r.created_at)}</span>
+                          </td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700">{r.vehicle_number}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 text-slate-700">{r.repair_category_name || r.all_categories || '-'}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.staff_name || '-'}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.created_by || '-'}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">{statusBadge}</td>
+                        </tr>
+                      </>
                     )
                   })}
                 </tbody>
@@ -561,7 +552,7 @@ export default function RepairEntryPage() {
           {/* ── Finish Job Modal ───────────────────────────────────────────── */}
           {finishModal.open && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-              <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
                   <div>
                     <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
@@ -582,6 +573,44 @@ export default function RepairEntryPage() {
                       className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
                     />
                   </div>
+
+                  {/* Ledger selection */}
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 mb-3">Accounting Entry</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="rounded-xl overflow-hidden border border-slate-200">
+                        <div className="px-4 py-2.5 bg-blue-600">
+                          <span className="text-sm font-bold text-white">Debit Account</span>
+                        </div>
+                        <div className="p-3">
+                          <SearchableSelect
+                            value={finishDebitLedgerId}
+                            onChange={setFinishDebitLedgerId}
+                            options={ledgerOptions}
+                            placeholder="Select Debit Ledger"
+                            onReload={() => reloadLedgers()}
+                            reloading={loadingLedgers}
+                          />
+                        </div>
+                      </div>
+                      <div className="rounded-xl overflow-hidden border border-slate-200">
+                        <div className="px-4 py-2.5 bg-emerald-600">
+                          <span className="text-sm font-bold text-white">Credit Account</span>
+                        </div>
+                        <div className="p-3">
+                          <SearchableSelect
+                            value={finishCreditLedgerId}
+                            onChange={setFinishCreditLedgerId}
+                            options={ledgerOptions}
+                            placeholder="Select Credit Ledger"
+                            onReload={() => reloadLedgers()}
+                            reloading={loadingLedgers}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="pt-2 border-t border-slate-100">
                     <label className="flex items-center gap-2 cursor-pointer select-none w-fit">
                       <input
@@ -607,6 +636,66 @@ export default function RepairEntryPage() {
                   <Button onClick={() => saveFinish()} disabled={savingFinish}>
                     <CheckCircle className="w-4 h-4" />{savingFinish ? 'Saving…' : 'Mark as Finished'}
                   </Button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* ── Job History Modal ─────────────────────────────────────────── */}
+          {historyModal.open && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+              <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                      <History className="w-4 h-4 text-blue-500" /> Job History
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {historyModal.job?.job_card_number} · {historyModal.job?.vehicle_number}
+                    </p>
+                  </div>
+                  <button onClick={() => setHistoryModal({ open: false, job: null, jobCardId: null })} className="text-slate-400 hover:text-slate-600 p-1">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 p-6">
+                  {loadingHistory ? (
+                    <p className="text-sm text-slate-400 text-center py-8">Loading history…</p>
+                  ) : (() => {
+                    const stages: any[] = jobHistoryData?.data ?? []
+                    if (stages.length === 0) return <p className="text-sm text-slate-400 text-center py-8">No history recorded yet.</p>
+                    return (
+                      <ol className="relative border-l border-slate-200 ml-3 space-y-6">
+                        {stages.map((s: any, idx: number) => (
+                          <li key={s.id ?? idx} className="ml-5">
+                            <span className="absolute -left-2.5 flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 ring-4 ring-white">
+                              <Clock className="w-2.5 h-2.5 text-blue-600" />
+                            </span>
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">{s.stage || s.action}</p>
+                                {s.action && s.stage && (
+                                  <p className="text-xs text-slate-500 mt-0.5">Action: <span className="font-semibold">{s.action}</span></p>
+                                )}
+                                {s.action_by_name && (
+                                  <p className="text-xs text-slate-500">By: <span className="font-semibold text-slate-700">{s.action_by_name}</span></p>
+                                )}
+                                {s.remarks && (
+                                  <p className="mt-1 text-xs text-slate-600 italic bg-slate-50 rounded-lg px-2 py-1">{s.remarks}</p>
+                                )}
+                              </div>
+                              <time className="shrink-0 text-xs text-slate-400 whitespace-nowrap">{fmtDate(s.action_at)}</time>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    )
+                  })()}
+                </div>
+                <div className="flex justify-end px-6 py-4 border-t border-slate-100 shrink-0">
+                  <button onClick={() => setHistoryModal({ open: false, job: null, jobCardId: null })} className="px-4 py-2 text-sm font-semibold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                    Close
+                  </button>
                 </div>
               </motion.div>
             </div>
