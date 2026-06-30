@@ -136,12 +136,15 @@ export default function RepairTrackingPage() {
   })
   const jobCategories: any[] = jobCatsData?.data ?? []
 
-  // Stage data (parts + ledgers) saved during FINISH — used to pre-fill Approve modal
+  // Stage data (parts + ledgers) — fetched when view or approve modal is open
+  const stageJobId = viewModal.job?.id ?? approveModal.job?.id
   const { data: stageDataRaw } = useQuery({
-    queryKey: ['job-stage-data', approveModal.job?.id],
-    queryFn: () => garageService.getJobStageData({ id: approveModal.job?.id }),
-    enabled: approveModal.open && !!approveModal.job?.id,
+    queryKey: ['job-stage-data', stageJobId],
+    queryFn:  () => garageService.getJobStageData({ id: stageJobId }),
+    enabled:  !!stageJobId && (viewModal.open || approveModal.open),
   })
+  const stageParts:   any[] = stageDataRaw?.parts   ?? []
+  const stageLedgers: any[] = stageDataRaw?.ledgers ?? []
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const list: any[]        = data?.data ?? []
@@ -275,8 +278,8 @@ export default function RepairTrackingPage() {
   const countByState = (s: string) => list.filter((r: any) => getJobState(r) === s).length
 
   // Auto-open complete modal when navigated here via "Edit in Job Card"
-  const editModalOpened  = useRef(false)
-  const approvePreFilled = useRef(false)
+  const editModalOpened     = useRef(false)
+  const approveFilledForJob = useRef<any>(null)
   useEffect(() => {
     if (!isEditMode || !editJobNum || list.length === 0) return
     if (!editVoucherRaw?.data) return
@@ -384,22 +387,17 @@ export default function RepairTrackingPage() {
 
   // Pre-fill Approve modal with parts + ledgers saved during Finish stage
   useEffect(() => {
-    if (!approveModal.open) {
-      approvePreFilled.current = false
-      return
-    }
-    if (approvePreFilled.current) return
+    if (!approveModal.open || !approveModal.job) return
     if (!stageDataRaw) return
-    approvePreFilled.current = true
-    const parts:   any[] = stageDataRaw.parts   ?? []
-    const ledgers: any[] = stageDataRaw.ledgers ?? []
-    const debitEntries: LedgerEntry[] = ledgers
+    if (approveFilledForJob.current === approveModal.job.id) return
+    approveFilledForJob.current = approveModal.job.id
+    const debitEntries: LedgerEntry[] = stageLedgers
       .filter((l: any) => l.entry_type === 'debit')
       .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
-    const creditEntries: LedgerEntry[] = ledgers
+    const creditEntries: LedgerEntry[] = stageLedgers
       .filter((l: any) => l.entry_type === 'credit')
       .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
-    const partsRows: SimplePartRow[] = parts.map((p: any) => ({
+    const partsRows: SimplePartRow[] = stageParts.map((p: any) => ({
       part_id: String(p.part_id),
       qty:     String(p.qty || 1),
       rate:    String(p.rate || 0),
@@ -411,7 +409,7 @@ export default function RepairTrackingPage() {
       debit:  debitEntries.length  > 0 ? debitEntries  : defaultDebitEntries(),
       credit: creditEntries.length > 0 ? creditEntries : [emptyLedgerEntry()],
     }])
-  }, [approveModal.open, stageDataRaw])
+  }, [approveModal.open, approveModal.job?.id, stageDataRaw])
 
   // ── Downloads ────────────────────────────────────────────────────────────────
   const downloadExcel = () => {
@@ -882,7 +880,7 @@ export default function RepairTrackingPage() {
                           </button>
                         )}
                         {isFinished && canApprove && (
-                          <button onClick={() => { setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
+                          <button onClick={() => { approveFilledForJob.current = null; setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors">
                             Approve
                           </button>
                         )}
@@ -1004,6 +1002,81 @@ export default function RepairTrackingPage() {
               </div>
             </div>
 
+              {/* Parts used */}
+              {stageParts.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700 mb-3">Parts Used</h4>
+                  <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="px-3 py-2 text-left text-xs font-bold text-slate-600">Part</th>
+                          <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Qty</th>
+                          <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Rate</th>
+                          <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stageParts.map((p: any, i: number) => (
+                          <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
+                            <td className="px-3 py-2 font-medium text-slate-700">{p.part_name || p.part_id}</td>
+                            <td className="px-3 py-2 text-right text-slate-600">{p.qty}</td>
+                            <td className="px-3 py-2 text-right text-slate-600">₹{Number(p.rate).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-right font-bold text-slate-800">₹{Number(p.amount).toLocaleString('en-IN')}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-blue-50 border-t border-blue-100">
+                          <td colSpan={3} className="px-3 py-2 text-xs font-bold text-blue-700 text-right">Total</td>
+                          <td className="px-3 py-2 text-right font-extrabold text-blue-700">
+                            ₹{stageParts.reduce((s: number, p: any) => s + Number(p.amount), 0).toLocaleString('en-IN')}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Ledger entries */}
+              {stageLedgers.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700 mb-3">Accounting Entries</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-blue-100 bg-blue-50/30 overflow-hidden">
+                      <div className="px-3 py-2 bg-blue-600">
+                        <span className="text-xs font-bold text-white">Debit</span>
+                      </div>
+                      <div className="p-2 space-y-1">
+                        {stageLedgers.filter((l: any) => l.entry_type === 'debit').length === 0 ? (
+                          <p className="text-xs text-slate-400 px-1">No debit entries</p>
+                        ) : stageLedgers.filter((l: any) => l.entry_type === 'debit').map((l: any, i: number) => (
+                          <div key={i} className="flex justify-between items-center px-2 py-1.5 bg-white rounded-lg border border-blue-100">
+                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                            <span className="text-xs font-bold text-blue-700">₹{Number(l.amount).toLocaleString('en-IN')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 overflow-hidden">
+                      <div className="px-3 py-2 bg-emerald-600">
+                        <span className="text-xs font-bold text-white">Credit</span>
+                      </div>
+                      <div className="p-2 space-y-1">
+                        {stageLedgers.filter((l: any) => l.entry_type === 'credit').length === 0 ? (
+                          <p className="text-xs text-slate-400 px-1">No credit entries</p>
+                        ) : stageLedgers.filter((l: any) => l.entry_type === 'credit').map((l: any, i: number) => (
+                          <div key={i} className="flex justify-between items-center px-2 py-1.5 bg-white rounded-lg border border-emerald-100">
+                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                            <span className="text-xs font-bold text-emerald-700">₹{Number(l.amount).toLocaleString('en-IN')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center sticky bottom-0 bg-white">
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setViewModal({ open: false, job: null })}>Close</Button>
@@ -1028,7 +1101,7 @@ export default function RepairTrackingPage() {
                         </Button>
                       )}
                       {vs === 'FINISHED' && canApprove && (
-                        <Button variant="purple" onClick={() => { setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
+                        <Button variant="purple" onClick={() => { approveFilledForJob.current = null; setApproveRemarks(''); setApproveVoucherBlocks([emptyVoucherBlock()]); setApproveModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
                           <CheckCircle className="w-4 h-4" /> Approve
                         </Button>
                       )}
@@ -1709,7 +1782,7 @@ export default function RepairTrackingPage() {
                 </h3>
                 <p className="text-xs text-violet-600 font-semibold mt-0.5">{approveModal.job?.job_card_number} · {approveModal.job?.vehicle_number}</p>
               </div>
-              <button onClick={() => setApproveModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+              <button onClick={() => { setApproveModal({ open: false, job: null }); approveFilledForJob.current = null }} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="p-6 space-y-6">
