@@ -47,6 +47,18 @@ export const mainmastersService = {
   editReminderType: (data: unknown) => api.post('/reminder-types/edit', securePayload(data)).then((r) => r.data),
   deleteReminderType: (data: unknown) => api.post('/reminder-types/delete', securePayload(data)).then((r) => r.data),
 
+  // ── Garage: Service Schedules ──────────────────────────────
+  getServiceSchedules: () => api.get('/service-schedules/getall').then((r) => r.data),
+  addServiceSchedule: (data: unknown) => api.post('/service-schedules/add', securePayload(data)).then((r) => r.data),
+  editServiceSchedule: (data: unknown) => api.post('/service-schedules/edit', securePayload(data)).then((r) => r.data),
+  deleteServiceSchedule: (data: unknown) => api.post('/service-schedules/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Garage: Lubricant / Fluid Schedules ────────────────────
+  getLubricantSchedules: () => api.get('/lubricant-schedules/getall').then((r) => r.data),
+  addLubricantSchedule: (data: unknown) => api.post('/lubricant-schedules/add', securePayload(data)).then((r) => r.data),
+  editLubricantSchedule: (data: unknown) => api.post('/lubricant-schedules/edit', securePayload(data)).then((r) => r.data),
+  deleteLubricantSchedule: (data: unknown) => api.post('/lubricant-schedules/delete', securePayload(data)).then((r) => r.data),
+
   // ── Garage: Tyre Positions ────────────────────────────────
   getTyrePositionsMaster: () => api.get('/tyre-positions-master/getall').then((r) => r.data),
   addTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/add', securePayload(data)).then((r) => r.data),

@@ -19,7 +19,6 @@ import ServiceForPage from '@/pages/masters/ServiceForPage'
 import ServiceNoPage from '@/pages/masters/ServiceNoPage'
 import StaffPage from '@/pages/masters/StaffPage'
 import SpareTankPage from '@/pages/masters/SpareTankPage'
-import VehicleTypePage from '@/pages/masters/VehicleTypePage'
 
 // Trips
 import TripCreationPage from '@/pages/trips/TripCreationPage'
@@ -79,6 +78,8 @@ import ServiceRemindersPage from '@/pages/garage/ServiceRemindersPage'
 import TyreInventoryPage from '@/pages/garage/TyreInventoryPage'
 import TyrePositionPage from '@/pages/garage/TyrePositionPage'
 import BatteryManagementPage from '@/pages/garage/BatteryManagementPage'
+import ScheduledJobsPage from '@/pages/garage/ScheduledJobsPage'
+import RepeatJobsPage from '@/pages/garage/RepeatJobsPage'
 
 // Main Masters
 import VoucherTypePage from '@/pages/mainmasters/VoucherTypePage'
@@ -87,6 +88,12 @@ import StaticEntryPage from '@/pages/mainmasters/StaticEntryPage'
 import SubChildTwoPage from '@/pages/mainmasters/SubChildTwoPage'
 import LaundryProductPage from '@/pages/mainmasters/LaundryProductPage'
 import GarageMastersPage from '@/pages/mainmasters/GarageMastersPage'
+import VehicleTypePage from '@/pages/mainmasters/VehicleTypePage'
+import VehicleCompanyPage from '@/pages/mainmasters/VehicleCompanyPage'
+import SeatingCapacityPage from '@/pages/mainmasters/SeatingCapacityPage'
+import ChassisModelPage from '@/pages/mainmasters/ChassisModelPage'
+import BatteryBrandPage from '@/pages/mainmasters/BatteryBrandPage'
+import BatteryCapacityPage from '@/pages/mainmasters/BatteryCapacityPage'
 
 // Reports
 import ReportsPage from '@/pages/reports/ReportsPage'
@@ -111,7 +118,6 @@ export const router = createBrowserRouter([
       { path: 'masters/bus-no', element: <BusNoPage /> },
       { path: 'masters/service-no', element: <ServiceNoPage /> },
       { path: 'masters/staff', element: <StaffPage /> },
-      { path: 'masters/vehicle-type', element: <VehicleTypePage /> },
       { path: 'masters/spare-tank', element: <SpareTankPage /> },
 
       // Trips
@@ -172,12 +178,20 @@ export const router = createBrowserRouter([
       { path: 'garage/tyre-inventory', element: <TyreInventoryPage /> },
       { path: 'garage/tyre-position', element: <TyrePositionPage /> },
       { path: 'garage/battery-management', element: <BatteryManagementPage /> },
+      { path: 'garage/scheduled-jobs', element: <ScheduledJobsPage /> },
+      { path: 'garage/repeat-jobs',    element: <RepeatJobsPage /> },
 
       // Main Masters
       { path: 'mainmasters/voucher-type',   element: <VoucherTypePage /> },
       { path: 'mainmasters/static-entry',   element: <StaticEntryPage /> },
       { path: 'mainmasters/laundry-products', element: <LaundryProductPage /> },
       { path: 'mainmasters/garage-masters', element: <GarageMastersPage /> },
+      { path: 'mainmasters/vehicle-type',    element: <VehicleTypePage /> },
+      { path: 'mainmasters/vehicle-company', element: <VehicleCompanyPage /> },
+      { path: 'mainmasters/seating-capacity',element: <SeatingCapacityPage /> },
+      { path: 'mainmasters/chassis-model',   element: <ChassisModelPage /> },
+      { path: 'mainmasters/battery-brand',    element: <BatteryBrandPage /> },
+      { path: 'mainmasters/battery-capacity', element: <BatteryCapacityPage /> },
       // Group pages — each level gets its own path so NavLink active state works
       { path: 'mainmasters/groups',           element: <GroupPage /> },
       { path: 'mainmasters/main-group',       element: <GroupPage viewLevel={2} /> },

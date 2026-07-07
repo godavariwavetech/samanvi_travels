@@ -641,6 +641,13 @@ exports.getbussesdataCtrl = function (req, res) {
     res.send({ status: 200, data: results });
   });
 };
+exports.getBusHistoryCtrl = function (req, res) {
+  var data = req.body;
+  appmdl.getBusHistoryMdl(data, function (err, results) {
+    if (err) { console.log('[getBusHistory] error:', err); return res.send({ status: 500, data: [] }); }
+    res.send({ status: 200, data: results });
+  });
+};
 exports.getbussessparetankdataCtrl = function (req, res) {
   appmdl.getbussessparetankdataMdl(function (err, results) {
     if (err) {
@@ -1248,6 +1255,84 @@ exports.deleteVehicleTypeCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const data = decryptPayload(encryptedPayload);
   appmdl.deleteVehicleTypeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Vehicle Companies ────────────────────────────────────────────────────────
+exports.getVehicleCompaniesCtrl = function (req, res) {
+  appmdl.getVehicleCompaniesMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addVehicleCompanyCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addVehicleCompanyMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteVehicleCompanyCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteVehicleCompanyMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Seating Capacities ────────────────────────────────────────────────────────
+exports.getSeatingCapacitiesCtrl = function (req, res) {
+  appmdl.getSeatingCapacitiesMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addSeatingCapacityCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addSeatingCapacityMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteSeatingCapacityCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteSeatingCapacityMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Chassis Models ─────────────────────────────────────────────────────────────
+exports.getChassisModelsCtrl = function (req, res) {
+  appmdl.getChassisModelsMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addChassisModelCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addChassisModelMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteChassisModelCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteChassisModelMdl(data, function (err, results) {
     if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
   });
@@ -2964,7 +3049,7 @@ exports.updatevoucherentrystatusCtrl = function (req, res) {
         console.error('updatevoucherentrystatusMdl db error:', err);
         return res.status(500).json({ status: 500, message: 'DB error' });
       }
-      const action = data.vouchervalue == '1' ? 'approved' : 'rejected';
+      const action = data.vouchervalue == '1' ? 'approved' : data.vouchervalue == '0' ? 'reopened' : 'rejected';
       const changesNote = action === 'rejected' && data.rejection_reason
         ? `Rejection reason: ${data.rejection_reason}`
         : '';
@@ -4094,8 +4179,20 @@ exports.getlaundrybillsubdataCtrl = function (req, res) {
   });
 };
 exports.updatebusnumber = function (req, res) {
-  var data = req.body;
-  console.log(data,3116)
+  const { encryptedPayload, signature } = req.body;
+  try {
+    validateSignature(encryptedPayload, signature);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid request signature" });
+    return;
+  }
+  let data;
+  try {
+    data = decryptPayload(encryptedPayload);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid payload" });
+    return;
+  }
   appmdl.updatebusnumber(data, function (err, results) {
     if (err) {
       res.send({ status: 500, data: results });
@@ -5171,6 +5268,13 @@ exports.getScheduledJobsCtrl = function (req, res) {
   });
 };
 
+exports.getRepeatJobsCtrl = function (req, res) {
+  appmdl.getRepeatJobsMdl({}, function (err, results) {
+    if (err) { console.log('[getRepeatJobs] error:', err); return res.send({ status: 500, data: [] }); }
+    res.send({ status: 200, data: results });
+  });
+};
+
 exports.updateJobVoucherCtrl = function (req, res) {
   try {
     var data = decryptPayload(req.body.encryptedPayload);
@@ -5237,6 +5341,15 @@ exports.getJobApprovalHistoryCtrl = function (req, res) {
   });
 };
 
+exports.getJobFullHistoryCtrl = function (req, res) {
+  var data;
+  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  appmdl.getJobFullHistoryMdl(data, function (err, result) {
+    if (err) { console.log('[getJobFullHistory] error:', err); res.send({ status: 500 }); return; }
+    res.send({ status: 200, job: result.job, stages: result.stages, parts: result.parts, ledgers: result.ledgers });
+  });
+};
+
 // Garage Extension Controllers: Service Reminders, Tyre Management, Battery Management -------------------------------------------------------------------
 
 function decryptedBody(req, res, modelFn) {
@@ -5265,13 +5378,87 @@ function decryptedBody(req, res, modelFn) {
 }
 
 // ── Service Reminders ───────────────────────────────────────────────────────
+
+// Generates `count` sequential "S<YYMMDD><3-digit seq>" reference numbers,
+// mirroring the J/V numbering scheme used for job cards & vouchers.
+function genReminderRefNumbers(count, callback) {
+  appmdl.todayReminderCountMdl(function (err, cresults) {
+    if (err) { callback(err); return; }
+    var todayCount = cresults[0] ? cresults[0].cnt * 1 : 0;
+    var datePart = moment().format('YYMMDD');
+    var refs = [];
+    for (var i = 0; i < count; i++) {
+      refs.push('S' + datePart + String(todayCount + i + 1).padStart(3, '0'));
+    }
+    callback(null, refs);
+  });
+}
+
 exports.getServiceRemindersCtrl = function (req, res) {
   appmdl.getServiceRemindersMdl(req.body, function (err, results) {
     if (err) { res.send(500, "Server Error"); return; }
     res.send({ status: 200, data: results });
   });
 };
-exports.addServiceReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.addServiceReminderMdl); };
+exports.addServiceReminderCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try { validateSignature(encryptedPayload, signature); } catch (e) {
+    return res.send({ status: 400, msg: "Invalid request signature" });
+  }
+  let data;
+  try { data = decryptPayload(encryptedPayload); } catch (e) {
+    return res.send({ status: 400, msg: "Invalid payload" });
+  }
+  genReminderRefNumbers(1, function (err, refs) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    appmdl.addServiceReminderMdl(Object.assign({}, data, { ref_number: refs[0] }), function (err2, results) {
+      if (err2) { console.log(err2); res.send({ status: 500, data: results }); return; }
+      res.send({ status: 200, data: results, ref_number: refs[0] });
+    });
+  });
+};
+
+// Creates one reminder per row in `reminders`, with race-free sequential ref
+// numbers computed from a single count query (same pattern as addrepairentryCtrl).
+exports.addServiceRemindersBulkCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try { validateSignature(encryptedPayload, signature); } catch (e) {
+    return res.send({ status: 400, msg: "Invalid request signature" });
+  }
+  let data;
+  try { data = decryptPayload(encryptedPayload); } catch (e) {
+    return res.send({ status: 400, msg: "Invalid payload" });
+  }
+
+  const rows = data.reminders || [];
+  if (!rows.length) return res.send({ status: 400, msg: 'No reminders provided' });
+
+  genReminderRefNumbers(rows.length, function (err, refs) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+
+    const created = [];
+    let idx = 0;
+
+    function insertNext() {
+      if (idx >= rows.length) {
+        return res.send({ status: 200, data: created });
+      }
+      const row = rows[idx];
+      appmdl.addServiceReminderMdl(Object.assign({}, row, {
+        ref_number: refs[idx],
+        user_id: data.user_id,
+        usr_nm: data.usr_nm,
+      }), function (err2, result2) {
+        if (err2) { console.log(err2); return res.send({ status: 500, data: null }); }
+        created.push({ ref_number: refs[idx], id: result2.insertId });
+        idx++;
+        insertNext();
+      });
+    }
+    insertNext();
+  });
+};
+
 exports.editServiceReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.editServiceReminderMdl); };
 
 const REPEAT_UNIT_TO_MOMENT = { Days: 'days', Weeks: 'weeks', Months: 'months', Years: 'years' };
@@ -5296,19 +5483,22 @@ exports.completeServiceReminderCtrl = function (req, res) {
       if (reminder && reminder.is_repeating) {
         var unit = REPEAT_UNIT_TO_MOMENT[reminder.repeat_unit] || 'months';
         var nextDue = moment(data.last_done_date || new Date()).add(reminder.repeat_interval || 1, unit).format('YYYY-MM-DD');
-        appmdl.addServiceReminderMdl({
-          vehicle_number: reminder.vehicle_number,
-          reminder_type: reminder.reminder_type,
-          due_date: nextDue,
-          due_odometer: null,
-          remarks: reminder.remarks,
-          is_repeating: 1,
-          repeat_interval: reminder.repeat_interval,
-          repeat_unit: reminder.repeat_unit,
-          user_id: reminder.created_by_id,
-          usr_nm: reminder.created_by_name,
-        }, function () {
-          res.send({ status: 200, data: results });
+        genReminderRefNumbers(1, function (refErr, refs) {
+          appmdl.addServiceReminderMdl({
+            ref_number: refErr ? null : refs[0],
+            vehicle_number: reminder.vehicle_number,
+            reminder_type: reminder.reminder_type,
+            due_date: nextDue,
+            due_odometer: null,
+            remarks: reminder.remarks,
+            is_repeating: 1,
+            repeat_interval: reminder.repeat_interval,
+            repeat_unit: reminder.repeat_unit,
+            user_id: reminder.created_by_id,
+            usr_nm: reminder.created_by_name,
+          }, function () {
+            res.send({ status: 200, data: results });
+          });
         });
       } else {
         res.send({ status: 200, data: results });
@@ -5318,6 +5508,7 @@ exports.completeServiceReminderCtrl = function (req, res) {
 };
 
 exports.deleteServiceReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteServiceReminderMdl); };
+exports.linkJobCardToReminderCtrl = function (req, res) { decryptedBody(req, res, appmdl.linkJobCardToReminderMdl); };
 
 // ── Tyre Inventory ───────────────────────────────────────────────────────────
 exports.getTyreInventoryCtrl = function (req, res) {
@@ -5350,6 +5541,28 @@ exports.getBatteriesCtrl = function (req, res) {
 exports.addBatteryCtrl = function (req, res) { decryptedBody(req, res, appmdl.addBatteryMdl); };
 exports.editBatteryCtrl = function (req, res) { decryptedBody(req, res, appmdl.editBatteryMdl); };
 exports.deleteBatteryCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteBatteryMdl); };
+exports.getBatteryLedgersCtrl = function (req, res) { decryptedBody(req, res, appmdl.getBatteryLedgersMdl); };
+exports.getBatteryHistoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.getBatteryHistoryMdl); };
+
+// ── Battery Brands (Main Masters) ───────────────────────────────────────────
+exports.getBatteryBrandsCtrl = function (req, res) {
+  appmdl.getBatteryBrandsMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addBatteryBrandCtrl = function (req, res) { decryptedBody(req, res, appmdl.addBatteryBrandMdl); };
+exports.deleteBatteryBrandCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteBatteryBrandMdl); };
+
+// ── Battery Capacities (Main Masters) ───────────────────────────────────────
+exports.getBatteryCapacitiesCtrl = function (req, res) {
+  appmdl.getBatteryCapacitiesMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addBatteryCapacityCtrl = function (req, res) { decryptedBody(req, res, appmdl.addBatteryCapacityMdl); };
+exports.deleteBatteryCapacityCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteBatteryCapacityMdl); };
 
 // ── Garage Type Masters (managed from Main Masters) ──────────────────────────
 exports.getServiceReminderTypesCtrl = function (req, res) {
@@ -5361,6 +5574,28 @@ exports.getServiceReminderTypesCtrl = function (req, res) {
 exports.addServiceReminderTypeCtrl = function (req, res) { decryptedBody(req, res, appmdl.addServiceReminderTypeMdl); };
 exports.editServiceReminderTypeCtrl = function (req, res) { decryptedBody(req, res, appmdl.editServiceReminderTypeMdl); };
 exports.deleteServiceReminderTypeCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteServiceReminderTypeMdl); };
+
+// ── Service Schedules ─────────────────────────────────────────────────────────
+exports.getServiceSchedulesCtrl = function (req, res) {
+  appmdl.getServiceSchedulesMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addServiceScheduleCtrl = function (req, res) { decryptedBody(req, res, appmdl.addServiceScheduleMdl); };
+exports.editServiceScheduleCtrl = function (req, res) { decryptedBody(req, res, appmdl.editServiceScheduleMdl); };
+exports.deleteServiceScheduleCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteServiceScheduleMdl); };
+
+// ── Lubricant / Fluid Schedules ───────────────────────────────────────────────
+exports.getLubricantSchedulesCtrl = function (req, res) {
+  appmdl.getLubricantSchedulesMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addLubricantScheduleCtrl = function (req, res) { decryptedBody(req, res, appmdl.addLubricantScheduleMdl); };
+exports.editLubricantScheduleCtrl = function (req, res) { decryptedBody(req, res, appmdl.editLubricantScheduleMdl); };
+exports.deleteLubricantScheduleCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteLubricantScheduleMdl); };
 
 exports.getTyrePositionsMasterCtrl = function (req, res) {
   appmdl.getTyrePositionsMasterMdl(req.body, function (err, results) {
@@ -5425,30 +5660,52 @@ exports.addsparetankbusno = function (req, res) {
 // ---------------------------------------------------------------Cron Jobs Code --------------------------------------------
 
 exports.handleRepeatedJobs = async () => {
-  console.log("Cron Controller Started");
+  console.log("[RepeatJobs] Checking repeat jobs due in next 2 days...");
   try {
     const jobs = await appmdl.getDueRepeatedJobs();
-
-    console.log("Jobs fetched:", jobs); 
-
-    if (jobs.length === 0) {
-      console.log("No repeated jobs for today.");
-      return;
+    if (!jobs || jobs.length === 0) {
+      console.log("[RepeatJobs] No repeat jobs pending.");
+      return { created: 0 };
     }
+    console.log(`[RepeatJobs] Found ${jobs.length} job(s) needing a Service Reminder.`);
 
-    console.log("Jobs found:", jobs.length);
+    const refs = await new Promise((resolve, reject) => {
+      genReminderRefNumbers(jobs.length, (err, r) => { if (err) reject(err); else resolve(r); });
+    });
 
-    for (const job of jobs) {
-      const newCid = await appmdl.getNextCId();
-      await appmdl.createRepeatedJob(newCid, job);
-
-      console.log(`Created new job JOB-00${newCid}`);
+    const created = [];
+    for (let i = 0; i < jobs.length; i++) {
+      try {
+        await new Promise((resolve, reject) => {
+          appmdl.createReminderFromRepeatedJobMdl({
+            ref_number: refs[i],
+            vehicle_number: jobs[i].vehicle_number,
+            reminder_type: jobs[i].repair_category_name ? `${jobs[i].repair_category_name} - Repeat Service` : 'Repeat Service',
+            due_date: jobs[i].next_job_date,
+            source_job_card_id: jobs[i].id,
+            source_job_card_number: jobs[i].job_card_number,
+          }, (err) => { if (err) reject(err); else resolve(); });
+        });
+        created.push(refs[i]);
+        console.log(`[RepeatJobs] Created reminder ${refs[i]} from parent ${jobs[i].job_card_number}`);
+      } catch (jobErr) {
+        console.log(`[RepeatJobs] Failed to create reminder for ${jobs[i].job_card_number}:`, jobErr.message);
+      }
     }
-
-    console.log("Cron Finished Successfully");
-
+    console.log(`[RepeatJobs] Done. Created ${created.length} new reminder(s).`);
+    return { created: created.length, reminders: created };
   } catch (error) {
-    console.log("Cron Error:", error);
+    console.log("[RepeatJobs] Error:", error.message);
+    return { created: 0, error: error.message };
+  }
+};
+
+exports.triggerRepeatJobsCtrl = async (req, res) => {
+  try {
+    const result = await exports.handleRepeatedJobs();
+    res.send({ status: 200, data: result });
+  } catch (e) {
+    res.send({ status: 500, msg: e.message });
   }
 };
 

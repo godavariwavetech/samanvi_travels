@@ -4,11 +4,13 @@ import { motion } from 'motion/react'
 import { Save, Pencil, X, Check, History, IndianRupee } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select } from '@/components/shared'
+import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { garageService } from '@/services/garage.service'
+import { mastersService } from '@/services/masters.service'
 
-const tabs = ['Service Reminder Types', 'Tyre Positions', 'Repair Categories', 'Spare Parts']
+const tabs = ['Service Reminder Types', 'Tyre Positions', 'Repair Categories', 'Spare Parts', 'Service Schedules', 'Lubricants & Fluids']
 
 interface NameListMasterProps {
   label: string
@@ -26,6 +28,7 @@ function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll, add, e
   const [name, setName] = useState('')
   const [editId, setEditId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({ queryKey: [queryKey], queryFn: getAll })
   const list: any[] = data?.data ?? []
@@ -76,52 +79,42 @@ function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll, add, e
         </div>
       </GlassCard>
 
-      <GlassCard className="overflow-hidden mt-6">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="bg-blue-600 text-white">
-              <th className="px-5 py-3 text-sm font-bold w-20 text-center">S.No</th>
-              <th className="px-5 py-3 text-sm font-bold">{label}</th>
-              <th className="px-5 py-3 text-sm font-bold text-center w-32">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={3} className="px-5 py-8 text-center text-slate-400">Loading…</td></tr>}
-            {!isLoading && list.length === 0 && <tr><td colSpan={3} className="px-5 py-8 text-center text-slate-400">No entries yet.</td></tr>}
-            {list.map((row, idx) => (
-              <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                <td className="px-5 py-3 text-sm text-center text-slate-500">{idx + 1}</td>
-                <td className="px-5 py-3 text-sm">
-                  {editId === row.id ? (
-                    <Input
-                      autoFocus
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && editValue.trim()) editSave(); if (e.key === 'Escape') setEditId(null) }}
-                      className="h-9 max-w-xs"
-                    />
-                  ) : (
-                    <span className="font-medium text-slate-800">{row[fieldKey]}</span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-center">
-                  {editId === row.id ? (
-                    <div className="flex items-center justify-center gap-2">
-                      <button onClick={() => editValue.trim() && editSave()} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Save"><Check className="w-4 h-4" /></button>
-                      <button onClick={() => { setEditId(null); setEditValue('') }} className="text-slate-400 hover:text-red-500 transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center gap-3">
-                      <button onClick={() => { setEditId(row.id); setEditValue(row[fieldKey]) }} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-                      <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </GlassCard>
+      <DataTable
+        title={`${label} List`}
+        columns={[
+          { label: 'S.No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-slate-500">{i + 1}</span> },
+          { label, key: fieldKey, filterable: true, render: (v, row: any) => (
+            editId === row.id ? (
+              <Input
+                autoFocus
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && editValue.trim()) editSave(); if (e.key === 'Escape') setEditId(null) }}
+                className="h-9 max-w-xs"
+              />
+            ) : (
+              <span className="font-medium text-slate-800">{String(v)}</span>
+            )
+          ) },
+          { label: 'Action', key: 'id', align: 'center', render: (_v, row: any) => (
+            editId === row.id ? (
+              <div className="flex items-center justify-center gap-2">
+                <button onClick={() => editValue.trim() && editSave()} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Save"><Check className="w-4 h-4" /></button>
+                <button onClick={() => { setEditId(null); setEditValue('') }} className="text-slate-400 hover:text-red-500 transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-3">
+                <button onClick={() => { setEditId(row.id); setEditValue(row[fieldKey]) }} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+              </div>
+            )
+          ) },
+        ]}
+        data={list}
+        loading={isLoading}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+      />
     </>
   )
 }
@@ -147,6 +140,7 @@ function SparePartsMaster() {
   const [form, setForm] = useState(EMPTY_PART)
   const [editId, setEditId] = useState<number | null>(null)
   const formRef = React.useRef<HTMLDivElement>(null)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   // Edit Price modal
   const [priceModal, setPriceModal] = useState<{ open: boolean; part: any; newPrice: string }>({ open: false, part: null, newPrice: '' })
@@ -239,73 +233,58 @@ function SparePartsMaster() {
       </GlassCard>
       </div>
 
-      <GlassCard className="overflow-hidden mt-6">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="bg-blue-600 text-white">
-              <th className="px-5 py-3 text-sm font-bold w-28">Number</th>
-              <th className="px-5 py-3 text-sm font-bold">Name</th>
-              <th className="px-5 py-3 text-sm font-bold w-40">Category</th>
-              <th className="px-5 py-3 text-sm font-bold w-36 text-right">Cost (₹)</th>
-              <th className="px-5 py-3 text-sm font-bold text-center w-44">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {isLoading && <tr><td colSpan={5} className="px-5 py-8 text-center text-slate-400">Loading…</td></tr>}
-            {!isLoading && list.length === 0 && <tr><td colSpan={5} className="px-5 py-8 text-center text-slate-400">No parts yet.</td></tr>}
-            {list.map((row) => (
-              <tr key={row.part_id} className="hover:bg-slate-50 transition-colors">
-                <td className="px-5 py-3 text-sm text-slate-600">{row.part_number || '—'}</td>
-                <td className="px-5 py-3 text-sm font-medium text-slate-800">{row.part_name}</td>
-                <td className="px-5 py-3 text-sm text-slate-600">
-                  {row.category_name
-                    ? <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">{row.category_name}</span>
-                    : <span className="text-slate-400 text-xs">—</span>}
-                </td>
-                <td className="px-5 py-3 text-sm text-right">
-                  <span className="font-bold text-slate-800">₹{row.price ?? 0}</span>
-                </td>
-                <td className="px-5 py-3 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    {/* Edit full details */}
-                    <button
-                      onClick={() => startEdit(row)}
-                      title="Edit details"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
-                    >
-                      <Pencil className="w-3 h-3" /> Edit
-                    </button>
-                    {/* Edit price only */}
-                    <button
-                      onClick={() => setPriceModal({ open: true, part: row, newPrice: String(row.price ?? '') })}
-                      title="Edit cost"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
-                    >
-                      <IndianRupee className="w-3 h-3" /> Cost
-                    </button>
-                    {/* Price history */}
-                    <button
-                      onClick={() => setHistoryModal({ open: true, part: row })}
-                      title="Price history"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
-                    >
-                      <History className="w-3 h-3" /> History
-                    </button>
-                    {/* Delete */}
-                    <button
-                      onClick={() => del(row.part_id)}
-                      title="Delete"
-                      className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </GlassCard>
+      <DataTable
+        title="Spare Parts"
+        columns={[
+          { label: 'Number', key: 'part_number', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
+          { label: 'Name', key: 'part_name', filterable: true, render: (v) => <span className="font-medium text-slate-800">{v}</span> },
+          { label: 'Category', key: 'category_name', filterable: true, render: (v) => (
+            v ? <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold">{v}</span>
+              : <span className="text-slate-400 text-xs">—</span>
+          ) },
+          { label: 'Cost (₹)', key: 'price', align: 'right', render: (v) => <span className="font-bold text-slate-800">₹{v ?? 0}</span> },
+          { label: 'Actions', key: 'part_id', align: 'center', render: (_v, row: any) => (
+            <div className="flex items-center justify-center gap-2">
+              {/* Edit full details */}
+              <button
+                onClick={() => startEdit(row)}
+                title="Edit details"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
+              >
+                <Pencil className="w-3 h-3" /> Edit
+              </button>
+              {/* Edit price only */}
+              <button
+                onClick={() => setPriceModal({ open: true, part: row, newPrice: String(row.price ?? '') })}
+                title="Edit cost"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
+              >
+                <IndianRupee className="w-3 h-3" /> Cost
+              </button>
+              {/* Price history */}
+              <button
+                onClick={() => setHistoryModal({ open: true, part: row })}
+                title="Price history"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                <History className="w-3 h-3" /> History
+              </button>
+              {/* Delete */}
+              <button
+                onClick={() => del(row.part_id)}
+                title="Delete"
+                className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) },
+        ]}
+        data={list}
+        loading={isLoading}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+      />
 
       {/* ── Edit Price Modal ─────────────────────────────────────────────── */}
       {priceModal.open && (
@@ -442,6 +421,226 @@ function SparePartsMaster() {
   )
 }
 
+const EMPTY_SCHEDULE = { company_name: '', service_type: '', sub_type: '', km_interval: '', days_interval: '', free_or_paid: 'Free' }
+
+function ServiceSchedulesMaster() {
+  const qc = useQueryClient()
+  const [form, setForm] = useState(EMPTY_SCHEDULE)
+  const [editId, setEditId] = useState<number | null>(null)
+  const formRef = React.useRef<HTMLDivElement>(null)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
+
+  const { data, isLoading } = useQuery({ queryKey: ['service-schedules'], queryFn: () => mainmastersService.getServiceSchedules() })
+  const list: any[] = data?.data ?? []
+
+  const { data: companiesData, refetch: reloadCompanies, isFetching: loadingCompanies } = useQuery({
+    queryKey: ['vehicle-companies-master'],
+    queryFn: () => mastersService.getVehicleCompanies(),
+  })
+  const companyList: any[] = companiesData?.data ?? []
+  const companyOptions = companyList.map((c: any) => ({ value: c.company_name, label: c.company_name }))
+
+  const f = (k: keyof typeof EMPTY_SCHEDULE) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((s) => ({ ...s, [k]: e.target.value }))
+
+  const { mutate: save, isPending } = useMutation({
+    mutationFn: () => (editId ? mainmastersService.editServiceSchedule({ ...form, id: editId }) : mainmastersService.addServiceSchedule(form)),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success(editId ? 'Schedule updated!' : 'Schedule added!'); qc.invalidateQueries({ queryKey: ['service-schedules'] }); reset() }
+      else toast.error('Failed')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const { mutate: del } = useMutation({
+    mutationFn: (id: number) => mainmastersService.deleteServiceSchedule({ id }),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['service-schedules'] }) }
+      else toast.error('Failed')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const startEdit = (row: any) => {
+    setForm({
+      company_name: row.company_name ?? '', service_type: row.service_type ?? '',
+      sub_type: row.sub_type ?? '', km_interval: row.km_interval ?? '',
+      days_interval: row.days_interval ?? '', free_or_paid: row.free_or_paid ?? 'Free',
+    })
+    setEditId(row.id)
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const reset = () => { setForm(EMPTY_SCHEDULE); setEditId(null) }
+  const canSave = !!form.company_name && !!form.service_type.trim() && !!form.km_interval
+
+  return (
+    <>
+      <div ref={formRef}>
+      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-teal-500 to-emerald-500">
+        <div className="flex items-end gap-4 flex-wrap">
+          <div className="w-48">
+            <Label>Company <span className="text-red-500">*</span></Label>
+            <SearchableSelect
+              value={form.company_name}
+              onChange={(v) => setForm(s => ({ ...s, company_name: v }))}
+              options={companyOptions}
+              placeholder="Select company"
+              onReload={() => reloadCompanies()}
+              reloading={loadingCompanies}
+            />
+          </div>
+          <div className="flex-1 min-w-[160px]"><Label>Service Type <span className="text-red-500">*</span></Label><Input placeholder="e.g. Oil Change" value={form.service_type} onChange={f('service_type')} /></div>
+          <div className="flex-1 min-w-[160px]"><Label>Sub Type</Label><Input placeholder="e.g. Full Synthetic" value={form.sub_type} onChange={f('sub_type')} /></div>
+          <div><Label>KM Interval <span className="text-red-500">*</span></Label><Input type="number" placeholder="e.g. 5000" value={form.km_interval} onChange={f('km_interval')} className="w-32" /></div>
+          <div><Label>Day Interval</Label><Input type="number" placeholder="e.g. 180" value={form.days_interval} onChange={f('days_interval')} className="w-32" /></div>
+          <div className="w-32">
+            <Label>Free / Paid</Label>
+            <Select value={form.free_or_paid} onChange={f('free_or_paid')}>
+              <option value="Free">Free</option>
+              <option value="Paid">Paid</option>
+            </Select>
+          </div>
+          <Button onClick={() => save()} disabled={isPending || !canSave}>
+            <Save className="w-4 h-4" />{isPending ? 'Saving…' : editId ? 'Update' : 'Submit'}
+          </Button>
+          {editId && <Button variant="ghost" onClick={reset}><X className="w-4 h-4" /> Cancel</Button>}
+        </div>
+      </GlassCard>
+      </div>
+
+      <DataTable
+        title="Service Schedules"
+        columns={[
+          { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-slate-500">{i + 1}</span> },
+          { label: 'Company', key: 'company_name', filterable: true, render: (v) => <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 text-xs font-semibold">{v}</span> },
+          { label: 'Service Type', key: 'service_type', filterable: true, render: (v) => <span className="font-medium text-slate-800">{v}</span> },
+          { label: 'Sub Type', key: 'sub_type', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
+          { label: 'KM Interval', key: 'km_interval', align: 'right', render: (v) => <span className="font-bold text-slate-800">{v} km</span> },
+          { label: 'Day Interval', key: 'days_interval', align: 'right', render: (v) => <span className="text-slate-700">{v ? `${v} days` : '—'}</span> },
+          { label: 'Free/Paid', key: 'free_or_paid', filterable: true, render: (v) => (
+            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${v === 'Paid' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>{v || 'Free'}</span>
+          ) },
+          { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
+            <div className="flex items-center justify-center gap-2">
+              <button onClick={() => startEdit(row)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+            </div>
+          ) },
+        ]}
+        data={list}
+        loading={isLoading}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+      />
+    </>
+  )
+}
+
+const EMPTY_LUBRICANT = { company_name: '', aggregate_name: '', quantity: '', fluid_type: '', recommended_brand: '', change_periodicity: '' }
+
+function LubricantsMaster() {
+  const qc = useQueryClient()
+  const [form, setForm] = useState(EMPTY_LUBRICANT)
+  const [editId, setEditId] = useState<number | null>(null)
+  const formRef = React.useRef<HTMLDivElement>(null)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
+
+  const { data, isLoading } = useQuery({ queryKey: ['lubricant-schedules'], queryFn: () => mainmastersService.getLubricantSchedules() })
+  const list: any[] = data?.data ?? []
+
+  const { data: companiesData, refetch: reloadCompanies, isFetching: loadingCompanies } = useQuery({
+    queryKey: ['vehicle-companies-master'],
+    queryFn: () => mastersService.getVehicleCompanies(),
+  })
+  const companyList: any[] = companiesData?.data ?? []
+  const companyOptions = companyList.map((c: any) => ({ value: c.company_name, label: c.company_name }))
+
+  const f = (k: keyof typeof EMPTY_LUBRICANT) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((s) => ({ ...s, [k]: e.target.value }))
+
+  const { mutate: save, isPending } = useMutation({
+    mutationFn: () => (editId ? mainmastersService.editLubricantSchedule({ ...form, id: editId }) : mainmastersService.addLubricantSchedule(form)),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success(editId ? 'Updated!' : 'Added!'); qc.invalidateQueries({ queryKey: ['lubricant-schedules'] }); reset() }
+      else toast.error('Failed')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const { mutate: del } = useMutation({
+    mutationFn: (id: number) => mainmastersService.deleteLubricantSchedule({ id }),
+    onSuccess: (res) => {
+      if (res.status === 200) { toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['lubricant-schedules'] }) }
+      else toast.error('Failed')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const startEdit = (row: any) => {
+    setForm({
+      company_name: row.company_name ?? '', aggregate_name: row.aggregate_name ?? '',
+      quantity: row.quantity ?? '', fluid_type: row.fluid_type ?? '',
+      recommended_brand: row.recommended_brand ?? '', change_periodicity: row.change_periodicity ?? '',
+    })
+    setEditId(row.id)
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
+  const reset = () => { setForm(EMPTY_LUBRICANT); setEditId(null) }
+  const canSave = !!form.company_name && !!form.aggregate_name.trim()
+
+  return (
+    <>
+      <div ref={formRef}>
+      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-cyan-500 to-blue-500">
+        <div className="flex items-end gap-4 flex-wrap">
+          <div className="w-48">
+            <Label>Company <span className="text-red-500">*</span></Label>
+            <SearchableSelect
+              value={form.company_name}
+              onChange={(v) => setForm(s => ({ ...s, company_name: v }))}
+              options={companyOptions}
+              placeholder="Select company"
+              onReload={() => reloadCompanies()}
+              reloading={loadingCompanies}
+            />
+          </div>
+          <div className="flex-1 min-w-[150px]"><Label>Aggregate <span className="text-red-500">*</span></Label><Input placeholder="e.g. Engine Oil" value={form.aggregate_name} onChange={f('aggregate_name')} /></div>
+          <div className="flex-1 min-w-[130px]"><Label>Quantity</Label><Input placeholder="e.g. 25.3 Ltrs" value={form.quantity} onChange={f('quantity')} /></div>
+          <div className="flex-1 min-w-[150px]"><Label>Fluid Type/Grade</Label><Input placeholder="e.g. 10W30 CK4" value={form.fluid_type} onChange={f('fluid_type')} /></div>
+          <div className="flex-1 min-w-[170px]"><Label>Recommended Brand</Label><Input placeholder="e.g. Tata Genuine Engine Oil" value={form.recommended_brand} onChange={f('recommended_brand')} /></div>
+          <div className="flex-1 min-w-[150px]"><Label>Change Periodicity</Label><Input placeholder="e.g. 40,000 km" value={form.change_periodicity} onChange={f('change_periodicity')} /></div>
+          <Button onClick={() => save()} disabled={isPending || !canSave}>
+            <Save className="w-4 h-4" />{isPending ? 'Saving…' : editId ? 'Update' : 'Submit'}
+          </Button>
+          {editId && <Button variant="ghost" onClick={reset}><X className="w-4 h-4" /> Cancel</Button>}
+        </div>
+      </GlassCard>
+      </div>
+
+      <DataTable
+        title="Lubricants & Fluids"
+        columns={[
+          { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-slate-500">{i + 1}</span> },
+          { label: 'Company', key: 'company_name', filterable: true, render: (v) => <span className="px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-700 text-xs font-semibold">{v}</span> },
+          { label: 'Aggregate', key: 'aggregate_name', filterable: true, render: (v) => <span className="font-medium text-slate-800">{v}</span> },
+          { label: 'Quantity', key: 'quantity', render: (v) => <span className="text-slate-600">{v || '—'}</span> },
+          { label: 'Fluid Type/Grade', key: 'fluid_type', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
+          { label: 'Recommended Brand', key: 'recommended_brand', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
+          { label: 'Change Periodicity', key: 'change_periodicity', render: (v) => <span className="font-bold text-slate-800">{v || '—'}</span> },
+          { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
+            <div className="flex items-center justify-center gap-2">
+              <button onClick={() => startEdit(row)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+            </div>
+          ) },
+        ]}
+        data={list}
+        loading={isLoading}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+      />
+    </>
+  )
+}
+
 export default function GarageMastersPage() {
   const [tab, setTab] = useState(tabs[0])
 
@@ -490,6 +689,10 @@ export default function GarageMastersPage() {
       )}
 
       {tab === 'Spare Parts' && <SparePartsMaster />}
+
+      {tab === 'Service Schedules' && <ServiceSchedulesMaster />}
+
+      {tab === 'Lubricants & Fluids' && <LubricantsMaster />}
     </motion.div>
   )
 }

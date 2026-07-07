@@ -30,6 +30,7 @@ router.get('/getallusers', verifyToken, routcontroller.getAllUsersCtrl);
 router.post('/getdepartmentData', verifyToken,routcontroller.getdepartmentDataCtrl);
 router.post('/addNewbusnum',verifyToken, routcontroller.addNewbusnumCtrl);
 router.post('/getbussesdata',verifyToken, routcontroller.getbussesdataCtrl);
+router.post('/getbushistory',verifyToken, routcontroller.getBusHistoryCtrl);
 router.post('/getbussessparetankdata',verifyToken, routcontroller.getbussessparetankdataCtrl);
 router.post('/addservicenumner',verifyToken,routcontroller.addservicenumner);
 router.post('/driverone',verifyToken, routcontroller.driverone);
@@ -58,6 +59,18 @@ router.post('/deletestafftype', verifyToken, routcontroller.deleteStaffTypeCtrl)
 router.get('/getvehicletypes', verifyToken, routcontroller.getVehicleTypesCtrl);
 router.post('/addvehicletype', verifyToken, routcontroller.addVehicleTypeCtrl);
 router.post('/deletevehicletype', verifyToken, routcontroller.deleteVehicleTypeCtrl);
+// Vehicle Companies
+router.get('/getvehiclecompanies', verifyToken, routcontroller.getVehicleCompaniesCtrl);
+router.post('/addvehiclecompany', verifyToken, routcontroller.addVehicleCompanyCtrl);
+router.post('/deletevehiclecompany', verifyToken, routcontroller.deleteVehicleCompanyCtrl);
+// Seating Capacities
+router.get('/getseatingcapacities', verifyToken, routcontroller.getSeatingCapacitiesCtrl);
+router.post('/addseatingcapacity', verifyToken, routcontroller.addSeatingCapacityCtrl);
+router.post('/deleteseatingcapacity', verifyToken, routcontroller.deleteSeatingCapacityCtrl);
+// Chassis Models
+router.get('/getchassismodels', verifyToken, routcontroller.getChassisModelsCtrl);
+router.post('/addchassismodel', verifyToken, routcontroller.addChassisModelCtrl);
+router.post('/deletechassismodel', verifyToken, routcontroller.deleteChassisModelCtrl);
 
 // Terminate / Rejoin
 router.post('/terminatestaff', verifyToken, routcontroller.terminateStaffCtrl);
@@ -351,16 +364,21 @@ router.post('/changeJobSatus',verifyToken,routcontroller.changeJobSatusCtrl)
 router.post('/updatejobvoucher',verifyToken,routcontroller.updateJobVoucherCtrl)
 router.post('/garage/workflow-action',verifyToken,routcontroller.jobWorkflowActionCtrl)
 router.post('/garage/job-approval-history',verifyToken,routcontroller.getJobApprovalHistoryCtrl)
+router.post('/garage/job-full-history',verifyToken,routcontroller.getJobFullHistoryCtrl)
 router.post('/garage/check-permission',verifyToken,routcontroller.checkJobPermissionCtrl)
 router.post('/getjobstagedata',verifyToken,routcontroller.getJobStageDataCtrl)
 router.get('/garage/scheduled-jobs',verifyToken,routcontroller.getScheduledJobsCtrl)
+router.get('/garage/repeat-jobs',verifyToken,routcontroller.getRepeatJobsCtrl)
+router.get('/garage/trigger-repeat-jobs',verifyToken,routcontroller.triggerRepeatJobsCtrl)
 
 // Garage extension: Service Reminders, Tyre Management, Battery Management ---
 router.get('/service-reminders/getall', verifyToken, routcontroller.getServiceRemindersCtrl);
 router.post('/service-reminders/add', verifyToken, routcontroller.addServiceReminderCtrl);
+router.post('/service-reminders/bulk-add', verifyToken, routcontroller.addServiceRemindersBulkCtrl);
 router.post('/service-reminders/edit', verifyToken, routcontroller.editServiceReminderCtrl);
 router.post('/service-reminders/complete', verifyToken, routcontroller.completeServiceReminderCtrl);
 router.post('/service-reminders/delete', verifyToken, routcontroller.deleteServiceReminderCtrl);
+router.post('/service-reminders/link-job-card', verifyToken, routcontroller.linkJobCardToReminderCtrl);
 
 router.get('/tyre-inventory/getall', verifyToken, routcontroller.getTyreInventoryCtrl);
 router.post('/tyre-inventory/add', verifyToken, routcontroller.addTyreInventoryCtrl);
@@ -375,12 +393,32 @@ router.get('/battery/getall', verifyToken, routcontroller.getBatteriesCtrl);
 router.post('/battery/add', verifyToken, routcontroller.addBatteryCtrl);
 router.post('/battery/edit', verifyToken, routcontroller.editBatteryCtrl);
 router.post('/battery/delete', verifyToken, routcontroller.deleteBatteryCtrl);
+router.post('/battery/ledgers', verifyToken, routcontroller.getBatteryLedgersCtrl);
+router.post('/battery/history', verifyToken, routcontroller.getBatteryHistoryCtrl);
+
+// Battery Brands / Capacities — managed from the Main Masters module
+router.get('/battery-brands/getall', verifyToken, routcontroller.getBatteryBrandsCtrl);
+router.post('/battery-brands/add', verifyToken, routcontroller.addBatteryBrandCtrl);
+router.post('/battery-brands/delete', verifyToken, routcontroller.deleteBatteryBrandCtrl);
+router.get('/battery-capacities/getall', verifyToken, routcontroller.getBatteryCapacitiesCtrl);
+router.post('/battery-capacities/add', verifyToken, routcontroller.addBatteryCapacityCtrl);
+router.post('/battery-capacities/delete', verifyToken, routcontroller.deleteBatteryCapacityCtrl);
 
 // Garage type masters — managed from the Main Masters module
 router.get('/reminder-types/getall', verifyToken, routcontroller.getServiceReminderTypesCtrl);
 router.post('/reminder-types/add', verifyToken, routcontroller.addServiceReminderTypeCtrl);
 router.post('/reminder-types/edit', verifyToken, routcontroller.editServiceReminderTypeCtrl);
 router.post('/reminder-types/delete', verifyToken, routcontroller.deleteServiceReminderTypeCtrl);
+
+router.get('/service-schedules/getall', verifyToken, routcontroller.getServiceSchedulesCtrl);
+router.post('/service-schedules/add', verifyToken, routcontroller.addServiceScheduleCtrl);
+router.post('/service-schedules/edit', verifyToken, routcontroller.editServiceScheduleCtrl);
+router.post('/service-schedules/delete', verifyToken, routcontroller.deleteServiceScheduleCtrl);
+
+router.get('/lubricant-schedules/getall', verifyToken, routcontroller.getLubricantSchedulesCtrl);
+router.post('/lubricant-schedules/add', verifyToken, routcontroller.addLubricantScheduleCtrl);
+router.post('/lubricant-schedules/edit', verifyToken, routcontroller.editLubricantScheduleCtrl);
+router.post('/lubricant-schedules/delete', verifyToken, routcontroller.deleteLubricantScheduleCtrl);
 
 router.get('/tyre-positions-master/getall', verifyToken, routcontroller.getTyrePositionsMasterCtrl);
 router.post('/tyre-positions-master/add', verifyToken, routcontroller.addTyrePositionMasterCtrl);

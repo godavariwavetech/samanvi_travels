@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
@@ -208,15 +208,16 @@ interface FilterOpts {
 // Required columns — always visible, no checkbox in the picker.
 const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Voucher Date', 'Dr. Ledger', 'Cr. Ledger', 'Amount'] as const
 // Optional columns — user can toggle visibility via checkboxes.
-const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
+const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
 const ALL_VOUCHER_COLS = [...REQUIRED_VOUCHER_COLS, ...OPTIONAL_VOUCHER_COLS] as const
 type VoucherColId = typeof ALL_VOUCHER_COLS[number]
-const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Bus / Vehicle', 'Driver'])
+const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Bus / Vehicle', 'Driver'])
 
 const buildCols = (
   onApprove: (row: any) => void,
   onReject: (row: any) => void,
   onView: (row: any) => void,
+  onReopen: (row: any) => void,
   mode: string,
   fOpts: FilterOpts,
   optCols: Set<string>
@@ -257,6 +258,11 @@ const buildCols = (
             <Wrench className="w-2.5 h-2.5" /> Job
           </span>
         )}
+        {(row.source_type === 'battery' || row.battery_code) && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700 border border-teal-200 whitespace-nowrap">
+            <BatteryCharging className="w-2.5 h-2.5" /> Battery
+          </span>
+        )}
       </div>
     ),
   })
@@ -270,6 +276,13 @@ const buildCols = (
     label: 'Job Ref', key: 'job_card_number', filterable: true, filterType: 'text',
     render: (v: any) => v
       ? <span className="text-xs font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded whitespace-nowrap">{String(v)}</span>
+      : <span className="text-slate-300">—</span>,
+  })
+
+  if (show('Battery Ref')) cols.push({
+    label: 'Battery Ref', key: 'battery_code', filterable: true, filterType: 'text',
+    render: (v: any) => v
+      ? <span className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded whitespace-nowrap">{String(v)}</span>
       : <span className="text-slate-300">—</span>,
   })
 
@@ -345,6 +358,12 @@ const buildCols = (
           <>
             <button onClick={() => onApprove(row)} className="p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100"><CheckCircle className="w-4 h-4" /></button>
             <button onClick={() => onReject(row)} className="p-1.5 text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100"><XCircle className="w-4 h-4" /></button>
+          </>
+        )}
+        {mode === 'rejected' && (
+          <>
+            <button onClick={() => onReopen(row)} title="Reopen for review" className="p-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg hover:bg-amber-100"><RotateCcw className="w-4 h-4" /></button>
+            <button onClick={() => onApprove(row)} title="Approve directly" className="p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100"><CheckCircle className="w-4 h-4" /></button>
           </>
         )}
       </div>
@@ -1032,6 +1051,7 @@ export default function VoucherApprovalsPage() {
 
   const handleApprove = (row: any) => updateStatus({ row, status: 1 })
   const handleReject = (row: any) => { setRejectReason(''); setRejectModal({ mode: 'single', row }) }
+  const handleReopen = (row: any) => updateStatus({ row, status: 0 })
   const handleView = (row: any) => setViewModal(row)
 
   const [bulkApproving, setBulkApproving] = useState(false)
@@ -1105,7 +1125,7 @@ export default function VoucherApprovalsPage() {
   const rejectedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 2))
 
   const getList = () => tab === 'Pending Approval' ? pending : tab === 'Approved' ? approvedList : rejectedList
-  const getMode = () => tab === 'Pending Approval' ? 'pending' : 'view'
+  const getMode = () => tab === 'Pending Approval' ? 'pending' : tab === 'Rejected' ? 'rejected' : 'view'
 
   // Column filters are scoped to whichever tab is open — carrying them over
   // when switching status tabs made the new tab look stuck/empty.
@@ -1230,7 +1250,7 @@ export default function VoucherApprovalsPage() {
 
       <DataTable
         title={tab}
-        columns={buildCols(handleApprove, handleReject, handleView, getMode(), {
+        columns={buildCols(handleApprove, handleReject, handleView, handleReopen, getMode(), {
           voucherTypes: voucherTypeFilterOpts,
           busList,
           staffOptions: staffFilterOpts,
@@ -1357,6 +1377,25 @@ export default function VoucherApprovalsPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-orange-600 text-white hover:bg-orange-700 transition-colors whitespace-nowrap"
                     >
                       Open in Job Card
+                    </button>
+                  </div>
+                )}
+
+                {/* Battery voucher banner */}
+                {(viewModal.source_type === 'battery' || viewModal.battery_code) && (
+                  <div className="flex items-center gap-3 bg-teal-50 border border-teal-200 rounded-xl p-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 border border-teal-200 whitespace-nowrap">
+                      <BatteryCharging className="w-3 h-3" /> BATTERY
+                    </span>
+                    <p className="text-sm text-teal-800 flex-1">
+                      This voucher was generated from battery{' '}
+                      <span className="font-bold">{viewModal.battery_code || '—'}</span>.
+                    </p>
+                    <button
+                      onClick={() => navigate('/garage/battery-management')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white hover:bg-teal-700 transition-colors whitespace-nowrap"
+                    >
+                      Open Battery Management
                     </button>
                   </div>
                 )}
@@ -1807,6 +1846,16 @@ export default function VoucherApprovalsPage() {
                     {!editMode && viewModal.status == 0 && (
                       <Button variant="success" onClick={() => { handleApprove(viewModal); setViewModal(null) }}>
                         <CheckCircle className="w-4 h-4" /> Approve
+                      </Button>
+                    )}
+                    {!editMode && viewModal.status == 2 && (
+                      <Button variant="outline" onClick={() => { handleReopen(viewModal); setViewModal(null) }} className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                        <RotateCcw className="w-4 h-4" /> Reopen
+                      </Button>
+                    )}
+                    {!editMode && viewModal.status == 2 && (
+                      <Button variant="success" onClick={() => { handleApprove(viewModal); setViewModal(null) }}>
+                        <CheckCircle className="w-4 h-4" /> Approve Directly
                       </Button>
                     )}
                   </div>

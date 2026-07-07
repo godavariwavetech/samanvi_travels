@@ -7,11 +7,27 @@ export const mastersService = {
   addVehicleType: (data: unknown) => api.post('/addvehicletype', securePayload(data)).then((r) => r.data),
   deleteVehicleType: (data: unknown) => api.post('/deletevehicletype', securePayload(data)).then((r) => r.data),
 
+  // ── Vehicle Companies ─────────────────────────────────────
+  getVehicleCompanies: () => api.get('/getvehiclecompanies').then((r) => r.data),
+  addVehicleCompany: (data: unknown) => api.post('/addvehiclecompany', securePayload(data)).then((r) => r.data),
+  deleteVehicleCompany: (data: unknown) => api.post('/deletevehiclecompany', securePayload(data)).then((r) => r.data),
+
+  // ── Seating Capacities ────────────────────────────────────
+  getSeatingCapacities: () => api.get('/getseatingcapacities').then((r) => r.data),
+  addSeatingCapacity: (data: unknown) => api.post('/addseatingcapacity', securePayload(data)).then((r) => r.data),
+  deleteSeatingCapacity: (data: unknown) => api.post('/deleteseatingcapacity', securePayload(data)).then((r) => r.data),
+
+  // ── Chassis Models ─────────────────────────────────────────
+  getChassisModels: () => api.get('/getchassismodels').then((r) => r.data),
+  addChassisModel: (data: unknown) => api.post('/addchassismodel', securePayload(data)).then((r) => r.data),
+  deleteChassisModel: (data: unknown) => api.post('/deletechassismodel', securePayload(data)).then((r) => r.data),
+
   // ── Bus Numbers ──────────────────────────────────────────
   getBuses: () => api.post('/getbussesdata', {}).then((r) => r.data),
   addBus: (data: unknown) => api.post('/addNewbusnum', securePayload(data)).then((r) => r.data),
   updateBus: (data: unknown) => api.post('/updatebusnumber', securePayload(data)).then((r) => r.data),
   deleteBus: (data: unknown) => api.post('/deletebusnumber', securePayload(data)).then((r) => r.data),
+  getBusHistory: (data: unknown) => api.post('/getbushistory', data).then((r) => r.data),
 
   // ── Service For (driverone routes) ───────────────────────
   getServiceRoutes: () => api.post('/getdriveone', {}).then((r) => r.data),
@@ -61,4 +77,9 @@ export const mastersService = {
   // ── Spare Tank ───────────────────────────────────────────
   getSpareTanks: () => api.post('/getbussessparetankdata', {}).then((r) => r.data),
   addSpareTank: (data: unknown) => api.post('/addsparetankbusno', data).then((r) => r.data),
+
+  // ── Bulk Excel Upload ────────────────────────────────────
+  bulkUploadBuses: (data: unknown) => api.post('/bulkuploadbuses', securePayload(data)).then((r) => r.data),
+  bulkUploadServiceRoutes: (data: unknown) => api.post('/bulkuploadserviceroutes', securePayload(data)).then((r) => r.data),
+  bulkUploadStaff: (data: unknown) => api.post('/bulkuploadstaff', securePayload(data)).then((r) => r.data),
 }

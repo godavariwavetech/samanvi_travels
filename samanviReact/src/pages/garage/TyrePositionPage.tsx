@@ -16,6 +16,7 @@ const today = new Date().toISOString().split('T')[0]
 export default function TyrePositionPage() {
   const qc = useQueryClient()
   const [form, setForm] = useState(EMPTY_FORM)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({ queryKey: ['tyre-positions'], queryFn: () => garageService.getTyrePositions() })
   const { data: tyres, refetch: reloadTyres, isFetching: loadingTyres } = useQuery({ queryKey: ['tyre-inventory'], queryFn: () => garageService.getTyreInventory() })
@@ -59,11 +60,11 @@ export default function TyrePositionPage() {
   }
 
   const cols: Column[] = [
-    { label: 'Vehicle', key: 'vehicle_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
-    { label: 'Position', key: 'position', render: (v) => <Badge variant="purple">{String(v)}</Badge> },
-    { label: 'Tyre Code', key: 'tyre_code', render: (v, r: any) => <div><div className="font-semibold">{String(v)}</div><div className="text-xs text-slate-500">{r.brand}</div></div> },
-    { label: 'Fitted Date', key: 'fitted_date', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
-    { label: 'Odometer at Fitting', key: 'odometer_at_fitting', render: (v) => <span className="text-sm">{v ? `${v} km` : '—'}</span> },
+    { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
+    { label: 'Position', key: 'position', filterable: true, render: (v) => <Badge variant="purple">{String(v)}</Badge> },
+    { label: 'Tyre Code', key: 'tyre_code', filterable: true, render: (v, r: any) => <div><div className="font-semibold">{String(v)}</div><div className="text-xs text-slate-500">{r.brand}</div></div> },
+    { label: 'Fitted Date', key: 'fitted_date', align: 'center', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+    { label: 'Odometer at Fitting', key: 'odometer_at_fitting', align: 'right', render: (v) => <span className="text-sm">{v ? `${v} km` : '—'}</span> },
   ]
 
   const canAssign = !!form.vehicle_number && !!form.position && !!form.tyre_id
@@ -119,6 +120,8 @@ export default function TyrePositionPage() {
         onAction={(action, row) => { if (action === 'delete') handleUnmount(row) }}
         actions={['delete']}
         icon={<LayoutGrid className="w-5 h-5 text-blue-500" />}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
     </motion.div>
   )

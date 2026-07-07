@@ -188,6 +188,53 @@ sqldb_init.query(`
 ensureColumn('service_reminders', 'is_repeating', '`is_repeating` tinyint(1) NOT NULL DEFAULT 0');
 ensureColumn('service_reminders', 'repeat_interval', '`repeat_interval` int DEFAULT NULL');
 ensureColumn('service_reminders', 'repeat_unit', '`repeat_unit` varchar(10) DEFAULT NULL');
+ensureColumn('busses', 'company', '`company` varchar(100) DEFAULT NULL');
+ensureColumn('service_reminders', 'ref_number', '`ref_number` varchar(30) DEFAULT NULL');
+ensureColumn('service_reminders', 'job_card_number', '`job_card_number` varchar(30) DEFAULT NULL');
+ensureColumn('service_reminders', 'source_job_card_id', '`source_job_card_id` int DEFAULT NULL');
+ensureColumn('service_reminders', 'source_job_card_number', '`source_job_card_number` varchar(30) DEFAULT NULL');
+ensureColumn('vehicle_jobs', 'source_reminder_id', '`source_reminder_id` int DEFAULT NULL');
+ensureColumn('vehicle_jobs', 'source_reminder_ref', '`source_reminder_ref` varchar(30) DEFAULT NULL');
+ensureColumn('service_schedules', 'days_interval', '`days_interval` int DEFAULT NULL');
+ensureColumn('service_schedules', 'free_or_paid', "`free_or_paid` varchar(10) DEFAULT 'Free'");
+
+// Lubricants & Fluids — per-company change periodicities for engine oil,
+// coolant, gear oil etc., managed from Main Masters alongside Service Schedules.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS lubricant_schedules (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        company_name VARCHAR(100) NOT NULL,
+        aggregate_name VARCHAR(100) NOT NULL,
+        quantity VARCHAR(100) DEFAULT NULL,
+        fluid_type VARCHAR(150) DEFAULT NULL,
+        recommended_brand VARCHAR(150) DEFAULT NULL,
+        change_periodicity VARCHAR(100) DEFAULT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ls_company (company_name)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create lubricant_schedules table:', err.message);
+    else console.log('lubricant_schedules table ready');
+});
+
+// Bus master edit-history log — records a note of what changed on every
+// update so the Bus Number Master table can show a per-bus audit trail.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS bus_edit_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        bus_id INT NOT NULL,
+        bus_no VARCHAR(50),
+        changes_note TEXT,
+        changed_by_id VARCHAR(50),
+        changed_by_name VARCHAR(200),
+        changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_beh_bus (bus_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create bus_edit_history table:', err.message);
+    else console.log('bus_edit_history table ready');
+});
 
 // Auto-create the payables payment-history table if not exists — logs every
 // settle/reverse event against a payable transaction row, so the full
@@ -363,6 +410,111 @@ sqldb_init.query(`
         }
     });
 });
+
+// Vehicle Companies — manufacturer/brand master used by the Bus master and Service Schedules
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS vehicle_companies (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        company_name VARCHAR(100) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create vehicle_companies table:', err.message); return; }
+    console.log('vehicle_companies table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM vehicle_companies', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['Ashok Leyland', 'Tata', 'Volvo', 'Scania', 'Eicher', 'Mahindra', 'BharatBenz', 'Other'];
+            sqldb_init.query('INSERT INTO vehicle_companies (company_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed vehicle_companies:', iErr.message);
+                else console.log('Seeded default vehicle companies');
+            });
+        }
+    });
+});
+
+// Service Schedules — per-company service intervals (used to auto-fill Service Reminders)
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS service_schedules (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        company_name VARCHAR(100) NOT NULL,
+        service_type VARCHAR(100) NOT NULL,
+        sub_type VARCHAR(100) DEFAULT NULL,
+        km_interval INT NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ss_company (company_name)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create service_schedules table:', err.message);
+    else console.log('service_schedules table ready');
+});
+
+// Battery Brand — type master used by Battery Management, managed from Main Masters
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS battery_brands (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        brand_name VARCHAR(100) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create battery_brands table:', err.message); return; }
+    console.log('battery_brands table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM battery_brands', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['Exide', 'Amaron', 'Amco', 'SF Sonic', 'Luminous', 'Okaya', 'Livguard', 'Other'];
+            sqldb_init.query('INSERT INTO battery_brands (brand_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed battery_brands:', iErr.message);
+                else console.log('Seeded default battery brands');
+            });
+        }
+    });
+});
+
+// Battery Capacity — type master used by Battery Management, managed from Main Masters
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS battery_capacities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        capacity_ah VARCHAR(20) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create battery_capacities table:', err.message); return; }
+    console.log('battery_capacities table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM battery_capacities', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['100Ah', '120Ah', '135Ah', '150Ah', '165Ah', '180Ah', '200Ah'];
+            sqldb_init.query('INSERT INTO battery_capacities (capacity_ah) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed battery_capacities:', iErr.message);
+                else console.log('Seeded default battery capacities');
+            });
+        }
+    });
+});
+
+// Battery edit history — logs a human-readable diff on every edit, same shape as
+// bus_edit_history, so Battery Management can show a per-battery audit trail.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS battery_edit_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        battery_id INT NOT NULL,
+        battery_code VARCHAR(50),
+        changes_note TEXT,
+        changed_by_id VARCHAR(50),
+        changed_by_name VARCHAR(200),
+        changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_beh_battery (battery_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create battery_edit_history table:', err.message);
+    else console.log('battery_edit_history table ready');
+});
+
+// Battery Management ↔ Accounting integration columns
+ensureColumn('battery_master', 'voucher_number', '`voucher_number` varchar(30) DEFAULT NULL');
+ensureColumn('mainvoucher_t', 'battery_code', '`battery_code` varchar(50) DEFAULT NULL');
 
 //for local
 var server = app.listen(8945, function() {

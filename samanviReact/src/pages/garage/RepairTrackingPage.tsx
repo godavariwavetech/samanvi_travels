@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import {
-  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, FileSpreadsheet, FileText, Pencil, RefreshCw, XCircle,
+  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, FileSpreadsheet, FileText, Pencil, RefreshCw, XCircle, BellRing,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -44,6 +44,11 @@ export default function RepairTrackingPage() {
 
   const [stageFilter, setStageFilter] = useState('OPEN')
   const [colFilters, setColFilters]   = useState<Record<string, string[]>>({})
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate]     = useState('')
+
+  // History modal
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; job: any }>({ open: false, job: null })
 
   // View modal
   const [viewModal, setViewModal] = useState<{ open: boolean; job: any }>({ open: false, job: null })
@@ -62,10 +67,8 @@ export default function RepairTrackingPage() {
   const [editForm, setEditForm]   = useState({ bus_no: '', odometer: '', driver: '', edit_reason: '' })
   const [completeRepeat, setCompleteRepeat] = useState(false)
   const [completeRepeatDate, setCompleteRepeatDate] = useState('')
-  const [editJobRows, setEditJobRows] = useState<JobRow[]>([emptyJobRow()])
-  const [editStageParts, setEditStageParts] = useState<SimplePartRow[]>([emptySimplePartRow()])
-  const [editDebit, setEditDebit]   = useState<LedgerEntry[]>([emptyLedgerEntry()])
-  const [editCredit, setEditCredit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
+  const [editJobRows, setEditJobRows]           = useState<JobRow[]>([emptyJobRow()])
+  const [editStageBlocks, setEditStageBlocks]   = useState<VoucherBlock[]>([emptyVoucherBlock()])
 
   // Finish modal
   const [finishModal, setFinishModal]           = useState<{ open: boolean; job: any }>({ open: false, job: null })
@@ -141,13 +144,24 @@ export default function RepairTrackingPage() {
 
   // Stage data (parts + ledgers) — fetched when view, approve, or edit modal is open
   const stageJobId = viewModal.job?.id ?? approveModal.job?.id ?? editModal.job?.id
-  const { data: stageDataRaw } = useQuery({
+  const { data: stageDataRaw, isLoading: loadingStageData } = useQuery({
     queryKey: ['job-stage-data', stageJobId],
     queryFn:  () => garageService.getJobStageData({ id: stageJobId }),
     enabled:  !!stageJobId && (viewModal.open || approveModal.open || editModal.open),
   })
   const stageParts:   any[] = stageDataRaw?.parts   ?? []
   const stageLedgers: any[] = stageDataRaw?.ledgers ?? []
+
+  // Full history — fetched when history modal is open
+  const { data: historyRaw, isLoading: loadingHistory } = useQuery({
+    queryKey: ['job-full-history', historyModal.job?.id],
+    queryFn:  () => garageService.getJobFullHistory({ id: historyModal.job?.id }),
+    enabled:  !!historyModal.job?.id && historyModal.open,
+  })
+  const historyJob:    any    = historyRaw?.job     ?? {}
+  const historyStages: any[]  = historyRaw?.stages  ?? []
+  const historyParts:  any[]  = historyRaw?.parts   ?? []
+  const historyLedgers: any[] = historyRaw?.ledgers ?? []
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const list: any[]        = data?.data ?? []
@@ -197,13 +211,6 @@ export default function RepairTrackingPage() {
   }))
   const totalDebitAllBlocks  = blockTotals.reduce((s, t) => s + t.debit, 0)
   const totalCreditAllBlocks = blockTotals.reduce((s, t) => s + t.credit, 0)
-  const allBlocksBalanced = voucherBlocks.every((b, i) => {
-    const hasEntry = b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id)
-    if (!hasEntry) return true
-    const d = Math.round(blockTotals[i].debit  * 100)
-    const c = Math.round(blockTotals[i].credit * 100)
-    return d > 0 && d === c
-  })
 
   // Finish modal computed values
   const finishBlockPartsTotals = finishVoucherBlocks.map(b =>
@@ -216,13 +223,18 @@ export default function RepairTrackingPage() {
   }))
   const totalFinishDebit  = finishBlockTotals.reduce((s, t) => s + t.debit, 0)
   const totalFinishCredit = finishBlockTotals.reduce((s, t) => s + t.credit, 0)
-  const allFinishBlocksBalanced = finishVoucherBlocks.every((b, i) => {
-    const hasEntry = b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id)
-    if (!hasEntry) return true
-    const d = Math.round(finishBlockTotals[i].debit  * 100)
-    const c = Math.round(finishBlockTotals[i].credit * 100)
-    return d > 0 && d === c
-  })
+
+  // Edit modal computed values
+  const editBlockPartsTotals = editStageBlocks.map(b =>
+    b.parts.reduce((s, p) => s + (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0), 0)
+  )
+  const editTotal = editBlockPartsTotals.reduce((s, t) => s + t, 0)
+  const editBlockTotals = editStageBlocks.map(b => ({
+    debit:  b.debit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
+    credit: b.credit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0),
+  }))
+  const totalEditDebit  = editBlockTotals.reduce((s, t) => s + t.debit, 0)
+  const totalEditCredit = editBlockTotals.reduce((s, t) => s + t.credit, 0)
 
   // Approve modal computed values
   const approveBlockPartsTotals = approveVoucherBlocks.map(b =>
@@ -235,13 +247,51 @@ export default function RepairTrackingPage() {
   }))
   const totalApproveDebit  = approveBlockTotals.reduce((s, t) => s + t.debit, 0)
   const totalApproveCredit = approveBlockTotals.reduce((s, t) => s + t.credit, 0)
-  const allApproveBlocksBalanced = approveVoucherBlocks.every((b, i) => {
-    const hasEntry = b.debit.some(e => e.ledger_id) || b.credit.some(e => e.ledger_id)
-    if (!hasEntry) return true
-    const d = Math.round(approveBlockTotals[i].debit  * 100)
-    const c = Math.round(approveBlockTotals[i].credit * 100)
-    return d > 0 && d === c
-  })
+
+  // ── Voucher block validation ─────────────────────────────────────────────────
+  const validateBlocks = (blocks: VoucherBlock[], requireAtLeastOne: boolean): string[] => {
+    const errors: string[] = []
+    const filledBlocks = blocks.filter(b =>
+      b.debit.some(e => e.ledger_id || parseFloat(e.amount) > 0) ||
+      b.credit.some(e => e.ledger_id || parseFloat(e.amount) > 0)
+    )
+    if (requireAtLeastOne && filledBlocks.length === 0) {
+      errors.push('At least one voucher block with debit and credit entries is required.')
+      return errors
+    }
+    filledBlocks.forEach(b => {
+      const n = blocks.indexOf(b) + 1
+      const hasDebit  = b.debit.some(e => e.ledger_id && parseFloat(e.amount) > 0)
+      const hasCredit = b.credit.some(e => e.ledger_id && parseFloat(e.amount) > 0)
+      if (!b.description?.trim())
+        errors.push(`Voucher ${n}: Description is required.`)
+      if (!hasDebit)
+        errors.push(`Voucher ${n}: At least one debit entry with ledger and amount is required.`)
+      if (!hasCredit)
+        errors.push(`Voucher ${n}: At least one credit entry with ledger and amount is required.`)
+      b.debit.forEach(e => {
+        if (e.ledger_id && !(parseFloat(e.amount) > 0))
+          errors.push(`Voucher ${n}: A debit ledger is selected but has no amount.`)
+        if (!e.ledger_id && parseFloat(e.amount) > 0)
+          errors.push(`Voucher ${n}: A debit amount is entered but no ledger is selected.`)
+      })
+      b.credit.forEach(e => {
+        if (e.ledger_id && !(parseFloat(e.amount) > 0))
+          errors.push(`Voucher ${n}: A credit ledger is selected but has no amount.`)
+        if (!e.ledger_id && parseFloat(e.amount) > 0)
+          errors.push(`Voucher ${n}: A credit amount is entered but no ledger is selected.`)
+      })
+      if (hasDebit && hasCredit) {
+        const dTotal = b.debit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+        const cTotal = b.credit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+        if (Math.round(dTotal * 100) !== Math.round(cTotal * 100))
+          errors.push(`Voucher ${n}: Debit ₹${dTotal.toLocaleString('en-IN')} does not match Credit ₹${cTotal.toLocaleString('en-IN')}.`)
+      }
+    })
+    return [...new Set(errors)]
+  }
+
+  const completeVoucherErrors = quickCompleteMode ? [] : validateBlocks(voucherBlocks, true)
 
   const getJobState = (r: any): string => r.state || 'OPEN'
 
@@ -266,18 +316,30 @@ export default function RepairTrackingPage() {
 
   const filteredList = useMemo(() => {
     const byTab = stageFilter === 'all' ? list : list.filter(r => getJobState(r) === stageFilter)
+    const from = fromDate ? new Date(fromDate).setHours(0, 0, 0, 0) : null
+    const to   = toDate   ? new Date(toDate).setHours(23, 59, 59, 999) : null
+    const byDate = (from || to) ? byTab.filter(r => {
+      const d = new Date(r.job_date || r.created_at).getTime()
+      if (isNaN(d)) return true
+      if (from && d < from) return false
+      if (to   && d > to)   return false
+      return true
+    }) : byTab
     const hasCol = Object.values(colFilters).some(v => v && v.length > 0)
-    if (!hasCol) return byTab
-    return byTab.filter(r => {
+    if (!hasCol) return byDate
+    return byDate.filter(r => {
       for (const [key, vals] of Object.entries(colFilters)) {
         if (!vals || vals.length === 0) continue
         if (!vals.includes(colValue(r, key))) return false
       }
       return true
     })
-  }, [list, stageFilter, colFilters])
+  }, [list, stageFilter, colFilters, fromDate, toDate])
 
   const countByState = (s: string) => list.filter((r: any) => getJobState(r) === s).length
+
+  // Tracks whether editModal was already open on previous render (skip auto-sync on initial open)
+  const editModalWasOpen = useRef(false)
 
   // Auto-open complete modal when navigated here via "Edit in Job Card"
   const editModalOpened = useRef(false)
@@ -398,6 +460,82 @@ export default function RepairTrackingPage() {
     }))
   }, [approveBlockPartsTotals.join(','), approveModal.open])
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!editModal.open) {
+      editModalWasOpen.current = false
+      return
+    }
+    // Skip auto-sync on the very first render when modal opens — preserve pre-filled DB amounts
+    if (!editModalWasOpen.current) {
+      editModalWasOpen.current = true
+      return
+    }
+    setEditStageBlocks(blocks => blocks.map((b, bi) => {
+      const t = editBlockPartsTotals[bi] ?? 0
+      if (t === 0) return b
+      const debitWithId  = b.debit.filter(e => e.ledger_id)
+      const creditWithId = b.credit.filter(e => e.ledger_id)
+      return {
+        ...b,
+        debit:  debitWithId.length === 1
+          ? b.debit.map(e => e.ledger_id ? { ...e, amount: String(t) } : e)
+          : b.debit.length === 1 ? [{ ...b.debit[0], amount: String(t) }] : b.debit,
+        credit: creditWithId.length === 1
+          ? b.credit.map(e => e.ledger_id ? { ...e, amount: String(t) } : e)
+          : b.credit.length === 1 ? [{ ...b.credit[0], amount: String(t) }] : b.credit,
+      }
+    }))
+  }, [editBlockPartsTotals.join(','), editModal.open])
+
+  // Shared helper: fetch saved parts + ledgers and pre-fill the first block of any modal
+  const prefillVoucherBlocks = async (
+    jobId: number,
+    setter: (fn: (prev: VoucherBlock[]) => VoucherBlock[]) => void,
+  ) => {
+    try {
+      const res = await garageService.getJobStageData({ id: jobId })
+      const savedParts:   any[] = res?.parts   ?? []
+      const savedLedgers: any[] = res?.ledgers ?? []
+      if (savedParts.length === 0 && savedLedgers.length === 0) return
+      const debitLedgers  = savedLedgers.filter((l: any) => l.entry_type === 'debit')
+      const creditLedgers = savedLedgers.filter((l: any) => l.entry_type === 'credit')
+      setter(prev => prev.map((b, idx) => {
+        if (idx !== 0) return b
+        return {
+          ...b,
+          parts: savedParts.length > 0
+            ? savedParts.map((p: any) => ({
+                part_id:   String(p.part_id || ''),
+                part_name: p.part_name || '',
+                qty:       String(p.qty  || 1),
+                rate:      String(p.rate || 0),
+              }))
+            : b.parts,
+          debit: debitLedgers.length > 0
+            ? debitLedgers.map((l: any) => ({
+                ledger_id:   String(l.ledger_id || ''),
+                ledger_name: l.ledger_name || '',
+                amount:      String(l.amount || ''),
+              }))
+            : b.debit,
+          credit: creditLedgers.length > 0
+            ? creditLedgers.map((l: any) => ({
+                ledger_id:   String(l.ledger_id || ''),
+                ledger_name: l.ledger_name || '',
+                amount:      String(l.amount || ''),
+              }))
+            : b.credit,
+        }
+      }))
+    } catch {
+      // silently skip — user can fill manually
+    }
+  }
+
+  const prefillCompleteModal = (jobId: number) => prefillVoucherBlocks(jobId, setVoucherBlocks)
+  const prefillFinishModal   = (jobId: number) => prefillVoucherBlocks(jobId, setFinishVoucherBlocks)
+
   // Open approve modal and immediately pre-fill from finish-stage data
   const openApproveModal = async (job: any) => {
     setApproveRemarks('')
@@ -496,6 +634,7 @@ export default function RepairTrackingPage() {
     setNewPart({ part_number: '', part_name: '', price: '', category_id: '' })
     setViewModal({ open: false, job: null })
     setCompleteModal({ open: true, job })
+    prefillCompleteModal(job.id)
   }
 
   const openEditFromView = () => {
@@ -515,7 +654,7 @@ export default function RepairTrackingPage() {
       edit_reason: '',
     })
     setEditJobRows(rows)
-    // Pre-fill spare parts + ledgers from already-loaded stage data
+    // Pre-fill voucher blocks from already-loaded stage data
     const preParts: SimplePartRow[] = stageParts.length > 0
       ? stageParts.map((p: any) => ({ part_id: String(p.part_id), qty: String(p.qty || 1), rate: String(p.rate || 0) }))
       : [emptySimplePartRow()]
@@ -523,9 +662,12 @@ export default function RepairTrackingPage() {
       .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
     const preCredit: LedgerEntry[] = stageLedgers.filter((l: any) => l.entry_type === 'credit')
       .map((l: any) => ({ ledger_id: String(l.ledger_id), amount: String(l.amount), ledger_name: l.ledger_name || '' }))
-    setEditStageParts(preParts)
-    setEditDebit(preDebit.length > 0 ? preDebit : [emptyLedgerEntry()])
-    setEditCredit(preCredit.length > 0 ? preCredit : [emptyLedgerEntry()])
+    setEditStageBlocks([{
+      description: '', category_name: '',
+      parts:  preParts,
+      debit:  preDebit.length  > 0 ? preDebit  : [emptyLedgerEntry()],
+      credit: preCredit.length > 0 ? preCredit : [emptyLedgerEntry()],
+    }])
     setViewModal({ open: false, job: null })
     setEditModal({ open: true, job })
   }
@@ -543,6 +685,10 @@ export default function RepairTrackingPage() {
 
   const { mutate: saveComplete, isPending: savingComplete } = useMutation({
     mutationFn: () => {
+      if (!quickCompleteMode && completeVoucherErrors.length > 0) {
+        completeVoucherErrors.forEach(e => toast.error(e))
+        return Promise.reject(new Error('Validation failed'))
+      }
       if (quickCompleteMode) {
         return garageService.submitRepairTracking({
           id:              completeModal.job?.id,
@@ -597,16 +743,21 @@ export default function RepairTrackingPage() {
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
     mutationFn: () => {
-      const allParts = editStageParts.filter(p => !!p.part_id).map(p => ({
-        part_id: p.part_id,
-        qty:    parseFloat(p.qty)  || 1,
-        rate:   parseFloat(p.rate) || 0,
-        amount: (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0),
-      }))
-      const voucher_blocks = [{
-        debit:  editDebit.filter(e => !!e.ledger_id),
-        credit: editCredit.filter(e => !!e.ledger_id),
-      }]
+      const allParts = editStageBlocks.flatMap(b =>
+        b.parts.filter(p => !!p.part_id).map(p => ({
+          part_id: p.part_id,
+          qty:    parseFloat(p.qty)  || 1,
+          rate:   parseFloat(p.rate) || 0,
+          amount: (parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0),
+        }))
+      )
+      const voucher_blocks = editStageBlocks
+        .filter(b => b.debit.some(e => !!e.ledger_id) || b.credit.some(e => !!e.ledger_id))
+        .map(b => ({
+          description: b.description,
+          debit:  b.debit.filter(e => !!e.ledger_id),
+          credit: b.credit.filter(e => !!e.ledger_id),
+        }))
       return garageService.editJob({
         id:                 editModal.job?.id,
         job_card_number:    editModal.job?.job_card_number,
@@ -618,6 +769,7 @@ export default function RepairTrackingPage() {
         job_rows:           editJobRows,
         edit_reason:        editForm.edit_reason,
         user_id:            localStorage.getItem('user_id'),
+        user_name:          localStorage.getItem('usr_nm') || '',
         parts:              allParts,
         voucher_blocks,
       })
@@ -629,6 +781,7 @@ export default function RepairTrackingPage() {
         qc.invalidateQueries({ queryKey: ['repair-tracking'] })
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
         qc.invalidateQueries({ queryKey: ['job-stage-data'] })
+        qc.invalidateQueries({ queryKey: ['job-full-history'] })
       } else toast.error('Failed to update')
     },
     onError: () => toast.error('Server error'),
@@ -689,6 +842,8 @@ export default function RepairTrackingPage() {
         parts:            allParts,
         total_amount:     finishTotal,
         voucher_blocks:   blocks,
+        user_id:          localStorage.getItem('user_id'),
+        user_name:        localStorage.getItem('usr_nm') || '',
       })
     },
     onSuccess: (res: any) => {
@@ -730,6 +885,8 @@ export default function RepairTrackingPage() {
         parts:            allParts,
         total_amount:     approveTotal,
         voucher_blocks:   blocks,
+        user_id:          localStorage.getItem('user_id'),
+        user_name:        localStorage.getItem('usr_nm') || '',
       })
     },
     onSuccess: (res: any) => {
@@ -745,12 +902,13 @@ export default function RepairTrackingPage() {
   })
 
   const { mutate: saveReject, isPending: savingReject } = useMutation({
-    mutationFn: () => garageService.jobWorkflowAction({
-      action:          'reject',
+    mutationFn: () => garageService.changeJobStatus({
       id:              rejectModal.job?.id,
       job_card_number: rejectModal.job?.job_card_number,
+      state:           'REJECTED',
       remarks:         rejectReason,
       user_id:         localStorage.getItem('user_id'),
+      user_name:       localStorage.getItem('usr_nm') || '',
     }),
     onSuccess: (res: any) => {
       if (res.status === 200) {
@@ -822,8 +980,34 @@ export default function RepairTrackingPage() {
         </div>
       </div>
 
+      {/* Date range filter */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className="text-xs font-semibold text-slate-600">From</label>
+        <input
+          type="date"
+          value={fromDate}
+          onChange={e => setFromDate(e.target.value)}
+          className="h-9 px-3 rounded-xl border border-slate-200 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <label className="text-xs font-semibold text-slate-600">To</label>
+        <input
+          type="date"
+          value={toDate}
+          onChange={e => setToDate(e.target.value)}
+          className="h-9 px-3 rounded-xl border border-slate-200 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        {(fromDate || toDate) && (
+          <button
+            onClick={() => { setFromDate(''); setToDate('') }}
+            className="h-9 px-3 rounded-xl text-xs font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
+          >
+            Clear dates
+          </button>
+        )}
+      </div>
+
       {/* Job cards table */}
-      <GlassCard className="overflow-hidden">
+      <GlassCard className="overflow-hidden border-2 border-slate-200">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <h3 className="text-sm font-bold text-slate-700">
             Job Cards
@@ -884,25 +1068,20 @@ export default function RepairTrackingPage() {
                   <tr key={r.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40 transition-colors`}>
                     <td className="px-3 py-3 border-b border-slate-100 text-slate-500 text-center">{i + 1}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-blue-700">{r.job_card_number}</span>
-                        {r.insertion_type === 'Automatic' && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-bold">
-                            <RefreshCw className="w-2.5 h-2.5" /> AUTO
-                          </span>
-                        )}
-                        {r.parent_job_card_number && (
-                          <span className="text-[10px] text-slate-400 font-medium">from {r.parent_job_card_number}</span>
-                        )}
-                        {r.next_job_date && (() => {
-                          const days = Math.ceil((new Date(r.next_job_date).getTime() - Date.now()) / 86400000)
-                          return (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${days < 0 ? 'bg-red-100 text-red-600' : days <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                              Next: {days < 0 ? `${Math.abs(days)}d overdue` : `${days}d`}
-                            </span>
-                          )
-                        })()}
-                      </div>
+                      <button
+                        onClick={() => setHistoryModal({ open: true, job: r })}
+                        className="font-semibold text-blue-700 hover:text-blue-900 hover:underline transition-colors text-left block"
+                      >
+                        {r.job_card_number}
+                      </button>
+                      {r.source_reminder_ref && (
+                        <span
+                          className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-[10px] font-bold border border-cyan-100"
+                          title={`Created from Service Reminder ${r.source_reminder_ref}`}
+                        >
+                          <BellRing className="w-2.5 h-2.5" /> {r.source_reminder_ref}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{fmtDate(r.job_date || r.created_at)}</td>
                     <td className="px-3 py-3 border-b border-slate-100 text-center">
@@ -919,7 +1098,12 @@ export default function RepairTrackingPage() {
                           View
                         </button>
                         {isOpen && (
-                          <button onClick={() => { setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate(''); setFinishVoucherBlocks([defaultVoucherBlock()]); setFinishModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
+                          <button onClick={() => {
+                            setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate('')
+                            setFinishVoucherBlocks([defaultVoucherBlock()])
+                            setFinishModal({ open: true, job: r })
+                            prefillFinishModal(r.id)
+                          }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
                             Finish
                           </button>
                         )}
@@ -929,18 +1113,20 @@ export default function RepairTrackingPage() {
                           </button>
                         )}
                         {isApproved && canComplete && (
-                          <button onClick={() => { setVoucherBlocks([defaultVoucherBlock()]); setQuickCompleteMode(false); setCreatedVouchers([]); setCompleteModal({ open: true, job: r }) }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
+                          <button onClick={() => {
+                            setVoucherBlocks([emptyVoucherBlock()])
+                            setQuickCompleteMode(false)
+                            setQuickCompleteDesc('')
+                            setCreatedVouchers([])
+                            setCompleteModal({ open: true, job: r })
+                            prefillCompleteModal(r.id)
+                          }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
                             Complete
                           </button>
                         )}
                         {(isOpen || isFinished) && (
                           <button onClick={() => setRejectModal({ open: true, job: r })} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
                             Reject
-                          </button>
-                        )}
-                        {(isDone || isRejected || isFinished || isApproved) && (
-                          <button onClick={() => updateStatus({ id: r.id, state: 'OPEN' })} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 transition-colors">
-                            Reopen
                           </button>
                         )}
                       </div>
@@ -953,6 +1139,226 @@ export default function RepairTrackingPage() {
         </div>
       </GlassCard>
 
+      {/* ── Job History Modal ─────────────────────────────────────────────────── */}
+      {historyModal.open && historyModal.job && (() => {
+        const fmtDt = (d: any) => {
+          if (!d) return '—'
+          const dt = new Date(d)
+          if (isNaN(dt.getTime())) return '—'
+          return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}  ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+        }
+        const activeParts  = historyParts.filter((p: any) => Number(p.d_in) !== 2)
+        const partsTotal   = activeParts.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
+        const debitTotal   = historyLedgers.filter((l: any) => l.entry_type === 'debit').reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0)
+        const creditTotal  = historyLedgers.filter((l: any) => l.entry_type === 'credit').reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0)
+
+        // Build unified timeline: creation event + all stage actions
+        type TimelineEntry = { key: string; action: string; label: string; dot: string; at: string; by: string; remarks: string }
+        const timeline: TimelineEntry[] = []
+
+        // Job creation event
+        const createdAt = historyJob.job_date || historyJob.created_at || historyModal.job.job_date || historyModal.job.created_at
+        timeline.push({
+          key: 'created',
+          action: 'created',
+          label: 'Job Created',
+          dot:   'bg-slate-500',
+          at:    fmtDt(createdAt),
+          by:    historyJob.created_by || historyModal.job.created_by || '',
+          remarks: '',
+        })
+
+        // All stage events
+        const dotMap: Record<string, string> = {
+          finished:        'bg-blue-500',
+          approved:        'bg-violet-500',
+          rejected:        'bg-red-500',
+          reopened:        'bg-amber-500',
+          completed:       'bg-emerald-500',
+          quick_completed: 'bg-emerald-500',
+          edited:          'bg-orange-500',
+        }
+        historyStages.forEach((s: any, idx: number) => {
+          const rawLabel = (s.action || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+          timeline.push({
+            key:     `stage-${idx}`,
+            action:  s.action,
+            label:   rawLabel,
+            dot:     dotMap[s.action] ?? 'bg-slate-400',
+            at:      fmtDt(s.action_at),
+            by:      s.action_by_name || '',
+            remarks: s.remarks || '',
+          })
+        })
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Complete Job History</h3>
+                  <p className="text-xs text-blue-600 font-semibold mt-0.5">
+                    {historyModal.job.job_card_number} &nbsp;·&nbsp; {historyModal.job.vehicle_number}
+                  </p>
+                </div>
+                <button onClick={() => setHistoryModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+              </div>
+
+              {/* Scrollable body */}
+              <div className="overflow-y-auto flex-1 p-6 space-y-6">
+
+                {/* Job info cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {[
+                    { label: 'Vehicle',    value: historyModal.job.vehicle_number || historyJob.vehicle_number || '—' },
+                    { label: 'Odometer',   value: historyJob.odometer_reading ? `${historyJob.odometer_reading} km` : historyModal.job.odometer_reading ? `${historyModal.job.odometer_reading} km` : '—' },
+                    { label: 'Driver',     value: historyJob.driver_name || historyModal.job.driver_name || '—' },
+                    { label: 'Category',   value: historyModal.job.all_categories || historyModal.job.repair_category_name || '—' },
+                    { label: 'Technician', value: historyModal.job.staff_name || '—' },
+                    { label: 'Status',     value: getJobState(historyModal.job) },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-slate-50 rounded-xl px-3 py-2.5">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{label}</p>
+                      <p className="text-xs font-bold text-slate-700 mt-0.5 truncate">{value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Timeline */}
+                <div>
+                  <h4 className="text-sm font-bold text-slate-700 mb-4">Activity Timeline</h4>
+                  {loadingHistory ? (
+                    <div className="flex items-center justify-center py-8 gap-2 text-sm text-slate-400">
+                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
+                      Loading history…
+                    </div>
+                  ) : (
+                    <div className="relative pl-6">
+                      <div className="absolute left-2.5 top-0 bottom-0 w-0.5 bg-slate-200" />
+                      {timeline.map((entry, idx) => (
+                        <div key={entry.key} className={`relative ${idx < timeline.length - 1 ? 'mb-4' : ''}`}>
+                          <div className={`absolute -left-3.5 top-2 w-3 h-3 rounded-full border-2 border-white shadow ${entry.dot}`} />
+                          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
+                            {/* Row 1: label + timestamp */}
+                            <div className="flex items-start justify-between gap-3 flex-wrap">
+                              <span className="text-xs font-extrabold text-slate-800">{entry.label}</span>
+                              <span className="text-[11px] text-slate-400 font-mono shrink-0">{entry.at}</span>
+                            </div>
+                            {/* Row 2: by whom */}
+                            {entry.by && (
+                              <p className="text-[11px] text-slate-500 mt-1">
+                                By: <span className="font-semibold text-slate-700">{entry.by}</span>
+                              </p>
+                            )}
+                            {/* Row 3: notes / remarks */}
+                            {entry.remarks && (
+                              <div className="mt-2 border-t border-slate-100 pt-2">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Notes</p>
+                                <p className="text-xs text-slate-600 italic">"{entry.remarks}"</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Spare Parts (active) */}
+                {!loadingHistory && activeParts.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 mb-3">Spare Parts Used</h4>
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="px-3 py-2 text-left text-slate-500 font-bold">#</th>
+                            <th className="px-3 py-2 text-left text-slate-500 font-bold">Part Name</th>
+                            <th className="px-3 py-2 text-right text-slate-500 font-bold">Qty</th>
+                            <th className="px-3 py-2 text-right text-slate-500 font-bold">Rate (₹)</th>
+                            <th className="px-3 py-2 text-right text-slate-500 font-bold">Amount (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeParts.map((p: any, i: number) => (
+                            <tr key={i} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} border-b border-slate-100 last:border-0`}>
+                              <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+                              <td className="px-3 py-2 font-medium text-slate-700">{p.part_name || `Part #${p.part_id}`}</td>
+                              <td className="px-3 py-2 text-right text-slate-600">{Number(p.qty || 1).toLocaleString('en-IN')}</td>
+                              <td className="px-3 py-2 text-right text-slate-600">{Number(p.rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                              <td className="px-3 py-2 text-right font-bold text-slate-800">{Number(p.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-blue-50 border-t border-blue-100">
+                            <td colSpan={4} className="px-3 py-2 text-right text-xs font-bold text-blue-700">Parts Total</td>
+                            <td className="px-3 py-2 text-right text-xs font-extrabold text-blue-700">
+                              ₹{partsTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Accounting entries */}
+                {!loadingHistory && historyLedgers.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700 mb-3">Accounting Entries</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(['debit', 'credit'] as const).map(type => {
+                        const entries = historyLedgers.filter((l: any) => l.entry_type === type)
+                        if (entries.length === 0) return null
+                        const total = type === 'debit' ? debitTotal : creditTotal
+                        return (
+                          <div key={type} className="rounded-xl border border-slate-200 overflow-hidden">
+                            <div className={`flex items-center justify-between px-4 py-2 ${type === 'debit' ? 'bg-blue-600' : 'bg-emerald-600'}`}>
+                              <span className="text-xs font-bold text-white capitalize">{type} Accounts</span>
+                              <span className="text-xs font-extrabold text-white">₹{total.toLocaleString('en-IN')}</span>
+                            </div>
+                            <div className="divide-y divide-slate-100">
+                              {entries.map((l: any, i: number) => (
+                                <div key={i} className="flex justify-between items-center px-3 py-2.5 bg-white">
+                                  <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                                  <span className={`text-xs font-bold ${type === 'debit' ? 'text-blue-700' : 'text-emerald-700'}`}>
+                                    ₹{Number(l.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Balance check */}
+                    {debitTotal > 0 && creditTotal > 0 && (
+                      <div className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold ${Math.round(debitTotal * 100) === Math.round(creditTotal * 100) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
+                          ? <><CheckCircle className="w-3.5 h-3.5 shrink-0" /> Voucher balanced — ₹{debitTotal.toLocaleString('en-IN')}</>
+                          : <><AlertCircle className="w-3.5 h-3.5 shrink-0" /> Debit ₹{debitTotal.toLocaleString('en-IN')} ≠ Credit ₹{creditTotal.toLocaleString('en-IN')}</>
+                        }
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              </div>
+
+              {/* Footer */}
+              <div className="flex justify-end px-6 py-4 border-t border-slate-100 shrink-0">
+                <button onClick={() => setHistoryModal({ open: false, job: null })} className="px-5 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-semibold hover:bg-slate-200 transition-colors">Close</button>
+              </div>
+            </motion.div>
+          </div>
+        )
+      })()}
+
       {/* ── View Details Modal ────────────────────────────────────────────────── */}
       {viewModal.open && viewModal.job && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
@@ -962,6 +1368,14 @@ export default function RepairTrackingPage() {
               <div>
                 <h3 className="text-base font-bold text-slate-800">Job Card Details</h3>
                 <p className="text-xs text-slate-500 mt-0.5">{viewModal.job.job_card_number} · {viewModal.job.vehicle_number}</p>
+                {viewModal.job.source_reminder_ref && (
+                  <span
+                    className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-[10px] font-bold border border-cyan-100"
+                    title={`Created from Service Reminder ${viewModal.job.source_reminder_ref}`}
+                  >
+                    <BellRing className="w-2.5 h-2.5" /> From Service Reminder: {viewModal.job.source_reminder_ref}
+                  </span>
+                )}
               </div>
               <button onClick={() => setViewModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1">
                 <X className="w-5 h-5" />
@@ -1129,7 +1543,7 @@ export default function RepairTrackingPage() {
                   return (
                     <>
                       {notDone && (
-                        <Button variant="outline" onClick={openEditFromView} disabled={loadingJobCats}>
+                        <Button variant="outline" onClick={openEditFromView} disabled={loadingJobCats || loadingStageData}>
                           <Pencil className="w-4 h-4" /> Edit Job
                         </Button>
                       )}
@@ -1139,7 +1553,14 @@ export default function RepairTrackingPage() {
                         </Button>
                       )}
                       {vs === 'OPEN' && (
-                        <Button variant="outline" onClick={() => { setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate(''); setFinishVoucherBlocks([defaultVoucherBlock()]); setFinishModal({ open: true, job: viewModal.job }); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
+                        <Button variant="outline" onClick={() => {
+                          const job = viewModal.job
+                          setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate('')
+                          setFinishVoucherBlocks([defaultVoucherBlock()])
+                          setViewModal({ open: false, job: null })
+                          setFinishModal({ open: true, job })
+                          prefillFinishModal(job.id)
+                        }} disabled={loadingJobCats}>
                           <CheckCircle className="w-4 h-4 text-blue-500" /> Finish Job
                         </Button>
                       )}
@@ -1149,13 +1570,8 @@ export default function RepairTrackingPage() {
                         </Button>
                       )}
                       {vs === 'APPROVED' && canComplete && (
-                        <Button onClick={openCompleteFromView} disabled={loadingJobCats}>
+                        <Button onClick={openCompleteFromView} disabled={loadingJobCats || loadingStageData}>
                           <CheckCircle className="w-4 h-4" /> Complete Job
-                        </Button>
-                      )}
-                      {(vs === 'FINISHED' || vs === 'APPROVED' || vs === 'CLOSED' || vs === 'COMPLETED' || vs === 'REJECTED') && (
-                        <Button variant="outline" onClick={() => { updateStatus({ id: viewModal.job.id, state: 'OPEN' }); setViewModal({ open: false, job: null }) }}>
-                          Reopen
                         </Button>
                       )}
                     </>
@@ -1481,6 +1897,14 @@ export default function RepairTrackingPage() {
             {/* Sticky footer */}
             {createdVouchers.length === 0 && (
               <div className="sticky bottom-0 border-t border-slate-200 bg-white rounded-b-2xl">
+                {!quickCompleteMode && completeVoucherErrors.length > 0 && (
+                  <div className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 space-y-1">
+                    <p className="text-xs font-bold text-red-700 mb-1 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> Fix the following before saving:</p>
+                    {completeVoucherErrors.map((e, i) => (
+                      <p key={i} className="text-xs text-red-600 flex items-start gap-1.5 pl-1">• {e}</p>
+                    ))}
+                  </div>
+                )}
                 <div className="flex items-center gap-4 px-6 py-3 flex-wrap">
                   {!quickCompleteMode && (
                     <>
@@ -1488,12 +1912,12 @@ export default function RepairTrackingPage() {
                         Parts Total: <span className="text-slate-800 font-extrabold tabular-nums">₹{completeTotal.toLocaleString('en-IN')}</span>
                       </div>
                       {totalDebitAllBlocks > 0 && (
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs font-bold text-blue-700 tabular-nums">
+                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tabular-nums ${Math.round(totalDebitAllBlocks*100)===Math.round(totalCreditAllBlocks*100) && totalDebitAllBlocks>0 ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-blue-50 border border-blue-100 text-blue-700'}`}>
                           Dr: ₹{totalDebitAllBlocks.toLocaleString('en-IN')}
                         </div>
                       )}
                       {totalCreditAllBlocks > 0 && (
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 tabular-nums">
+                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold tabular-nums ${Math.round(totalDebitAllBlocks*100)===Math.round(totalCreditAllBlocks*100) && totalCreditAllBlocks>0 ? 'bg-emerald-50 border border-emerald-100 text-emerald-700' : 'bg-red-50 border border-red-100 text-red-700'}`}>
                           Cr: ₹{totalCreditAllBlocks.toLocaleString('en-IN')}
                         </div>
                       )}
@@ -1502,11 +1926,11 @@ export default function RepairTrackingPage() {
                   <div className="ml-auto flex items-center gap-3">
                     <Button variant="outline" onClick={() => { resetCompleteModal(); if (isEditMode) navigate(-1) }}>Cancel</Button>
                     {isEditMode ? (
-                      <Button onClick={() => updateVoucher()} disabled={updatingVoucher || !allBlocksBalanced} className="bg-orange-600 hover:bg-orange-700 text-white">
+                      <Button onClick={() => updateVoucher()} disabled={updatingVoucher || completeVoucherErrors.length > 0} className="bg-orange-600 hover:bg-orange-700 text-white">
                         <Save className="w-4 h-4" />{updatingVoucher ? 'Updating…' : 'Update Voucher'}
                       </Button>
                     ) : (
-                    <Button onClick={() => saveComplete()} disabled={savingComplete || (!quickCompleteMode && !allBlocksBalanced)}>
+                    <Button onClick={() => saveComplete()} disabled={savingComplete || (!quickCompleteMode && completeVoucherErrors.length > 0)}>
                       <Save className="w-4 h-4" />{savingComplete ? 'Saving…' : quickCompleteMode ? 'Quick Complete' : 'Save & Complete Job'}
                     </Button>
                     )}
@@ -1579,91 +2003,149 @@ export default function RepairTrackingPage() {
                 )}
               />
 
-              {/* Spare Parts */}
+              {/* Voucher blocks (Parts + Accounting) */}
               <div className="pt-2 border-t border-slate-100">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-sm font-bold text-slate-700">Spare Parts</h4>
-                  <button onClick={() => setEditStageParts(p => [...p, emptySimplePartRow()])} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors">
-                    <Plus className="w-3.5 h-3.5" /> Add Part
+                  <h4 className="text-sm font-bold text-slate-700">Accounting Entry</h4>
+                  <button
+                    onClick={() => setEditStageBlocks(bs => [...bs, emptyVoucherBlock()])}
+                    className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add Voucher
                   </button>
                 </div>
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="grid grid-cols-[3fr_1fr_1.5fr_1.5fr_auto] gap-0 text-xs font-bold text-slate-500 bg-slate-50 border-b border-slate-200 px-3 py-2">
-                    <span>Part</span><span className="text-center">Qty</span><span className="text-center">Rate (₹)</span><span className="text-right">Total</span><span></span>
-                  </div>
-                  {editStageParts.map((p, pIdx) => (
-                    <div key={pIdx} className="grid grid-cols-[3fr_1fr_1.5fr_1.5fr_auto] gap-2 items-center px-3 py-2 border-b border-slate-100 last:border-0">
-                      <SearchableSelect value={p.part_id}
-                        onChange={v => { const found = partsList.find((pt: any) => String(pt.part_id) === v); setEditStageParts(prev => prev.map((pt, pi) => pi !== pIdx ? pt : { ...pt, part_id: v, rate: found?.price ? String(found.price) : pt.rate })) }}
-                        options={partsOptions} placeholder="Select Part" onReload={() => reloadParts()} reloading={loadingParts} />
-                      <Input type="number" min="1" value={p.qty} onChange={e => setEditStageParts(prev => prev.map((pt, pi) => pi !== pIdx ? pt : { ...pt, qty: e.target.value }))} />
-                      <Input type="number" placeholder="0.00" value={p.rate} onChange={e => setEditStageParts(prev => prev.map((pt, pi) => pi !== pIdx ? pt : { ...pt, rate: e.target.value }))} />
-                      <Input className="bg-slate-100 text-right font-bold" disabled value={((parseFloat(p.qty)||0)*(parseFloat(p.rate)||0)).toLocaleString('en-IN')} />
-                      {editStageParts.length > 1 && (
-                        <button onClick={() => setEditStageParts(prev => prev.filter((_, i) => i !== pIdx))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
-                      )}
-                    </div>
-                  ))}
-                  {editStageParts.some(p => p.part_id) && (
-                    <div className="px-3 py-2 bg-blue-50 text-right text-xs font-extrabold text-blue-700">
-                      Total: ₹{editStageParts.reduce((s, p) => s + (parseFloat(p.qty)||0)*(parseFloat(p.rate)||0), 0).toLocaleString('en-IN')}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Ledger Entries */}
-              <div className="border-t border-slate-100 pt-2">
-                <h4 className="text-sm font-bold text-slate-700 mb-3">Accounting Entries</h4>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Debit */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
-                      <span className="text-xs font-bold text-white">Debit Accounts</span>
-                      <button onClick={() => setEditDebit(d => [...d, emptyLedgerEntry()])} className="inline-flex items-center gap-1 text-xs font-bold text-blue-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
-                    </div>
-                    <div className="p-3 space-y-2">
-                      {editDebit.map((entry, i) => (
-                        <div key={i} className="flex gap-2 items-center">
-                          <div className="flex-[3] min-w-0">
-                            <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
-                              onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setEditDebit(d => d.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm })) }}
-                              options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
-                          </div>
-                          <div className="flex-[2] min-w-0">
-                            <Input type="number" placeholder="Amount" value={entry.amount} onChange={e => setEditDebit(d => d.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }))} />
-                          </div>
-                          {editDebit.length > 1 && (
-                            <button onClick={() => setEditDebit(d => d.filter((_, ei) => ei !== i))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                <div className="space-y-4">
+                  {editStageBlocks.map((block, bIdx) => {
+                    const bDebit    = editBlockTotals[bIdx]?.debit  ?? 0
+                    const bCredit   = editBlockTotals[bIdx]?.credit ?? 0
+                    const bBalanced = bDebit > 0 && Math.round(bDebit * 100) === Math.round(bCredit * 100)
+                    const bHasEntry = block.debit.some(e => e.ledger_id) || block.credit.some(e => e.ledger_id)
+                    return (
+                      <div key={bIdx} className="rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+                          <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{bIdx + 1}</span>
+                          <Input
+                            className="flex-1 text-xs h-7 border-0 bg-transparent p-0 font-semibold text-slate-700 focus:ring-0 placeholder:text-slate-400"
+                            placeholder="Voucher description (optional)"
+                            value={block.description}
+                            onChange={e => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, description: e.target.value }))}
+                          />
+                          {editStageBlocks.length > 1 && (
+                            <button onClick={() => setEditStageBlocks(bs => bs.filter((_, i) => i !== bIdx))} className="text-slate-400 hover:text-red-500 p-0.5 transition-colors flex-shrink-0">
+                              <X className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Credit */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="flex items-center justify-between px-4 py-2 bg-emerald-600">
-                      <span className="text-xs font-bold text-white">Credit Accounts</span>
-                      <button onClick={() => setEditCredit(c => [...c, emptyLedgerEntry()])} className="inline-flex items-center gap-1 text-xs font-bold text-emerald-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
-                    </div>
-                    <div className="p-3 space-y-2">
-                      {editCredit.map((entry, i) => (
-                        <div key={i} className="flex gap-2 items-center">
-                          <div className="flex-[3] min-w-0">
-                            <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
-                              onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setEditCredit(c => c.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm })) }}
-                              options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+                          <div>
+                            <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
+                              <span className="text-xs font-bold text-white">Debit Accounts</span>
+                              <button onClick={() => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, debit: [...b.debit, emptyLedgerEntry()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-blue-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {block.debit.map((entry, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                                      onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setEditStageBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm }) })) }}
+                                      options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                                  </div>
+                                  <div className="flex-[2] min-w-0">
+                                    <Input type="number" placeholder="Amount" value={entry.amount}
+                                      onChange={e => setEditStageBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }) }))} />
+                                  </div>
+                                  {block.debit.length > 1 && (
+                                    <button onClick={() => setEditStageBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, debit: b.debit.filter((_, ei) => ei !== i) }))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              {bDebit > 0 && <div className="text-right text-xs font-extrabold text-blue-700 pt-1">Total: ₹{bDebit.toLocaleString('en-IN')}</div>}
+                            </div>
                           </div>
-                          <div className="flex-[2] min-w-0">
-                            <Input type="number" placeholder="Amount" value={entry.amount} onChange={e => setEditCredit(c => c.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }))} />
+                          <div>
+                            <div className="flex items-center justify-between px-4 py-2 bg-emerald-600">
+                              <span className="text-xs font-bold text-white">Credit Accounts</span>
+                              <button onClick={() => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, credit: [...b.credit, emptyLedgerEntry()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-emerald-100 hover:text-white transition-colors"><Plus className="w-3 h-3" /> Add Row</button>
+                            </div>
+                            <div className="p-3 space-y-2">
+                              {block.credit.map((entry, i) => (
+                                <div key={i} className="flex gap-2 items-center">
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
+                                      onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setEditStageBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.map((e, ei) => ei !== i ? e : { ...e, ledger_id: v, ledger_name: nm }) })) }}
+                                      options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
+                                  </div>
+                                  <div className="flex-[2] min-w-0">
+                                    <Input type="number" placeholder="Amount" value={entry.amount}
+                                      onChange={e => setEditStageBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.map((en, ei) => ei !== i ? en : { ...en, amount: e.target.value }) }))} />
+                                  </div>
+                                  {block.credit.length > 1 && (
+                                    <button onClick={() => setEditStageBlocks(bs => bs.map((b, bi) => bi !== bIdx ? b : { ...b, credit: b.credit.filter((_, ei) => ei !== i) }))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
+                                  )}
+                                </div>
+                              ))}
+                              {bCredit > 0 && <div className="text-right text-xs font-extrabold text-emerald-700 pt-1">Total: ₹{bCredit.toLocaleString('en-IN')}</div>}
+                            </div>
                           </div>
-                          {editCredit.length > 1 && (
-                            <button onClick={() => setEditCredit(c => c.filter((_, ei) => ei !== i))} className="text-slate-400 hover:text-red-500 p-1 transition-colors"><MinusCircle className="w-4 h-4" /></button>
-                          )}
                         </div>
-                      ))}
-                    </div>
-                  </div>
+                        {/* Spare parts */}
+                        <div className="border-t border-slate-100">
+                          <div className="flex items-center justify-between px-4 py-2 bg-slate-50">
+                            <span className="text-xs font-bold text-slate-600">Spare Parts</span>
+                            <button onClick={() => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: [...b.parts, emptySimplePartRow()] }))} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-700 transition-colors"><Plus className="w-3 h-3" /> Add Part</button>
+                          </div>
+                          <div className="p-3">
+                            <DynamicRows
+                              title=""
+                              columns={[
+                                { label: 'Part', className: 'flex-[3]' },
+                                { label: 'Qty', className: 'flex-[0.8]' },
+                                { label: 'Rate (₹)', className: 'flex-[1.5]' },
+                                { label: 'Total', className: 'flex-[1.5]' },
+                              ]}
+                              rows={block.parts}
+                              onAdd={() => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: [...b.parts, emptySimplePartRow()] }))}
+                              onRemove={(pIdx) => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.filter((_, pi) => pi !== pIdx) }))}
+                              renderRow={(p, pIdx) => (
+                                <>
+                                  <div className="flex-[3] min-w-0">
+                                    <SearchableSelect value={p.part_id}
+                                      onChange={v => { const found = partsList.find((pt: any) => String(pt.part_id) === v); setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, part_id: v, rate: found?.price ? String(found.price) : pt.rate }) })) }}
+                                      options={partsOptions} placeholder="Select Part" onReload={() => reloadParts()} reloading={loadingParts} />
+                                  </div>
+                                  <div className="flex-[0.8] min-w-0">
+                                    <Input type="number" min="1" value={p.qty} onChange={e => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, qty: e.target.value }) }))} />
+                                  </div>
+                                  <div className="flex-[1.5] min-w-0">
+                                    <Input type="number" placeholder="0.00" value={p.rate} onChange={e => setEditStageBlocks(bs => bs.map((b, i) => i !== bIdx ? b : { ...b, parts: b.parts.map((pt, pi) => pi !== pIdx ? pt : { ...pt, rate: e.target.value }) }))} />
+                                  </div>
+                                  <div className="flex-[1.5] min-w-0">
+                                    <Input className="bg-slate-100 font-bold text-right" disabled value={((parseFloat(p.qty) || 0) * (parseFloat(p.rate) || 0)).toLocaleString('en-IN')} />
+                                  </div>
+                                </>
+                              )}
+                            />
+                            {editBlockPartsTotals[bIdx] > 0 && (
+                              <div className="flex justify-end mt-1.5 text-xs font-bold text-emerald-700">
+                                Parts Subtotal: ₹{editBlockPartsTotals[bIdx].toLocaleString('en-IN')}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {bHasEntry && (
+                          bBalanced ? (
+                            <div className="px-4 py-2 bg-emerald-50 border-t border-emerald-100 flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" /> Voucher {bIdx + 1} balanced — ₹{bDebit.toLocaleString('en-IN')}
+                            </div>
+                          ) : (
+                            <div className="px-4 py-2 bg-amber-50 border-t border-amber-100 flex items-center gap-1.5 text-xs font-semibold text-amber-600">
+                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> Debit ₹{bDebit.toLocaleString('en-IN')} ≠ Credit ₹{bCredit.toLocaleString('en-IN')} — must balance before saving
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -1680,11 +2162,30 @@ export default function RepairTrackingPage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 sticky bottom-0 bg-white">
-              <Button variant="outline" onClick={() => setEditModal({ open: false, job: null })}>Cancel</Button>
-              <Button onClick={() => saveEdit()} disabled={savingEdit || !editForm.bus_no || editJobRows.every(r => !r.category) || !editForm.edit_reason.trim()}>
-                <Save className="w-4 h-4" />{savingEdit ? 'Saving…' : 'Update Job'}
-              </Button>
+            <div className="sticky bottom-0 border-t border-slate-200 bg-white rounded-b-2xl">
+              <div className="flex items-center gap-4 px-6 py-3 flex-wrap">
+                {editTotal > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-slate-500 font-semibold">
+                    Parts Total: <span className="text-slate-800 font-extrabold tabular-nums">₹{editTotal.toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                {totalEditDebit > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs font-bold text-blue-700 tabular-nums">
+                    Dr: ₹{totalEditDebit.toLocaleString('en-IN')}
+                  </div>
+                )}
+                {totalEditCredit > 0 && (
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-100 text-xs font-bold text-emerald-700 tabular-nums">
+                    Cr: ₹{totalEditCredit.toLocaleString('en-IN')}
+                  </div>
+                )}
+                <div className="ml-auto flex gap-3">
+                  <Button variant="outline" onClick={() => setEditModal({ open: false, job: null })}>Cancel</Button>
+                  <Button onClick={() => saveEdit()} disabled={savingEdit || !editForm.bus_no || editJobRows.every(r => !r.category) || !editForm.edit_reason.trim()}>
+                    <Save className="w-4 h-4" />{savingEdit ? 'Saving…' : 'Update Job'}
+                  </Button>
+                </div>
+              </div>
             </div>
           </motion.div>
         </div>

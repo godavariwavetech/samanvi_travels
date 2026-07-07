@@ -23,6 +23,7 @@ export default function TyreInventoryPage() {
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({ queryKey: ['tyre-inventory'], queryFn: () => garageService.getTyreInventory() })
   const list: any[] = data?.data ?? []
@@ -66,14 +67,14 @@ export default function TyreInventoryPage() {
   const closeForm = () => { setShowForm(false); setForm(EMPTY_FORM); setIsEdit(false); setEditId(null) }
 
   const cols: Column[] = [
-    { label: 'Tyre Code', key: 'tyre_code', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
-    { label: 'Brand', key: 'brand' },
-    { label: 'Size', key: 'size' },
-    { label: 'Status', key: 'status', render: (v) => <Badge variant={statusVariant[String(v)] ?? 'default'}>{String(v)}</Badge> },
-    { label: 'Current Vehicle', key: 'current_vehicle_number', render: (v) => v ? <span className="font-medium">{String(v)}</span> : <span className="text-slate-300">—</span> },
-    { label: 'Position', key: 'current_position', render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span> },
+    { label: 'Tyre Code', key: 'tyre_code', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
+    { label: 'Brand', key: 'brand', filterable: true },
+    { label: 'Size', key: 'size', filterable: true },
+    { label: 'Status', key: 'status', filterable: true, render: (v) => <Badge variant={statusVariant[String(v)] ?? 'default'}>{String(v)}</Badge> },
+    { label: 'Current Vehicle', key: 'current_vehicle_number', filterable: true, render: (v) => v ? <span className="font-medium">{String(v)}</span> : <span className="text-slate-300">—</span> },
+    { label: 'Position', key: 'current_position', filterable: true, render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span> },
     { label: 'Purchased', key: 'purchase_date', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
-    { label: 'Cost', key: 'cost', render: (v) => <span className="font-medium">₹{v}</span> },
+    { label: 'Cost', key: 'cost', align: 'right', render: (v) => <span className="font-medium">₹{v}</span> },
   ]
 
   const canSave = !!form.tyre_code
@@ -126,6 +127,8 @@ export default function TyreInventoryPage() {
         onAction={(action, row) => { if (action === 'edit') handleEdit(row); if (action === 'delete') handleDelete(row) }}
         actions={['edit', 'delete']}
         icon={<CircleDot className="w-5 h-5 text-blue-500" />}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
     </motion.div>
   )

@@ -18,7 +18,8 @@ exports.execQuery = function (ConPool, Qry, cntxtDtls, callback) {
                   connection.query(Qry, function (err, rows) {
                         connection.release();
                         if (err) {
-                              callback(true, null);
+                              console.error('execQuery error [' + cntxtDtls + ']:', err.message);
+                              callback(err, null);
                               return;
                         }
                         callback(false, rows);

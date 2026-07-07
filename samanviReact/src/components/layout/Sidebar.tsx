@@ -46,7 +46,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Bus Numbers',    path: '/masters/bus-no' },
       { label: 'Service Numbers',path: '/masters/service-no' },
       { label: 'Staff Register', path: '/masters/staff' },
-      { label: 'Vehicle Type',   path: '/masters/vehicle-type' },
     ],
   },
   {
@@ -91,6 +90,7 @@ const NAV_ITEMS: NavItem[] = [
         children: [
           { label: 'Job Creation',      path: '/garage/repair-entry' },
           { label: 'Repair Tracking',   path: '/garage/tracking' },
+          { label: 'Repeat Jobs',       path: '/garage/repeat-jobs' },
           { label: 'Service Reminders', path: '/garage/service-reminders' },
           { label: 'Reports',           path: '/garage/reports' },
         ],
@@ -145,6 +145,12 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Group Management',   path: '/mainmasters/groups' },
       { label: 'Laundry Products',   path: '/mainmasters/laundry-products' },
       { label: 'Garage Masters',     path: '/mainmasters/garage-masters' },
+      { label: 'Vehicle Type',       path: '/mainmasters/vehicle-type' },
+      { label: 'Vehicle Company',    path: '/mainmasters/vehicle-company' },
+      { label: 'Seating Capacity',   path: '/mainmasters/seating-capacity' },
+      { label: 'Chassis Model',      path: '/mainmasters/chassis-model' },
+      { label: 'Battery Brand',      path: '/mainmasters/battery-brand' },
+      { label: 'Battery Capacity',   path: '/mainmasters/battery-capacity' },
     ],
   },
 ]

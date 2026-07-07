@@ -12,7 +12,10 @@ export const garageService = {
   changeJobStatus: (data: unknown) => api.post('/changeJobSatus', securePayload(data)).then((r) => r.data),
   jobWorkflowAction: (data: unknown) => api.post('/garage/workflow-action', securePayload(data)).then((r) => r.data),
   getJobApprovalHistory: (data: unknown) => api.post('/garage/job-approval-history', securePayload(data)).then((r) => r.data),
+  getJobFullHistory: (data: unknown) => api.post('/garage/job-full-history', securePayload(data)).then((r) => r.data),
   getScheduledJobs: () => api.get('/garage/scheduled-jobs').then((r) => r.data),
+  getRepeatJobs: () => api.get('/garage/repeat-jobs').then((r) => r.data),
+  triggerRepeatJobs: () => api.get('/garage/trigger-repeat-jobs').then((r) => r.data),
   getJobCategories: (data: unknown) => api.post('/garage/job-categories', securePayload(data)).then((r) => r.data),
   editJob: (data: unknown) => api.post('/garage/edit-job', securePayload(data)).then((r) => r.data),
   updateJobVoucher: (data: unknown) => api.post('/updatejobvoucher', securePayload(data)).then((r) => r.data),
@@ -41,9 +44,11 @@ export const garageService = {
   // ── Service Reminders ───────────────────────────────────
   getServiceReminders: () => api.get('/service-reminders/getall').then((r) => r.data),
   addServiceReminder: (data: unknown) => api.post('/service-reminders/add', securePayload(data)).then((r) => r.data),
+  addServiceRemindersBulk: (data: unknown) => api.post('/service-reminders/bulk-add', securePayload(data)).then((r) => r.data),
   editServiceReminder: (data: unknown) => api.post('/service-reminders/edit', securePayload(data)).then((r) => r.data),
   completeServiceReminder: (data: unknown) => api.post('/service-reminders/complete', securePayload(data)).then((r) => r.data),
   deleteServiceReminder: (data: unknown) => api.post('/service-reminders/delete', securePayload(data)).then((r) => r.data),
+  linkJobCardToReminder: (data: unknown) => api.post('/service-reminders/link-job-card', securePayload(data)).then((r) => r.data),
 
   // ── Tyre Inventory ───────────────────────────────────────
   getTyreInventory: () => api.get('/tyre-inventory/getall').then((r) => r.data),
@@ -61,4 +66,16 @@ export const garageService = {
   addBattery: (data: unknown) => api.post('/battery/add', securePayload(data)).then((r) => r.data),
   editBattery: (data: unknown) => api.post('/battery/edit', securePayload(data)).then((r) => r.data),
   deleteBattery: (data: unknown) => api.post('/battery/delete', securePayload(data)).then((r) => r.data),
+  getBatteryLedgers: (data: unknown) => api.post('/battery/ledgers', securePayload(data)).then((r) => r.data),
+  getBatteryHistory: (data: unknown) => api.post('/battery/history', securePayload(data)).then((r) => r.data),
+
+  // ── Battery Brands (Main Masters) ─────────────────────────
+  getBatteryBrands: () => api.get('/battery-brands/getall').then((r) => r.data),
+  addBatteryBrand: (data: unknown) => api.post('/battery-brands/add', securePayload(data)).then((r) => r.data),
+  deleteBatteryBrand: (data: unknown) => api.post('/battery-brands/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Battery Capacities (Main Masters) ─────────────────────
+  getBatteryCapacities: () => api.get('/battery-capacities/getall').then((r) => r.data),
+  addBatteryCapacity: (data: unknown) => api.post('/battery-capacities/add', securePayload(data)).then((r) => r.data),
+  deleteBatteryCapacity: (data: unknown) => api.post('/battery-capacities/delete', securePayload(data)).then((r) => r.data),
 }

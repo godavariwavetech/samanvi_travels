@@ -1,10 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { Search, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle } from 'lucide-react'
+import { Search, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
 import { Input } from './Input'
 import { ColumnFilterDropdown } from './ColumnFilterDropdown'
+import { cn } from '@/lib/utils'
 
 export interface Column<T = Record<string, unknown>> {
   label: string
@@ -12,10 +14,14 @@ export interface Column<T = Record<string, unknown>> {
   filterable?: boolean
   filterType?: 'text' | 'select' | 'date'
   filterOptions?: { label: string; value: string }[]
+  align?: 'left' | 'center' | 'right'
   render?: (value: any, row: T, index: number) => ReactNode
 }
 
-type ActionType = 'view' | 'edit' | 'pdf' | 'print' | 'delete'
+const alignText: Record<'left' | 'center' | 'right', string> = { left: 'text-left', center: 'text-center', right: 'text-right' }
+const alignJustify: Record<'left' | 'center' | 'right', string> = { left: 'justify-start', center: 'justify-center', right: 'justify-end' }
+
+type ActionType = 'view' | 'edit' | 'pdf' | 'print' | 'delete' | 'history'
 
 interface DataTableProps<T extends Record<string, unknown>> {
   title?: string
@@ -32,6 +38,7 @@ interface DataTableProps<T extends Record<string, unknown>> {
   columnFilters?: Record<string, string[]>
   onColumnFilterChange?: (key: string, vals: string[]) => void
   filterBar?: ReactNode
+  className?: string
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -49,6 +56,7 @@ export function DataTable<T extends Record<string, unknown>>({
   columnFilters,
   onColumnFilterChange,
   filterBar,
+  className,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
@@ -130,13 +138,14 @@ export function DataTable<T extends Record<string, unknown>>({
   const actionButtons = [
     { type: 'view' as const, icon: Eye, cls: 'text-blue-600 bg-blue-50 hover:bg-blue-100 border-blue-100' },
     { type: 'edit' as const, icon: Edit2, cls: 'text-amber-600 bg-amber-50 hover:bg-amber-100 border-amber-100' },
+    { type: 'history' as const, icon: History, cls: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
     { type: 'pdf' as const, icon: FileText, cls: 'text-purple-600 bg-purple-50 hover:bg-purple-100 border-purple-100' },
     { type: 'print' as const, icon: Printer, cls: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
     { type: 'delete' as const, icon: Trash2, cls: 'text-red-600 bg-red-50 hover:bg-red-100 border-red-100' },
   ].filter((b) => actions.includes(b.type))
 
   return (
-    <GlassCard className="flex flex-col overflow-hidden mt-6">
+    <GlassCard className={cn('flex flex-col overflow-hidden mt-6', className)}>
 
       {/* Header */}
       <div className="border-b border-slate-100 bg-white/40">
@@ -233,9 +242,9 @@ export function DataTable<T extends Record<string, unknown>>({
               {columns.map((col, i) => (
                 <th
                   key={i}
-                  className={`p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${!selectable && i === 0 ? 'pl-6' : ''}`}
+                  className={`p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${alignText[col.align ?? 'left']} ${!selectable && i === 0 ? 'pl-6' : ''}`}
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className={`flex items-center gap-1.5 ${alignJustify[col.align ?? 'left']}`}>
                     {col.label}
                     {col.filterable && (
                       <ColumnFilterDropdown
@@ -300,7 +309,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   {columns.map((col, j) => (
                     <td
                       key={j}
-                      className={`p-4 align-middle ${j === 0 && !selectable ? 'pl-6 font-semibold text-slate-900' : 'text-slate-600 text-sm'}`}
+                      className={`p-4 align-middle ${alignText[col.align ?? 'left']} ${j === 0 && !selectable ? 'pl-6 font-semibold text-slate-900' : 'text-slate-600 text-sm'}`}
                     >
                       {col.render ? col.render(row[col.key], row, i) : String(row[col.key] ?? '')}
                     </td>
@@ -328,44 +337,48 @@ export function DataTable<T extends Record<string, unknown>>({
         </table>
       </div>
 
-      {/* Delete confirm modal */}
-      <AnimatePresence>
-        {confirmDelete && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
-          >
+      {/* Delete confirm modal — portaled to <body> so it isn't clipped/repositioned by
+          this card's backdrop-blur (which creates a containing block for `fixed` children) */}
+      {createPortal(
+        <AnimatePresence>
+          {confirmDelete && (
             <motion.div
-              initial={{ scale: 0.95 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.95 }}
-              className="bg-white p-6 rounded-3xl max-w-sm w-full shadow-2xl mx-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
             >
-              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-600">
-                <AlertCircle className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900">Delete Record?</h3>
-              <p className="text-slate-500 text-sm mt-2 mb-6">
-                This action cannot be undone. Are you sure?
-              </p>
-              <div className="flex justify-end gap-3">
-                <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                <Button
-                  variant="danger"
-                  onClick={() => {
-                    onAction?.('delete', confirmDelete)
-                    setConfirmDelete(null)
-                  }}
-                >
-                  Yes, Delete
-                </Button>
-              </div>
+              <motion.div
+                initial={{ scale: 0.95 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.95 }}
+                className="bg-white p-6 rounded-3xl max-w-sm w-full shadow-2xl mx-4"
+              >
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-600">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900">Delete Record?</h3>
+                <p className="text-slate-500 text-sm mt-2 mb-6">
+                  This action cannot be undone. Are you sure?
+                </p>
+                <div className="flex justify-end gap-3">
+                  <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      onAction?.('delete', confirmDelete)
+                      setConfirmDelete(null)
+                    }}
+                  >
+                    Yes, Delete
+                  </Button>
+                </div>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </GlassCard>
   )
 }

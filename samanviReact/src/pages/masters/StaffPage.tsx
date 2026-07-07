@@ -1,12 +1,13 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings } from 'lucide-react'
+import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings, Upload, Download, FileSpreadsheet } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
+import * as XLSX from 'xlsx'
 
 type DataType = string
 
@@ -217,6 +218,39 @@ const typeColors: Record<string, string> = {
 
 const today = new Date().toISOString().split('T')[0]
 
+const DRIVER_TEMPLATE_HEADERS = [
+  'Nick Name', 'DL Name (Full Name)*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
+  'Emergency Number', 'Aadhar Number*', 'DL Number*', 'Account Holder Name', 'Account Number',
+  'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID', 'DL Issue Date', 'DL Expiry Date',
+  'Transport Issue Date', 'Transport Valid From', 'Transport Valid To', 'Date of Joining*',
+  'Reference Name', 'Remarks',
+]
+const STAFF_TEMPLATE_HEADERS = [
+  'Designation*', 'Nick Name', 'Full Name*', 'Mobile Number*', 'Alternative Mobile',
+  'Emergency Contact', 'Aadhar Number*', 'Reference Name', 'Account Holder Name',
+  'Account Number', 'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID',
+  'Date of Joining*', 'Remarks',
+]
+const HELPER_TEMPLATE_HEADERS = [
+  'Nick Name', 'Full Name (Aadhar Name)*', 'Mobile Number*', 'Alternate Number',
+  'Emergency Mobile', 'Aadhar Number*', 'Reference', 'Account Holder Name',
+  'Account Number', 'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID',
+  'Date of Joining*', 'Remarks',
+]
+
+function downloadExcel(data: any[][], filename: string) {
+  const ws = XLSX.utils.aoa_to_sheet(data)
+  ws['!cols'] = data[0].map((_: any, i: number) => ({ wch: Math.max(...data.map(r => String(r[i] ?? '').length)) + 4 }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Data')
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function StaffPage() {
   const qc = useQueryClient()
   const [dataType, setDataType] = useState<DataType>('')
@@ -225,6 +259,8 @@ export default function StaffPage() {
   const [staffForm, setStaffForm] = useState(emptyStaff)
   const [driverForm, setDriverForm] = useState(emptyDriver)
   const [helperForm, setHelperForm] = useState(emptyHelper)
+  const uploadRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
 
   const sf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setStaffForm((f) => ({ ...f, [k]: e.target.value }))
   const df = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDriverForm((f) => ({ ...f, [k]: e.target.value }))
@@ -305,6 +341,150 @@ export default function StaffPage() {
     }
   }
 
+  const downloadTemplate = () => {
+    if (!dataType || dataType === 'Terminated') return
+    const headers = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS
+      : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
+    const sample = dataType === 'Driver'
+      ? ['Raju', 'Venkata Raju', '1990-01-01', '9876543210', '', '', '123456789012', 'DL-AP123', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '2015-06-01', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', '2020-01-01', 'Reference', '']
+      : dataType === 'Helper'
+      ? ['Ramesh', 'Ramesh Kumar', '9876543210', '', '', '123456789012', 'Ref Name', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '2020-01-01', '']
+      : ['Manager', 'Suresh', 'Suresh Kumar', '9876543210', '', '', '987654321012', 'Ref Name', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '2020-01-01', '']
+    downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
+  }
+
+  const downloadData = () => {
+    if (!dataType || dataType === 'Terminated') return
+    let rows: any[][] = []
+    if (dataType === 'Driver') {
+      rows = driverList.map(r => [
+        r.nickname ?? '', r.driver_name ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
+        r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.aadhar_number ?? '',
+        r.dl_number ?? '', r.account_holder_name ?? '', r.account_number ?? '',
+        r.bank_name ?? '', r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '',
+        r.drivinglicense_joining_date ?? '', r.dl_expiry_date ?? '',
+        r.transportoneissuedate ?? '', r.transportvalidityfrom ?? '', r.transportvalidityto ?? '',
+        r.date_of_joining ?? '', r.reference ?? '', r.remarks ?? '',
+      ])
+      downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
+    } else if (dataType === 'Helper') {
+      rows = helperList.map(r => [
+        r.nickname ?? '', r.helper_name ?? '', r.mobile_number ?? '', r.alternate_number ?? '',
+        r.emergency_mobile_number ?? '', r.adhar_number ?? '', r.reference ?? '',
+        r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
+        r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '', r.date_of_joining ?? '',
+        r.remarks ?? '',
+      ])
+      downloadExcel([HELPER_TEMPLATE_HEADERS, ...rows], `Helpers_${Date.now()}.xlsx`)
+    } else {
+      rows = staffList.map(r => [
+        r.designation ?? '', r.nickName ?? '', r.fullName ?? '', r.mobile ?? '',
+        r.alternativemobilenumber ?? '', r.emergencyContact ?? '', r.aadhaar ?? '',
+        r.referencename ?? '', r.accountHolderName ?? '', r.accountNumber ?? '',
+        r.bankName ?? '', r.branchname ?? '', r.ifscCode ?? '', r.upiId ?? '',
+        r.dateOfJoining ?? '', r.remarks ?? '',
+      ])
+      downloadExcel([STAFF_TEMPLATE_HEADERS, ...rows], `Staff_${dataType}_${Date.now()}.xlsx`)
+    }
+    toast.success(`Exported ${rows.length} records`)
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !dataType || dataType === 'Terminated') return
+    e.target.value = ''
+    setUploading(true)
+    try {
+      const ab = await file.arrayBuffer()
+      const wb = XLSX.read(ab)
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
+      if (raw.length < 2) { toast.error('No data rows found'); return }
+      const [, ...dataRows] = raw
+      let rows: any[]
+      if (dataType === 'Driver') {
+        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => ({
+          nickname: String(r[0] ?? '').trim() || null,
+          driver_name: String(r[1] ?? '').trim(),
+          dldateofbirth: String(r[2] ?? '').trim() || null,
+          mobile_number: String(r[3] ?? '').trim(),
+          alternate_number: String(r[4] ?? '').trim() || null,
+          emergency_mobile_number: String(r[5] ?? '').trim() || null,
+          aadhar_number: String(r[6] ?? '').trim() || null,
+          dl_number: String(r[7] ?? '').trim() || null,
+          account_holder_name: String(r[8] ?? '').trim() || null,
+          account_number: String(r[9] ?? '').trim() || null,
+          bank_name: String(r[10] ?? '').trim() || null,
+          branch_name: String(r[11] ?? '').trim() || null,
+          ifsc_code: String(r[12] ?? '').trim() || null,
+          upi_id: String(r[13] ?? '').trim() || null,
+          drivinglicense_joining_date: String(r[14] ?? '').trim() || null,
+          dl_expiry_date: String(r[15] ?? '').trim() || null,
+          transportoneissuedate: String(r[16] ?? '').trim() || null,
+          transportvalidityfrom: String(r[17] ?? '').trim() || null,
+          transportvalidityto: String(r[18] ?? '').trim() || null,
+          date_of_joining: String(r[19] ?? '').trim() || null,
+          reference: String(r[20] ?? '').trim() || null,
+          remarks: String(r[21] ?? '').trim() || null,
+        }))
+      } else if (dataType === 'Staff') {
+        rows = dataRows.filter(r => r && String(r[2] ?? '').trim()).map(r => ({
+          designation: String(r[0] ?? '').trim() || 'Staff',
+          nickName: String(r[1] ?? '').trim() || null,
+          fullName: String(r[2] ?? '').trim(),
+          mobile: String(r[3] ?? '').trim(),
+          alternativemobilenumber: String(r[4] ?? '').trim() || null,
+          emergencyContact: String(r[5] ?? '').trim() || null,
+          aadhaar: String(r[6] ?? '').trim() || null,
+          referencename: String(r[7] ?? '').trim() || null,
+          accountHolderName: String(r[8] ?? '').trim() || null,
+          accountNumber: String(r[9] ?? '').trim() || null,
+          bankName: String(r[10] ?? '').trim() || null,
+          branchname: String(r[11] ?? '').trim() || null,
+          ifscCode: String(r[12] ?? '').trim() || null,
+          upiId: String(r[13] ?? '').trim() || null,
+          dateOfJoining: String(r[14] ?? '').trim() || null,
+          remarks: String(r[15] ?? '').trim() || null,
+        }))
+      } else {
+        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => ({
+          nickname: String(r[0] ?? '').trim() || null,
+          helper_name: String(r[1] ?? '').trim(),
+          mobile_number: String(r[2] ?? '').trim(),
+          alternate_number: String(r[3] ?? '').trim() || null,
+          emergency_mobile_number: String(r[4] ?? '').trim() || null,
+          adhar_number: String(r[5] ?? '').trim() || null,
+          reference: String(r[6] ?? '').trim() || null,
+          account_holder_name: String(r[7] ?? '').trim() || null,
+          account_number: String(r[8] ?? '').trim() || null,
+          bank_name: String(r[9] ?? '').trim() || null,
+          branch_name: String(r[10] ?? '').trim() || null,
+          ifsc_code: String(r[11] ?? '').trim() || null,
+          upi_id: String(r[12] ?? '').trim() || null,
+          date_of_joining: String(r[13] ?? '').trim() || null,
+          remarks: String(r[14] ?? '').trim() || null,
+        }))
+      }
+      if (rows.length === 0) { toast.error('No valid rows (required field is empty)'); return }
+      const uid = localStorage.getItem('user_id') ?? ''
+      const unm = localStorage.getItem('usr_nm') ?? ''
+      const res = await mastersService.bulkUploadStaff({ type: dataType, rows, user_id: uid, usr_nm: unm })
+      if (res.status === 200) {
+        const { inserted, skipped, total } = res.data
+        qc.invalidateQueries({ queryKey: ['active-staff', 'drivers', 'active-helpers'] })
+        if (skipped.length > 0) {
+          toast.success(`Inserted ${inserted} of ${total}. ${skipped.length} duplicates skipped: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}`)
+        } else {
+          toast.success(`Successfully inserted ${inserted} ${dataType} records!`)
+        }
+      } else toast.error('Upload failed')
+    } catch {
+      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const mkTerminateBtn = (staffType: string): Column => ({
     label: 'Action', key: 'id',
     render: (_: unknown, row: any) => (
@@ -373,7 +553,7 @@ export default function StaffPage() {
       </div>
 
       {/* Select Data Type card */}
-      <GlassCard className="p-5">
+      <GlassCard className="p-5" colorBar="bg-gradient-to-r from-slate-500 to-slate-700">
         <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wider mb-3">Select Data Type</h3>
         <div className="flex flex-wrap gap-4 items-start">
           {/* Dropdown */}
@@ -418,6 +598,31 @@ export default function StaffPage() {
                 </button>
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Excel actions — only for Driver / Staff / Helper */}
+        {['Driver', 'Staff', 'Helper'].includes(dataType) && (
+          <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-slate-100 items-center">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Excel:</span>
+            <button
+              onClick={downloadTemplate}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" /> Template
+            </button>
+            <button
+              onClick={downloadData}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" /> Export
+            </button>
+            <label className="cursor-pointer">
+              <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${uploading ? 'border-blue-200 bg-blue-50 text-blue-400' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
+                <Upload className="w-3.5 h-3.5" /> {uploading ? 'Uploading…' : 'Import Excel'}
+              </span>
+              <input ref={uploadRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleUpload} disabled={uploading} />
+            </label>
           </div>
         )}
       </GlassCard>
