@@ -76,7 +76,13 @@ import RepairTrackingPage from '@/pages/garage/RepairTrackingPage'
 import GarageReportsPage from '@/pages/garage/GarageReportsPage'
 import ServiceRemindersPage from '@/pages/garage/ServiceRemindersPage'
 import TyreInventoryPage from '@/pages/garage/TyreInventoryPage'
+import TyreSalePage from '@/pages/garage/TyreSalePage'
 import TyrePositionPage from '@/pages/garage/TyrePositionPage'
+import TyreRetreadPage from '@/pages/garage/TyreRetreadPage'
+import TyreRepairPage from '@/pages/garage/TyreRepairPage'
+import TyreMovementPage from '@/pages/garage/TyreMovementPage'
+import TyreReportsPage from '@/pages/garage/TyreReportsPage'
+import TyreStockAvailabilityPage from '@/pages/garage/TyreStockAvailabilityPage'
 import BatteryManagementPage from '@/pages/garage/BatteryManagementPage'
 import ScheduledJobsPage from '@/pages/garage/ScheduledJobsPage'
 import RepeatJobsPage from '@/pages/garage/RepeatJobsPage'
@@ -88,10 +94,13 @@ import StaticEntryPage from '@/pages/mainmasters/StaticEntryPage'
 import SubChildTwoPage from '@/pages/mainmasters/SubChildTwoPage'
 import LaundryProductPage from '@/pages/mainmasters/LaundryProductPage'
 import GarageMastersPage from '@/pages/mainmasters/GarageMastersPage'
+import TyreMastersPage from '@/pages/mainmasters/TyreMastersPage'
 import VehicleTypePage from '@/pages/mainmasters/VehicleTypePage'
 import VehicleCompanyPage from '@/pages/mainmasters/VehicleCompanyPage'
 import SeatingCapacityPage from '@/pages/mainmasters/SeatingCapacityPage'
 import ChassisModelPage from '@/pages/mainmasters/ChassisModelPage'
+import LuxuryTypePage from '@/pages/mainmasters/LuxuryTypePage'
+import MfgYearPage from '@/pages/mainmasters/MfgYearPage'
 import BatteryBrandPage from '@/pages/mainmasters/BatteryBrandPage'
 import BatteryCapacityPage from '@/pages/mainmasters/BatteryCapacityPage'
 
@@ -176,7 +185,13 @@ export const router = createBrowserRouter([
       { path: 'garage/reports', element: <GarageReportsPage /> },
       { path: 'garage/service-reminders', element: <ServiceRemindersPage /> },
       { path: 'garage/tyre-inventory', element: <TyreInventoryPage /> },
+      { path: 'garage/tyre-sale', element: <TyreSalePage /> },
       { path: 'garage/tyre-position', element: <TyrePositionPage /> },
+      { path: 'garage/tyre-retread', element: <TyreRetreadPage /> },
+      { path: 'garage/tyre-repair', element: <TyreRepairPage /> },
+      { path: 'garage/tyre-movement', element: <TyreMovementPage /> },
+      { path: 'garage/tyre-reports', element: <TyreReportsPage /> },
+      { path: 'garage/tyre-stock-availability', element: <TyreStockAvailabilityPage /> },
       { path: 'garage/battery-management', element: <BatteryManagementPage /> },
       { path: 'garage/scheduled-jobs', element: <ScheduledJobsPage /> },
       { path: 'garage/repeat-jobs',    element: <RepeatJobsPage /> },
@@ -186,10 +201,13 @@ export const router = createBrowserRouter([
       { path: 'mainmasters/static-entry',   element: <StaticEntryPage /> },
       { path: 'mainmasters/laundry-products', element: <LaundryProductPage /> },
       { path: 'mainmasters/garage-masters', element: <GarageMastersPage /> },
+      { path: 'mainmasters/tyre-masters',   element: <TyreMastersPage /> },
       { path: 'mainmasters/vehicle-type',    element: <VehicleTypePage /> },
       { path: 'mainmasters/vehicle-company', element: <VehicleCompanyPage /> },
       { path: 'mainmasters/seating-capacity',element: <SeatingCapacityPage /> },
       { path: 'mainmasters/chassis-model',   element: <ChassisModelPage /> },
+      { path: 'mainmasters/luxury-type',     element: <LuxuryTypePage /> },
+      { path: 'mainmasters/mfg-year',        element: <MfgYearPage /> },
       { path: 'mainmasters/battery-brand',    element: <BatteryBrandPage /> },
       { path: 'mainmasters/battery-capacity', element: <BatteryCapacityPage /> },
       // Group pages — each level gets its own path so NavLink active state works

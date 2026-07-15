@@ -64,4 +64,22 @@ export const mainmastersService = {
   addTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/add', securePayload(data)).then((r) => r.data),
   editTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/edit', securePayload(data)).then((r) => r.data),
   deleteTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Garage: Tyre Vendors ────────────────────────────────────
+  getTyreVendors: () => api.get('/tyre-vendors/getall').then((r) => r.data),
+  addTyreVendor: (data: unknown) => api.post('/tyre-vendors/add', securePayload(data)).then((r) => r.data),
+  editTyreVendor: (data: unknown) => api.post('/tyre-vendors/edit', securePayload(data)).then((r) => r.data),
+  deleteTyreVendor: (data: unknown) => api.post('/tyre-vendors/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Garage: Tyre Sizes ───────────────────────────────────────
+  getTyreSizes: () => api.get('/tyre-sizes/getall').then((r) => r.data),
+  addTyreSize: (data: unknown) => api.post('/tyre-sizes/add', securePayload(data)).then((r) => r.data),
+  editTyreSize: (data: unknown) => api.post('/tyre-sizes/edit', securePayload(data)).then((r) => r.data),
+  deleteTyreSize: (data: unknown) => api.post('/tyre-sizes/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Garage: Tyre Makes ───────────────────────────────────────
+  getTyreMakes: () => api.get('/tyre-makes/getall').then((r) => r.data),
+  addTyreMake: (data: unknown) => api.post('/tyre-makes/add', securePayload(data)).then((r) => r.data),
+  editTyreMake: (data: unknown) => api.post('/tyre-makes/edit', securePayload(data)).then((r) => r.data),
+  deleteTyreMake: (data: unknown) => api.post('/tyre-makes/delete', securePayload(data)).then((r) => r.data),
 }

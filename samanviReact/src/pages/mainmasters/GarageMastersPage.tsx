@@ -1,123 +1,16 @@
 import { useState } from 'react'
 import React from 'react'
 import { motion } from 'motion/react'
-import { Save, Pencil, X, Check, History, IndianRupee } from 'lucide-react'
+import { Save, Pencil, X, History, IndianRupee } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select, NameListMaster } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { garageService } from '@/services/garage.service'
 import { mastersService } from '@/services/masters.service'
 
-const tabs = ['Service Reminder Types', 'Tyre Positions', 'Repair Categories', 'Spare Parts', 'Service Schedules', 'Lubricants & Fluids']
-
-interface NameListMasterProps {
-  label: string
-  placeholder: string
-  fieldKey: string
-  queryKey: string
-  getAll: () => Promise<any>
-  add: (data: unknown) => Promise<any>
-  edit: (data: unknown) => Promise<any>
-  remove: (data: unknown) => Promise<any>
-}
-
-function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll, add, edit, remove }: NameListMasterProps) {
-  const qc = useQueryClient()
-  const [name, setName] = useState('')
-  const [editId, setEditId] = useState<number | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
-
-  const { data, isLoading } = useQuery({ queryKey: [queryKey], queryFn: getAll })
-  const list: any[] = data?.data ?? []
-
-  const { mutate: submit, isPending } = useMutation({
-    mutationFn: () => add({ [fieldKey]: name.trim() }),
-    onSuccess: (res) => {
-      if (res.status === 200) { toast.success(`${label} added!`); qc.invalidateQueries({ queryKey: [queryKey] }); setName('') }
-      else toast.error('Failed')
-    },
-    onError: () => toast.error('Server error'),
-  })
-
-  const { mutate: editSave } = useMutation({
-    mutationFn: () => edit({ id: editId, [fieldKey]: editValue.trim() }),
-    onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Updated!'); qc.invalidateQueries({ queryKey: [queryKey] }); setEditId(null); setEditValue('') }
-      else toast.error('Failed')
-    },
-    onError: () => toast.error('Server error'),
-  })
-
-  const { mutate: del } = useMutation({
-    mutationFn: (id: number) => remove({ id }),
-    onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Deleted'); qc.invalidateQueries({ queryKey: [queryKey] }) }
-      else toast.error('Failed')
-    },
-    onError: () => toast.error('Server error'),
-  })
-
-  return (
-    <>
-      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-blue-500 to-cyan-500">
-        <div className="flex items-end gap-4">
-          <div className="flex-1 max-w-sm">
-            <Label>{label} <span className="text-red-500">*</span></Label>
-            <Input
-              placeholder={placeholder}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && name.trim() && submit()}
-            />
-          </div>
-          <Button onClick={() => submit()} disabled={isPending || !name.trim()}>
-            <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Submit'}
-          </Button>
-        </div>
-      </GlassCard>
-
-      <DataTable
-        title={`${label} List`}
-        columns={[
-          { label: 'S.No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-slate-500">{i + 1}</span> },
-          { label, key: fieldKey, filterable: true, render: (v, row: any) => (
-            editId === row.id ? (
-              <Input
-                autoFocus
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && editValue.trim()) editSave(); if (e.key === 'Escape') setEditId(null) }}
-                className="h-9 max-w-xs"
-              />
-            ) : (
-              <span className="font-medium text-slate-800">{String(v)}</span>
-            )
-          ) },
-          { label: 'Action', key: 'id', align: 'center', render: (_v, row: any) => (
-            editId === row.id ? (
-              <div className="flex items-center justify-center gap-2">
-                <button onClick={() => editValue.trim() && editSave()} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Save"><Check className="w-4 h-4" /></button>
-                <button onClick={() => { setEditId(null); setEditValue('') }} className="text-slate-400 hover:text-red-500 transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-3">
-                <button onClick={() => { setEditId(row.id); setEditValue(row[fieldKey]) }} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-                <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
-              </div>
-            )
-          ) },
-        ]}
-        data={list}
-        loading={isLoading}
-        columnFilters={columnFilters}
-        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
-      />
-    </>
-  )
-}
+const tabs = ['Service Reminder Types', 'Repair Categories', 'Spare Parts', 'Service Schedules', 'Lubricants & Fluids']
 
 const EMPTY_PART = { part_number: '', part_name: '', price: '', category_id: '' }
 
@@ -659,19 +552,6 @@ export default function GarageMastersPage() {
           add={mainmastersService.addReminderType}
           edit={mainmastersService.editReminderType}
           remove={mainmastersService.deleteReminderType}
-        />
-      )}
-
-      {tab === 'Tyre Positions' && (
-        <NameListMaster
-          label="Tyre Position"
-          placeholder="e.g. Front Left, Spare 1…"
-          fieldKey="position_name"
-          queryKey="tyre-positions-master"
-          getAll={mainmastersService.getTyrePositionsMaster}
-          add={mainmastersService.addTyrePositionMaster}
-          edit={mainmastersService.editTyrePositionMaster}
-          remove={mainmastersService.deleteTyrePositionMaster}
         />
       )}
 

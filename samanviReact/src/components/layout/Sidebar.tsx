@@ -18,13 +18,17 @@ interface NavLeaf {
 
 interface NavSubGroup {
   label: string
-  children: NavLeaf[]
+  children: NavChild[]
 }
 
 type NavChild = NavLeaf | NavSubGroup
 
 function isSubGroup(c: NavChild): c is NavSubGroup {
   return 'children' in c
+}
+
+function flattenLeafs(children: NavChild[]): NavLeaf[] {
+  return children.flatMap(c => (isSubGroup(c) ? flattenLeafs(c.children) : [c]))
 }
 
 interface NavItem {
@@ -42,7 +46,6 @@ const NAV_ITEMS: NavItem[] = [
   {
     id: 'masters', label: 'Masters', icon: Settings,
     children: [
-      { label: 'Service For',    path: '/masters/service-for' },
       { label: 'Bus Numbers',    path: '/masters/bus-no' },
       { label: 'Service Numbers',path: '/masters/service-no' },
       { label: 'Staff Register', path: '/masters/staff' },
@@ -98,8 +101,19 @@ const NAV_ITEMS: NavItem[] = [
       {
         label: 'Tyre Management',
         children: [
-          { label: 'Tyre Inventory', path: '/garage/tyre-inventory' },
-          { label: 'Tyre Position',  path: '/garage/tyre-position' },
+          {
+            label: 'Inventory',
+            children: [
+              { label: 'New Tyre Entry',     path: '/garage/tyre-inventory' },
+              { label: 'Retread Tyre Entry', path: '/garage/tyre-retread' },
+            ],
+          },
+          { label: 'Allocation',    path: '/garage/tyre-position' },
+          { label: 'Tyre Movement', path: '/garage/tyre-movement' },
+          { label: 'Tyre Repair',   path: '/garage/tyre-repair' },
+          { label: 'Tyre Stock & Status', path: '/garage/tyre-stock-availability' },
+          { label: 'Tyre Sale',     path: '/garage/tyre-sale' },
+          { label: 'Reports',       path: '/garage/tyre-reports' },
         ],
       },
       { label: 'Battery Management', path: '/garage/battery-management' },
@@ -140,15 +154,19 @@ const NAV_ITEMS: NavItem[] = [
   {
     id: 'mainmasters', label: 'Main Masters', icon: Building2,
     children: [
+      { label: 'Service For',        path: '/masters/service-for' },
       { label: 'Static Entry',       path: '/mainmasters/static-entry' },
       { label: 'Voucher Types',      path: '/mainmasters/voucher-type' },
       { label: 'Group Management',   path: '/mainmasters/groups' },
       { label: 'Laundry Products',   path: '/mainmasters/laundry-products' },
       { label: 'Garage Masters',     path: '/mainmasters/garage-masters' },
+      { label: 'Tyre Masters',       path: '/mainmasters/tyre-masters' },
       { label: 'Vehicle Type',       path: '/mainmasters/vehicle-type' },
       { label: 'Vehicle Company',    path: '/mainmasters/vehicle-company' },
       { label: 'Seating Capacity',   path: '/mainmasters/seating-capacity' },
       { label: 'Chassis Model',      path: '/mainmasters/chassis-model' },
+      { label: 'Luxury Type',        path: '/mainmasters/luxury-type' },
+      { label: 'Mfg Year',           path: '/mainmasters/mfg-year' },
       { label: 'Battery Brand',      path: '/mainmasters/battery-brand' },
       { label: 'Battery Capacity',   path: '/mainmasters/battery-capacity' },
     ],
@@ -164,7 +182,7 @@ function NavSubSection({
   onClose: () => void
 }) {
   const location = useLocation()
-  const isAnyActive = group.children.some(c => location.pathname.startsWith(c.path))
+  const isAnyActive = flattenLeafs(group.children).some(c => location.pathname.startsWith(c.path))
 
   return (
     <div className="mt-1">
@@ -176,23 +194,29 @@ function NavSubSection({
         {group.label}
       </p>
       <div className="space-y-0.5">
-        {group.children.map(leaf => (
-          <NavLink
-            key={leaf.path}
-            to={leaf.path}
-            onClick={onClose}
-            className={({ isActive }) =>
-              cn(
-                'block px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
-                isActive
-                  ? 'text-[#14B8A6] bg-white/5'
-                  : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/40',
-              )
-            }
-          >
-            {leaf.label}
-          </NavLink>
-        ))}
+        {group.children.map((child, i) =>
+          isSubGroup(child) ? (
+            <div key={i} className="pl-2 border-l border-slate-700/40">
+              <NavSubSection group={child} onClose={onClose} />
+            </div>
+          ) : (
+            <NavLink
+              key={child.path}
+              to={child.path}
+              onClick={onClose}
+              className={({ isActive }) =>
+                cn(
+                  'block px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                  isActive
+                    ? 'text-[#14B8A6] bg-white/5'
+                    : 'text-slate-500 hover:text-slate-200 hover:bg-slate-800/40',
+                )
+              }
+            >
+              {child.label}
+            </NavLink>
+          ),
+        )}
       </div>
     </div>
   )
@@ -202,9 +226,7 @@ function NavSubSection({
 function NavGroup({ item, onClose }: { item: NavItem; onClose: () => void }) {
   const location = useLocation()
 
-  const allLeafs = (item.children ?? []).flatMap(c =>
-    isSubGroup(c) ? c.children : [c],
-  )
+  const allLeafs = flattenLeafs(item.children ?? [])
   const isChildActive = allLeafs.some(c => location.pathname.startsWith(c.path))
   const [open, setOpen] = useState(isChildActive)
 

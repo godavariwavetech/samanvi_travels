@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { BatteryCharging, Save, Plus, X, Edit2, MinusCircle, History, Clock } from 'lucide-react'
+import { BatteryCharging, Save, Plus, X, Edit2, MinusCircle, History, Clock, Truck, ShoppingCart } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
@@ -8,6 +8,7 @@ import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import ChangeNote from '@/components/shared/ChangeNote'
 
 const STATUSES = ['Active', 'Replaced', 'Scrapped']
 
@@ -39,6 +40,7 @@ export default function BatteryManagementPage() {
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
+  const [entryMode, setEntryMode] = useState<'new' | 'with_bus'>('new')
   const [ledgerDescription, setLedgerDescription] = useState('')
   const [debit, setDebit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
   const [credit, setCredit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
@@ -137,6 +139,7 @@ export default function BatteryManagementPage() {
     setLedgerDescription('')
     setDebit([emptyLedgerEntry()])
     setCredit([emptyLedgerEntry()])
+    setEntryMode('new')
     setIsEdit(true); setEditId(row.id); setShowForm(true)
   }
 
@@ -149,12 +152,12 @@ export default function BatteryManagementPage() {
 
   const openAdd = () => {
     setForm(EMPTY_FORM); setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
-    setIsEdit(false); setEditId(null); setShowForm(true)
+    setEntryMode('new'); setIsEdit(false); setEditId(null); setShowForm(true)
   }
   const closeForm = () => {
     setShowForm(false); setForm(EMPTY_FORM); setLedgerDescription('')
     setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
-    setIsEdit(false); setEditId(null)
+    setEntryMode('new'); setIsEdit(false); setEditId(null)
   }
 
   const cols: Column[] = [
@@ -173,7 +176,9 @@ export default function BatteryManagementPage() {
     },
   ]
 
-  const canSave = !!form.battery_code && (!hasLedgerEntry || isBalanced)
+  const canSaveNew = !!form.battery_code && (!hasLedgerEntry || isBalanced)
+  const canSaveWithBus = !!form.battery_code && !!form.vehicle_number
+  const canSave = isEdit ? canSaveNew : entryMode === 'new' ? canSaveNew : canSaveWithBus
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -192,6 +197,37 @@ export default function BatteryManagementPage() {
                 </h2>
                 <button onClick={closeForm} className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
               </div>
+
+              {!isEdit && (
+                <div className="mb-6">
+                  <Label>How is this battery being added?</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('with_bus')}
+                      className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors ${entryMode === 'with_bus' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
+                    >
+                      <Truck className={`w-5 h-5 ${entryMode === 'with_bus' ? 'text-blue-600' : 'text-slate-400'}`} />
+                      <div>
+                        <div className="text-sm font-bold text-slate-800">Came With Bus</div>
+                        <div className="text-xs text-slate-500">Battery fitted on a bus at purchase — no separate accounting entry</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEntryMode('new')}
+                      className={`flex items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors ${entryMode === 'new' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'}`}
+                    >
+                      <ShoppingCart className={`w-5 h-5 ${entryMode === 'new' ? 'text-blue-600' : 'text-slate-400'}`} />
+                      <div>
+                        <div className="text-sm font-bold text-slate-800">Bought Separately</div>
+                        <div className="text-xs text-slate-500">New standalone purchase — ledger entry and voucher will be created</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div><Label>Battery Code *</Label><Input placeholder="e.g. BAT-1001" value={form.battery_code} onChange={f('battery_code')} /></div>
                 <div><Label>Brand</Label>
@@ -200,7 +236,7 @@ export default function BatteryManagementPage() {
                   <SearchableSelect value={form.capacity_ah} onChange={setField('capacity_ah')} options={capacityOptions} placeholder="Select Capacity" onReload={() => reloadCapacities()} reloading={loadingCapacities} /></div>
 
                 <div><Label>Warranty (months)</Label><Input type="number" value={form.warranty_months} onChange={f('warranty_months')} /></div>
-                <div><Label>Vehicle Number</Label>
+                <div><Label>Vehicle Number{!isEdit && entryMode === 'with_bus' && <span className="text-red-500"> *</span>}</Label>
                   <SearchableSelect
                     value={form.vehicle_number}
                     onChange={setField('vehicle_number')}
@@ -221,7 +257,8 @@ export default function BatteryManagementPage() {
                 <div><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
               </div>
 
-              {/* ── Accounting Entry (debit/credit ledgers) ── */}
+              {/* ── Accounting Entry (debit/credit ledgers) — skipped when battery came fitted with the bus ── */}
+              {(isEdit || entryMode === 'new') && (
               <div className="pt-5 mt-5 border-t border-slate-100">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-sm font-bold text-slate-700">Accounting Entry (optional)</h4>
@@ -292,13 +329,14 @@ export default function BatteryManagementPage() {
                   </div>
                 </div>
               </div>
+              )}
 
               <div className="flex items-center gap-3 mt-6">
                 <Button onClick={() => save()} disabled={isPending || !canSave}>
                   <Save className="w-4 h-4" />{isPending ? 'Saving…' : isEdit ? 'Update Battery' : 'Save Battery'}
                 </Button>
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
-                {hasLedgerEntry && !isBalanced && (
+                {!isEdit && entryMode === 'new' && hasLedgerEntry && !isBalanced && (
                   <span className="text-xs font-semibold text-red-600">Debit and credit totals must match exactly before saving.</span>
                 )}
               </div>
@@ -359,7 +397,7 @@ export default function BatteryManagementPage() {
                           <Clock className="w-3.5 h-3.5" />
                           {fmtDateTime(h.changed_at)} · {h.changed_by_name || 'Unknown'}
                         </div>
-                        <p className="text-sm text-slate-700 whitespace-pre-line">{h.changes_note}</p>
+                        <ChangeNote note={h.changes_note ?? ''} />
                       </li>
                     ))}
                   </ol>

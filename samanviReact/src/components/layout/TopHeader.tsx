@@ -64,6 +64,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/mainmasters/static-entry': 'Static Entry',
   '/mainmasters/laundry-products': 'Laundry Products',
   '/mainmasters/garage-masters': 'Garage Masters',
+  '/mainmasters/tyre-masters': 'Tyre Masters',
   '/reports': 'Reports',
 }
 

@@ -4,7 +4,29 @@ const axios = require("axios");
 var masterVldtr = require("../validators/mstrVldt");
 const request = require("request");
 var fs = require("fs");
+var path = require("path");
 var moment = require("moment");
+
+// Driver/Staff/Helper document uploads (Aadhar, DL, UPI scans) are written to
+// disk and the DB stores a public URL pointing at them. In production this
+// app runs alongside a sibling `public_html` folder served by the live web
+// server at samanvitravels.in. Outside production that folder doesn't exist,
+// so the write silently failed (or wrote nowhere reachable) while the DB
+// still recorded the samanvitravels.in URL — the image could never load.
+// Fall back to a local folder this app serves itself so uploads work
+// wherever the backend runs, without changing production behavior.
+// Resolved against process.cwd() (this app is always launched via `node app.js`
+// from inside samanviBackend/), matching the original code's relative-path
+// behavior exactly — not __dirname, which would be off by a directory level
+// since this file lives in controllers/.
+var IMAGE_UPLOAD_DIR_PROD = path.join(process.cwd(), "..", "public_html", "dashboardimages", "images");
+var IMAGE_UPLOAD_DIR_LOCAL = path.join(process.cwd(), "uploads", "dashboardimages", "images");
+var USE_LOCAL_IMAGE_DIR = !fs.existsSync(IMAGE_UPLOAD_DIR_PROD);
+if (USE_LOCAL_IMAGE_DIR) fs.mkdirSync(IMAGE_UPLOAD_DIR_LOCAL, { recursive: true });
+var IMAGE_UPLOAD_DIR = USE_LOCAL_IMAGE_DIR ? IMAGE_UPLOAD_DIR_LOCAL : IMAGE_UPLOAD_DIR_PROD;
+var IMAGE_BASE_URL = USE_LOCAL_IMAGE_DIR
+  ? "http://localhost:8945/uploads/dashboardimages/images"
+  : "https://samanvitravels.in/dashboardimages/images";
 var unirest = require("unirest");
 var JWT_SECRET = "7b4743fec0c12eb2da50be672c3988a4";
 
@@ -697,6 +719,24 @@ exports.getdriveone = function (req, res) {
   });
 };
 
+// Builds a human-readable "X already exists" message by comparing the
+// submitted data against whichever existing row(s) the check*Mdl duplicate
+// query matched, so the frontend can show exactly which field collided
+// instead of a generic "already exists".
+function buildDuplicateMessage(dupRows, data, fieldMap) {
+  var reasons = [];
+  dupRows.forEach(function (row) {
+    fieldMap.forEach(function (f) {
+      var submitted = data[f.dataKey];
+      if (submitted && String(row[f.dbKey]) === String(submitted) && reasons.indexOf(f.label) === -1) {
+        reasons.push(f.label);
+      }
+    });
+  });
+  if (reasons.length === 0) return "A matching record already exists";
+  return reasons.join(", ") + (reasons.length > 1 ? " are" : " is") + " already registered to another record";
+}
+
 exports.addstaffregisterCtrl = function (req, res) {
   var imageuploadlao = null;
   var imageuploadlaotwo = null;
@@ -717,7 +757,7 @@ exports.addstaffregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -726,7 +766,7 @@ exports.addstaffregisterCtrl = function (req, res) {
       }
     );
     imageuploadlao =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -746,7 +786,7 @@ exports.addstaffregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -756,7 +796,7 @@ exports.addstaffregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaotwo =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -775,7 +815,7 @@ exports.addstaffregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -785,7 +825,7 @@ exports.addstaffregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaothree =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -816,8 +856,13 @@ exports.addstaffregisterCtrl = function (req, res) {
         }
       );
     } else {
-      res.send({ status: 422, data: results1 });
-      //   res.send({ "status": 300, 'data':"User Name Aleady Exist" });
+      var msg = buildDuplicateMessage(results1, data, [
+        { dataKey: "fullName", dbKey: "fullName", label: "Aadhar Name" },
+        { dataKey: "mobile", dbKey: "mobile", label: "Mobile Number" },
+        { dataKey: "alternativemobilenumber", dbKey: "alternativemobilenumber", label: "Alternate Mobile Number" },
+        { dataKey: "aadhaar", dbKey: "aadhaar", label: "Aadhar Number" },
+      ]);
+      res.send({ status: 422, message: msg, data: results1 });
     }
   });
 };
@@ -852,7 +897,7 @@ exports.addhelperregisterCtrl = function (req, res) {
       var unicnumber = random_number + "" + datetimestamp;
       var base64Data = array[1];
       fs.writeFile(
-        "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+        IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
         base64Data,
         "base64",
         function (err) {
@@ -862,7 +907,7 @@ exports.addhelperregisterCtrl = function (req, res) {
         }
       );
       imageuploadlao =
-        "https://samanvitravels.in/dashboardimages/images/" +
+        IMAGE_BASE_URL + "/" +
         unicnumber +
         "." +
         filetype;
@@ -882,7 +927,7 @@ exports.addhelperregisterCtrl = function (req, res) {
       var unicnumber = random_number + "" + datetimestamp;
       var base64Data = array[1];
       fs.writeFile(
-        "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+        IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
         base64Data,
         "base64",
         function (err) {
@@ -892,7 +937,7 @@ exports.addhelperregisterCtrl = function (req, res) {
         }
       );
       imageuploadlaotwo =
-        "https://samanvitravels.in/dashboardimages/images/" +
+        IMAGE_BASE_URL + "/" +
         unicnumber +
         "." +
         filetype;
@@ -911,7 +956,7 @@ exports.addhelperregisterCtrl = function (req, res) {
       var unicnumber = random_number + "" + datetimestamp;
       var base64Data = array[1];
       fs.writeFile(
-        "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+        IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
         base64Data,
         "base64",
         function (err) {
@@ -921,7 +966,7 @@ exports.addhelperregisterCtrl = function (req, res) {
         }
       );
       imageuploadlaothree =
-        "https://samanvitravels.in/dashboardimages/images/" +
+        IMAGE_BASE_URL + "/" +
         unicnumber +
         "." +
         filetype;
@@ -954,8 +999,13 @@ exports.addhelperregisterCtrl = function (req, res) {
           }
         );
       } else {
-        res.send({ status: 422, data: results1 });
-        //   res.send({ "status": 300, 'data':"User Name Aleady Exist" });
+        var msg = buildDuplicateMessage(results1, data, [
+          { dataKey: "helper_name", dbKey: "helper_name", label: "Aadhar Name" },
+          { dataKey: "mobile_number", dbKey: "mobile_number", label: "Mobile Number" },
+          { dataKey: "alternate_number", dbKey: "alternate_number", label: "Alternate Mobile Number" },
+          { dataKey: "adhar_number", dbKey: "adhar_number", label: "Aadhar Number" },
+        ]);
+        res.send({ status: 422, message: msg, data: results1 });
       }
     });
   } catch (err) {
@@ -992,7 +1042,7 @@ exports.adddriverregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -1002,7 +1052,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlao =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1022,7 +1072,7 @@ exports.adddriverregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -1032,7 +1082,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaotwo =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1051,7 +1101,7 @@ exports.adddriverregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -1061,7 +1111,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaothree =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1079,7 +1129,7 @@ exports.adddriverregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -1089,7 +1139,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaofour =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1107,7 +1157,7 @@ exports.adddriverregisterCtrl = function (req, res) {
     var unicnumber = random_number + "" + datetimestamp;
     var base64Data = array[1];
     fs.writeFile(
-      "../public_html/dashboardimages/images/" + unicnumber + "." + filetype,
+      IMAGE_UPLOAD_DIR + "/" + unicnumber + "." + filetype,
       base64Data,
       "base64",
       function (err) {
@@ -1117,7 +1167,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaofive =
-      "https://samanvitravels.in/dashboardimages/images/" +
+      IMAGE_BASE_URL + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1155,8 +1205,15 @@ exports.adddriverregisterCtrl = function (req, res) {
         }
       );
     } else {
-      res.send({ status: 422, data: results1 });
-      //   res.send({ "status": 300, 'data':"User Name Aleady Exist" });
+      var msg = buildDuplicateMessage(results1, data, [
+        { dataKey: "driver_name", dbKey: "driver_name", label: "DL Name" },
+        { dataKey: "nickname", dbKey: "nickname", label: "Aadhar Name" },
+        { dataKey: "mobile_number", dbKey: "mobile_number", label: "Mobile Number" },
+        { dataKey: "alternate_number", dbKey: "alternate_number", label: "Alternate Mobile Number" },
+        { dataKey: "aadhar_number", dbKey: "aadhar_number", label: "Aadhar Number" },
+        { dataKey: "dl_number", dbKey: "dl_number", label: "DL Number" },
+      ]);
+      res.send({ status: 422, message: msg, data: results1 });
     }
   });
 };
@@ -1333,6 +1390,58 @@ exports.deleteChassisModelCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const data = decryptPayload(encryptedPayload);
   appmdl.deleteChassisModelMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Luxury Types ─────────────────────────────────────────────────────────────
+exports.getLuxuryTypesCtrl = function (req, res) {
+  appmdl.getLuxuryTypesMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addLuxuryTypeCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addLuxuryTypeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteLuxuryTypeCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteLuxuryTypeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Mfg Years ────────────────────────────────────────────────────────────────
+exports.getMfgYearsCtrl = function (req, res) {
+  appmdl.getMfgYearsMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addMfgYearCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addMfgYearMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteMfgYearCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteMfgYearMdl(data, function (err, results) {
     if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
   });
@@ -4293,7 +4402,7 @@ function saveImage(fileObj) {
   const random_number = Math.floor(100000 + Math.random() * 900000);
   const unicnumber = `${random_number}${datetimestamp}`;
   const filename = `${unicnumber}.${filetype}`;
-  const filepath = `../public_html/dashboardimages/images/${filename}`;
+  const filepath = `${IMAGE_UPLOAD_DIR}/${filename}`;
 
   // Write file synchronously to avoid race conditions in this example
   try {
@@ -4303,7 +4412,7 @@ function saveImage(fileObj) {
     console.error("Error saving image:", err);
   }
 
-  return `https://samanvitravels.in/dashboardimages/images/${filename}`;
+  return `${IMAGE_BASE_URL}/${filename}`;
 }
 
 exports.edithelperregisterCtrl = function (req, res) {
@@ -4328,8 +4437,8 @@ exports.edithelperregisterCtrl = function (req, res) {
       const filename = `${Math.floor(
         100000 + Math.random() * 900000
       )}${Date.now()}.${filetype}`;
-      const filepath = `../public_html/dashboardimages/images/${filename}`;
-      const fullurl = `https://samanvitravels.in/dashboardimages/images/${filename}`;
+      const filepath = `${IMAGE_UPLOAD_DIR}/${filename}`;
+      const fullurl = `${IMAGE_BASE_URL}/${filename}`;
 
       fs.writeFile(filepath, base64Content, "base64", (err) => {
         if (err) {
@@ -4394,11 +4503,11 @@ exports.addstaffeditCtrl = function (req, res) {
       const filename = `${Math.floor(
         100000 + Math.random() * 900000
       )}${Date.now()}.${filetype}`;
-      const filepath = `../public_html/dashboardimages/images/${filename}`;
+      const filepath = `${IMAGE_UPLOAD_DIR}/${filename}`;
       fs.writeFile(filepath, base64Data, "base64", function (err) {
         if (err) console.error("Error saving Aadhaar Front image:", err);
       });
-      imageuploadlao = `https://samanvitravels.in/dashboardimages/images/${filename}`;
+      imageuploadlao = `${IMAGE_BASE_URL}/${filename}`;
     }
 
     // Aadhaar Back
@@ -4412,11 +4521,11 @@ exports.addstaffeditCtrl = function (req, res) {
       const filename = `${Math.floor(
         100000 + Math.random() * 900000
       )}${Date.now()}.${filetype}`;
-      const filepath = `../public_html/dashboardimages/images/${filename}`;
+      const filepath = `${IMAGE_UPLOAD_DIR}/${filename}`;
       fs.writeFile(filepath, base64Data, "base64", function (err) {
         if (err) console.error("Error saving Aadhaar Back image:", err);
       });
-      imageuploadlaotwo = `https://samanvitravels.in/dashboardimages/images/${filename}`;
+      imageuploadlaotwo = `${IMAGE_BASE_URL}/${filename}`;
     }
 
     // UPI Scanner
@@ -4429,11 +4538,11 @@ exports.addstaffeditCtrl = function (req, res) {
       const filename = `${Math.floor(
         100000 + Math.random() * 900000
       )}${Date.now()}.${filetype}`;
-      const filepath = `../public_html/dashboardimages/images/${filename}`;
+      const filepath = `${IMAGE_UPLOAD_DIR}/${filename}`;
       fs.writeFile(filepath, base64Data, "base64", function (err) {
         if (err) console.error("Error saving UPI Scanner image:", err);
       });
-      imageuploadlaothree = `https://samanvitravels.in/dashboardimages/images/${filename}`;
+      imageuploadlaothree = `${IMAGE_BASE_URL}/${filename}`;
     }
 
     // Call model to update DB
@@ -5520,6 +5629,7 @@ exports.getTyreInventoryCtrl = function (req, res) {
 exports.addTyreInventoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreInventoryMdl); };
 exports.editTyreInventoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyreInventoryMdl); };
 exports.deleteTyreInventoryCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreInventoryMdl); };
+exports.sellTyresCtrl = function (req, res) { decryptedBody(req, res, appmdl.sellTyresMdl); };
 
 // ── Tyre Position ────────────────────────────────────────────────────────────
 exports.getTyrePositionsCtrl = function (req, res) {
@@ -5530,6 +5640,65 @@ exports.getTyrePositionsCtrl = function (req, res) {
 };
 exports.assignTyrePositionCtrl = function (req, res) { decryptedBody(req, res, appmdl.assignTyrePositionMdl); };
 exports.removeTyrePositionCtrl = function (req, res) { decryptedBody(req, res, appmdl.removeTyrePositionMdl); };
+exports.getTyrePositionHistoryCtrl = function (req, res) {
+  appmdl.getTyrePositionHistoryMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Tyre Vendors ─────────────────────────────────────────────────────────────
+exports.getTyreVendorsCtrl = function (req, res) {
+  appmdl.getTyreVendorsMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyreVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreVendorMdl); };
+exports.editTyreVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyreVendorMdl); };
+exports.deleteTyreVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreVendorMdl); };
+
+// ── Tyre Sizes ───────────────────────────────────────────────────────────────
+exports.getTyreSizesCtrl = function (req, res) {
+  appmdl.getTyreSizesMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyreSizeCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreSizeMdl); };
+exports.editTyreSizeCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyreSizeMdl); };
+exports.deleteTyreSizeCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreSizeMdl); };
+
+// ── Tyre Makes ─────────────────────────────────────────────────────────────
+exports.getTyreMakesCtrl = function (req, res) {
+  appmdl.getTyreMakesMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyreMakeCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreMakeMdl); };
+exports.editTyreMakeCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyreMakeMdl); };
+exports.deleteTyreMakeCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreMakeMdl); };
+
+// ── Tyre Retread Entry ───────────────────────────────────────────────────────
+exports.getTyreRetreadsCtrl = function (req, res) {
+  appmdl.getTyreRetreadsMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyreRetreadCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreRetreadMdl); };
+exports.deleteTyreRetreadCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreRetreadMdl); };
+
+// ── Tyre Repair ──────────────────────────────────────────────────────────────
+exports.getTyreRepairsCtrl = function (req, res) {
+  appmdl.getTyreRepairsMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addTyreRepairCtrl = function (req, res) { decryptedBody(req, res, appmdl.addTyreRepairMdl); };
+exports.deleteTyreRepairCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreRepairMdl); };
 
 // ── Battery Management ───────────────────────────────────────────────────────
 exports.getBatteriesCtrl = function (req, res) {

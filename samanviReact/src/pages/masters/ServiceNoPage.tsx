@@ -3,26 +3,28 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Plus, X, Save, Edit2, Search, Route, Upload, Download, FileSpreadsheet } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
+import { scrollContentToTop } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 const EMPTY: Record<string, string> = {
   serviceFor: '', service_for_id: '', serviceNo: '', fromCity: '', toCity: '',
   viaPlaces: '', parkingAmount: '0', driverOneBeta: '', driverTwoBeta: '',
   helperBeta: '', conductorBeta: '', distance: '', optDriver: '', optHelper: '',
-  remarks: '',
+  optDriverSalary: '', optHelperSalary: '', remarks: '',
 }
 
 const amt = (v: any) => <span className="font-medium text-slate-800">{v != null && v !== '' ? `₹${v}` : '—'}</span>
 
 const cols: Column[] = [
-  { label: 'Service For', key: 'serviceFor', render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
-  { label: 'Service No', key: 'serviceNo', render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
-  { label: 'From City', key: 'fromCity', render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
-  { label: 'To City', key: 'toCity', render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
-  { label: 'Via Places', key: 'viaPlaces', render: (v) => <span className="text-sm text-slate-500">{String(v ?? '—')}</span> },
+  { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+  { label: 'Service For', key: 'serviceFor', filterable: true, render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
+  { label: 'Service No', key: 'serviceNo', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
+  { label: 'From City', key: 'fromCity', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
+  { label: 'To City', key: 'toCity', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
+  { label: 'Via Places', key: 'viaPlaces', filterable: true, render: (v) => <span className="text-sm text-slate-500">{String(v ?? '—')}</span> },
   { label: 'Parking Amt', key: 'parkingAmount', render: amt },
   { label: 'Driver 1 Beta', key: 'driverOneBeta', render: amt },
   { label: 'Driver 2 Beta', key: 'driverTwoBeta', render: amt },
@@ -31,12 +33,15 @@ const cols: Column[] = [
   { label: 'Distance', key: 'distance', render: (v) => <span className="font-medium">{v != null && v !== '' ? `${v} km` : '—'}</span> },
   { label: 'OPT Driver', key: 'optDriver', render: amt },
   { label: 'OPT Helper', key: 'optHelper', render: amt },
+  { label: 'OPT Driver Salary', key: 'optDriverSalary', render: amt },
+  { label: 'OPT Helper Salary', key: 'optHelperSalary', render: amt },
 ]
 
 const SERVICE_TEMPLATE_HEADERS = [
   'Service For*', 'Service No*', 'From City*', 'To City*', 'Via Places',
   'Parking Amount', 'Driver One Beta', 'Driver Two Beta', 'Helper Beta',
-  'Conductor Beta', 'Distance (km)', 'OPT Driver', 'OPT Helper', 'Remarks',
+  'Conductor Beta', 'Distance (km)', 'OPT Driver', 'OPT Helper',
+  'OPT Driver Salary', 'OPT Helper Salary', 'Remarks',
 ]
 
 function downloadExcel(data: any[][], filename: string) {
@@ -61,8 +66,7 @@ export default function ServiceNoPage() {
 
   const [search, setSearch] = useState('')
   const [filterFor, setFilterFor] = useState('')
-  const [appliedSearch, setAppliedSearch] = useState('')
-  const [appliedFor, setAppliedFor] = useState('')
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const uploadRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
@@ -78,10 +82,10 @@ export default function ServiceNoPage() {
   const serviceForOptions = [...new Set(routeList.map((r) => r.serviceFor).filter(Boolean))]
 
   const filtered = useMemo(() => routeList.filter((r) => {
-    if (appliedSearch && !String(r.serviceNo ?? '').toLowerCase().includes(appliedSearch.toLowerCase())) return false
-    if (appliedFor && r.serviceFor !== appliedFor) return false
+    if (search && !String(r.serviceNo ?? '').toLowerCase().includes(search.trim().toLowerCase())) return false
+    if (filterFor && r.serviceFor !== filterFor) return false
     return true
-  }), [routeList, appliedSearch, appliedFor])
+  }), [routeList, search, filterFor])
 
   const buildPayload = () => ({
     ...form, id: editId,
@@ -107,7 +111,7 @@ export default function ServiceNoPage() {
   const handleEdit = (row: any) => {
     setForm(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, row[k] ?? ''])))
     setIsEdit(true); setEditId(row.id); setShowForm(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    scrollContentToTop()
   }
 
   const { mutate: del } = useMutation({
@@ -128,7 +132,7 @@ export default function ServiceNoPage() {
   const downloadTemplate = () => {
     downloadExcel([
       SERVICE_TEMPLATE_HEADERS,
-      ['Samanvi', 'ST-11', 'Hyderabad', 'Vijayawada', 'Guntur', '50', '800', '700', '500', '400', '250', '600', '400', 'Remarks here'],
+      ['Samanvi', 'ST-11', 'Hyderabad', 'Vijayawada', 'Guntur', '50', '800', '700', '500', '400', '250', '600', '400', '300', '200', 'Remarks here'],
     ], `ServiceRoute_Upload_Template_${Date.now()}.xlsx`)
   }
 
@@ -137,7 +141,8 @@ export default function ServiceNoPage() {
     const rows = routeList.map(r => [
       r.serviceFor ?? '', r.serviceNo ?? '', r.fromCity ?? '', r.toCity ?? '', r.viaPlaces ?? '',
       r.parkingAmount ?? '', r.driverOneBeta ?? '', r.driverTwoBeta ?? '', r.helperBeta ?? '',
-      r.conductorBeta ?? '', r.distance ?? '', r.optDriver ?? '', r.optHelper ?? '', r.remarks ?? '',
+      r.conductorBeta ?? '', r.distance ?? '', r.optDriver ?? '', r.optHelper ?? '',
+      r.optDriverSalary ?? '', r.optHelperSalary ?? '', r.remarks ?? '',
     ])
     downloadExcel([SERVICE_TEMPLATE_HEADERS, ...rows], `ServiceRoutes_${Date.now()}.xlsx`)
     toast.success(`Exported ${rows.length} routes`)
@@ -176,7 +181,9 @@ export default function ServiceNoPage() {
             distance: String(r[10] ?? '0').trim() || '0',
             optDriver: String(r[11] ?? '0').trim() || '0',
             optHelper: String(r[12] ?? '0').trim() || '0',
-            remarks: String(r[13] ?? '').trim() || null,
+            optDriverSalary: String(r[13] ?? '0').trim() || '0',
+            optHelperSalary: String(r[14] ?? '0').trim() || '0',
+            remarks: String(r[15] ?? '').trim() || null,
           }
         })
       if (rows.length === 0) { toast.error('No valid rows found (Service For and Service No are required)'); return }
@@ -227,13 +234,15 @@ export default function ServiceNoPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div>
                   <Label>Service For <span className="text-red-500">*</span></Label>
-                  <Select value={form.serviceFor} onChange={(e) => {
-                    const found = serviceNameList.find((s) => s.name === e.target.value)
-                    setForm((f) => ({ ...f, serviceFor: e.target.value, service_for_id: String(found?.id ?? '') }))
-                  }}>
-                    <option value="">Select service</option>
-                    {serviceNameList.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                  </Select>
+                  <SearchableSelect
+                    value={form.serviceFor}
+                    onChange={(v) => {
+                      const found = serviceNameList.find((s) => s.name === v)
+                      setForm((f) => ({ ...f, serviceFor: v, service_for_id: String(found?.id ?? '') }))
+                    }}
+                    options={serviceNameList.map((s) => ({ value: s.name, label: s.name }))}
+                    placeholder="Select service"
+                  />
                 </div>
                 <div><Label>Service No <span className="text-red-500">*</span></Label>
                   <Input placeholder="Enter service number" value={form.serviceNo} onChange={set('serviceNo')} /></div>
@@ -259,7 +268,11 @@ export default function ServiceNoPage() {
                   <Input type="number" placeholder="Enter opting driver amount" value={form.optDriver} onChange={set('optDriver')} /></div>
                 <div><Label>OPT-Helper <span className="text-red-500">*</span></Label>
                   <Input type="number" placeholder="Enter opting helper amount" value={form.optHelper} onChange={set('optHelper')} /></div>
-                <div className="md:col-span-2"><Label>Remarks <span className="text-red-500">*</span></Label>
+                <div><Label>OPT-Driver Salary</Label>
+                  <Input type="number" placeholder="Enter opt-driver salary" value={form.optDriverSalary} onChange={set('optDriverSalary')} /></div>
+                <div><Label>OPT-Helper Salary</Label>
+                  <Input type="number" placeholder="Enter opt-helper salary" value={form.optHelperSalary} onChange={set('optHelperSalary')} /></div>
+                <div className="md:col-span-3"><Label>Remarks <span className="text-red-500">*</span></Label>
                   <textarea rows={3} placeholder="Enter Remarks" value={form.remarks} onChange={set('remarks')}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none" /></div>
               </div>
@@ -280,7 +293,10 @@ export default function ServiceNoPage() {
         <div className="flex items-end gap-3 flex-wrap">
           <div>
             <Label className="text-slate-600">Search Service No</Label>
-            <Input placeholder="e.g. ST-11, F-BHM" value={search} onChange={(e) => setSearch(e.target.value)} className="w-44" />
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <Input placeholder="e.g. ST-11, F-BHM" value={search} onChange={(e) => setSearch(e.target.value)} className="w-44 pl-8" />
+            </div>
           </div>
           <div>
             <Label className="text-slate-600">Service For</Label>
@@ -289,16 +305,15 @@ export default function ServiceNoPage() {
               {serviceForOptions.map((s) => <option key={s as string} value={s as string}>{s as string}</option>)}
             </Select>
           </div>
-          <Button onClick={() => { setAppliedSearch(search); setAppliedFor(filterFor) }}>
-            <Search className="w-4 h-4" /> Apply Filter
-          </Button>
-          <button
-            onClick={() => { setSearch(''); setFilterFor(''); setAppliedSearch(''); setAppliedFor('') }}
-            className="text-xs text-slate-500 hover:text-red-500 font-medium underline"
-          >
-            Clear
-          </button>
-          {(appliedSearch || appliedFor) && (
+          {(search || filterFor) && (
+            <button
+              onClick={() => { setSearch(''); setFilterFor('') }}
+              className="text-xs text-slate-500 hover:text-red-500 font-medium underline"
+            >
+              Clear
+            </button>
+          )}
+          {(search || filterFor) && (
             <span className="text-xs font-semibold text-blue-600">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>
           )}
 
@@ -337,6 +352,8 @@ export default function ServiceNoPage() {
         }}
         actions={['edit', 'delete']}
         icon={<Route className="w-5 h-5 text-indigo-500" />}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters(prev => ({ ...prev, [k]: v }))}
       />
     </motion.div>
   )

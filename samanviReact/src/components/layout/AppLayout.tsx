@@ -36,7 +36,7 @@ export function AppLayout() {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopHeader onMenuToggle={() => setSidebarOpen((o) => !o)} />
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 scrollbar-hide">
+        <div id="app-scroll-container" className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 scrollbar-hide">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

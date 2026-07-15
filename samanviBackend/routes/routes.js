@@ -71,6 +71,14 @@ router.post('/deleteseatingcapacity', verifyToken, routcontroller.deleteSeatingC
 router.get('/getchassismodels', verifyToken, routcontroller.getChassisModelsCtrl);
 router.post('/addchassismodel', verifyToken, routcontroller.addChassisModelCtrl);
 router.post('/deletechassismodel', verifyToken, routcontroller.deleteChassisModelCtrl);
+// Luxury Types
+router.get('/getluxurytypes', verifyToken, routcontroller.getLuxuryTypesCtrl);
+router.post('/addluxurytype', verifyToken, routcontroller.addLuxuryTypeCtrl);
+router.post('/deleteluxurytype', verifyToken, routcontroller.deleteLuxuryTypeCtrl);
+// Mfg Years
+router.get('/getmfgyears', verifyToken, routcontroller.getMfgYearsCtrl);
+router.post('/addmfgyear', verifyToken, routcontroller.addMfgYearCtrl);
+router.post('/deletemfgyear', verifyToken, routcontroller.deleteMfgYearCtrl);
 
 // Terminate / Rejoin
 router.post('/terminatestaff', verifyToken, routcontroller.terminateStaffCtrl);
@@ -384,10 +392,35 @@ router.get('/tyre-inventory/getall', verifyToken, routcontroller.getTyreInventor
 router.post('/tyre-inventory/add', verifyToken, routcontroller.addTyreInventoryCtrl);
 router.post('/tyre-inventory/edit', verifyToken, routcontroller.editTyreInventoryCtrl);
 router.post('/tyre-inventory/delete', verifyToken, routcontroller.deleteTyreInventoryCtrl);
+router.post('/tyre-inventory/sell', verifyToken, routcontroller.sellTyresCtrl);
 
 router.get('/tyre-position/getall', verifyToken, routcontroller.getTyrePositionsCtrl);
 router.post('/tyre-position/assign', verifyToken, routcontroller.assignTyrePositionCtrl);
 router.post('/tyre-position/remove', verifyToken, routcontroller.removeTyrePositionCtrl);
+router.get('/tyre-position/history', verifyToken, routcontroller.getTyrePositionHistoryCtrl);
+
+router.get('/tyre-vendors/getall', verifyToken, routcontroller.getTyreVendorsCtrl);
+router.post('/tyre-vendors/add', verifyToken, routcontroller.addTyreVendorCtrl);
+router.post('/tyre-vendors/edit', verifyToken, routcontroller.editTyreVendorCtrl);
+router.post('/tyre-vendors/delete', verifyToken, routcontroller.deleteTyreVendorCtrl);
+
+router.get('/tyre-sizes/getall', verifyToken, routcontroller.getTyreSizesCtrl);
+router.post('/tyre-sizes/add', verifyToken, routcontroller.addTyreSizeCtrl);
+router.post('/tyre-sizes/edit', verifyToken, routcontroller.editTyreSizeCtrl);
+router.post('/tyre-sizes/delete', verifyToken, routcontroller.deleteTyreSizeCtrl);
+
+router.get('/tyre-makes/getall', verifyToken, routcontroller.getTyreMakesCtrl);
+router.post('/tyre-makes/add', verifyToken, routcontroller.addTyreMakeCtrl);
+router.post('/tyre-makes/edit', verifyToken, routcontroller.editTyreMakeCtrl);
+router.post('/tyre-makes/delete', verifyToken, routcontroller.deleteTyreMakeCtrl);
+
+router.get('/tyre-retread/getall', verifyToken, routcontroller.getTyreRetreadsCtrl);
+router.post('/tyre-retread/add', verifyToken, routcontroller.addTyreRetreadCtrl);
+router.post('/tyre-retread/delete', verifyToken, routcontroller.deleteTyreRetreadCtrl);
+
+router.get('/tyre-repair/getall', verifyToken, routcontroller.getTyreRepairsCtrl);
+router.post('/tyre-repair/add', verifyToken, routcontroller.addTyreRepairCtrl);
+router.post('/tyre-repair/delete', verifyToken, routcontroller.deleteTyreRepairCtrl);
 
 router.get('/battery/getall', verifyToken, routcontroller.getBatteriesCtrl);
 router.post('/battery/add', verifyToken, routcontroller.addBatteryCtrl);

@@ -18,3 +18,10 @@ export const formatDate = (date: string | Date | null | undefined): string => {
   if (isNaN(d.getTime())) return '—'
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`
 }
+
+// The page body never scrolls — AppLayout's inner content pane (#app-scroll-container)
+// is the actual scrollable element, so `window.scrollTo` is a no-op there. Use this
+// after opening an edit form to bring it into view instead.
+export const scrollContentToTop = () => {
+  document.getElementById('app-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' })
+}

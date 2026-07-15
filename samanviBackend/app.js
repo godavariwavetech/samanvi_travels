@@ -46,6 +46,22 @@ appRoot = __dirname;
 
 
 var routcontroller = require('./controllers/mainCtrl');
+
+// Serves driver/staff/helper document uploads when running outside
+// production (see IMAGE_UPLOAD_DIR_LOCAL in controllers/mainCtrl.js) — the
+// directory only exists, and only gets served, when the production
+// `public_html` sibling folder this app expects isn't present.
+// Helmet's default Cross-Origin-Resource-Policy (same-origin, set below)
+// blocks the browser from using these images when the frontend runs on a
+// different origin/port (e.g. the Vite dev server on :5173 loading images
+// from this API on :8945) — the request succeeds but the <img> silently
+// fails to render. Loosen it to cross-origin for just this static route.
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    setHeaders: (res) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
+}));
+
 app.use(useragent.express());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true })); // support encoded bodies
@@ -166,6 +182,17 @@ function ensureColumn(table, column, ddl) {
 }
 ensureColumn('mainvoucher_t', 'is_payable', '`is_payable` tinyint(1) NOT NULL DEFAULT 0');
 ensureColumn('mainvoucher_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
+ensureColumn('tyre_master', 'serial_no', '`serial_no` VARCHAR(100) NULL');
+ensureColumn('tyre_master', 'vendor_id', '`vendor_id` INT NULL');
+ensureColumn('tyre_repair_log', 'vehicle_number', '`vehicle_number` VARCHAR(50) NULL');
+ensureColumn('tyre_repair_log', 'odometer', '`odometer` INT NULL');
+ensureColumn('tyre_retread_log', 'cost', '`cost` DECIMAL(10,2) DEFAULT 0');
+ensureColumn('tyre_position_log', 'voucher_number', '`voucher_number` VARCHAR(30) DEFAULT NULL');
+ensureColumn('staff_register', 'dob', '`dob` DATE NULL');
+ensureColumn('staff_register', 'address', '`address` TEXT NULL');
+ensureColumn('driver_register', 'address', '`address` TEXT NULL');
+ensureColumn('helper_register', 'dob', '`dob` DATE NULL');
+ensureColumn('helper_register', 'address', '`address` TEXT NULL');
 ensureColumn('fuelentry_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
 ensureColumn('laundrybill_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
 ensureColumn('parts_master', 'part_number', '`part_number` varchar(50) DEFAULT NULL');
@@ -197,6 +224,8 @@ ensureColumn('vehicle_jobs', 'source_reminder_id', '`source_reminder_id` int DEF
 ensureColumn('vehicle_jobs', 'source_reminder_ref', '`source_reminder_ref` varchar(30) DEFAULT NULL');
 ensureColumn('service_schedules', 'days_interval', '`days_interval` int DEFAULT NULL');
 ensureColumn('service_schedules', 'free_or_paid', "`free_or_paid` varchar(10) DEFAULT 'Free'");
+ensureColumn('driverone', 'optDriverSalary', '`optDriverSalary` VARCHAR(50) DEFAULT NULL');
+ensureColumn('driverone', 'optHelperSalary', '`optHelperSalary` VARCHAR(50) DEFAULT NULL');
 
 // Lubricants & Fluids — per-company change periodicities for engine oil,
 // coolant, gear oil etc., managed from Main Masters alongside Service Schedules.
@@ -324,6 +353,18 @@ sqldb_init.query(`
     else console.log('tyre_master table ready');
 });
 
+// Adds the 'Sold' and 'Pending Retread' statuses alongside In Stock/In
+// Use/Retreaded/Scrapped — safe to re-run on every boot since it's just a
+// superset of the existing enum. "Pending Retread" covers a worn tyre pulled
+// off a bus and sent to store awaiting retreading, before it's actually
+// retreaded (which is when it becomes "Retreaded").
+sqldb_init.query(`
+    ALTER TABLE tyre_master MODIFY COLUMN status ENUM('In Stock','In Use','Retreaded','Scrapped','Sold','Pending Retread') NOT NULL DEFAULT 'In Stock'
+`, function(err) {
+    if (err) console.error('Failed to update tyre_master status enum:', err.message);
+    else console.log('tyre_master.status includes Sold and Pending Retread');
+});
+
 sqldb_init.query(`
     CREATE TABLE IF NOT EXISTS tyre_position_log (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -344,6 +385,46 @@ sqldb_init.query(`
 `, function(err) {
     if (err) console.error('Failed to create tyre_position_log table:', err.message);
     else console.log('tyre_position_log table ready');
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_retread_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tyre_id INT NOT NULL,
+        retread_date DATE NULL,
+        vendor_id INT NULL,
+        remarks TEXT,
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        INDEX idx_trl_tyre (tyre_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create tyre_retread_log table:', err.message);
+    else console.log('tyre_retread_log table ready');
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_repair_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tyre_id INT NOT NULL,
+        repair_date DATE NULL,
+        vehicle_number VARCHAR(50) NULL,
+        odometer INT NULL,
+        repair_type VARCHAR(100),
+        vendor_id INT NULL,
+        cost DECIMAL(10,2) DEFAULT 0,
+        remarks TEXT,
+        created_by_id VARCHAR(50),
+        created_by_name VARCHAR(200),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        INDEX idx_trp_tyre (tyre_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create tyre_repair_log table:', err.message);
+    else console.log('tyre_repair_log table ready');
 });
 
 sqldb_init.query(`
@@ -406,6 +487,64 @@ sqldb_init.query(`
             sqldb_init.query('INSERT INTO tyre_positions_master (position_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
                 if (iErr) console.error('Failed to seed tyre_positions_master:', iErr.message);
                 else console.log('Seeded default tyre positions');
+            });
+        }
+    });
+});
+
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_vendors (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vendor_name VARCHAR(150) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) console.error('Failed to create tyre_vendors table:', err.message);
+    else console.log('tyre_vendors table ready');
+});
+
+// Tyre Sizes — master list so "Size of Tyre" on the New Tyre Entry form is
+// picked from Garage Masters instead of freehand text.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_sizes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        size_name VARCHAR(50) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create tyre_sizes table:', err.message); return; }
+    console.log('tyre_sizes table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM tyre_sizes', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['295/80 R22.5', '10.00-20', '9.00-20', '235/75 R17.5', '7.50-16', '215/75 R17.5'];
+            sqldb_init.query('INSERT INTO tyre_sizes (size_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed tyre_sizes:', iErr.message);
+                else console.log('Seeded default tyre sizes');
+            });
+        }
+    });
+});
+
+// Tyre Makes — manufacturer/brand master so "Make" on the New Tyre Entry form is
+// picked from Tyre Masters instead of freehand text.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS tyre_makes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        make_name VARCHAR(100) NOT NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) { console.error('Failed to create tyre_makes table:', err.message); return; }
+    console.log('tyre_makes table ready');
+    sqldb_init.query('SELECT COUNT(*) AS c FROM tyre_makes', function(cErr, rows) {
+        if (!cErr && rows[0].c === 0) {
+            const defaults = ['MRF', 'CEAT', 'JK Tyre', 'Apollo', 'Bridgestone', 'Goodyear'];
+            sqldb_init.query('INSERT INTO tyre_makes (make_name) VALUES ' + defaults.map(() => '(?)').join(','), defaults, function(iErr) {
+                if (iErr) console.error('Failed to seed tyre_makes:', iErr.message);
+                else console.log('Seeded default tyre makes');
             });
         }
     });
@@ -515,6 +654,10 @@ sqldb_init.query(`
 // Battery Management ↔ Accounting integration columns
 ensureColumn('battery_master', 'voucher_number', '`voucher_number` varchar(30) DEFAULT NULL');
 ensureColumn('mainvoucher_t', 'battery_code', '`battery_code` varchar(50) DEFAULT NULL');
+
+// Tyre Inventory ↔ Accounting integration columns (standalone tyre purchases)
+ensureColumn('tyre_master', 'voucher_number', '`voucher_number` varchar(30) DEFAULT NULL');
+ensureColumn('mainvoucher_t', 'tyre_code', '`tyre_code` varchar(50) DEFAULT NULL');
 
 //for local
 var server = app.listen(8945, function() {

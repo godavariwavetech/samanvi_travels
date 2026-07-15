@@ -1,16 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import { LayoutGrid, Save, Plus, MinusCircle } from 'lucide-react'
+import { Recycle, Save, Plus, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
-import { fuelService } from '@/services/fuel.service'
-import { mainmastersService } from '@/services/mainmasters.service'
 import { accountingService } from '@/services/accounting.service'
 
-const EMPTY_FORM = { vehicle_number: '', position: '', tyre_id: '', odometer_at_fitting: '', fitted_date: '', remarks: '' }
+const EMPTY_FORM = { tyre_id: '', retread_date: '', cost: '', remarks: '' }
+
+const DEBIT_LEDGER_NAME = 'Retreading Tyres In Stock'
+const CREDIT_LEDGER_NAME = 'New Tyres In Stock'
 
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
@@ -24,7 +25,7 @@ function fmtDate(v: any) {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-export default function TyrePositionPage() {
+export function TyreRetreadPanel() {
   const qc = useQueryClient()
   const [form, setForm] = useState(EMPTY_FORM)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
@@ -33,38 +34,56 @@ export default function TyrePositionPage() {
   const [debit, setDebit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
   const [credit, setCredit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
 
-  const { data, isLoading } = useQuery({ queryKey: ['tyre-positions'], queryFn: () => garageService.getTyrePositions() })
+  const { data, isLoading } = useQuery({ queryKey: ['tyre-retreads'], queryFn: () => garageService.getTyreRetreads() })
   const { data: tyres, refetch: reloadTyres, isFetching: loadingTyres } = useQuery({ queryKey: ['tyre-inventory'], queryFn: () => garageService.getTyreInventory() })
-  const { data: buses, refetch: reloadBuses, isFetching: loadingBuses } = useQuery({ queryKey: ['buses'], queryFn: () => fuelService.getBusNumbers() })
-  const { data: positions, refetch: reloadPositions, isFetching: loadingPositions } = useQuery({ queryKey: ['tyre-positions-master'], queryFn: () => mainmastersService.getTyrePositionsMaster() })
-  const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre-position'], queryFn: () => accountingService.getLedgerName() })
+  const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
 
   const list: any[] = data?.data ?? []
-  const busList: any[] = buses?.data ?? []
-  const positionList: any[] = positions?.data ?? []
-  const inStockTyres: any[] = (tyres?.data ?? []).filter((t: any) => t.status === 'In Stock')
+  const tyreList: any[] = tyres?.data ?? []
   const ledgerList: any[] = ledgersData?.data ?? []
   const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
 
-  const f = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((s) => ({ ...s, [k]: e.target.value }))
+  const selectedTyre = tyreList.find((t: any) => String(t.id) === form.tyre_id)
+
+  const f = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((s) => ({ ...s, [k]: e.target.value }))
   const setField = (k: keyof typeof EMPTY_FORM) => (v: string) => setForm((s) => ({ ...s, [k]: v }))
+
+  // Retread Cost drives the ledger amounts by default — keeps the journal
+  // balanced to the retread cost without retyping it, same pattern as the
+  // New Tyre Entry form, as long as it's still a single debit/credit line.
+  const handleCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    setForm((s) => ({ ...s, cost: val }))
+    setDebit((rows) => rows.length === 1 ? [{ ...rows[0], amount: val }] : rows)
+    setCredit((rows) => rows.length === 1 ? [{ ...rows[0], amount: val }] : rows)
+  }
 
   const debitTotal = debit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
   const creditTotal = credit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
   const hasLedgerEntry = debit.some(e => e.ledger_id && e.amount) || credit.some(e => e.ledger_id && e.amount)
   const isBalanced = debitTotal > 0 && Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
 
-  const resetLedgers = () => { setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()]) }
+  // Default the journal to Debit "Retreading Tyres In Stock" / Credit "New
+  // Tyres In Stock" — only while those rows are still untouched.
+  useEffect(() => {
+    if (debit.length !== 1 || debit[0].ledger_id || ledgerList.length === 0) return
+    const l = ledgerList.find((x: any) => (x.temple_name || x.name) === DEBIT_LEDGER_NAME)
+    if (l) setDebit([{ ledger_id: String(l.id), amount: debit[0].amount, ledger_name: l.temple_name || l.name || '' }])
+  }, [ledgerList, debit])
 
-  const { mutate: assign, isPending } = useMutation({
+  useEffect(() => {
+    if (credit.length !== 1 || credit[0].ledger_id || ledgerList.length === 0) return
+    const l = ledgerList.find((x: any) => (x.temple_name || x.name) === CREDIT_LEDGER_NAME)
+    if (l) setCredit([{ ledger_id: String(l.id), amount: credit[0].amount, ledger_name: l.temple_name || l.name || '' }])
+  }, [ledgerList, credit])
+
+  const { mutate: save, isPending } = useMutation({
     mutationFn: () => {
       if (hasLedgerEntry && !isBalanced) return Promise.reject(new Error('ledger mismatch'))
-      const tyreCode = inStockTyres.find((t: any) => String(t.id) === form.tyre_id)?.tyre_code
-      return garageService.assignTyrePosition({
+      return garageService.addTyreRetread({
         ...form,
-        tyre_code: tyreCode,
-        ledger_description: ledgerDescription,
+        tyre_code: selectedTyre?.tyre_code || '',
+        ledger_description: ledgerDescription || `Retread — ${selectedTyre?.tyre_code || ''}`,
         debit_ledgers: debit.filter(e => e.ledger_id && e.amount),
         credit_ledgers: credit.filter(e => e.ledger_id && e.amount),
         user_id: localStorage.getItem('user_id'),
@@ -73,96 +92,56 @@ export default function TyrePositionPage() {
     },
     onSuccess: (res) => {
       if (res.status === 200) {
-        toast.success('Tyre mounted!')
-        qc.invalidateQueries({ queryKey: ['tyre-positions'] })
+        toast.success('Retread entry saved!')
+        qc.invalidateQueries({ queryKey: ['tyre-retreads'] })
         qc.invalidateQueries({ queryKey: ['tyre-inventory'] })
         setForm(EMPTY_FORM)
-        resetLedgers()
-      } else toast.error('Failed to assign')
+        setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
+      } else toast.error('Failed to save')
     },
     onError: (err: any) => toast.error(err?.message === 'ledger mismatch' ? 'Debit and credit totals must match exactly before saving.' : 'Server error'),
   })
 
-  const handleUnmount = (row: any) => {
-    garageService.removeTyrePosition({ id: row.id, tyre_id: row.tyre_id, removed_date: today }).then((res) => {
-      if (res.status === 200) {
-        toast.success('Tyre unmounted')
-        qc.invalidateQueries({ queryKey: ['tyre-positions'] })
-        qc.invalidateQueries({ queryKey: ['tyre-inventory'] })
-      } else toast.error('Failed')
+  const handleDelete = (row: any) => {
+    garageService.deleteTyreRetread({ id: row.id }).then((res) => {
+      if (res.status === 200) { toast.success('Entry removed'); qc.invalidateQueries({ queryKey: ['tyre-retreads'] }) }
+      else toast.error('Failed')
     })
   }
 
   const cols: Column[] = [
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
-    { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
-    { label: 'Position', key: 'position', filterable: true, render: (v) => <Badge variant="purple">{String(v)}</Badge> },
-    { label: 'Tyre Code', key: 'tyre_code', filterable: true, render: (v, r: any) => <div><div className="font-semibold">{String(v)}</div><div className="text-xs text-slate-500">{r.brand}</div></div> },
+    { label: 'Tyre Code', key: 'tyre_code', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
     { label: 'Serial No', key: 'serial_no', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
-    { label: 'Fitted Date', key: 'fitted_date', align: 'center', filterable: true, render: (v) => <span className="text-sm">{fmtDate(v)}</span> },
-    { label: 'Odometer at Fitting', key: 'odometer_at_fitting', align: 'right', filterable: true, render: (v) => <span className="text-sm">{v ? `${v} km` : '—'}</span> },
-    { label: 'Voucher', key: 'voucher_number', filterable: true, render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span> },
-    { label: 'Ledgers', key: 'ledger_summary', filterable: true, render: (v) => {
-      if (!v) return <span className="text-slate-300">—</span>
-      const parts = String(v).split(' | ')
-      return (
-        <div className="flex flex-col gap-1">
-          {parts.map((p, i) => {
-            const isDebit = p.startsWith('Debit')
-            const text = p.replace(/^(Debit|Credit) Account: /, '')
-            return (
-              <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full w-fit whitespace-nowrap ${isDebit ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                {isDebit ? 'Dr' : 'Cr'} {text}
-              </span>
-            )
-          })}
-        </div>
-      )
-    } },
+    { label: 'Make', key: 'brand', filterable: true, render: (v) => <span className="text-slate-700">{v || '—'}</span> },
+    { label: 'Size', key: 'size', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
+    { label: 'Retread Date', key: 'retread_date', align: 'center', filterable: true, render: (v) => <span className="text-sm">{fmtDate(v)}</span> },
+    { label: 'Cost (₹)', key: 'cost', align: 'right', filterable: true, render: (v) => <span className="font-medium">₹{v ?? 0}</span> },
+    { label: 'Remarks', key: 'remarks', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
   ]
 
-  const canAssign = !!form.vehicle_number && !!form.position && !!form.tyre_id && (!hasLedgerEntry || isBalanced)
+  const canSave = !!form.tyre_id
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <PageHeader title="Tyre Position" subtitle="Mount tyres from inventory onto vehicle wheel positions" />
-
-      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-blue-500 to-cyan-500">
+    <>
+      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-amber-500 to-orange-500">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><LayoutGrid className="w-5 h-5 text-blue-500" /> Mount Tyre</h2>
-          <Button onClick={() => assign()} disabled={isPending || !canAssign}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Mount Tyre'}</Button>
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Recycle className="w-5 h-5 text-amber-500" /> New Retread Entry</h2>
+          <Button onClick={() => save()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Entry'}</Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div><Label>Select Tyre Serial Number *</Label>
+          <div><Label>Select Tyre Number *</Label>
             <SearchableSelect
               value={form.tyre_id}
               onChange={setField('tyre_id')}
-              options={inStockTyres.map((t) => ({ value: String(t.id), label: `${t.serial_no || 'No Serial'} — ${t.tyre_code} (${t.brand})` }))}
-              placeholder="Select Tyre Serial Number"
+              options={tyreList.map((t: any) => ({ value: String(t.id), label: `${t.tyre_code} — ${t.brand}` }))}
+              placeholder="Select Tyre"
               onReload={() => reloadTyres()}
               reloading={loadingTyres}
             /></div>
-          <div><Label>Select Date</Label><Input type="date" max={today} value={form.fitted_date} onChange={f('fitted_date')} /></div>
-          <div><Label>Bus No *</Label>
-            <SearchableSelect
-              value={form.vehicle_number}
-              onChange={setField('vehicle_number')}
-              options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
-              placeholder="Select Bus"
-              onReload={() => reloadBuses()}
-              reloading={loadingBuses}
-            /></div>
-          <div><Label>Kilometers</Label><Input type="number" placeholder="km" value={form.odometer_at_fitting} onChange={f('odometer_at_fitting')} /></div>
-          <div><Label>Tyre Position *</Label>
-            <SearchableSelect
-              value={form.position}
-              onChange={setField('position')}
-              options={positionList.map((p) => ({ value: p.position_name, label: p.position_name }))}
-              placeholder="Select Position"
-              onReload={() => reloadPositions()}
-              reloading={loadingPositions}
-            /></div>
-          <div><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
+          <div><Label>Retread Date</Label><Input type="date" max={today} value={form.retread_date} onChange={f('retread_date')} /></div>
+          <div><Label>Retread Cost (₹)</Label><Input type="number" placeholder="0" value={form.cost} onChange={handleCostChange} /></div>
+          <div className="md:col-span-3"><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
         </div>
 
         <div className="pt-5 mt-5 border-t border-slate-100">
@@ -235,22 +214,31 @@ export default function TyrePositionPage() {
             </div>
           </div>
           {hasLedgerEntry && !isBalanced && (
-            <p className="text-xs font-semibold text-red-600 mt-2">Debit and credit totals must match exactly before saving.</p>
+            <span className="text-xs font-semibold text-red-600 block mt-2">Debit and credit totals must match exactly before saving.</span>
           )}
         </div>
       </GlassCard>
 
       <DataTable
-        title="Active Tyre Positions"
+        title="Retread History"
         columns={cols}
         data={list}
         loading={isLoading}
-        onAction={(action, row) => { if (action === 'delete') handleUnmount(row) }}
+        onAction={(action, row) => { if (action === 'delete') handleDelete(row) }}
         actions={['delete']}
-        icon={<LayoutGrid className="w-5 h-5 text-blue-500" />}
+        icon={<Recycle className="w-5 h-5 text-amber-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
+    </>
+  )
+}
+
+export default function TyreRetreadPage() {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <PageHeader title="Retread Tyre Entry" subtitle="Record when a tyre is sent for retreading" />
+      <TyreRetreadPanel />
     </motion.div>
   )
 }

@@ -4,9 +4,10 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Bus, Save, Plus, X, Edit2, ChevronDown, Upload, Download, FileSpreadsheet, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
+import ChangeNote from '@/components/shared/ChangeNote'
 import * as XLSX from 'xlsx'
 
 // ── Generic master-data picker (searchless dropdown backed by a master list) ──
@@ -98,11 +99,8 @@ function MasterListPicker({ panelId, queryKey, queryFn, valueKey, value, onChang
   )
 }
 
-const CURRENT_YEAR = new Date().getFullYear()
-const MFG_YEARS = Array.from({ length: CURRENT_YEAR - 1989 }, (_, i) => CURRENT_YEAR - i)
-
 const EMPTY_NORMAL = {
-  bus_no: '', engine_no: '', chassis_no: '', vehicle_type: '', company: '',
+  bus_no: '', engine_no: '', chassis_no: '', vehicle_type: '',
   luxury_type: '', seating_capacity: '', chassis_make: '', body_made: '', chassis_model: '', mfg_year: '',
   date_of_purchase: '', reg_date: '', odometer: '', insurance_validity: '',
   pollution_validity: '', fc_validity: '', base_point_validity: '',
@@ -228,6 +226,20 @@ export default function BusNoPage() {
 
   const uploadRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+  const formRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!showForm) return
+    const raf = requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Native inputs reliably show a focus ring after a mouse click; the custom
+      // dropdown buttons rely on :focus-visible, which browsers suppress post-click.
+      const target = formRef.current?.querySelector<HTMLElement>('input, select, textarea')
+        ?? formRef.current?.querySelector<HTMLElement>('button[type="button"]')
+      target?.focus()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [showForm, editId, busType])
 
   const setN = (k: keyof typeof EMPTY_NORMAL) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setNormalForm((f) => ({ ...f, [k]: e.target.value }))
@@ -247,7 +259,7 @@ export default function BusNoPage() {
     return {
       busno: normalForm.bus_no, busnumber: normalForm.bus_no,
       engineno: normalForm.engine_no, chassisno: normalForm.chassis_no,
-      vehicletype: normalForm.vehicle_type, company: normalForm.company, dateofpurchase: normalForm.date_of_purchase,
+      vehicletype: normalForm.vehicle_type, dateofpurchase: normalForm.date_of_purchase,
       odometer: normalForm.odometer, insurancevalidity: normalForm.insurance_validity,
       pollutionvalidity: normalForm.pollution_validity, fcvalidity: normalForm.fc_validity,
       basepointvalidity: normalForm.base_point_validity, hometaxvalidity: normalForm.home_tax_validity,
@@ -313,7 +325,7 @@ export default function BusNoPage() {
       setBusType('normal')
       setNormalForm({
         bus_no: row.bus_no ?? '', engine_no: row.engine_no ?? '',
-        chassis_no: row.chassis_no ?? '', vehicle_type: row.vehicle_type ?? '', company: row.company ?? '',
+        chassis_no: row.chassis_no ?? '', vehicle_type: row.vehicle_type ?? '',
         luxury_type: row.luxury_type ?? '', seating_capacity: row.seating_capacity ?? '',
         chassis_make: row.chassis_make ?? '', body_made: row.body_made ?? '',
         chassis_model: row.chassis_model ?? '', mfg_year: row.mfg_year ?? '',
@@ -327,7 +339,6 @@ export default function BusNoPage() {
       })
     }
     setIsEdit(true); setEditId(row.id); setShowForm(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const handleDelete = (row: any) => {
@@ -431,7 +442,7 @@ export default function BusNoPage() {
       <div className="flex justify-between items-end">
         <PageHeader title="Bus Number Master" subtitle="Manage the complete bus fleet registry" />
         {!showForm && (
-          <Button onClick={openAdd}><Plus className="w-4 h-4" /> Add New Bus</Button>
+          <Button onClick={openAdd}><Plus className="w-4 h-4" /> Add New Vehicle</Button>
         )}
       </div>
 
@@ -439,13 +450,14 @@ export default function BusNoPage() {
       <AnimatePresence>
         {showForm && (
           <motion.div key="bus-form" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }}>
+            <div ref={formRef}>
             <GlassCard className="p-6" colorBar={isEdit ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-blue-500 to-cyan-500'}>
 
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   {isEdit
-                    ? <><Edit2 className="w-5 h-5 text-amber-500" /> Edit Bus</>
-                    : <><Bus className="w-5 h-5 text-blue-500" /> Add New Bus</>
+                    ? <><Edit2 className="w-5 h-5 text-amber-500" /> Edit Vehicle</>
+                    : <><Bus className="w-5 h-5 text-blue-500" /> Add New Vehicle</>
                   }
                 </h2>
                 <div className="flex items-center gap-3">
@@ -487,18 +499,10 @@ export default function BusNoPage() {
                     <MasterListPicker panelId="vt-panel" queryKey="vehicle-types" queryFn={() => mastersService.getVehicleTypes()}
                       valueKey="type_name" value={normalForm.vehicle_type} onChange={(v) => setNormalForm(f => ({ ...f, vehicle_type: v }))}
                       placeholder="Select Vehicle Type" /></div>
-                  <div><Label>Company</Label>
-                    <MasterListPicker panelId="vc-panel" queryKey="vehicle-companies" queryFn={() => mastersService.getVehicleCompanies()}
-                      valueKey="company_name" value={normalForm.company} onChange={(v) => setNormalForm(f => ({ ...f, company: v }))}
-                      placeholder="Select Company" /></div>
-                  <div><Label>Vehicle / Register Number <span className="text-red-500">*</span></Label>
-                    <Input placeholder="Enter Register Number" value={normalForm.bus_no} onChange={setN('bus_no')} /></div>
                   <div><Label>Luxury Type</Label>
-                    <Select value={normalForm.luxury_type} onChange={setN('luxury_type')}>
-                      <option value="">Select Type</option>
-                      <option value="AC">AC</option>
-                      <option value="Non AC">Non AC</option>
-                    </Select></div>
+                    <MasterListPicker panelId="luxury-type-panel" queryKey="luxury-types" queryFn={() => mastersService.getLuxuryTypes()}
+                      valueKey="type_name" value={normalForm.luxury_type} onChange={(v) => setNormalForm(f => ({ ...f, luxury_type: v }))}
+                      placeholder="Select Luxury Type" /></div>
                   <div><Label>Seating Capacity</Label>
                     <MasterListPicker panelId="seat-cap-panel" queryKey="seating-capacities" queryFn={() => mastersService.getSeatingCapacities()}
                       valueKey="capacity" value={normalForm.seating_capacity} onChange={(v) => setNormalForm(f => ({ ...f, seating_capacity: v }))}
@@ -516,20 +520,21 @@ export default function BusNoPage() {
                       valueKey="company_name" value={normalForm.body_made} onChange={(v) => setNormalForm(f => ({ ...f, body_made: v }))}
                       placeholder="Select Body Builder" /></div>
                   <div><Label>Mfg Year</Label>
-                    <Select value={normalForm.mfg_year} onChange={setN('mfg_year')}>
-                      <option value="">Select Year</option>
-                      {MFG_YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-                    </Select></div>
+                    <MasterListPicker panelId="mfg-year-panel" queryKey="mfg-years" queryFn={() => mastersService.getMfgYears()}
+                      valueKey="year_value" value={normalForm.mfg_year} onChange={(v) => setNormalForm(f => ({ ...f, mfg_year: v }))}
+                      placeholder="Select Mfg Year" /></div>
                   <div><Label>Engine Number</Label>
                     <Input placeholder="Enter Engine Number" value={normalForm.engine_no} onChange={setN('engine_no')} /></div>
                   <div><Label>Chassis Number</Label>
                     <Input placeholder="Enter Chassis Number" value={normalForm.chassis_no} onChange={setN('chassis_no')} /></div>
                   <div><Label>Purchase Date</Label>
                     <Input type="date" max={today} value={normalForm.date_of_purchase} onChange={setN('date_of_purchase')} /></div>
-                  <div><Label>Registration Date</Label>
-                    <Input type="date" max={today} value={normalForm.reg_date} onChange={setN('reg_date')} /></div>
+                  <div><Label>Vehicle / Register Number <span className="text-red-500">*</span></Label>
+                    <Input placeholder="Enter Register Number" value={normalForm.bus_no} onChange={setN('bus_no')} /></div>
                   <div><Label>Odometer <span className="text-red-500">*</span></Label>
                     <Input placeholder="Enter Odometer Reading" type="number" value={normalForm.odometer} onChange={setN('odometer')} /></div>
+                  <div><Label>Registration Date</Label>
+                    <Input type="date" max={today} value={normalForm.reg_date} onChange={setN('reg_date')} /></div>
                   <div><Label>Fitness Validity <span className="text-red-500">*</span></Label>
                     <Input type="date" value={normalForm.fc_validity} onChange={setN('fc_validity')} /></div>
                   <div><Label>Home Tax Validity <span className="text-red-500">*</span></Label>
@@ -562,6 +567,7 @@ export default function BusNoPage() {
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
               </div>
             </GlassCard>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -649,7 +655,7 @@ export default function BusNoPage() {
                           <Clock className="w-3.5 h-3.5" />
                           {fmtDateTime(h.changed_at)} · {h.changed_by_name || 'Unknown'}
                         </div>
-                        <p className="text-sm text-slate-700 whitespace-pre-line">{h.changes_note}</p>
+                        <ChangeNote note={h.changes_note ?? ''} />
                       </li>
                     ))}
                   </ol>

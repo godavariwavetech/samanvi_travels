@@ -55,11 +55,23 @@ export const garageService = {
   addTyre: (data: unknown) => api.post('/tyre-inventory/add', securePayload(data)).then((r) => r.data),
   editTyre: (data: unknown) => api.post('/tyre-inventory/edit', securePayload(data)).then((r) => r.data),
   deleteTyre: (data: unknown) => api.post('/tyre-inventory/delete', securePayload(data)).then((r) => r.data),
+  sellTyres: (data: unknown) => api.post('/tyre-inventory/sell', securePayload(data)).then((r) => r.data),
 
   // ── Tyre Position ────────────────────────────────────────
   getTyrePositions: () => api.get('/tyre-position/getall').then((r) => r.data),
   assignTyrePosition: (data: unknown) => api.post('/tyre-position/assign', securePayload(data)).then((r) => r.data),
   removeTyrePosition: (data: unknown) => api.post('/tyre-position/remove', securePayload(data)).then((r) => r.data),
+  getTyrePositionHistory: () => api.get('/tyre-position/history').then((r) => r.data),
+
+  // ── Tyre Retread Entry ───────────────────────────────────
+  getTyreRetreads: () => api.get('/tyre-retread/getall').then((r) => r.data),
+  addTyreRetread: (data: unknown) => api.post('/tyre-retread/add', securePayload(data)).then((r) => r.data),
+  deleteTyreRetread: (data: unknown) => api.post('/tyre-retread/delete', securePayload(data)).then((r) => r.data),
+
+  // ── Tyre Repair ───────────────────────────────────────────
+  getTyreRepairs: () => api.get('/tyre-repair/getall').then((r) => r.data),
+  addTyreRepair: (data: unknown) => api.post('/tyre-repair/add', securePayload(data)).then((r) => r.data),
+  deleteTyreRepair: (data: unknown) => api.post('/tyre-repair/delete', securePayload(data)).then((r) => r.data),
 
   // ── Battery Management ───────────────────────────────────
   getBatteries: () => api.get('/battery/getall').then((r) => r.data),

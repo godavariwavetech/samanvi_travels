@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
@@ -261,6 +261,11 @@ const buildCols = (
         {(row.source_type === 'battery' || row.battery_code) && (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700 border border-teal-200 whitespace-nowrap">
             <BatteryCharging className="w-2.5 h-2.5" /> Battery
+          </span>
+        )}
+        {(row.source_type === 'tyre' || row.tyre_code) && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+            <CircleDot className="w-2.5 h-2.5" /> Tyre
           </span>
         )}
       </div>
@@ -1396,6 +1401,25 @@ export default function VoucherApprovalsPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-600 text-white hover:bg-teal-700 transition-colors whitespace-nowrap"
                     >
                       Open Battery Management
+                    </button>
+                  </div>
+                )}
+
+                {/* Tyre voucher banner */}
+                {(viewModal.source_type === 'tyre' || viewModal.tyre_code) && (
+                  <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+                      <CircleDot className="w-3 h-3" /> TYRE
+                    </span>
+                    <p className="text-sm text-indigo-800 flex-1">
+                      This voucher was generated from tyre{' '}
+                      <span className="font-bold">{viewModal.tyre_code || '—'}</span>.
+                    </p>
+                    <button
+                      onClick={() => navigate('/garage/tyre-inventory')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                    >
+                      Open Tyre Inventory
                     </button>
                   </div>
                 )}

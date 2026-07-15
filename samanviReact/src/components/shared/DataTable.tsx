@@ -228,7 +228,7 @@ export function DataTable<T extends Record<string, unknown>>({
       <div className="overflow-x-auto scrollbar-thin">
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
-            <tr className="bg-blue-600 text-white">
+            <tr className="bg-blue-600 text-white [&>th:first-child]:rounded-tl-xl [&>th:last-child]:rounded-tr-xl">
               {selectable && (
                 <th className="pl-5 pr-2 py-4 w-10">
                   <input

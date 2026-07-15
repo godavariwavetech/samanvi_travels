@@ -1,7 +1,7 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings, Upload, Download, FileSpreadsheet } from 'lucide-react'
+import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings, Upload, Download, FileSpreadsheet, ImagePlus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
@@ -162,11 +162,190 @@ function TerminateModal({ person, staffType, onConfirm, onClose, isPending }: {
   )
 }
 
+// ── View Details modal ─────────────────────────────────────────────────────
+type ViewField = [label: string, key: string]
+
+const DRIVER_VIEW_FIELDS: ViewField[] = [
+  ['Driver ID', 'driver_id_number'], ['Aadhar Name', 'nickname'], ['Aadhar Number', 'aadhar_number'],
+  ['Date of Birth', 'dldateofbirth'], ['Mobile Number', 'mobile_number'], ['Alternate Mobile', 'alternate_number'],
+  ['Emergency Number', 'emergency_mobile_number'], ['Date of Joining', 'date_of_joining'], ['Reference Name', 'reference'],
+  ['Address', 'address'], ['DL Name', 'driver_name'], ['DL Number', 'dl_number'],
+  ['DL Issue Date', 'drivinglicense_joining_date'], ['DL Expiry Date', 'dl_expiry_date'],
+  ['Transport Issue Date', 'transportoneissuedate'], ['Transport Valid From', 'transportvalidityfrom'],
+  ['Transport Valid To', 'transportvalidityto'], ['Account Holder Name', 'account_holder_name'],
+  ['Account Number', 'account_number'], ['Bank Name', 'bank_name'], ['Branch Name', 'branch_name'],
+  ['IFSC Code', 'ifsc_code'], ['UPI ID', 'upi_id'], ['Remarks', 'remarks'],
+]
+const DRIVER_VIEW_IMAGES: ViewField[] = [
+  ['Aadhar Card Front', 'aadhar_card_front'], ['Aadhar Card Back', 'aadhar_card_back'],
+  ['DL Front', 'dl_front'], ['DL Back', 'dl_back'], ['UPI / Passbook Scan', 'upi_scanner'],
+]
+
+const STAFF_VIEW_FIELDS: ViewField[] = [
+  ['Designation', 'designation'], ['Nick Name', 'nickName'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
+  ['Date of Birth', 'dob'], ['Mobile Number', 'mobile'], ['Alternative Mobile', 'alternativemobilenumber'],
+  ['Emergency Contact', 'emergencyContact'], ['Date of Joining', 'dateOfJoining'], ['Reference Name', 'referencename'],
+  ['Address', 'address'], ['Account Holder Name', 'accountHolderName'], ['Account Number', 'accountNumber'],
+  ['Bank Name', 'bankName'], ['Branch Name', 'branchname'], ['IFSC Code', 'ifscCode'], ['UPI ID', 'upiId'],
+  ['Remarks', 'remarks'],
+]
+const STAFF_VIEW_IMAGES: ViewField[] = [
+  ['Aadhar Card Front', 'aadhaarCardFront'], ['Aadhar Card Back', 'aadhaarCardBack'], ['UPI / Passbook Scan', 'upiScanner'],
+]
+
+const HELPER_VIEW_FIELDS: ViewField[] = [
+  ['Helper ID', 'helper_id_number'], ['Nick Name', 'nickname'], ['Aadhar Name', 'helper_name'], ['Aadhar Number', 'adhar_number'],
+  ['Date of Birth', 'dob'], ['Mobile Number', 'mobile_number'], ['Alternate Number', 'alternate_number'],
+  ['Emergency Mobile', 'emergencymobilenumber'], ['Date of Joining', 'date_of_joining'], ['Reference', 'reference'],
+  ['Address', 'address'], ['Account Holder Name', 'account_holder_name'], ['Account Number', 'account_number'],
+  ['Bank Name', 'bank_name'], ['Branch Name', 'branch_name'], ['IFSC Code', 'ifsc_code'], ['UPI ID', 'upi_id'],
+  ['Remarks', 'remarks'],
+]
+const HELPER_VIEW_IMAGES: ViewField[] = [
+  ['Aadhar Card Front', 'adhar_card_front'], ['Aadhar Card Back', 'adhar_card_back'], ['UPI / Passbook Scan', 'upi_scanner'],
+]
+
+const fmtViewValue = (v: any) => (v === null || v === undefined || v === '' ? '—' : String(v))
+
+function ViewDetailsModal({ person, staffType, onClose }: { person: any; staffType: 'driver' | 'staff' | 'helper'; onClose: () => void }) {
+  const fields = staffType === 'driver' ? DRIVER_VIEW_FIELDS : staffType === 'helper' ? HELPER_VIEW_FIELDS : STAFF_VIEW_FIELDS
+  const images = staffType === 'driver' ? DRIVER_VIEW_IMAGES : staffType === 'helper' ? HELPER_VIEW_IMAGES : STAFF_VIEW_IMAGES
+  const title = person?.driver_name ?? person?.fullName ?? person?.helper_name ?? 'Record'
+  const [lightbox, setLightbox] = useState<string | null>(null)
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-7 py-5 border-b border-slate-100 shrink-0">
+          <div>
+            <h3 className="font-extrabold text-slate-900 text-lg capitalize">{staffType} Details</h3>
+            <p className="text-sm text-slate-500">{title}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-7 overflow-y-auto space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
+            {fields.map(([label, key]) => (
+              <div key={key}>
+                <div className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</div>
+                <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{fmtViewValue(person?.[key])}</div>
+              </div>
+            ))}
+          </div>
+          <div className="pt-4 border-t border-slate-100">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">Documents</p>
+            <div className="flex flex-wrap gap-4">
+              {images.map(([label, key]) => {
+                const url = person?.[key]
+                return (
+                  <div key={key} className="text-center">
+                    {url ? (
+                      <button
+                        type="button"
+                        onClick={() => setLightbox(url)}
+                        className="block w-28 h-28 rounded-xl overflow-hidden border border-slate-200 hover:ring-2 hover:ring-blue-400 transition-all"
+                      >
+                        <img src={url} alt={label} className="w-full h-full object-cover" />
+                      </button>
+                    ) : (
+                      <div className="w-28 h-28 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-xs">
+                        No image
+                      </div>
+                    )}
+                    <div className="text-[11px] font-semibold text-slate-500 mt-1.5 max-w-[7rem]">{label}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {lightbox && createPortal(
+        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="Document" className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" />
+          <button onClick={() => setLightbox(null)} className="absolute top-6 right-6 text-white/80 hover:text-white">
+            <X className="w-7 h-7" />
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  )
+}
+
+// ── Document image upload ──────────────────────────────────────────────────
+interface ImageValue {
+  filename: string
+  filetype: string
+  value: string
+  reviewimg: string
+  imgtype: string
+}
+
+function ImageUploadField({ label, value, onChange }: { label: string; value?: ImageValue; onChange: (v?: ImageValue) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result)
+      const base64 = dataUrl.split(',')[1] ?? ''
+      const ext = (file.name.split('.').pop() || '').toLowerCase()
+      onChange({ filename: file.name, filetype: file.type, value: base64, reviewimg: dataUrl, imgtype: ext })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <div>
+      <Label>{label}</Label>
+      {value?.reviewimg ? (
+        <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-slate-200 group">
+          <img src={value.reviewimg} alt={label} className="w-full h-full object-cover" />
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-blue-400 hover:text-blue-500 transition-colors"
+        >
+          <ImagePlus className="w-5 h-5" />
+          <span className="text-[10px] font-semibold">Upload</span>
+        </button>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+    </div>
+  )
+}
+
+// ── Section divider ─────────────────────────────────────────────────────────
+function SectionBox({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">{children}</div>
+    </div>
+  )
+}
+
 // ── Form state defaults ────────────────────────────────────────────────────
 const emptyStaff = {
   fullName: '', mobile: '', designation: '', emergencyContact: '', alternativemobilenumber: '',
   dateOfJoining: '', aadhaar: '', accountHolderName: '', accountNumber: '', ifscCode: '',
   bankName: '', referencename: '', branchname: '', nickName: '', upiId: '', remarks: '',
+  dob: '', address: '',
 }
 const emptyDriver = {
   driver_name: '', mobile_number: '', dl_number: '', dl_expiry_date: '',
@@ -174,13 +353,23 @@ const emptyDriver = {
   nickname: '', emergency_mobile_number: '', alternate_number: '', reference: '',
   date_of_joining: '', account_holder_name: '', branch_name: '', upi_id: '',
   dldateofbirth: '', drivinglicense_joining_date: '', transportoneissuedate: '',
-  transportvalidityfrom: '', transportvalidityto: '', remarks: '',
+  transportvalidityfrom: '', transportvalidityto: '', remarks: '', address: '',
 }
 const emptyHelper = {
   helper_name: '', mobile_number: '', adhar_number: '', account_number: '',
   ifsc_code: '', bank_name: '', nickname: '', emergency_mobile_number: '',
   alternate_number: '', reference: '', account_holder_name: '', branch_name: '',
-  upi_id: '', date_of_joining: '', remarks: '',
+  upi_id: '', date_of_joining: '', remarks: '', dob: '', address: '',
+}
+
+const emptyStaffImages: Record<'aadhaarCardFront' | 'aadhaarCardBack' | 'upiScanner', ImageValue | undefined> = {
+  aadhaarCardFront: undefined, aadhaarCardBack: undefined, upiScanner: undefined,
+}
+const emptyDriverImages: Record<'aadharcardfront' | 'aadharcardback' | 'dlfront' | 'dlback' | 'upiscanner', ImageValue | undefined> = {
+  aadharcardfront: undefined, aadharcardback: undefined, dlfront: undefined, dlback: undefined, upiscanner: undefined,
+}
+const emptyHelperImages: Record<'adharcardfront' | 'adharcardback' | 'upiscanner', ImageValue | undefined> = {
+  adharcardfront: undefined, adharcardback: undefined, upiscanner: undefined,
 }
 
 const FIXED_TYPES = ['Driver', 'Staff', 'Helper', 'Terminated']
@@ -219,7 +408,7 @@ const typeColors: Record<string, string> = {
 const today = new Date().toISOString().split('T')[0]
 
 const DRIVER_TEMPLATE_HEADERS = [
-  'Nick Name', 'DL Name (Full Name)*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
+  'Aadhar Name*', 'DL Name*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
   'Emergency Number', 'Aadhar Number*', 'DL Number*', 'Account Holder Name', 'Account Number',
   'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID', 'DL Issue Date', 'DL Expiry Date',
   'Transport Issue Date', 'Transport Valid From', 'Transport Valid To', 'Date of Joining*',
@@ -256,15 +445,25 @@ export default function StaffPage() {
   const [dataType, setDataType] = useState<DataType>('')
   const [showForm, setShowForm] = useState(false)
   const [terminatePerson, setTerminatePerson] = useState<{ person: any; staffType: string } | null>(null)
+  const [viewPerson, setViewPerson] = useState<{ person: any; staffType: 'driver' | 'staff' | 'helper' } | null>(null)
   const [staffForm, setStaffForm] = useState(emptyStaff)
   const [driverForm, setDriverForm] = useState(emptyDriver)
   const [helperForm, setHelperForm] = useState(emptyHelper)
+  const [staffImages, setStaffImages] = useState(emptyStaffImages)
+  const [driverImages, setDriverImages] = useState(emptyDriverImages)
+  const [helperImages, setHelperImages] = useState(emptyHelperImages)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const uploadRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
 
   const sf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setStaffForm((f) => ({ ...f, [k]: e.target.value }))
   const df = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setDriverForm((f) => ({ ...f, [k]: e.target.value }))
   const hf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setHelperForm((f) => ({ ...f, [k]: e.target.value }))
+
+  // Aadhar numbers are 12 digits — strip anything non-numeric as the user types.
+  const digitsOnly = <T,>(setForm: React.Dispatch<React.SetStateAction<T>>, k: keyof T, max: number) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [k]: e.target.value.replace(/\D/g, '').slice(0, max) }))
 
   const isCustomType = dataType !== '' && !FIXED_TYPES.includes(dataType)
 
@@ -300,18 +499,18 @@ export default function StaffPage() {
 
   // Mutations
   const { mutate: addStaff, isPending: addingStaff } = useMutation({
-    mutationFn: () => mastersService.addStaff({ ...staffForm, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0, document: null }),
-    onSuccess: (res) => { if (res.status === 200) { toast.success('Staff added!'); qc.invalidateQueries({ queryKey: ['active-staff'] }); setStaffForm(emptyStaff); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
+    mutationFn: () => mastersService.addStaff({ ...staffForm, ...staffImages, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0, document: null }),
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Staff added!'); qc.invalidateQueries({ queryKey: ['active-staff'] }); setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
   const { mutate: addDriver, isPending: addingDriver } = useMutation({
-    mutationFn: () => mastersService.addDriver({ ...driverForm, user_id: localStorage.getItem('user_id'), usr_nm: localStorage.getItem('usr_nm'), uploadind: 0 }),
-    onSuccess: (res) => { if (res.status === 200) { toast.success('Driver added!'); qc.invalidateQueries({ queryKey: ['drivers'] }); setDriverForm(emptyDriver); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
+    mutationFn: () => mastersService.addDriver({ ...driverForm, ...driverImages, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0 }),
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Driver added!'); qc.invalidateQueries({ queryKey: ['drivers'] }); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
   const { mutate: addHelper, isPending: addingHelper } = useMutation({
-    mutationFn: () => mastersService.addHelper({ ...helperForm, user_id: localStorage.getItem('user_id'), usr_nm: localStorage.getItem('usr_nm'), uploadind: 0 }),
-    onSuccess: (res) => { if (res.status === 200) { toast.success('Helper added!'); qc.invalidateQueries({ queryKey: ['active-helpers'] }); setHelperForm(emptyHelper); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
+    mutationFn: () => mastersService.addHelper({ ...helperForm, ...helperImages, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0 }),
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Helper added!'); qc.invalidateQueries({ queryKey: ['active-helpers'] }); setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
   const { mutate: terminate, isPending: terminating } = useMutation({
@@ -335,6 +534,7 @@ export default function StaffPage() {
   const handleTypeChange = (type: string) => {
     setDataType(type)
     setShowForm(false)
+    setColumnFilters({})
     // Pre-fill designation for custom types
     if (type && !FIXED_TYPES.includes(type)) {
       setStaffForm(f => ({ ...f, designation: type }))
@@ -403,8 +603,8 @@ export default function StaffPage() {
       const [, ...dataRows] = raw
       let rows: any[]
       if (dataType === 'Driver') {
-        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => ({
-          nickname: String(r[0] ?? '').trim() || null,
+        rows = dataRows.filter(r => r && String(r[0] ?? '').trim() && String(r[1] ?? '').trim()).map(r => ({
+          nickname: String(r[0] ?? '').trim(),
           driver_name: String(r[1] ?? '').trim(),
           dldateofbirth: String(r[2] ?? '').trim() || null,
           mobile_number: String(r[3] ?? '').trim(),
@@ -495,33 +695,39 @@ export default function StaffPage() {
     ),
   })
 
+  const slNoCol: Column = { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-sm text-slate-500">{i + 1}</span> }
+
   // Table column definitions matching Angular
   const driverCols: Column[] = [
-    { label: 'Driver ID', key: 'driver_id_number' },
-    { label: 'Aadhar Name', key: 'nickname' },
-    { label: 'Mobile Number', key: 'mobile_number' },
-    { label: 'DL Name', key: 'driver_name', render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
-    { label: 'DL Number', key: 'dl_number' },
+    slNoCol,
+    { label: 'Driver ID', key: 'driver_id_number', filterable: true },
+    { label: 'Aadhar Name', key: 'nickname', filterable: true },
+    { label: 'Mobile Number', key: 'mobile_number', filterable: true },
+    { label: 'DL Name', key: 'driver_name', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'DL Number', key: 'dl_number', filterable: true },
     { label: 'Transport Valid To', key: 'transportvalidityto', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
     mkTerminateBtn('driver'),
   ]
   const staffCols: Column[] = [
-    { label: 'Full Name', key: 'fullName', render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
-    { label: 'Mobile', key: 'mobile' },
-    { label: 'Designation', key: 'designation', render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
+    slNoCol,
+    { label: 'Full Name', key: 'fullName', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'Mobile', key: 'mobile', filterable: true },
+    { label: 'Designation', key: 'designation', filterable: true, render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
     mkTerminateBtn('staff'),
   ]
   const helperCols: Column[] = [
-    { label: 'Helper ID', key: 'helper_id_number' },
-    { label: 'Aadhar Name', key: 'helper_name', render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
-    { label: 'Mobile Number', key: 'mobile_number' },
-    { label: 'Aadhar Number', key: 'adhar_number' },
+    slNoCol,
+    { label: 'Helper ID', key: 'helper_id_number', filterable: true },
+    { label: 'Aadhar Name', key: 'helper_name', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'Mobile Number', key: 'mobile_number', filterable: true },
+    { label: 'Aadhar Number', key: 'adhar_number', filterable: true },
     mkTerminateBtn('helper'),
   ]
   const terminatedCols: Column[] = [
-    { label: 'Name', key: 'name', render: (v) => <span className="font-bold">{String(v ?? '—')}</span> },
-    { label: 'Role', key: 'role', render: (v, r: any) => <div><Badge variant="purple">{String(v ?? '—')}</Badge><div className="text-xs text-slate-400 mt-0.5 capitalize">{r.staff_type}</div></div> },
-    { label: 'Mobile', key: 'mobile' },
+    slNoCol,
+    { label: 'Name', key: 'name', filterable: true, render: (v) => <span className="font-bold">{String(v ?? '—')}</span> },
+    { label: 'Role', key: 'role', filterable: true, render: (v, r: any) => <div><Badge variant="purple">{String(v ?? '—')}</Badge><div className="text-xs text-slate-400 mt-0.5 capitalize">{r.staff_type}</div></div> },
+    { label: 'Mobile', key: 'mobile', filterable: true },
     { label: 'Left On', key: 'leaving_date', render: (v) => <span className="text-sm text-red-500 font-medium">{String(v ?? '—')}</span> },
     { label: 'Reason', key: 'termination_reason', render: (v) => <span className="text-xs text-slate-500 max-w-[200px] block truncate" title={String(v ?? '')}>{String(v ?? '—')}</span> },
     { label: 'Action', key: 'id', render: (_, row: any) => <Button variant="success" size="sm" onClick={() => rejoin(row)}><RotateCcw className="w-3.5 h-3.5" /> Rejoin</Button> },
@@ -650,57 +856,90 @@ export default function StaffPage() {
 
               {/* Driver form */}
               {dataType === 'Driver' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div><Label>Aadhar Name (Nick Name)</Label><Input value={driverForm.nickname} onChange={df('nickname')} /></div>
-                  <div><Label>DL Name (Full Name) <span className="text-red-500">*</span></Label><Input value={driverForm.driver_name} onChange={df('driver_name')} /></div>
-                  <div><Label>Date of Birth</Label><Input type="date" max={today} value={driverForm.dldateofbirth} onChange={df('dldateofbirth')} /></div>
-                  <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input value={driverForm.mobile_number} onChange={df('mobile_number')} /></div>
-                  <div><Label>Alternate Mobile</Label><Input value={driverForm.alternate_number} onChange={df('alternate_number')} /></div>
-                  <div><Label>Emergency Number</Label><Input value={driverForm.emergency_mobile_number} onChange={df('emergency_mobile_number')} /></div>
-                  <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input value={driverForm.aadhar_number} onChange={df('aadhar_number')} /></div>
-                  <div><Label>DL Number <span className="text-red-500">*</span></Label><Input value={driverForm.dl_number} onChange={df('dl_number')} /></div>
-                  <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={driverForm.account_holder_name} onChange={df('account_holder_name')} /></div>
-                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={driverForm.account_number} onChange={df('account_number')} /></div>
-                  <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={driverForm.bank_name} onChange={df('bank_name')} /></div>
-                  <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={driverForm.branch_name} onChange={df('branch_name')} /></div>
-                  <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={driverForm.ifsc_code} onChange={df('ifsc_code')} /></div>
-                  <div><Label>UPI ID</Label><Input value={driverForm.upi_id} onChange={df('upi_id')} /></div>
-                  <div><Label>DL Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.drivinglicense_joining_date} onChange={df('drivinglicense_joining_date')} /></div>
-                  <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
-                  <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
-                  <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
-                  <div><Label>Transport Valid To <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.transportvalidityto} onChange={df('transportvalidityto')} /></div>
-                  <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.date_of_joining} onChange={df('date_of_joining')} /></div>
-                  <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={driverForm.reference} onChange={df('reference')} /></div>
-                  <div className="md:col-span-2"><Label>Remarks</Label><Input value={driverForm.remarks} onChange={df('remarks')} /></div>
+                <div className="space-y-5">
+                  <SectionBox title="Personal Details">
+                    <div><Label>Aadhar Name <span className="text-red-500">*</span></Label><Input value={driverForm.nickname} onChange={df('nickname')} /></div>
+                    <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={driverForm.aadhar_number} onChange={digitsOnly(setDriverForm, 'aadhar_number', 12)} /></div>
+                    <div><Label>Date of Birth</Label><Input type="date" max={today} value={driverForm.dldateofbirth} onChange={df('dldateofbirth')} /></div>
+                    <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={driverForm.mobile_number} onChange={digitsOnly(setDriverForm, 'mobile_number', 10)} /></div>
+                    <div><Label>Alternate Mobile</Label><Input inputMode="numeric" maxLength={10} value={driverForm.alternate_number} onChange={digitsOnly(setDriverForm, 'alternate_number', 10)} /></div>
+                    <div><Label>Emergency Number</Label><Input inputMode="numeric" maxLength={10} value={driverForm.emergency_mobile_number} onChange={digitsOnly(setDriverForm, 'emergency_mobile_number', 10)} /></div>
+                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.date_of_joining} onChange={df('date_of_joining')} /></div>
+                    <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={driverForm.reference} onChange={df('reference')} /></div>
+                    <div className="md:col-span-3"><Label>Address</Label>
+                      <textarea rows={2} value={driverForm.address} onChange={df('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
+                    </div>
+                    <ImageUploadField label="Aadhar Card Front" value={driverImages.aadharcardfront} onChange={(v) => setDriverImages((s) => ({ ...s, aadharcardfront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={driverImages.aadharcardback} onChange={(v) => setDriverImages((s) => ({ ...s, aadharcardback: v }))} />
+                  </SectionBox>
+
+                  <SectionBox title="DL Details">
+                    <div><Label>DL Name <span className="text-red-500">*</span></Label><Input value={driverForm.driver_name} onChange={df('driver_name')} /></div>
+                    <div><Label>DL Number <span className="text-red-500">*</span></Label><Input value={driverForm.dl_number} onChange={df('dl_number')} /></div>
+                    <div><Label>DL Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.drivinglicense_joining_date} onChange={df('drivinglicense_joining_date')} /></div>
+                    <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
+                    <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
+                    <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
+                    <div><Label>Transport Valid To <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.transportvalidityto} onChange={df('transportvalidityto')} /></div>
+                    <ImageUploadField label="DL Front" value={driverImages.dlfront} onChange={(v) => setDriverImages((s) => ({ ...s, dlfront: v }))} />
+                    <ImageUploadField label="DL Back" value={driverImages.dlback} onChange={(v) => setDriverImages((s) => ({ ...s, dlback: v }))} />
+                  </SectionBox>
+
+                  <SectionBox title="Bank Details">
+                    <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={driverForm.account_holder_name} onChange={df('account_holder_name')} /></div>
+                    <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={driverForm.account_number} onChange={df('account_number')} /></div>
+                    <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={driverForm.bank_name} onChange={df('bank_name')} /></div>
+                    <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={driverForm.branch_name} onChange={df('branch_name')} /></div>
+                    <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={driverForm.ifsc_code} onChange={df('ifsc_code')} /></div>
+                    <div><Label>UPI ID</Label><Input value={driverForm.upi_id} onChange={df('upi_id')} /></div>
+                    <ImageUploadField label="UPI / Passbook Scan" value={driverImages.upiscanner} onChange={(v) => setDriverImages((s) => ({ ...s, upiscanner: v }))} />
+                  </SectionBox>
+
+                  <div><Label>Remarks</Label><Input value={driverForm.remarks} onChange={df('remarks')} /></div>
                 </div>
               )}
 
               {/* Staff form — also used for custom types */}
               {(dataType === 'Staff' || isCustomType) && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div>
-                    <Label>Designation <span className="text-red-500">*</span></Label>
-                    {isCustomType
-                      ? <Input value={staffForm.designation} readOnly className="bg-slate-50 text-slate-500 cursor-not-allowed" />
-                      : <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
-                    }
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                    <div>
+                      <Label>Designation <span className="text-red-500">*</span></Label>
+                      {isCustomType
+                        ? <Input value={staffForm.designation} readOnly className="bg-slate-50 text-slate-500 cursor-not-allowed" />
+                        : <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
+                      }
+                    </div>
+                    <div><Label>Nick Name</Label><Input value={staffForm.nickName} onChange={sf('nickName')} /></div>
                   </div>
-                  <div><Label>Nick Name</Label><Input value={staffForm.nickName} onChange={sf('nickName')} /></div>
-                  <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={staffForm.fullName} onChange={sf('fullName')} /></div>
-                  <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input value={staffForm.mobile} onChange={sf('mobile')} /></div>
-                  <div><Label>Alternative Mobile</Label><Input value={staffForm.alternativemobilenumber} onChange={sf('alternativemobilenumber')} /></div>
-                  <div><Label>Emergency Contact</Label><Input value={staffForm.emergencyContact} onChange={sf('emergencyContact')} /></div>
-                  <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input value={staffForm.aadhaar} onChange={sf('aadhaar')} /></div>
-                  <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={staffForm.referencename} onChange={sf('referencename')} /></div>
-                  <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={staffForm.accountHolderName} onChange={sf('accountHolderName')} /></div>
-                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={staffForm.accountNumber} onChange={sf('accountNumber')} /></div>
-                  <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={staffForm.bankName} onChange={sf('bankName')} /></div>
-                  <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={staffForm.branchname} onChange={sf('branchname')} /></div>
-                  <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={staffForm.ifscCode} onChange={sf('ifscCode')} /></div>
-                  <div><Label>UPI ID</Label><Input value={staffForm.upiId} onChange={sf('upiId')} /></div>
-                  <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={staffForm.dateOfJoining} onChange={sf('dateOfJoining')} /></div>
-                  <div className="md:col-span-3"><Label>Remarks</Label>
+
+                  <SectionBox title="Personal Details">
+                    <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={staffForm.fullName} onChange={sf('fullName')} /></div>
+                    <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={staffForm.aadhaar} onChange={digitsOnly(setStaffForm, 'aadhaar', 12)} /></div>
+                    <div><Label>Date of Birth</Label><Input type="date" max={today} value={staffForm.dob} onChange={sf('dob')} /></div>
+                    <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={staffForm.mobile} onChange={digitsOnly(setStaffForm, 'mobile', 10)} /></div>
+                    <div><Label>Alternative Mobile</Label><Input inputMode="numeric" maxLength={10} value={staffForm.alternativemobilenumber} onChange={digitsOnly(setStaffForm, 'alternativemobilenumber', 10)} /></div>
+                    <div><Label>Emergency Contact</Label><Input inputMode="numeric" maxLength={10} value={staffForm.emergencyContact} onChange={digitsOnly(setStaffForm, 'emergencyContact', 10)} /></div>
+                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={staffForm.dateOfJoining} onChange={sf('dateOfJoining')} /></div>
+                    <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={staffForm.referencename} onChange={sf('referencename')} /></div>
+                    <div className="md:col-span-3"><Label>Address</Label>
+                      <textarea rows={2} value={staffForm.address} onChange={sf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
+                    </div>
+                    <ImageUploadField label="Aadhar Card Front" value={staffImages.aadhaarCardFront} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardFront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={staffImages.aadhaarCardBack} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardBack: v }))} />
+                  </SectionBox>
+
+                  <SectionBox title="Bank Details">
+                    <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={staffForm.accountHolderName} onChange={sf('accountHolderName')} /></div>
+                    <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={staffForm.accountNumber} onChange={sf('accountNumber')} /></div>
+                    <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={staffForm.bankName} onChange={sf('bankName')} /></div>
+                    <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={staffForm.branchname} onChange={sf('branchname')} /></div>
+                    <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={staffForm.ifscCode} onChange={sf('ifscCode')} /></div>
+                    <div><Label>UPI ID</Label><Input value={staffForm.upiId} onChange={sf('upiId')} /></div>
+                    <ImageUploadField label="UPI / Passbook Scan" value={staffImages.upiScanner} onChange={(v) => setStaffImages((s) => ({ ...s, upiScanner: v }))} />
+                  </SectionBox>
+
+                  <div><Label>Remarks</Label>
                     <textarea rows={2} value={staffForm.remarks} onChange={sf('remarks')} placeholder="Additional notes…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                   </div>
                 </div>
@@ -708,28 +947,41 @@ export default function StaffPage() {
 
               {/* Helper form */}
               {dataType === 'Helper' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                  <div><Label>Nick Name</Label><Input value={helperForm.nickname} onChange={hf('nickname')} /></div>
-                  <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={helperForm.helper_name} onChange={hf('helper_name')} /></div>
-                  <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input value={helperForm.mobile_number} onChange={hf('mobile_number')} /></div>
-                  <div><Label>Alternate Number</Label><Input value={helperForm.alternate_number} onChange={hf('alternate_number')} /></div>
-                  <div><Label>Emergency Mobile</Label><Input value={helperForm.emergency_mobile_number} onChange={hf('emergency_mobile_number')} /></div>
-                  <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input value={helperForm.adhar_number} onChange={hf('adhar_number')} /></div>
-                  <div><Label>Reference <span className="text-red-500">*</span></Label><Input value={helperForm.reference} onChange={hf('reference')} /></div>
-                  <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={helperForm.account_holder_name} onChange={hf('account_holder_name')} /></div>
-                  <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={helperForm.account_number} onChange={hf('account_number')} /></div>
-                  <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={helperForm.bank_name} onChange={hf('bank_name')} /></div>
-                  <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={helperForm.branch_name} onChange={hf('branch_name')} /></div>
-                  <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={helperForm.ifsc_code} onChange={hf('ifsc_code')} /></div>
-                  <div><Label>UPI ID</Label><Input value={helperForm.upi_id} onChange={hf('upi_id')} /></div>
-                  <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={helperForm.date_of_joining} onChange={hf('date_of_joining')} /></div>
-                  <div className="md:col-span-2"><Label>Remarks</Label><Input value={helperForm.remarks} onChange={hf('remarks')} /></div>
+                <div className="space-y-5">
+                  <SectionBox title="Personal Details">
+                    <div><Label>Nick Name</Label><Input value={helperForm.nickname} onChange={hf('nickname')} /></div>
+                    <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={helperForm.helper_name} onChange={hf('helper_name')} /></div>
+                    <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={helperForm.adhar_number} onChange={digitsOnly(setHelperForm, 'adhar_number', 12)} /></div>
+                    <div><Label>Date of Birth</Label><Input type="date" max={today} value={helperForm.dob} onChange={hf('dob')} /></div>
+                    <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={helperForm.mobile_number} onChange={digitsOnly(setHelperForm, 'mobile_number', 10)} /></div>
+                    <div><Label>Alternate Number</Label><Input inputMode="numeric" maxLength={10} value={helperForm.alternate_number} onChange={digitsOnly(setHelperForm, 'alternate_number', 10)} /></div>
+                    <div><Label>Emergency Mobile</Label><Input inputMode="numeric" maxLength={10} value={helperForm.emergency_mobile_number} onChange={digitsOnly(setHelperForm, 'emergency_mobile_number', 10)} /></div>
+                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={helperForm.date_of_joining} onChange={hf('date_of_joining')} /></div>
+                    <div><Label>Reference <span className="text-red-500">*</span></Label><Input value={helperForm.reference} onChange={hf('reference')} /></div>
+                    <div className="md:col-span-3"><Label>Address</Label>
+                      <textarea rows={2} value={helperForm.address} onChange={hf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
+                    </div>
+                    <ImageUploadField label="Aadhar Card Front" value={helperImages.adharcardfront} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardfront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={helperImages.adharcardback} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardback: v }))} />
+                  </SectionBox>
+
+                  <SectionBox title="Bank Details">
+                    <div><Label>Account Holder Name <span className="text-red-500">*</span></Label><Input value={helperForm.account_holder_name} onChange={hf('account_holder_name')} /></div>
+                    <div><Label>Account Number <span className="text-red-500">*</span></Label><Input value={helperForm.account_number} onChange={hf('account_number')} /></div>
+                    <div><Label>Bank Name <span className="text-red-500">*</span></Label><Input value={helperForm.bank_name} onChange={hf('bank_name')} /></div>
+                    <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={helperForm.branch_name} onChange={hf('branch_name')} /></div>
+                    <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={helperForm.ifsc_code} onChange={hf('ifsc_code')} /></div>
+                    <div><Label>UPI ID</Label><Input value={helperForm.upi_id} onChange={hf('upi_id')} /></div>
+                    <ImageUploadField label="UPI / Passbook Scan" value={helperImages.upiscanner} onChange={(v) => setHelperImages((s) => ({ ...s, upiscanner: v }))} />
+                  </SectionBox>
+
+                  <div><Label>Remarks</Label><Input value={helperForm.remarks} onChange={hf('remarks')} /></div>
                 </div>
               )}
 
               <div className="flex gap-3 mt-6">
                 {(dataType === 'Staff' || isCustomType) && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
-                {dataType === 'Driver' && <Button onClick={() => addDriver()} disabled={addingDriver || !driverForm.driver_name}><Save className="w-4 h-4" />{addingDriver ? 'Saving…' : 'Save Driver'}</Button>}
+                {dataType === 'Driver' && <Button onClick={() => addDriver()} disabled={addingDriver || !driverForm.driver_name || !driverForm.nickname}><Save className="w-4 h-4" />{addingDriver ? 'Saving…' : 'Save Driver'}</Button>}
                 {dataType === 'Helper' && <Button onClick={() => addHelper()} disabled={addingHelper || !helperForm.helper_name}><Save className="w-4 h-4" />{addingHelper ? 'Saving…' : 'Save Helper'}</Button>}
                 <Button variant="ghost" onClick={() => setShowForm(false)}><X className="w-4 h-4" /> Cancel</Button>
               </div>
@@ -759,8 +1011,15 @@ export default function StaffPage() {
             columns={currentCols}
             data={currentData}
             loading={currentLoading}
-            onAction={() => {}}
-            actions={[]}
+            onAction={(action, row) => {
+              if (action === 'view') {
+                const staffType = dataType === 'Driver' ? 'driver' : dataType === 'Helper' ? 'helper' : 'staff'
+                setViewPerson({ person: row, staffType })
+              }
+            }}
+            actions={dataType === 'Terminated' ? [] : ['view']}
+            columnFilters={columnFilters}
+            onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
           />
         </>
       )}
@@ -773,6 +1032,15 @@ export default function StaffPage() {
           onConfirm={(date, reason) => terminate({ date, reason })}
           onClose={() => setTerminatePerson(null)}
           isPending={terminating}
+        />
+      )}
+
+      {/* View details modal */}
+      {viewPerson && (
+        <ViewDetailsModal
+          person={viewPerson.person}
+          staffType={viewPerson.staffType}
+          onClose={() => setViewPerson(null)}
         />
       )}
     </motion.div>

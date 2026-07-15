@@ -22,6 +22,16 @@ export const mastersService = {
   addChassisModel: (data: unknown) => api.post('/addchassismodel', securePayload(data)).then((r) => r.data),
   deleteChassisModel: (data: unknown) => api.post('/deletechassismodel', securePayload(data)).then((r) => r.data),
 
+  // ── Luxury Types ─────────────────────────────────────────────
+  getLuxuryTypes: () => api.get('/getluxurytypes').then((r) => r.data),
+  addLuxuryType: (data: unknown) => api.post('/addluxurytype', securePayload(data)).then((r) => r.data),
+  deleteLuxuryType: (data: unknown) => api.post('/deleteluxurytype', securePayload(data)).then((r) => r.data),
+
+  // ── Mfg Years ──────────────────────────────────────────────────
+  getMfgYears: () => api.get('/getmfgyears').then((r) => r.data),
+  addMfgYear: (data: unknown) => api.post('/addmfgyear', securePayload(data)).then((r) => r.data),
+  deleteMfgYear: (data: unknown) => api.post('/deletemfgyear', securePayload(data)).then((r) => r.data),
+
   // ── Bus Numbers ──────────────────────────────────────────
   getBuses: () => api.post('/getbussesdata', {}).then((r) => r.data),
   addBus: (data: unknown) => api.post('/addNewbusnum', securePayload(data)).then((r) => r.data),

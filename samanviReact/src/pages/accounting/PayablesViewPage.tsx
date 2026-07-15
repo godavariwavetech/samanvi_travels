@@ -9,6 +9,7 @@ import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY } from '@/lib/fy'
+import { scrollContentToTop } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -933,7 +934,7 @@ export default function PayablesViewPage() {
         staff_type_id: newEdit.staff_type_id,
         description: newEdit.description,
       }))
-      setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      setTimeout(() => scrollContentToTop(), 100)
       toast.success(`Edit mode: ${lastSettlement.c_number}`)
     } catch {
       toast.error('Error loading settlement for editing')

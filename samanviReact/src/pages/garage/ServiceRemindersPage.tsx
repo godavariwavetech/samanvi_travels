@@ -9,6 +9,7 @@ import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { mainmastersService } from '@/services/mainmasters.service'
+import { scrollContentToTop } from '@/lib/utils'
 
 const REPEAT_UNITS = ['Days', 'Weeks', 'Months', 'Years']
 
@@ -381,7 +382,7 @@ export default function ServiceRemindersPage() {
       is_repeating: !!row.is_repeating, repeat_interval: String(row.repeat_interval ?? '1'), repeat_unit: row.repeat_unit ?? 'Months',
     })
     setIsEdit(true); setEditId(row.id); setShowForm(true)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    scrollContentToTop()
   }
 
   const handleDelete = (row: any) => {
