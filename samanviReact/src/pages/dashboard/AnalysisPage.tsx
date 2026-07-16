@@ -64,8 +64,8 @@ export default function AnalysisPage() {
   const [tab, setTab] = useState('Vehicle Documents')
   const [filter, setFilter] = useState<FilterType>('all')
 
-  const { data: buses, isLoading: loadBus } = useQuery({ queryKey: ['buses-analysis'], queryFn: () => mastersService.getBuses() })
-  const { data: drivers, isLoading: loadDrv } = useQuery({ queryKey: ['drivers-analysis'], queryFn: () => mastersService.getDrivers() })
+  const { data: buses, isLoading: loadBus } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
+  const { data: drivers, isLoading: loadDrv } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers() })
 
   const busList: any[] = (buses?.data ?? []).filter((b: any) => b.d_in === 0)
   const driverList: any[] = drivers?.data ?? []

@@ -42,8 +42,11 @@ export default function TyrePositionPage() {
   const list: any[] = data?.data ?? []
   const busList: any[] = buses?.data ?? []
   const positionList: any[] = positions?.data ?? []
-  const inStockTyres: any[] = (tyres?.data ?? []).filter((t: any) => t.status === 'In Stock')
-  const ledgerList: any[] = ledgersData?.data ?? []
+  // Cross-check against active position-log rows, not just tyre_master.status —
+  // a tyre already mounted must never reappear here even if status drifts out of sync.
+  const mountedTyreIds = new Set(list.map((p: any) => p.tyre_id))
+  const inStockTyres: any[] = (tyres?.data ?? []).filter((t: any) => t.status === 'In Stock' && !mountedTyreIds.has(t.id))
+  const ledgerList: any[] = (ledgersData?.data ?? []).filter((l: any) => /tyre/i.test(l.temple_name || l.name || ''))
   const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
 
   const f = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -132,40 +135,7 @@ export default function TyrePositionPage() {
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><LayoutGrid className="w-5 h-5 text-blue-500" /> Mount Tyre</h2>
           <Button onClick={() => assign()} disabled={isPending || !canAssign}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Mount Tyre'}</Button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div><Label>Select Tyre Serial Number *</Label>
-            <SearchableSelect
-              value={form.tyre_id}
-              onChange={setField('tyre_id')}
-              options={inStockTyres.map((t) => ({ value: String(t.id), label: `${t.serial_no || 'No Serial'} — ${t.tyre_code} (${t.brand})` }))}
-              placeholder="Select Tyre Serial Number"
-              onReload={() => reloadTyres()}
-              reloading={loadingTyres}
-            /></div>
-          <div><Label>Select Date</Label><Input type="date" max={today} value={form.fitted_date} onChange={f('fitted_date')} /></div>
-          <div><Label>Bus No *</Label>
-            <SearchableSelect
-              value={form.vehicle_number}
-              onChange={setField('vehicle_number')}
-              options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
-              placeholder="Select Bus"
-              onReload={() => reloadBuses()}
-              reloading={loadingBuses}
-            /></div>
-          <div><Label>Kilometers</Label><Input type="number" placeholder="km" value={form.odometer_at_fitting} onChange={f('odometer_at_fitting')} /></div>
-          <div><Label>Tyre Position *</Label>
-            <SearchableSelect
-              value={form.position}
-              onChange={setField('position')}
-              options={positionList.map((p) => ({ value: p.position_name, label: p.position_name }))}
-              placeholder="Select Position"
-              onReload={() => reloadPositions()}
-              reloading={loadingPositions}
-            /></div>
-          <div><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
-        </div>
-
-        <div className="pt-5 mt-5 border-t border-slate-100">
+        <div className="mb-5">
           <div className="flex items-center justify-between mb-3">
             <h4 className="text-sm font-bold text-slate-700">Accounting Entry (optional)</h4>
             {hasLedgerEntry && (
@@ -237,6 +207,39 @@ export default function TyrePositionPage() {
           {hasLedgerEntry && !isBalanced && (
             <p className="text-xs font-semibold text-red-600 mt-2">Debit and credit totals must match exactly before saving.</p>
           )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 pt-5 border-t border-slate-100">
+          <div><Label>Select Tyre Serial Number *</Label>
+            <SearchableSelect
+              value={form.tyre_id}
+              onChange={setField('tyre_id')}
+              options={inStockTyres.map((t) => ({ value: String(t.id), label: `${t.serial_no || 'No Serial'} — ${t.tyre_code} (${t.brand})` }))}
+              placeholder="Select Tyre Serial Number"
+              onReload={() => reloadTyres()}
+              reloading={loadingTyres}
+            /></div>
+          <div><Label>Select Date</Label><Input type="date" max={today} value={form.fitted_date} onChange={f('fitted_date')} /></div>
+          <div><Label>Bus No *</Label>
+            <SearchableSelect
+              value={form.vehicle_number}
+              onChange={setField('vehicle_number')}
+              options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
+              placeholder="Select Bus"
+              onReload={() => reloadBuses()}
+              reloading={loadingBuses}
+            /></div>
+          <div><Label>Kilometers</Label><Input type="number" placeholder="km" value={form.odometer_at_fitting} onChange={f('odometer_at_fitting')} /></div>
+          <div><Label>Tyre Position *</Label>
+            <SearchableSelect
+              value={form.position}
+              onChange={setField('position')}
+              options={positionList.map((p) => ({ value: p.position_name, label: p.position_name }))}
+              placeholder="Select Position"
+              onReload={() => reloadPositions()}
+              reloading={loadingPositions}
+            /></div>
+          <div><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
         </div>
       </GlassCard>
 

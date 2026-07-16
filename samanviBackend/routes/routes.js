@@ -397,6 +397,7 @@ router.post('/tyre-inventory/sell', verifyToken, routcontroller.sellTyresCtrl);
 router.get('/tyre-position/getall', verifyToken, routcontroller.getTyrePositionsCtrl);
 router.post('/tyre-position/assign', verifyToken, routcontroller.assignTyrePositionCtrl);
 router.post('/tyre-position/remove', verifyToken, routcontroller.removeTyrePositionCtrl);
+router.post('/tyre-position/move-stock', verifyToken, routcontroller.moveTyreStockCtrl);
 router.get('/tyre-position/history', verifyToken, routcontroller.getTyrePositionHistoryCtrl);
 
 router.get('/tyre-vendors/getall', verifyToken, routcontroller.getTyreVendorsCtrl);

@@ -5640,6 +5640,7 @@ exports.getTyrePositionsCtrl = function (req, res) {
 };
 exports.assignTyrePositionCtrl = function (req, res) { decryptedBody(req, res, appmdl.assignTyrePositionMdl); };
 exports.removeTyrePositionCtrl = function (req, res) { decryptedBody(req, res, appmdl.removeTyrePositionMdl); };
+exports.moveTyreStockCtrl = function (req, res) { decryptedBody(req, res, appmdl.moveTyreStockMdl); };
 exports.getTyrePositionHistoryCtrl = function (req, res) {
   appmdl.getTyrePositionHistoryMdl(req.body, function (err, results) {
     if (err) { res.send(500, "Server Error"); return; }

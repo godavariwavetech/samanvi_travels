@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Plus, X, Save, Edit2, Search, Route, Upload, Download, FileSpreadsheet } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, ExcelImportPreviewModal } from '@/components/shared'
+import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { scrollContentToTop } from '@/lib/utils'
@@ -149,11 +150,13 @@ export default function ServiceNoPage() {
   }
 
   // ── Excel upload ──────────────────────────────────────────────────────────
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewRows, setPreviewRows] = useState<{ payload: Record<string, any>; preview: ExcelPreviewRow }[]>([])
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setUploading(true)
     try {
       const ab = await file.arrayBuffer()
       const wb = XLSX.read(ab)
@@ -161,15 +164,16 @@ export default function ServiceNoPage() {
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found in the file'); return }
       const [, ...dataRows] = raw
+      const existingNos = new Set(routeList.map((r: any) => String(r.serviceNo ?? '').toLowerCase().trim()))
       const rows = dataRows
         .filter(r => r && String(r[0] ?? '').trim() && String(r[1] ?? '').trim())
         .map(r => {
           const svcFor = String(r[0] ?? '').trim()
+          const serviceNo = String(r[1] ?? '').trim()
           const found = serviceNameList.find((s: any) => s.name?.toLowerCase() === svcFor.toLowerCase())
-          return {
+          const payload = {
             serviceFor: svcFor,
-            service_for_id: found ? String(found.id) : null,
-            serviceNo: String(r[1] ?? '').trim(),
+            serviceNo,
             fromCity: String(r[2] ?? '').trim() || null,
             toCity: String(r[3] ?? '').trim() || null,
             viaPlaces: String(r[4] ?? '').trim() || null,
@@ -184,9 +188,25 @@ export default function ServiceNoPage() {
             optDriverSalary: String(r[13] ?? '0').trim() || '0',
             optHelperSalary: String(r[14] ?? '0').trim() || '0',
             remarks: String(r[15] ?? '').trim() || null,
+            service_for_id: found ? String(found.id) : null,
           }
+          const values = [payload.serviceFor, payload.serviceNo, payload.fromCity, payload.toCity, payload.viaPlaces,
+            payload.parkingAmount, payload.driverOneBeta, payload.driverTwoBeta, payload.helperBeta, payload.conductorBeta,
+            payload.distance, payload.optDriver, payload.optHelper, payload.optDriverSalary, payload.optHelperSalary, payload.remarks]
+          return { payload, preview: { values: values.map(v => v ?? ''), isDuplicate: existingNos.has(serviceNo.toLowerCase()) } }
         })
       if (rows.length === 0) { toast.error('No valid rows found (Service For and Service No are required)'); return }
+      setPreviewRows(rows)
+      setPreviewOpen(true)
+    } catch {
+      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+    }
+  }
+
+  const confirmImport = async (selectedIndexes: number[]) => {
+    const rows = selectedIndexes.map(i => previewRows[i].payload)
+    setUploading(true)
+    try {
       const uid = localStorage.getItem('user_id') ?? ''
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadServiceRoutes({ rows, user_id: uid, usr_nm: unm })
@@ -198,9 +218,10 @@ export default function ServiceNoPage() {
         } else {
           toast.success(`Successfully inserted ${inserted} routes!`)
         }
+        setPreviewOpen(false)
       } else toast.error('Upload failed')
     } catch {
-      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+      toast.error('Upload failed')
     } finally {
       setUploading(false)
     }
@@ -339,6 +360,16 @@ export default function ServiceNoPage() {
           </label>
         </div>
       </GlassCard>
+
+      <ExcelImportPreviewModal
+        open={previewOpen}
+        title="Confirm Service Route Import"
+        headers={SERVICE_TEMPLATE_HEADERS}
+        rows={previewRows.map(r => r.preview)}
+        submitting={uploading}
+        onCancel={() => setPreviewOpen(false)}
+        onConfirm={confirmImport}
+      />
 
       {/* ── Routes table ── */}
       <DataTable

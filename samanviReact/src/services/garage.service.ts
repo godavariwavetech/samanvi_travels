@@ -61,6 +61,7 @@ export const garageService = {
   getTyrePositions: () => api.get('/tyre-position/getall').then((r) => r.data),
   assignTyrePosition: (data: unknown) => api.post('/tyre-position/assign', securePayload(data)).then((r) => r.data),
   removeTyrePosition: (data: unknown) => api.post('/tyre-position/remove', securePayload(data)).then((r) => r.data),
+  moveTyreStock: (data: unknown) => api.post('/tyre-position/move-stock', securePayload(data)).then((r) => r.data),
   getTyrePositionHistory: () => api.get('/tyre-position/history').then((r) => r.data),
 
   // ── Tyre Retread Entry ───────────────────────────────────

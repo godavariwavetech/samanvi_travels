@@ -1,14 +1,9 @@
 var mysql = require('mysql2');
-var MySQLConnection = {};
-var MySQLConPool	= {};
-
 
 var USER = 'root';
 var PWD = '';
 var DATABASE = 'latest_samanvi_db';
 var DB_HOST_NAME = 'localhost';
-var MAX_POOL_SIZE		= 100;
-var MIN_POOL_SIZE		= 50;
 
 var MySQLConPool = mysql.createPool({
     host                : DB_HOST_NAME,
@@ -17,7 +12,7 @@ var MySQLConPool = mysql.createPool({
     password            : PWD,
     database            : DATABASE,
     connectTimeout		: 20000,
-    connectionLimit	    : MAX_POOL_SIZE,
+    connectionLimit	    : 100,
     debug 		        : false,
     multipleStatements  : true
 });

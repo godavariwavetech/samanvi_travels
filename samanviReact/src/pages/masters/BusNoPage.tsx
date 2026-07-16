@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Bus, Save, Plus, X, Edit2, ChevronDown, Upload, Download, FileSpreadsheet, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal } from '@/components/shared'
+import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import ChangeNote from '@/components/shared/ChangeNote'
@@ -181,13 +182,15 @@ const cols: Column[] = [
 
 const today = new Date().toISOString().split('T')[0]
 
+// Column order mirrors the "Add New Vehicle" (Normal Bus) form field order exactly.
 const BUS_TEMPLATE_HEADERS = [
-  'Bus No*', 'Vehicle Type', 'Engine No', 'Chassis No',
+  'Vehicle Type*', 'Luxury Type', 'Seating Capacity', 'Chassis Make', 'Chassis Model',
+  'Body Made', 'Mfg Year', 'Engine No', 'Chassis No', 'Purchase Date (YYYY-MM-DD)',
+  'Bus No*', 'Odometer (km)', 'Registration Date (YYYY-MM-DD)',
+  'Fitness Validity (YYYY-MM-DD)', 'Home Tax Validity (YYYY-MM-DD)',
   'Insurance Validity (YYYY-MM-DD)', 'Pollution Validity (YYYY-MM-DD)',
-  'FC Validity (YYYY-MM-DD)', 'Base Permit Validity (YYYY-MM-DD)',
-  'Home Tax Validity (YYYY-MM-DD)', 'AITP Validity (YYYY-MM-DD)',
-  'AITP Auth Validity (YYYY-MM-DD)', 'Date of Purchase (YYYY-MM-DD)',
-  'Odometer (km)', 'Service Out Date (YYYY-MM-DD)',
+  'Permit Validity (YYYY-MM-DD)', 'AITP Validity (YYYY-MM-DD)',
+  'Authorization Validity (YYYY-MM-DD)', 'Service Out Date (YYYY-MM-DD)',
   'Owner Name', 'Remarks', 'Is Spare Tank (0=Normal,1=Spare)',
 ]
 
@@ -365,7 +368,7 @@ export default function BusNoPage() {
 
   const downloadTemplate = () => {
     downloadExcel(
-      [BUS_TEMPLATE_HEADERS, ['NL02B3154', 'Sleeper', 'ENG123', 'CH456', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '', '', '2022-01-15', '150000', '', 'Owner Name', 'Remarks', '0']],
+      [BUS_TEMPLATE_HEADERS, ['Sleeper', '', '', '', '', '', '', 'ENG123', 'CH456', '2022-01-15', 'NL02B3154', '150000', '', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '', '', '', 'Owner Name', 'Remarks', '0']],
       `Bus_Upload_Template_${Date.now()}.xlsx`
     )
   }
@@ -373,22 +376,24 @@ export default function BusNoPage() {
   const downloadData = () => {
     const all: any[] = data?.data ?? []
     const rows = all.map(b => [
-      b.bus_no ?? '', b.vehicle_type ?? '', b.engine_no ?? '', b.chassis_no ?? '',
-      b.insurance_validity ?? '', b.pollution_validity ?? '', b.fc_validity ?? '',
-      b.base_point_validity ?? '', b.home_tax_validity ?? '', b.atp_validity ?? '',
-      b.atp_authentication_validity ?? '', b.date_of_purchase ?? '',
-      b.odometer ?? '', b.service_out_date ?? '', b.ownername ?? '', b.remarks ?? '',
-      b.issparetank ?? 0,
+      b.vehicle_type ?? '', b.luxury_type ?? '', b.seating_capacity ?? '', b.chassis_make ?? '',
+      b.chassis_model ?? '', b.body_made ?? '', b.mfg_year ?? '', b.engine_no ?? '', b.chassis_no ?? '',
+      b.date_of_purchase ?? '', b.bus_no ?? '', b.odometer ?? '', b.reg_date ?? '',
+      b.fc_validity ?? '', b.home_tax_validity ?? '', b.insurance_validity ?? '', b.pollution_validity ?? '',
+      b.base_point_validity ?? '', b.atp_validity ?? '', b.atp_authentication_validity ?? '',
+      b.service_out_date ?? '', b.ownername ?? '', b.remarks ?? '', b.issparetank ?? 0,
     ])
     downloadExcel([BUS_TEMPLATE_HEADERS, ...rows], `Bus_Fleet_${Date.now()}.xlsx`)
     toast.success(`Exported ${rows.length} buses`)
   }
 
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewRows, setPreviewRows] = useState<{ payload: Record<string, any>; preview: ExcelPreviewRow }[]>([])
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setUploading(true)
     try {
       const ab = await file.arrayBuffer()
       const wb = XLSX.read(ab)
@@ -396,28 +401,54 @@ export default function BusNoPage() {
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found in the file'); return }
       const [, ...dataRows] = raw
+      const existingNos = new Set((data?.data ?? []).map((b: any) => String(b.bus_no ?? '').toLowerCase().trim()))
       const rows = dataRows
-        .filter(r => r && String(r[0] ?? '').trim())
-        .map(r => ({
-          bus_no: String(r[0] ?? '').trim(),
-          vehicle_type: String(r[1] ?? '').trim() || null,
-          engine_no: String(r[2] ?? '').trim() || null,
-          chassis_no: String(r[3] ?? '').trim() || null,
-          insurance_validity: String(r[4] ?? '').trim() || null,
-          pollution_validity: String(r[5] ?? '').trim() || null,
-          fc_validity: String(r[6] ?? '').trim() || null,
-          base_point_validity: String(r[7] ?? '').trim() || null,
-          home_tax_validity: String(r[8] ?? '').trim() || null,
-          atp_validity: String(r[9] ?? '').trim() || null,
-          atp_authentication_validity: String(r[10] ?? '').trim() || null,
-          date_of_purchase: String(r[11] ?? '').trim() || null,
-          odometer: String(r[12] ?? '').trim() || null,
-          service_out_date: String(r[13] ?? '').trim() || null,
-          ownername: String(r[14] ?? '').trim() || null,
-          remarks: String(r[15] ?? '').trim() || null,
-          issparetank: Number(r[16] ?? 0) === 1 ? 1 : 0,
-        }))
+        .filter(r => r && String(r[10] ?? '').trim())
+        .map(r => {
+          const payload = {
+            vehicle_type: String(r[0] ?? '').trim() || null,
+            luxury_type: String(r[1] ?? '').trim() || null,
+            seating_capacity: String(r[2] ?? '').trim() || null,
+            chassis_make: String(r[3] ?? '').trim() || null,
+            chassis_model: String(r[4] ?? '').trim() || null,
+            body_made: String(r[5] ?? '').trim() || null,
+            mfg_year: String(r[6] ?? '').trim() || null,
+            engine_no: String(r[7] ?? '').trim() || null,
+            chassis_no: String(r[8] ?? '').trim() || null,
+            date_of_purchase: String(r[9] ?? '').trim() || null,
+            bus_no: String(r[10] ?? '').trim(),
+            odometer: String(r[11] ?? '').trim() || null,
+            reg_date: String(r[12] ?? '').trim() || null,
+            fc_validity: String(r[13] ?? '').trim() || null,
+            home_tax_validity: String(r[14] ?? '').trim() || null,
+            insurance_validity: String(r[15] ?? '').trim() || null,
+            pollution_validity: String(r[16] ?? '').trim() || null,
+            base_point_validity: String(r[17] ?? '').trim() || null,
+            atp_validity: String(r[18] ?? '').trim() || null,
+            atp_authentication_validity: String(r[19] ?? '').trim() || null,
+            service_out_date: String(r[20] ?? '').trim() || null,
+            ownername: String(r[21] ?? '').trim() || null,
+            remarks: String(r[22] ?? '').trim() || null,
+            issparetank: Number(r[23] ?? 0) === 1 ? 1 : 0,
+          }
+          const isDuplicate = existingNos.has(payload.bus_no.toLowerCase())
+          return { payload, isDuplicate }
+        })
       if (rows.length === 0) { toast.error('No valid rows found (Bus No column is required)'); return }
+      setPreviewRows(rows.map(r => ({
+        payload: r.payload,
+        preview: { values: Object.values(r.payload).map(v => v ?? ''), isDuplicate: r.isDuplicate },
+      })))
+      setPreviewOpen(true)
+    } catch {
+      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+    }
+  }
+
+  const confirmImport = async (selectedIndexes: number[]) => {
+    const rows = selectedIndexes.map(i => previewRows[i].payload)
+    setUploading(true)
+    try {
       const uid = localStorage.getItem('user_id') ?? ''
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadBuses({ rows, user_id: uid, usr_nm: unm })
@@ -429,9 +460,10 @@ export default function BusNoPage() {
         } else {
           toast.success(`Successfully inserted ${inserted} buses!`)
         }
+        setPreviewOpen(false)
       } else toast.error('Upload failed')
     } catch {
-      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+      toast.error('Upload failed')
     } finally {
       setUploading(false)
     }
@@ -600,6 +632,16 @@ export default function BusNoPage() {
           </span>
         </div>
       </GlassCard>
+
+      <ExcelImportPreviewModal
+        open={previewOpen}
+        title="Confirm Bus Import"
+        headers={BUS_TEMPLATE_HEADERS}
+        rows={previewRows.map(r => r.preview)}
+        submitting={uploading}
+        onCancel={() => setPreviewOpen(false)}
+        onConfirm={confirmImport}
+      />
 
       {/* ── Bus fleet table ── */}
       <DataTable

@@ -10,8 +10,8 @@ import { accountingService } from '@/services/accounting.service'
 
 const EMPTY_FORM = { tyre_id: '', retread_date: '', cost: '', remarks: '' }
 
-const DEBIT_LEDGER_NAME = 'Retreading Tyres In Stock'
-const CREDIT_LEDGER_NAME = 'New Tyres In Stock'
+const DEBIT_LEDGER_NAME = 'New Tyres In Stock'
+const CREDIT_LEDGER_NAME = 'Retreading Tyres In Stock'
 
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
@@ -40,7 +40,7 @@ export function TyreRetreadPanel() {
 
   const list: any[] = data?.data ?? []
   const tyreList: any[] = tyres?.data ?? []
-  const ledgerList: any[] = ledgersData?.data ?? []
+  const ledgerList: any[] = (ledgersData?.data ?? []).filter((l: any) => /tyre/i.test(l.temple_name || l.name || ''))
   const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
 
   const selectedTyre = tyreList.find((t: any) => String(t.id) === form.tyre_id)
@@ -63,7 +63,7 @@ export function TyreRetreadPanel() {
   const hasLedgerEntry = debit.some(e => e.ledger_id && e.amount) || credit.some(e => e.ledger_id && e.amount)
   const isBalanced = debitTotal > 0 && Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
 
-  // Default the journal to Debit "Retreading Tyres In Stock" / Credit "New
+  // Default the journal to Debit "New Tyres In Stock" / Credit "Retreading
   // Tyres In Stock" — only while those rows are still untouched.
   useEffect(() => {
     if (debit.length !== 1 || debit[0].ledger_id || ledgerList.length === 0) return

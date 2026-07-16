@@ -47,7 +47,7 @@ export default function DashboardPage() {
   const { data: buses, isLoading: loadBus } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
   const { data: trips, isLoading: loadTrip } = useQuery({ queryKey: ['trips-dash'], queryFn: () => tripsService.getTrips() })
   const { data: fuelData, isLoading: loadFuel } = useQuery({ queryKey: ['fuel-dash'], queryFn: () => fuelService.getFuelEntries() })
-  const { data: drivers, isLoading: loadDrv } = useQuery({ queryKey: ['drivers-dash'], queryFn: () => mastersService.getDrivers() })
+  const { data: drivers, isLoading: loadDrv } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers() })
   const { data: laundry, isLoading: loadLaundry } = useQuery({ queryKey: ['laundry-dash'], queryFn: () => laundryService.getLaundryBills() })
   const { data: vouchers, isLoading: loadVoucher } = useQuery({ queryKey: ['vouchers-dash'], queryFn: () => accountingService.getVoucherEntries() })
 

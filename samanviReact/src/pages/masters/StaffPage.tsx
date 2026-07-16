@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings, Upload, Download, FileSpreadsheet, ImagePlus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal } from '@/components/shared'
+import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import * as XLSX from 'xlsx'
@@ -407,24 +408,26 @@ const typeColors: Record<string, string> = {
 
 const today = new Date().toISOString().split('T')[0]
 
+// Column order mirrors each type's Add-form field order exactly.
 const DRIVER_TEMPLATE_HEADERS = [
-  'Aadhar Name*', 'DL Name*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
-  'Emergency Number', 'Aadhar Number*', 'DL Number*', 'Account Holder Name', 'Account Number',
-  'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID', 'DL Issue Date', 'DL Expiry Date',
-  'Transport Issue Date', 'Transport Valid From', 'Transport Valid To', 'Date of Joining*',
-  'Reference Name', 'Remarks',
+  'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
+  'Emergency Number', 'Date of Joining*', 'Reference Name*', 'Address',
+  'DL Name*', 'DL Number*', 'DL Issue Date*', 'DL Expiry Date*',
+  'Transport Issue Date*', 'Transport Valid From*', 'Transport Valid To*',
+  'Account Holder Name*', 'Account Number*', 'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID',
+  'Remarks',
 ]
 const STAFF_TEMPLATE_HEADERS = [
-  'Designation*', 'Nick Name', 'Full Name*', 'Mobile Number*', 'Alternative Mobile',
-  'Emergency Contact', 'Aadhar Number*', 'Reference Name', 'Account Holder Name',
-  'Account Number', 'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID',
-  'Date of Joining*', 'Remarks',
+  'Designation*', 'Nick Name', 'Full Name*', 'Aadhar Number*', 'Date of Birth',
+  'Mobile Number*', 'Alternative Mobile', 'Emergency Contact', 'Date of Joining*',
+  'Reference Name*', 'Address', 'Account Holder Name*', 'Account Number*',
+  'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
 ]
 const HELPER_TEMPLATE_HEADERS = [
-  'Nick Name', 'Full Name (Aadhar Name)*', 'Mobile Number*', 'Alternate Number',
-  'Emergency Mobile', 'Aadhar Number*', 'Reference', 'Account Holder Name',
-  'Account Number', 'Bank Name', 'Branch Name', 'IFSC Code', 'UPI ID',
-  'Date of Joining*', 'Remarks',
+  'Nick Name', 'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
+  'Mobile Number*', 'Alternate Number', 'Emergency Mobile', 'Date of Joining*',
+  'Reference*', 'Address', 'Account Holder Name*', 'Account Number*',
+  'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
 ]
 
 function downloadExcel(data: any[][], filename: string) {
@@ -517,7 +520,14 @@ export default function StaffPage() {
     mutationFn: ({ date, reason }: { date: string; reason: string }) =>
       mastersService.terminateStaff({ id: terminatePerson!.person.id, staff_type: terminatePerson!.staffType, termination_date: date, termination_reason: reason }),
     onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Staff terminated'); qc.invalidateQueries({ queryKey: ['active-staff', 'drivers', 'active-helpers', 'terminated-staff'] }); setTerminatePerson(null) }
+      if (res.status === 200) {
+        toast.success('Staff terminated')
+        qc.invalidateQueries({ queryKey: ['active-staff'] })
+        qc.invalidateQueries({ queryKey: ['drivers'] })
+        qc.invalidateQueries({ queryKey: ['active-helpers'] })
+        qc.invalidateQueries({ queryKey: ['terminated-staff'] })
+        setTerminatePerson(null)
+      }
       else toast.error('Failed to terminate')
     },
     onError: () => toast.error('Server error'),
@@ -525,7 +535,13 @@ export default function StaffPage() {
   const { mutate: rejoin } = useMutation({
     mutationFn: (row: any) => mastersService.rejoinStaff({ id: row.id, staff_type: row.staff_type }),
     onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Staff rejoined!'); qc.invalidateQueries({ queryKey: ['active-staff', 'drivers', 'active-helpers', 'terminated-staff'] }) }
+      if (res.status === 200) {
+        toast.success('Staff rejoined!')
+        qc.invalidateQueries({ queryKey: ['active-staff'] })
+        qc.invalidateQueries({ queryKey: ['drivers'] })
+        qc.invalidateQueries({ queryKey: ['active-helpers'] })
+        qc.invalidateQueries({ queryKey: ['terminated-staff'] })
+      }
       else toast.error('Failed to rejoin')
     },
     onError: () => toast.error('Server error'),
@@ -546,10 +562,10 @@ export default function StaffPage() {
     const headers = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS
       : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
     const sample = dataType === 'Driver'
-      ? ['Raju', 'Venkata Raju', '1990-01-01', '9876543210', '', '', '123456789012', 'DL-AP123', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '2015-06-01', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', '2020-01-01', 'Reference', '']
+      ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '2015-06-01', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : dataType === 'Helper'
-      ? ['Ramesh', 'Ramesh Kumar', '9876543210', '', '', '123456789012', 'Ref Name', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '2020-01-01', '']
-      : ['Manager', 'Suresh', 'Suresh Kumar', '9876543210', '', '', '987654321012', 'Ref Name', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '2020-01-01', '']
+      ? ['Ramesh', 'Ramesh Kumar', '123456789012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      : ['Manager', 'Suresh', 'Suresh Kumar', '987654321012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
     downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
   }
 
@@ -558,42 +574,45 @@ export default function StaffPage() {
     let rows: any[][] = []
     if (dataType === 'Driver') {
       rows = driverList.map(r => [
-        r.nickname ?? '', r.driver_name ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
-        r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.aadhar_number ?? '',
-        r.dl_number ?? '', r.account_holder_name ?? '', r.account_number ?? '',
-        r.bank_name ?? '', r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '',
+        r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
+        r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.date_of_joining ?? '',
+        r.reference ?? '', r.address ?? '', r.driver_name ?? '', r.dl_number ?? '',
         r.drivinglicense_joining_date ?? '', r.dl_expiry_date ?? '',
         r.transportoneissuedate ?? '', r.transportvalidityfrom ?? '', r.transportvalidityto ?? '',
-        r.date_of_joining ?? '', r.reference ?? '', r.remarks ?? '',
+        r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
+        r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '', r.remarks ?? '',
       ])
       downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
     } else if (dataType === 'Helper') {
       rows = helperList.map(r => [
-        r.nickname ?? '', r.helper_name ?? '', r.mobile_number ?? '', r.alternate_number ?? '',
-        r.emergency_mobile_number ?? '', r.adhar_number ?? '', r.reference ?? '',
+        r.nickname ?? '', r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
+        r.mobile_number ?? '', r.alternate_number ?? '', r.emergency_mobile_number ?? '',
+        r.date_of_joining ?? '', r.reference ?? '', r.address ?? '',
         r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
-        r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '', r.date_of_joining ?? '',
-        r.remarks ?? '',
+        r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '', r.remarks ?? '',
       ])
       downloadExcel([HELPER_TEMPLATE_HEADERS, ...rows], `Helpers_${Date.now()}.xlsx`)
     } else {
       rows = staffList.map(r => [
-        r.designation ?? '', r.nickName ?? '', r.fullName ?? '', r.mobile ?? '',
-        r.alternativemobilenumber ?? '', r.emergencyContact ?? '', r.aadhaar ?? '',
-        r.referencename ?? '', r.accountHolderName ?? '', r.accountNumber ?? '',
-        r.bankName ?? '', r.branchname ?? '', r.ifscCode ?? '', r.upiId ?? '',
-        r.dateOfJoining ?? '', r.remarks ?? '',
+        r.designation ?? '', r.nickName ?? '', r.fullName ?? '', r.aadhaar ?? '', r.dob ?? '',
+        r.mobile ?? '', r.alternativemobilenumber ?? '', r.emergencyContact ?? '',
+        r.dateOfJoining ?? '', r.referencename ?? '', r.address ?? '',
+        r.accountHolderName ?? '', r.accountNumber ?? '', r.bankName ?? '', r.branchname ?? '',
+        r.ifscCode ?? '', r.upiId ?? '', r.remarks ?? '',
       ])
       downloadExcel([STAFF_TEMPLATE_HEADERS, ...rows], `Staff_${dataType}_${Date.now()}.xlsx`)
     }
     toast.success(`Exported ${rows.length} records`)
   }
 
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewType, setPreviewType] = useState<string>('')
+  const [previewRows, setPreviewRows] = useState<{ payload: Record<string, any>; preview: ExcelPreviewRow }[]>([])
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !dataType || dataType === 'Terminated') return
     e.target.value = ''
-    setUploading(true)
     try {
       const ab = await file.arrayBuffer()
       const wb = XLSX.read(ab)
@@ -601,85 +620,120 @@ export default function StaffPage() {
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found'); return }
       const [, ...dataRows] = raw
-      let rows: any[]
+      let rows: { payload: Record<string, any>; key: string }[]
       if (dataType === 'Driver') {
-        rows = dataRows.filter(r => r && String(r[0] ?? '').trim() && String(r[1] ?? '').trim()).map(r => ({
-          nickname: String(r[0] ?? '').trim(),
-          driver_name: String(r[1] ?? '').trim(),
-          dldateofbirth: String(r[2] ?? '').trim() || null,
-          mobile_number: String(r[3] ?? '').trim(),
-          alternate_number: String(r[4] ?? '').trim() || null,
-          emergency_mobile_number: String(r[5] ?? '').trim() || null,
-          aadhar_number: String(r[6] ?? '').trim() || null,
-          dl_number: String(r[7] ?? '').trim() || null,
-          account_holder_name: String(r[8] ?? '').trim() || null,
-          account_number: String(r[9] ?? '').trim() || null,
-          bank_name: String(r[10] ?? '').trim() || null,
-          branch_name: String(r[11] ?? '').trim() || null,
-          ifsc_code: String(r[12] ?? '').trim() || null,
-          upi_id: String(r[13] ?? '').trim() || null,
-          drivinglicense_joining_date: String(r[14] ?? '').trim() || null,
-          dl_expiry_date: String(r[15] ?? '').trim() || null,
-          transportoneissuedate: String(r[16] ?? '').trim() || null,
-          transportvalidityfrom: String(r[17] ?? '').trim() || null,
-          transportvalidityto: String(r[18] ?? '').trim() || null,
-          date_of_joining: String(r[19] ?? '').trim() || null,
-          reference: String(r[20] ?? '').trim() || null,
-          remarks: String(r[21] ?? '').trim() || null,
-        }))
+        rows = dataRows.filter(r => r && String(r[0] ?? '').trim() && String(r[9] ?? '').trim()).map(r => {
+          const payload = {
+            nickname: String(r[0] ?? '').trim(),
+            aadhar_number: String(r[1] ?? '').trim() || null,
+            dldateofbirth: String(r[2] ?? '').trim() || null,
+            mobile_number: String(r[3] ?? '').trim(),
+            alternate_number: String(r[4] ?? '').trim() || null,
+            emergency_mobile_number: String(r[5] ?? '').trim() || null,
+            date_of_joining: String(r[6] ?? '').trim() || null,
+            reference: String(r[7] ?? '').trim() || null,
+            address: String(r[8] ?? '').trim() || null,
+            driver_name: String(r[9] ?? '').trim(),
+            dl_number: String(r[10] ?? '').trim() || null,
+            drivinglicense_joining_date: String(r[11] ?? '').trim() || null,
+            dl_expiry_date: String(r[12] ?? '').trim() || null,
+            transportoneissuedate: String(r[13] ?? '').trim() || null,
+            transportvalidityfrom: String(r[14] ?? '').trim() || null,
+            transportvalidityto: String(r[15] ?? '').trim() || null,
+            account_holder_name: String(r[16] ?? '').trim() || null,
+            account_number: String(r[17] ?? '').trim() || null,
+            bank_name: String(r[18] ?? '').trim() || null,
+            branch_name: String(r[19] ?? '').trim() || null,
+            ifsc_code: String(r[20] ?? '').trim() || null,
+            upi_id: String(r[21] ?? '').trim() || null,
+            remarks: String(r[22] ?? '').trim() || null,
+          }
+          return { payload, key: payload.driver_name }
+        })
       } else if (dataType === 'Staff') {
-        rows = dataRows.filter(r => r && String(r[2] ?? '').trim()).map(r => ({
-          designation: String(r[0] ?? '').trim() || 'Staff',
-          nickName: String(r[1] ?? '').trim() || null,
-          fullName: String(r[2] ?? '').trim(),
-          mobile: String(r[3] ?? '').trim(),
-          alternativemobilenumber: String(r[4] ?? '').trim() || null,
-          emergencyContact: String(r[5] ?? '').trim() || null,
-          aadhaar: String(r[6] ?? '').trim() || null,
-          referencename: String(r[7] ?? '').trim() || null,
-          accountHolderName: String(r[8] ?? '').trim() || null,
-          accountNumber: String(r[9] ?? '').trim() || null,
-          bankName: String(r[10] ?? '').trim() || null,
-          branchname: String(r[11] ?? '').trim() || null,
-          ifscCode: String(r[12] ?? '').trim() || null,
-          upiId: String(r[13] ?? '').trim() || null,
-          dateOfJoining: String(r[14] ?? '').trim() || null,
-          remarks: String(r[15] ?? '').trim() || null,
-        }))
+        rows = dataRows.filter(r => r && String(r[2] ?? '').trim()).map(r => {
+          const payload = {
+            designation: String(r[0] ?? '').trim() || 'Staff',
+            nickName: String(r[1] ?? '').trim() || null,
+            fullName: String(r[2] ?? '').trim(),
+            aadhaar: String(r[3] ?? '').trim() || null,
+            dob: String(r[4] ?? '').trim() || null,
+            mobile: String(r[5] ?? '').trim(),
+            alternativemobilenumber: String(r[6] ?? '').trim() || null,
+            emergencyContact: String(r[7] ?? '').trim() || null,
+            dateOfJoining: String(r[8] ?? '').trim() || null,
+            referencename: String(r[9] ?? '').trim() || null,
+            address: String(r[10] ?? '').trim() || null,
+            accountHolderName: String(r[11] ?? '').trim() || null,
+            accountNumber: String(r[12] ?? '').trim() || null,
+            bankName: String(r[13] ?? '').trim() || null,
+            branchname: String(r[14] ?? '').trim() || null,
+            ifscCode: String(r[15] ?? '').trim() || null,
+            upiId: String(r[16] ?? '').trim() || null,
+            remarks: String(r[17] ?? '').trim() || null,
+          }
+          return { payload, key: payload.fullName }
+        })
       } else {
-        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => ({
-          nickname: String(r[0] ?? '').trim() || null,
-          helper_name: String(r[1] ?? '').trim(),
-          mobile_number: String(r[2] ?? '').trim(),
-          alternate_number: String(r[3] ?? '').trim() || null,
-          emergency_mobile_number: String(r[4] ?? '').trim() || null,
-          adhar_number: String(r[5] ?? '').trim() || null,
-          reference: String(r[6] ?? '').trim() || null,
-          account_holder_name: String(r[7] ?? '').trim() || null,
-          account_number: String(r[8] ?? '').trim() || null,
-          bank_name: String(r[9] ?? '').trim() || null,
-          branch_name: String(r[10] ?? '').trim() || null,
-          ifsc_code: String(r[11] ?? '').trim() || null,
-          upi_id: String(r[12] ?? '').trim() || null,
-          date_of_joining: String(r[13] ?? '').trim() || null,
-          remarks: String(r[14] ?? '').trim() || null,
-        }))
+        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => {
+          const payload = {
+            nickname: String(r[0] ?? '').trim() || null,
+            helper_name: String(r[1] ?? '').trim(),
+            adhar_number: String(r[2] ?? '').trim() || null,
+            dob: String(r[3] ?? '').trim() || null,
+            mobile_number: String(r[4] ?? '').trim(),
+            alternate_number: String(r[5] ?? '').trim() || null,
+            emergency_mobile_number: String(r[6] ?? '').trim() || null,
+            date_of_joining: String(r[7] ?? '').trim() || null,
+            reference: String(r[8] ?? '').trim() || null,
+            address: String(r[9] ?? '').trim() || null,
+            account_holder_name: String(r[10] ?? '').trim() || null,
+            account_number: String(r[11] ?? '').trim() || null,
+            bank_name: String(r[12] ?? '').trim() || null,
+            branch_name: String(r[13] ?? '').trim() || null,
+            ifsc_code: String(r[14] ?? '').trim() || null,
+            upi_id: String(r[15] ?? '').trim() || null,
+            remarks: String(r[16] ?? '').trim() || null,
+          }
+          return { payload, key: payload.helper_name }
+        })
       }
       if (rows.length === 0) { toast.error('No valid rows (required field is empty)'); return }
+      const existingList = dataType === 'Driver' ? driverList : dataType === 'Helper' ? helperList : staffList
+      const existingKeyField = dataType === 'Driver' ? 'driver_name' : dataType === 'Helper' ? 'helper_name' : 'fullName'
+      const existingKeys = new Set(existingList.map((r: any) => String(r[existingKeyField] ?? '').toLowerCase().trim()))
+      setPreviewType(dataType)
+      setPreviewRows(rows.map(r => ({
+        payload: r.payload,
+        preview: { values: Object.values(r.payload).map(v => v ?? ''), isDuplicate: existingKeys.has(r.key.toLowerCase().trim()) },
+      })))
+      setPreviewOpen(true)
+    } catch {
+      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+    }
+  }
+
+  const confirmImport = async (selectedIndexes: number[]) => {
+    const rows = selectedIndexes.map(i => previewRows[i].payload)
+    setUploading(true)
+    try {
       const uid = localStorage.getItem('user_id') ?? ''
       const unm = localStorage.getItem('usr_nm') ?? ''
-      const res = await mastersService.bulkUploadStaff({ type: dataType, rows, user_id: uid, usr_nm: unm })
+      const res = await mastersService.bulkUploadStaff({ type: previewType, rows, user_id: uid, usr_nm: unm })
       if (res.status === 200) {
         const { inserted, skipped, total } = res.data
-        qc.invalidateQueries({ queryKey: ['active-staff', 'drivers', 'active-helpers'] })
+        qc.invalidateQueries({ queryKey: ['active-staff'] })
+        qc.invalidateQueries({ queryKey: ['drivers'] })
+        qc.invalidateQueries({ queryKey: ['active-helpers'] })
         if (skipped.length > 0) {
           toast.success(`Inserted ${inserted} of ${total}. ${skipped.length} duplicates skipped: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}`)
         } else {
-          toast.success(`Successfully inserted ${inserted} ${dataType} records!`)
+          toast.success(`Successfully inserted ${inserted} ${previewType} records!`)
         }
+        setPreviewOpen(false)
       } else toast.error('Upload failed')
     } catch {
-      toast.error('Failed to process file. Ensure it is a valid Excel file.')
+      toast.error('Upload failed')
     } finally {
       setUploading(false)
     }
@@ -832,6 +886,16 @@ export default function StaffPage() {
           </div>
         )}
       </GlassCard>
+
+      <ExcelImportPreviewModal
+        open={previewOpen}
+        title={`Confirm ${previewType} Import`}
+        headers={previewType === 'Driver' ? DRIVER_TEMPLATE_HEADERS : previewType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS}
+        rows={previewRows.map(r => r.preview)}
+        submitting={uploading}
+        onCancel={() => setPreviewOpen(false)}
+        onConfirm={confirmImport}
+      />
 
       {/* Empty state */}
       {!dataType && (
