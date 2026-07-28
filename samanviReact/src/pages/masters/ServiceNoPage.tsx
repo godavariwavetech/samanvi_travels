@@ -293,7 +293,7 @@ export default function ServiceNoPage() {
                   <Input type="number" placeholder="Enter opt-driver salary" value={form.optDriverSalary} onChange={set('optDriverSalary')} /></div>
                 <div><Label>OPT-Helper Salary</Label>
                   <Input type="number" placeholder="Enter opt-helper salary" value={form.optHelperSalary} onChange={set('optHelperSalary')} /></div>
-                <div className="md:col-span-3"><Label>Remarks <span className="text-red-500">*</span></Label>
+                <div className="md:col-span-3"><Label>Remarks</Label>
                   <textarea rows={3} placeholder="Enter Remarks" value={form.remarks} onChange={set('remarks')}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none" /></div>
               </div>

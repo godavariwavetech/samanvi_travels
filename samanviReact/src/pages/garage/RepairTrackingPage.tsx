@@ -69,6 +69,7 @@ export default function RepairTrackingPage() {
   const [completeRepeatDate, setCompleteRepeatDate] = useState('')
   const [editJobRows, setEditJobRows]           = useState<JobRow[]>([emptyJobRow()])
   const [editStageBlocks, setEditStageBlocks]   = useState<VoucherBlock[]>([emptyVoucherBlock()])
+  const [showEditAccounting, setShowEditAccounting] = useState(false)
 
   // Finish modal
   const [finishModal, setFinishModal]           = useState<{ open: boolean; job: any }>({ open: false, job: null })
@@ -668,6 +669,7 @@ export default function RepairTrackingPage() {
       debit:  preDebit.length  > 0 ? preDebit  : [emptyLedgerEntry()],
       credit: preCredit.length > 0 ? preCredit : [emptyLedgerEntry()],
     }])
+    setShowEditAccounting(preDebit.length > 0 || preCredit.length > 0 || stageParts.length > 0)
     setViewModal({ open: false, job: null })
     setEditModal({ open: true, job })
   }
@@ -1536,7 +1538,6 @@ export default function RepairTrackingPage() {
 
             <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center sticky bottom-0 bg-white">
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setViewModal({ open: false, job: null })}>Close</Button>
                 {(() => {
                   const vs = viewModal.job.state || 'OPEN'
                   const notDone = vs !== 'CLOSED' && vs !== 'COMPLETED' && vs !== 'REJECTED'
@@ -1871,29 +1872,6 @@ export default function RepairTrackingPage() {
             </div>
             )}
 
-            {/* Repeat Job — only in full complete mode, not in edit mode */}
-            {!isEditMode && !quickCompleteMode && createdVouchers.length === 0 && (
-              <div className="px-6 py-4 border-t border-slate-100">
-                <label className="flex items-center gap-2 cursor-pointer select-none w-fit">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 accent-amber-500"
-                    checked={completeRepeat}
-                    onChange={(e) => { setCompleteRepeat(e.target.checked); setCompleteRepeatDate('') }}
-                  />
-                  <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
-                    <RefreshCw className="w-3.5 h-3.5 text-amber-500" /> Repeat Job
-                  </span>
-                </label>
-                {completeRepeat && (
-                  <div className="mt-3 max-w-xs">
-                    <Label>Next Job Date</Label>
-                    <Input type="date" value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Sticky footer */}
             {createdVouchers.length === 0 && (
               <div className="sticky bottom-0 border-t border-slate-200 bg-white rounded-b-2xl">
@@ -1954,7 +1932,15 @@ export default function RepairTrackingPage() {
               <button onClick={() => setEditModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
             </div>
 
+            {(() => {
+              const isEditLocked = editModal.job?.state === 'APPROVED'
+              return (
             <div className="p-6 space-y-6">
+              {isEditLocked && (
+                <div className="flex items-center gap-2 rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs font-semibold text-amber-700">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" /> This job is approved — repair categories and accounting entries are locked. Only vehicle, driver, odometer, and edit reason can be changed.
+                </div>
+              )}
               {/* Basic info */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
@@ -1974,6 +1960,8 @@ export default function RepairTrackingPage() {
               {/* Job rows */}
               <DynamicRows
                 title="Repair Categories"
+                hideAdd
+                hideRemove={isEditLocked}
                 columns={[
                   { label: 'Category',    className: 'flex-[2]' },
                   { label: 'Priority',    className: 'flex-[1]' },
@@ -1986,27 +1974,50 @@ export default function RepairTrackingPage() {
                 renderRow={(r, i) => (
                   <>
                     <div className="flex-[2] min-w-0">
-                      <SearchableSelect value={r.category} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, category: v } : row))} options={catOptions} placeholder="Category" onReload={() => reloadCats()} reloading={loadingCats} />
+                      <SearchableSelect disabled={isEditLocked} value={r.category} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, category: v } : row))} options={catOptions} placeholder="Category" onReload={() => reloadCats()} reloading={loadingCats} />
                     </div>
                     <div className="flex-[1] min-w-0">
-                      <select value={r.priority} onChange={(e) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, priority: e.target.value } : row))} className="w-full h-11 rounded-xl border border-slate-200 px-3 text-sm">
+                      <select disabled={isEditLocked} value={r.priority} onChange={(e) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, priority: e.target.value } : row))} className="w-full h-11 rounded-xl border border-slate-200 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
                         {PRIORITY_OPTIONS.map(p => <option key={p}>{p}</option>)}
                       </select>
                     </div>
                     <div className="flex-[2] min-w-0">
-                      <SearchableSelect value={r.technician} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, technician: v } : row))} options={staffOptions} placeholder="Technician" onReload={() => reloadStaff()} reloading={loadingStaff} />
+                      <SearchableSelect disabled={isEditLocked} value={r.technician} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, technician: v } : row))} options={staffOptions} placeholder="Technician" onReload={() => reloadStaff()} reloading={loadingStaff} />
                     </div>
                     <div className="flex-[3] min-w-0">
-                      <Input placeholder="Description" value={r.description} onChange={(e) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, description: e.target.value } : row))} />
+                      <Input disabled={isEditLocked} placeholder="Description" value={r.description} onChange={(e) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, description: e.target.value } : row))} />
                     </div>
                   </>
                 )}
               />
 
-              {/* Voucher blocks (Parts + Accounting) */}
+              {/* Reason for Edit */}
+              <div className="pt-2 border-t border-slate-100">
+                <Label>Reason for Edit <span className="text-red-500">*</span></Label>
+                <textarea
+                  rows={2}
+                  placeholder="Briefly describe why you are editing this job card…"
+                  value={editForm.edit_reason}
+                  onChange={(e) => setEditForm(s => ({ ...s, edit_reason: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+              </div>
+
+              {/* Voucher blocks (Parts + Accounting) — locked once approved */}
+              {!isEditLocked && (
               <div className="pt-2 border-t border-slate-100">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-sm font-bold text-slate-700">Accounting Entry</h4>
+                  <button
+                    onClick={() => setShowEditAccounting(s => !s)}
+                    className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    {showEditAccounting ? 'Hide Accounting Entry' : <><Plus className="w-3.5 h-3.5" /> Add Accounting Entry</>}
+                  </button>
+                </div>
+                {showEditAccounting && (
+                <>
+                <div className="flex justify-end mb-3">
                   <button
                     onClick={() => setEditStageBlocks(bs => [...bs, emptyVoucherBlock()])}
                     className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
@@ -2147,20 +2158,13 @@ export default function RepairTrackingPage() {
                     )
                   })}
                 </div>
+                </>
+                )}
               </div>
-
-              {/* Reason for Edit */}
-              <div className="pt-2 border-t border-slate-100">
-                <Label>Reason for Edit <span className="text-red-500">*</span></Label>
-                <textarea
-                  rows={2}
-                  placeholder="Briefly describe why you are editing this job card…"
-                  value={editForm.edit_reason}
-                  onChange={(e) => setEditForm(s => ({ ...s, edit_reason: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
-                />
-              </div>
+              )}
             </div>
+              )
+            })()}
 
             <div className="sticky bottom-0 border-t border-slate-200 bg-white rounded-b-2xl">
               <div className="flex items-center gap-4 px-6 py-3 flex-wrap">

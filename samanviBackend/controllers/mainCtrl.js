@@ -1251,17 +1251,28 @@ exports.gethelperCtrl = function (req, res) {
     res.send({ status: 200, data: results });
   });
 };
-exports.deletebusnumber = function (req, res) {
-  // var data = req.body;
+// ── Sold Out / Service Out ────────────────────────────────────────────────────
+exports.markBusServiceOutCtrl = function (req, res) {
   const { encryptedPayload, signature } = req.body;
   validateSignature(encryptedPayload, signature);
-  const payload = decryptPayload(encryptedPayload);
-  var reqdata = payload;
-  appmdl.deletebusnumber(reqdata, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
-    }
+  const data = decryptPayload(encryptedPayload);
+  appmdl.markBusServiceOutMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: results }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.reactivateBusCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.reactivateBusMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: results }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.getServiceOutBusesCtrl = function (req, res) {
+  appmdl.getServiceOutBusesMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
   });
 };
@@ -1390,6 +1401,32 @@ exports.deleteChassisModelCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const data = decryptPayload(encryptedPayload);
   appmdl.deleteChassisModelMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Body Builders ─────────────────────────────────────────────────────────────
+exports.getBodyBuildersCtrl = function (req, res) {
+  appmdl.getBodyBuildersMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addBodyBuilderCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addBodyBuilderMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteBodyBuilderCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteBodyBuilderMdl(data, function (err, results) {
     if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
   });
@@ -4303,6 +4340,30 @@ exports.updatebusnumber = function (req, res) {
     return;
   }
   appmdl.updatebusnumber(data, function (err, results) {
+    if (err) {
+      res.send({ status: 500, data: results });
+      return;
+    }
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.updateBusValidityDateCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  try {
+    validateSignature(encryptedPayload, signature);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid request signature" });
+    return;
+  }
+  let data;
+  try {
+    data = decryptPayload(encryptedPayload);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid payload" });
+    return;
+  }
+  appmdl.updateBusValidityDateMdl(data, function (err, results) {
     if (err) {
       res.send({ status: 500, data: results });
       return;

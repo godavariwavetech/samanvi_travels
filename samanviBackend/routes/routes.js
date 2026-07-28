@@ -42,7 +42,9 @@ router.post('/getservicenumberdata', verifyToken,routcontroller.getservicenumber
 router.post('/getserviceforreportdropdown',verifyToken, routcontroller.getserviceforreportdropdownCtrl);
 
 router.post('/gethelper',verifyToken, routcontroller.gethelperCtrl);
-router.post('/deletebusnumber',verifyToken,routcontroller.deletebusnumber);
+router.post('/markbusserviceout',verifyToken,routcontroller.markBusServiceOutCtrl);
+router.post('/reactivatebus',verifyToken,routcontroller.reactivateBusCtrl);
+router.post('/getserviceoutbuses',verifyToken,routcontroller.getServiceOutBusesCtrl);
 router.post('/deleteservicenumber',verifyToken, routcontroller.deleteservicenumber);
 router.post('/deletedriverone', verifyToken, routcontroller.deleteDriveroneCtrl);
 
@@ -71,6 +73,10 @@ router.post('/deleteseatingcapacity', verifyToken, routcontroller.deleteSeatingC
 router.get('/getchassismodels', verifyToken, routcontroller.getChassisModelsCtrl);
 router.post('/addchassismodel', verifyToken, routcontroller.addChassisModelCtrl);
 router.post('/deletechassismodel', verifyToken, routcontroller.deleteChassisModelCtrl);
+// Body Builders
+router.get('/getbodybuilders', verifyToken, routcontroller.getBodyBuildersCtrl);
+router.post('/addbodybuilder', verifyToken, routcontroller.addBodyBuilderCtrl);
+router.post('/deletebodybuilder', verifyToken, routcontroller.deleteBodyBuilderCtrl);
 // Luxury Types
 router.get('/getluxurytypes', verifyToken, routcontroller.getLuxuryTypesCtrl);
 router.post('/addluxurytype', verifyToken, routcontroller.addLuxuryTypeCtrl);
@@ -284,6 +290,7 @@ router.post("/getfuelaccountsdata",verifyToken,routcontroller.getfuelaccountsdat
 router.get("/getlaundrybilldata", routcontroller.getlaundrybilldataCtrl);
 router.post("/getlaundrybillsubdata",verifyToken,routcontroller.getlaundrybillsubdataCtrl);
 router.post('/updatebusnumber',verifyToken,routcontroller.updatebusnumber);
+router.post('/updatebusvaliditydate',verifyToken,routcontroller.updateBusValidityDateCtrl);
 router.post('/updateservicenumber',verifyToken, routcontroller.updateservicenumber);
 router.post('/updateserviceno',verifyToken,routcontroller.updateservicenoCtrl);
 router.post('/adddriveredit',verifyToken,routcontroller.adddrivereditCtrl);

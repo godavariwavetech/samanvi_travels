@@ -92,6 +92,16 @@ var moment = require("moment");
       });
     }
   });
+  // Sold Out / Service Out description — service_out_date already existed as a plain
+  // form field with no way to say *why*; this backs the new Service Out / Reactivate flow.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='busses' AND COLUMN_NAME='service_out_reason'`, function(err, rows){
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE busses ADD COLUMN service_out_reason VARCHAR(255) DEFAULT NULL`, function(e){
+        if (e) { console.log('[DB] busses service_out_reason col err:'+e.message); return; }
+        console.log('[DB] busses service_out_reason col added');
+      });
+    }
+  });
   // Seating Capacity master (predefined dropdown values for Add Bus form)
   sqldb.query(`CREATE TABLE IF NOT EXISTS seating_capacities (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -104,6 +114,24 @@ var moment = require("moment");
     model_name VARCHAR(100) NOT NULL,
     d_in TINYINT DEFAULT 0
   )`, function(err){ if(err) console.log('[DB] chassis_models init:', err.message); else console.log('[DB] chassis_models ready'); });
+  // Body Builder master (predefined dropdown values for the Bus master's "Body Made" field) —
+  // this master was missing entirely; the field silently reused the vehicle_companies (chassis
+  // manufacturer) master instead, which is a different real-world category from who built the body.
+  sqldb.query(`CREATE TABLE IF NOT EXISTS body_builders (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    builder_name VARCHAR(100) NOT NULL,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){
+    if (err) { console.log('[DB] body_builders init:', err.message); return; }
+    console.log('[DB] body_builders ready');
+    sqldb.query(`SELECT COUNT(*) as cnt FROM body_builders`, function(cErr, rows){
+      if (!cErr && rows && rows[0].cnt === 0) {
+        sqldb.query(`INSERT INTO body_builders (builder_name) VALUES ('MG Veera')`, function(sErr){
+          if (sErr) console.log('[DB] body_builders seed err:', sErr.message); else console.log('[DB] body_builders seeded');
+        });
+      }
+    });
+  });
   // Luxury Type master (predefined dropdown values for Add Bus form)
   sqldb.query(`CREATE TABLE IF NOT EXISTS luxury_types (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -1004,6 +1032,9 @@ exports.adddriverregisterMdl = function (
       transportoneissuedate: data.transportoneissuedate || "",
       transportvalidityfrom: data.transportvalidityfrom || "",
       transportvalidityto: data.transportvalidityto || "",
+      dl_issued_by: data.dl_issued_by || "",
+      dl_dob: data.dl_dob || "",
+      dl_linked_mobile: data.dl_linked_mobile || "",
     };
     const QRY_TO_EXEC = `INSERT INTO driver_register SET ?;`;
     if (callback && typeof callback === "function") {
@@ -1078,20 +1109,43 @@ exports.gethelperMdl = function (data, callback) {
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
-exports.deletebusnumber = function (data, callback) {
-  var cntxtDtls = "in deletebusnumber";
-  var QRY_TO_EXEC = ` update busses set d_in = '1'  WHERE  id = '${data.index}'`;
-  if (callback && typeof callback == "function")
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+// ── Sold Out / Service Out ──────────────────────────────────────────────────
+// Replaces the old "Delete Bus" action: instead of silently soft-hiding a bus
+// with no record of why, this captures a date + description and moves it to
+// a dedicated list (mirrors the Staff Register terminate/rejoin flow above).
+exports.markBusServiceOutMdl = function (data, callback) {
+  var cntxtDtls = "in markBusServiceOutMdl";
+  var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+  var QRY_TO_EXEC = `UPDATE busses SET d_in=1, service_out_date='${esc(data.service_out_date)}', service_out_reason='${esc(data.service_out_reason)}' WHERE id='${data.id}'`;
+  dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+    if (err) { callback(err, results); return; }
+    var note = `Marked Sold/Out of Service: ${esc(data.service_out_reason)} (effective ${esc(data.service_out_date)})`;
+    var histQ = `INSERT INTO bus_edit_history (bus_id, bus_no, changes_note, changed_by_id, changed_by_name) VALUES ('${data.id}', (SELECT bus_no FROM busses WHERE id='${data.id}'), '${note}', '${esc(data.userid)}', '${esc(data.usrnm)}')`;
+    sqldb.query(histQ, function (histErr) {
+      if (histErr) console.log('[markBusServiceOutMdl] history log error:', histErr.message);
+      callback(null, results);
+    });
+  });
+};
+
+exports.reactivateBusMdl = function (data, callback) {
+  var cntxtDtls = "in reactivateBusMdl";
+  var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+  var QRY_TO_EXEC = `UPDATE busses SET d_in=0, service_out_date=NULL, service_out_reason=NULL WHERE id='${data.id}'`;
+  dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+    if (err) { callback(err, results); return; }
+    var histQ = `INSERT INTO bus_edit_history (bus_id, bus_no, changes_note, changed_by_id, changed_by_name) VALUES ('${data.id}', (SELECT bus_no FROM busses WHERE id='${data.id}'), 'Reactivated — moved back to active fleet', '${esc(data.userid)}', '${esc(data.usrnm)}')`;
+    sqldb.query(histQ, function (histErr) {
+      if (histErr) console.log('[reactivateBusMdl] history log error:', histErr.message);
+      callback(null, results);
+    });
+  });
+};
+
+exports.getServiceOutBusesMdl = function (callback) {
+  var cntxtDtls = "in getServiceOutBusesMdl";
+  var QRY_TO_EXEC = `SELECT * FROM busses WHERE d_in=1 AND service_out_date IS NOT NULL AND service_out_date <> '' ORDER BY service_out_date DESC`;
+  dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, callback);
 };
 exports.deletedriveoneMdl = function (data, callback) {
   var cntxtDtls = "in deletedriveoneMdl";
@@ -1245,6 +1299,23 @@ exports.addChassisModelMdl = function (data, callback) {
 exports.deleteChassisModelMdl = function (data, callback) {
   var cntxtDtls = "in deleteChassisModelMdl";
   var QRY_TO_EXEC = `UPDATE chassis_models SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Body Builders ────────────────────────────────────────────────────────────
+exports.getBodyBuildersMdl = function (callback) {
+  var cntxtDtls = "in getBodyBuildersMdl";
+  var QRY_TO_EXEC = `SELECT * FROM body_builders WHERE d_in=0 ORDER BY builder_name`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+exports.addBodyBuilderMdl = function (data, callback) {
+  var cntxtDtls = "in addBodyBuilderMdl";
+  var QRY_TO_EXEC = `INSERT INTO body_builders (builder_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.builder_name], cntxtDtls, callback);
+};
+exports.deleteBodyBuilderMdl = function (data, callback) {
+  var cntxtDtls = "in deleteBodyBuilderMdl";
+  var QRY_TO_EXEC = `UPDATE body_builders SET d_in=1 WHERE id=?`;
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
 };
 
@@ -9080,6 +9151,47 @@ exports.getBusHistoryMdl = function (data, callback) {
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
 };
 
+// Fields editable from the Vehicle Validations screen — whitelisted so the
+// column name (which comes from the client) can never reach raw SQL unchecked.
+var VALIDATION_FIELD_LABELS = {
+  fc_validity: 'Fitness Validity', home_tax_validity: 'Home Tax Validity',
+  insurance_validity: 'Insurance Validity', pollution_validity: 'PUCC Validity',
+  base_point_validity: 'Permit Validity', atp_validity: 'AITP Validity',
+  atp_authentication_validity: 'Authorization Validity',
+};
+
+exports.updateBusValidityDateMdl = function (data, callback) {
+  var cntxtDtls = "updateBusValidityDateMdl";
+  var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+  var field = data.field;
+  var busId = parseInt(data.bus_id) || 0;
+
+  if (!VALIDATION_FIELD_LABELS[field] || !busId) {
+    callback(new Error('Invalid field or bus_id'), null);
+    return;
+  }
+
+  sqldb.query(`SELECT bus_no, ${field} FROM busses WHERE id = ?`, [busId], function (selErr, rows) {
+    if (selErr) { callback(selErr, null); return; }
+    var before = (rows && rows[0]) || {};
+    var oldV = before[field] == null ? '' : String(before[field]);
+    var newV = data.value == null ? '' : String(data.value);
+
+    var QRY_TO_EXEC = `UPDATE busses SET ${field}='${esc(newV)}', updated_by='${esc(data.usrnm)}', updated_userid='${esc(data.userid)}' WHERE id = '${busId}'`;
+    dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+      if (err) { callback(err, results); return; }
+      if (oldV === newV) { callback(null, results); return; }
+
+      var note = `${VALIDATION_FIELD_LABELS[field]}: '${oldV || '—'}' -> '${newV || '—'}'`;
+      var histQ = `INSERT INTO bus_edit_history (bus_id, bus_no, changes_note, changed_by_id, changed_by_name) VALUES ('${busId}', '${esc(before.bus_no)}', '${esc(note)}', '${esc(data.userid)}', '${esc(data.usrnm)}')`;
+      sqldb.query(histQ, function (histErr) {
+        if (histErr) console.log('[updateBusValidityDateMdl] history log error:', histErr.message);
+        callback(null, results);
+      });
+    });
+  });
+};
+
 exports.updateservicenumber = function (data, callback) {
   console.log(data, 6260);
   var cntxtDtls = "in updateservicenumber";
@@ -9161,6 +9273,9 @@ exports.adddrivereditMdl = function (
     transportoneissuedate: data.transportoneissuedate || "",
     transportvalidityfrom: data.transportvalidityfrom || "",
     transportvalidityto: data.transportvalidityto || "",
+    dl_issued_by: data.dl_issued_by || "",
+    dl_dob: data.dl_dob || "",
+    dl_linked_mobile: data.dl_linked_mobile || "",
     updatedby: data.usrnm,
     updateduser_id: data.entryby,
   };
@@ -13455,14 +13570,15 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
           var driverIdNumber = 'D' + String(startId + i).padStart(4, '0');
           return [driverIdNumber, r.driver_name, r.nickname || null, r.dldateofbirth || null, r.mobile_number || null,
             r.alternate_number || null, r.emergency_mobile_number || null, r.aadhar_number || null,
-            r.dl_number || null, r.dl_expiry_date || null, r.account_holder_name || null,
+            r.dl_number || null, r.dl_issued_by || null, r.dl_dob || null, r.dl_linked_mobile || null,
+            r.dl_expiry_date || null, r.account_holder_name || null,
             r.account_number || null, r.bank_name || null, r.branch_name || null,
             r.ifsc_code || null, r.upi_id || null, r.drivinglicense_joining_date || null,
             r.transportoneissuedate || null, r.transportvalidityfrom || null, r.transportvalidityto || null,
             r.date_of_joining || null, r.reference || null, r.remarks || null, r.address || null,
             userId, usrNm, date, 0];
         });
-        var QRY = 'INSERT INTO driver_register (driver_id_number, driver_name, nickname, dldateofbirth, mobile_number, alternate_number, emergency_mobile_number, aadhar_number, dl_number, dl_expiry_date, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, drivinglicense_joining_date, transportoneissuedate, transportvalidityfrom, transportvalidityto, date_of_joining, reference, remarks, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
+        var QRY = 'INSERT INTO driver_register (driver_id_number, driver_name, nickname, dldateofbirth, mobile_number, alternate_number, emergency_mobile_number, aadhar_number, dl_number, dl_issued_by, dl_dob, dl_linked_mobile, dl_expiry_date, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, drivinglicense_joining_date, transportoneissuedate, transportvalidityfrom, transportvalidityto, date_of_joining, reference, remarks, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
         dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
           if (err) return callback(err, null);
           callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });

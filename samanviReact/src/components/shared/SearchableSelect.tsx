@@ -17,9 +17,10 @@ interface SearchableSelectProps {
   onReload?: () => void
   reloading?: boolean
   className?: string
+  disabled?: boolean
 }
 
-export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading, className }: SearchableSelectProps) {
+export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading, className, disabled }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -32,6 +33,7 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
     : options
 
   const openDropdown = () => {
+    if (disabled) return
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
     setOpen(true)
     setSearch('')
@@ -104,14 +106,15 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
         ref={btnRef}
         type="button"
         onClick={openDropdown}
-        className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 px-4 py-2 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white"
+        disabled={disabled}
+        className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 px-4 py-2 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100 disabled:hover:border-slate-200"
       >
         <span className={cn('truncate', (selected || displayLabel) ? 'text-slate-900' : 'text-slate-400')}>
           {selected ? selected.label : (displayLabel || placeholder)}
         </span>
         <ChevronDown className={cn('w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform', open && 'rotate-180')} />
       </button>
-      {onReload && (
+      {onReload && !disabled && (
         <button
           type="button"
           onClick={onReload}

@@ -191,6 +191,9 @@ ensureColumn('tyre_position_log', 'voucher_number', '`voucher_number` VARCHAR(30
 ensureColumn('staff_register', 'dob', '`dob` DATE NULL');
 ensureColumn('staff_register', 'address', '`address` TEXT NULL');
 ensureColumn('driver_register', 'address', '`address` TEXT NULL');
+ensureColumn('driver_register', 'dl_issued_by', '`dl_issued_by` VARCHAR(150) NULL');
+ensureColumn('driver_register', 'dl_dob', '`dl_dob` DATE NULL');
+ensureColumn('driver_register', 'dl_linked_mobile', '`dl_linked_mobile` VARCHAR(15) NULL');
 ensureColumn('helper_register', 'dob', '`dob` DATE NULL');
 ensureColumn('helper_register', 'address', '`address` TEXT NULL');
 ensureColumn('fuelentry_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');

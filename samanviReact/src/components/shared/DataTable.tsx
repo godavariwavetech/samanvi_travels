@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { Search, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
@@ -39,6 +39,79 @@ interface DataTableProps<T extends Record<string, unknown>> {
   onColumnFilterChange?: (key: string, vals: string[]) => void
   filterBar?: ReactNode
   className?: string
+  /** Opt-in: paginate `filtered` rows and show page controls above and below the table. */
+  paginated?: boolean
+  /** Rows per page when `paginated` is set. Default 25. */
+  pageSize?: number
+  /** Opt-in: mirror a slim scrollbar above the table, synced with the table's own horizontal scroll — lets wide tables be scrolled without hunting for the scrollbar below a long list of rows. */
+  topScrollbar?: boolean
+}
+
+function buildPageList(current: number, total: number): (number | '…')[] {
+  const delta = 1
+  const pages: number[] = []
+  for (let i = 1; i <= total; i++) {
+    if (i === 1 || i === total || (i >= current - delta && i <= current + delta)) pages.push(i)
+  }
+  const withDots: (number | '…')[] = []
+  let prev = 0
+  for (const p of pages) {
+    if (prev && p - prev > 1) withDots.push('…')
+    withDots.push(p)
+    prev = p
+  }
+  return withDots
+}
+
+function PaginationBar({ page, totalPages, pageSize, total, onChange }: {
+  page: number
+  totalPages: number
+  pageSize: number
+  total: number
+  onChange: (page: number) => void
+}) {
+  if (totalPages <= 1) return null
+  const from = (page - 1) * pageSize + 1
+  const to = Math.min(page * pageSize, total)
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3">
+      <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+        Showing {from}–{to} of {total}
+      </span>
+      <div className="flex items-center gap-1 flex-wrap">
+        <button
+          onClick={() => onChange(page - 1)}
+          disabled={page === 1}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+        >
+          Prev
+        </button>
+        {buildPageList(page, totalPages).map((p, i) =>
+          p === '…' ? (
+            <span key={`dots-${i}`} className="px-1.5 text-xs text-slate-400">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onChange(p)}
+              className={cn(
+                'min-w-[2rem] px-2 py-1.5 rounded-lg text-xs font-bold border transition-colors',
+                p === page ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              )}
+            >
+              {p}
+            </button>
+          )
+        )}
+        <button
+          onClick={() => onChange(page + 1)}
+          disabled={page === totalPages}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-200 text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export function DataTable<T extends Record<string, unknown>>({
@@ -57,10 +130,19 @@ export function DataTable<T extends Record<string, unknown>>({
   onColumnFilterChange,
   filterBar,
   className,
+  paginated = false,
+  pageSize = 25,
+  topScrollbar = false,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [page, setPage] = useState(1)
+
+  const scrollTopRef = useRef<HTMLDivElement>(null)
+  const scrollBodyRef = useRef<HTMLDivElement>(null)
+  const [contentWidth, setContentWidth] = useState(0)
+  const syncingScroll = useRef(false)
 
   const filterableCols = columns.filter(c => c.filterable)
   const activeFilterCount = columnFilters
@@ -104,6 +186,39 @@ export function DataTable<T extends Record<string, unknown>>({
         return vals.includes(String(v ?? ''))
       })
     })
+
+  // Reset to page 1 whenever the search text or column filters change, so the
+  // user never lands on a now-empty page after narrowing the result set.
+  useEffect(() => { setPage(1) }, [search, columnFilters])
+
+  const totalPages = paginated ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1
+  const safePage = Math.min(page, totalPages)
+  const pageRows = paginated ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize) : filtered
+
+  useEffect(() => {
+    if (!topScrollbar) return
+    const body = scrollBodyRef.current
+    if (!body) return
+    const update = () => setContentWidth(body.scrollWidth)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(body)
+    window.addEventListener('resize', update)
+    return () => { ro.disconnect(); window.removeEventListener('resize', update) }
+  }, [topScrollbar, columns, pageRows])
+
+  const handleTopScroll = () => {
+    if (syncingScroll.current) { syncingScroll.current = false; return }
+    if (!scrollTopRef.current || !scrollBodyRef.current) return
+    syncingScroll.current = true
+    scrollBodyRef.current.scrollLeft = scrollTopRef.current.scrollLeft
+  }
+  const handleBodyScroll = () => {
+    if (syncingScroll.current) { syncingScroll.current = false; return }
+    if (!scrollTopRef.current || !scrollBodyRef.current) return
+    syncingScroll.current = true
+    scrollTopRef.current.scrollLeft = scrollBodyRef.current.scrollLeft
+  }
 
   const allSelected = filtered.length > 0 && filtered.every((_, i) => selected.has(i))
   const someSelected = selected.size > 0
@@ -192,6 +307,12 @@ export function DataTable<T extends Record<string, unknown>>({
       )}
       </div>
 
+      {paginated && (
+        <div className="border-b border-slate-100">
+          <PaginationBar page={safePage} totalPages={totalPages} pageSize={pageSize} total={filtered.length} onChange={setPage} />
+        </div>
+      )}
+
       {/* Selection summary bar */}
       <AnimatePresence>
         {selectable && someSelected && (
@@ -224,8 +345,14 @@ export function DataTable<T extends Record<string, unknown>>({
         )}
       </AnimatePresence>
 
+      {topScrollbar && (
+        <div ref={scrollTopRef} onScroll={handleTopScroll} className="overflow-x-auto scrollbar-thin border-b border-slate-100 h-3">
+          <div style={{ width: contentWidth, height: 1 }} />
+        </div>
+      )}
+
       {/* Table */}
-      <div className="overflow-x-auto scrollbar-thin">
+      <div ref={scrollBodyRef} onScroll={topScrollbar ? handleBodyScroll : undefined} className="overflow-x-auto scrollbar-thin">
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
             <tr className="bg-blue-600 text-white [&>th:first-child]:rounded-tl-xl [&>th:last-child]:rounded-tr-xl">
@@ -291,7 +418,9 @@ export function DataTable<T extends Record<string, unknown>>({
                 </td>
               </tr>
             ) : (
-              filtered.map((row, i) => (
+              pageRows.map((row, localIndex) => {
+                const i = paginated ? (safePage - 1) * pageSize + localIndex : localIndex
+                return (
                 <tr
                   key={i}
                   className={`hover:bg-blue-50/30 transition-colors ${selected.has(i) ? 'bg-blue-50/50' : ''}`}
@@ -331,11 +460,18 @@ export function DataTable<T extends Record<string, unknown>>({
                     </td>
                   )}
                 </tr>
-              ))
+                )
+              })
             )}
           </tbody>
         </table>
       </div>
+
+      {paginated && (
+        <div className="border-t border-slate-100">
+          <PaginationBar page={safePage} totalPages={totalPages} pageSize={pageSize} total={filtered.length} onChange={setPage} />
+        </div>
+      )}
 
       {/* Delete confirm modal — portaled to <body> so it isn't clipped/repositioned by
           this card's backdrop-blur (which creates a containing block for `fixed` children) */}

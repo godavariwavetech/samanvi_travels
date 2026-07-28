@@ -169,9 +169,10 @@ type ViewField = [label: string, key: string]
 const DRIVER_VIEW_FIELDS: ViewField[] = [
   ['Driver ID', 'driver_id_number'], ['Aadhar Name', 'nickname'], ['Aadhar Number', 'aadhar_number'],
   ['Date of Birth', 'dldateofbirth'], ['Mobile Number', 'mobile_number'], ['Alternate Mobile', 'alternate_number'],
-  ['Emergency Number', 'emergency_mobile_number'], ['Date of Joining', 'date_of_joining'], ['Reference Name', 'reference'],
+  ['Emergency Number', 'emergency_mobile_number'], ['Date of Joining', 'date_of_joining'], ['Referred By', 'reference'],
   ['Address', 'address'], ['DL Name', 'driver_name'], ['DL Number', 'dl_number'],
-  ['DL Issue Date', 'drivinglicense_joining_date'], ['DL Expiry Date', 'dl_expiry_date'],
+  ['DL Date of Birth', 'dl_dob'], ['DL Linked Mobile Number', 'dl_linked_mobile'],
+  ['DL Issue Date', 'drivinglicense_joining_date'], ['DL Issued By', 'dl_issued_by'], ['DL Expiry Date', 'dl_expiry_date'],
   ['Transport Issue Date', 'transportoneissuedate'], ['Transport Valid From', 'transportvalidityfrom'],
   ['Transport Valid To', 'transportvalidityto'], ['Account Holder Name', 'account_holder_name'],
   ['Account Number', 'account_number'], ['Bank Name', 'bank_name'], ['Branch Name', 'branch_name'],
@@ -185,7 +186,7 @@ const DRIVER_VIEW_IMAGES: ViewField[] = [
 const STAFF_VIEW_FIELDS: ViewField[] = [
   ['Designation', 'designation'], ['Nick Name', 'nickName'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
   ['Date of Birth', 'dob'], ['Mobile Number', 'mobile'], ['Alternative Mobile', 'alternativemobilenumber'],
-  ['Emergency Contact', 'emergencyContact'], ['Date of Joining', 'dateOfJoining'], ['Reference Name', 'referencename'],
+  ['Emergency Contact', 'emergencyContact'], ['Date of Joining', 'dateOfJoining'], ['Referred By', 'referencename'],
   ['Address', 'address'], ['Account Holder Name', 'accountHolderName'], ['Account Number', 'accountNumber'],
   ['Bank Name', 'bankName'], ['Branch Name', 'branchname'], ['IFSC Code', 'ifscCode'], ['UPI ID', 'upiId'],
   ['Remarks', 'remarks'],
@@ -355,6 +356,7 @@ const emptyDriver = {
   date_of_joining: '', account_holder_name: '', branch_name: '', upi_id: '',
   dldateofbirth: '', drivinglicense_joining_date: '', transportoneissuedate: '',
   transportvalidityfrom: '', transportvalidityto: '', remarks: '', address: '',
+  dl_issued_by: '', dl_dob: '', dl_linked_mobile: '',
 }
 const emptyHelper = {
   helper_name: '', mobile_number: '', adhar_number: '', account_number: '',
@@ -411,8 +413,9 @@ const today = new Date().toISOString().split('T')[0]
 // Column order mirrors each type's Add-form field order exactly.
 const DRIVER_TEMPLATE_HEADERS = [
   'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
-  'Emergency Number', 'Date of Joining*', 'Reference Name*', 'Address',
-  'DL Name*', 'DL Number*', 'DL Issue Date*', 'DL Expiry Date*',
+  'Emergency Number', 'Date of Joining*', 'Referred By', 'Address',
+  'DL Name*', 'DL Number*', 'DL Date of Birth', 'DL Linked Mobile Number',
+  'DL Issue Date*', 'DL Issued By', 'DL Expiry Date*',
   'Transport Issue Date*', 'Transport Valid From*', 'Transport Valid To*',
   'Account Holder Name*', 'Account Number*', 'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID',
   'Remarks',
@@ -420,7 +423,7 @@ const DRIVER_TEMPLATE_HEADERS = [
 const STAFF_TEMPLATE_HEADERS = [
   'Designation*', 'Nick Name', 'Full Name*', 'Aadhar Number*', 'Date of Birth',
   'Mobile Number*', 'Alternative Mobile', 'Emergency Contact', 'Date of Joining*',
-  'Reference Name*', 'Address', 'Account Holder Name*', 'Account Number*',
+  'Referred By', 'Address', 'Account Holder Name*', 'Account Number*',
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
 ]
 const HELPER_TEMPLATE_HEADERS = [
@@ -562,7 +565,7 @@ export default function StaffPage() {
     const headers = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS
       : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
     const sample = dataType === 'Driver'
-      ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '2015-06-01', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : dataType === 'Helper'
       ? ['Ramesh', 'Ramesh Kumar', '123456789012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : ['Manager', 'Suresh', 'Suresh Kumar', '987654321012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
@@ -577,7 +580,8 @@ export default function StaffPage() {
         r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
         r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.date_of_joining ?? '',
         r.reference ?? '', r.address ?? '', r.driver_name ?? '', r.dl_number ?? '',
-        r.drivinglicense_joining_date ?? '', r.dl_expiry_date ?? '',
+        r.dl_dob ?? '', r.dl_linked_mobile ?? '',
+        r.drivinglicense_joining_date ?? '', r.dl_issued_by ?? '', r.dl_expiry_date ?? '',
         r.transportoneissuedate ?? '', r.transportvalidityfrom ?? '', r.transportvalidityto ?? '',
         r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
         r.branch_name ?? '', r.ifsc_code ?? '', r.upi_id ?? '', r.remarks ?? '',
@@ -635,18 +639,21 @@ export default function StaffPage() {
             address: String(r[8] ?? '').trim() || null,
             driver_name: String(r[9] ?? '').trim(),
             dl_number: String(r[10] ?? '').trim() || null,
-            drivinglicense_joining_date: String(r[11] ?? '').trim() || null,
-            dl_expiry_date: String(r[12] ?? '').trim() || null,
-            transportoneissuedate: String(r[13] ?? '').trim() || null,
-            transportvalidityfrom: String(r[14] ?? '').trim() || null,
-            transportvalidityto: String(r[15] ?? '').trim() || null,
-            account_holder_name: String(r[16] ?? '').trim() || null,
-            account_number: String(r[17] ?? '').trim() || null,
-            bank_name: String(r[18] ?? '').trim() || null,
-            branch_name: String(r[19] ?? '').trim() || null,
-            ifsc_code: String(r[20] ?? '').trim() || null,
-            upi_id: String(r[21] ?? '').trim() || null,
-            remarks: String(r[22] ?? '').trim() || null,
+            dl_dob: String(r[11] ?? '').trim() || null,
+            dl_linked_mobile: String(r[12] ?? '').trim() || null,
+            drivinglicense_joining_date: String(r[13] ?? '').trim() || null,
+            dl_issued_by: String(r[14] ?? '').trim() || null,
+            dl_expiry_date: String(r[15] ?? '').trim() || null,
+            transportoneissuedate: String(r[16] ?? '').trim() || null,
+            transportvalidityfrom: String(r[17] ?? '').trim() || null,
+            transportvalidityto: String(r[18] ?? '').trim() || null,
+            account_holder_name: String(r[19] ?? '').trim() || null,
+            account_number: String(r[20] ?? '').trim() || null,
+            bank_name: String(r[21] ?? '').trim() || null,
+            branch_name: String(r[22] ?? '').trim() || null,
+            ifsc_code: String(r[23] ?? '').trim() || null,
+            upi_id: String(r[24] ?? '').trim() || null,
+            remarks: String(r[25] ?? '').trim() || null,
           }
           return { payload, key: payload.driver_name }
         })
@@ -929,7 +936,7 @@ export default function StaffPage() {
                     <div><Label>Alternate Mobile</Label><Input inputMode="numeric" maxLength={10} value={driverForm.alternate_number} onChange={digitsOnly(setDriverForm, 'alternate_number', 10)} /></div>
                     <div><Label>Emergency Number</Label><Input inputMode="numeric" maxLength={10} value={driverForm.emergency_mobile_number} onChange={digitsOnly(setDriverForm, 'emergency_mobile_number', 10)} /></div>
                     <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.date_of_joining} onChange={df('date_of_joining')} /></div>
-                    <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={driverForm.reference} onChange={df('reference')} /></div>
+                    <div><Label>Referred By</Label><Input value={driverForm.reference} onChange={df('reference')} /></div>
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={driverForm.address} onChange={df('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                     </div>
@@ -940,7 +947,10 @@ export default function StaffPage() {
                   <SectionBox title="DL Details">
                     <div><Label>DL Name <span className="text-red-500">*</span></Label><Input value={driverForm.driver_name} onChange={df('driver_name')} /></div>
                     <div><Label>DL Number <span className="text-red-500">*</span></Label><Input value={driverForm.dl_number} onChange={df('dl_number')} /></div>
+                    <div><Label>DL Date of Birth</Label><Input type="date" max={today} value={driverForm.dl_dob} onChange={df('dl_dob')} /></div>
+                    <div><Label>DL Linked Mobile Number</Label><Input inputMode="numeric" maxLength={10} value={driverForm.dl_linked_mobile} onChange={digitsOnly(setDriverForm, 'dl_linked_mobile', 10)} /></div>
                     <div><Label>DL Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.drivinglicense_joining_date} onChange={df('drivinglicense_joining_date')} /></div>
+                    <div><Label>DL Issued By</Label><Input value={driverForm.dl_issued_by} onChange={df('dl_issued_by')} /></div>
                     <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
                     <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
                     <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
@@ -985,7 +995,7 @@ export default function StaffPage() {
                     <div><Label>Alternative Mobile</Label><Input inputMode="numeric" maxLength={10} value={staffForm.alternativemobilenumber} onChange={digitsOnly(setStaffForm, 'alternativemobilenumber', 10)} /></div>
                     <div><Label>Emergency Contact</Label><Input inputMode="numeric" maxLength={10} value={staffForm.emergencyContact} onChange={digitsOnly(setStaffForm, 'emergencyContact', 10)} /></div>
                     <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={staffForm.dateOfJoining} onChange={sf('dateOfJoining')} /></div>
-                    <div><Label>Reference Name <span className="text-red-500">*</span></Label><Input value={staffForm.referencename} onChange={sf('referencename')} /></div>
+                    <div><Label>Referred By</Label><Input value={staffForm.referencename} onChange={sf('referencename')} /></div>
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={staffForm.address} onChange={sf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                     </div>

@@ -5,7 +5,7 @@ import { NavLink, useLocation } from 'react-router'
 import {
   LayoutDashboard, Users, Map, Building2, Briefcase,
   CreditCard, Shirt, Settings, LogOut,
-  Fuel, ChevronDown, ChevronRight, X, Wrench,
+  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
@@ -49,8 +49,10 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Bus Numbers',    path: '/masters/bus-no' },
       { label: 'Service Numbers',path: '/masters/service-no' },
       { label: 'Staff Register', path: '/masters/staff' },
+      { label: 'Sold Out / Service Out', path: '/masters/service-out' },
     ],
   },
+  { id: 'validations', label: 'Validations', icon: ShieldCheck, path: '/validations' },
   {
     id: 'trips', label: 'Trip Management', icon: Map,
     children: [
@@ -165,6 +167,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Vehicle Company',    path: '/mainmasters/vehicle-company' },
       { label: 'Seating Capacity',   path: '/mainmasters/seating-capacity' },
       { label: 'Chassis Model',      path: '/mainmasters/chassis-model' },
+      { label: 'Body Builder',       path: '/mainmasters/body-builder' },
       { label: 'Luxury Type',        path: '/mainmasters/luxury-type' },
       { label: 'Mfg Year',           path: '/mainmasters/mfg-year' },
       { label: 'Battery Brand',      path: '/mainmasters/battery-brand' },

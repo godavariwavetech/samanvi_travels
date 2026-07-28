@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { Bus, Save, Plus, X, Edit2, ChevronDown, Upload, Download, FileSpreadsheet, History, Clock } from 'lucide-react'
+import { Bus, Save, Plus, X, Edit2, ChevronDown, Upload, Download, FileSpreadsheet, History, Clock, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal } from '@/components/shared'
@@ -100,6 +100,52 @@ function MasterListPicker({ panelId, queryKey, queryFn, valueKey, value, onChang
   )
 }
 
+// ── Sold Out / Service Out modal ───────────────────────────────────────────
+function ServiceOutModal({ bus, onConfirm, onClose, isPending }: {
+  bus: any
+  onConfirm: (date: string, reason: string) => void
+  onClose: () => void; isPending: boolean
+}) {
+  const today = new Date().toISOString().split('T')[0]
+  const [date, setDate] = useState(today)
+  const [reason, setReason] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg p-7">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center">
+            <LogOut className="w-5 h-5 text-red-500" />
+          </div>
+          <div>
+            <h3 className="font-extrabold text-slate-900 text-lg">Mark Sold / Out of Service</h3>
+            <p className="text-sm text-slate-500">Bus <span className="font-semibold text-red-600">{bus?.bus_no}</span> will move out of the active fleet</p>
+          </div>
+          <button onClick={onClose} className="ml-auto text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <Label>Date <span className="text-red-500">*</span></Label>
+            <Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <Label>Description <span className="text-red-500">*</span></Label>
+            <textarea rows={4} placeholder="Sold to…, Accident total loss, Scrapped…" value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-400 resize-none" />
+          </div>
+        </div>
+        <div className="flex gap-3 mt-6">
+          <Button variant="danger" onClick={() => onConfirm(date, reason)} disabled={isPending || !reason.trim() || !date} className="flex-1">
+            <LogOut className="w-4 h-4" />{isPending ? 'Saving…' : 'Confirm'}
+          </Button>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
 const EMPTY_NORMAL = {
   bus_no: '', engine_no: '', chassis_no: '', vehicle_type: '',
   luxury_type: '', seating_capacity: '', chassis_make: '', body_made: '', chassis_model: '', mfg_year: '',
@@ -130,7 +176,8 @@ const dateCol = (label: string, key: string): Column => ({
   label, key, filterable: true, render: (v) => <span className="text-sm whitespace-nowrap">{fmtDate(v)}</span>,
 })
 
-const cols: Column[] = [
+function buildCols(onServiceOut: (row: any) => void): Column[] {
+  return [
   { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
   {
     label: 'Bus No', key: 'bus_no', filterable: true,
@@ -178,7 +225,19 @@ const cols: Column[] = [
     render: (v) => <span className="text-sm whitespace-nowrap">{String(v ?? '—')}</span>,
   },
   { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-sm max-w-xs truncate block">{String(v ?? '—')}</span> },
-]
+  {
+    label: 'Fleet Status', key: '_serviceOut', align: 'center',
+    render: (_v, row: any) => (
+      <button
+        onClick={() => onServiceOut(row)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 border-red-100 transition-colors whitespace-nowrap"
+      >
+        <LogOut className="w-3.5 h-3.5" /> Service Out
+      </button>
+    ),
+  },
+  ]
+}
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -219,6 +278,9 @@ export default function BusNoPage() {
   const [hireForm, setHireForm] = useState(EMPTY_HIRE)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [historyModal, setHistoryModal] = useState<{ open: boolean; bus: any }>({ open: false, bus: null })
+  const [serviceOutBus, setServiceOutBus] = useState<any | null>(null)
+
+  const cols = useMemo(() => buildCols((row) => setServiceOutBus(row)), [])
 
   const { data: historyData, isLoading: loadingHistory } = useQuery({
     queryKey: ['bus-history', historyModal.bus?.id],
@@ -344,12 +406,25 @@ export default function BusNoPage() {
     setIsEdit(true); setEditId(row.id); setShowForm(true)
   }
 
-  const handleDelete = (row: any) => {
-    mastersService.deleteBus({ id: row.id }).then((res) => {
-      if (res.status === 200) { toast.success('Bus removed'); qc.invalidateQueries({ queryKey: ['buses'] }) }
-      else toast.error('Failed')
-    })
-  }
+  const { mutate: markServiceOut, isPending: markingServiceOut } = useMutation({
+    mutationFn: (vars: { date: string; reason: string }) => {
+      const uid = localStorage.getItem('user_id') ?? ''
+      const unm = localStorage.getItem('usr_nm') ?? ''
+      return mastersService.markBusServiceOut({
+        id: serviceOutBus.id, service_out_date: vars.date, service_out_reason: vars.reason,
+        userid: uid, usrnm: unm,
+      })
+    },
+    onSuccess: (res) => {
+      if (res.status === 200) {
+        toast.success('Bus moved to Sold Out / Service Out')
+        qc.invalidateQueries({ queryKey: ['buses'] })
+        qc.invalidateQueries({ queryKey: ['service-out-buses'] })
+        setServiceOutBus(null)
+      } else toast.error('Failed to update')
+    },
+    onError: () => toast.error('Server error'),
+  })
 
   const openAdd = () => {
     setNormalForm(EMPTY_NORMAL); setSpareForm(EMPTY_SPARE); setHireForm(EMPTY_HIRE)
@@ -548,8 +623,8 @@ export default function BusNoPage() {
                       valueKey="model_name" value={normalForm.chassis_model} onChange={(v) => setNormalForm(f => ({ ...f, chassis_model: v }))}
                       placeholder="Select Chassis Model" /></div>
                   <div><Label>Body Made</Label>
-                    <MasterListPicker panelId="body-made-panel" queryKey="vehicle-companies" queryFn={() => mastersService.getVehicleCompanies()}
-                      valueKey="company_name" value={normalForm.body_made} onChange={(v) => setNormalForm(f => ({ ...f, body_made: v }))}
+                    <MasterListPicker panelId="body-made-panel" queryKey="body-builders" queryFn={() => mastersService.getBodyBuilders()}
+                      valueKey="builder_name" value={normalForm.body_made} onChange={(v) => setNormalForm(f => ({ ...f, body_made: v }))}
                       placeholder="Select Body Builder" /></div>
                   <div><Label>Mfg Year</Label>
                     <MasterListPicker panelId="mfg-year-panel" queryKey="mfg-years" queryFn={() => mastersService.getMfgYears()}
@@ -651,15 +726,27 @@ export default function BusNoPage() {
         loading={isLoading}
         onAction={(action, row) => {
           if (action === 'edit') handleEdit(row)
-          if (action === 'delete') handleDelete(row)
           if (action === 'history') setHistoryModal({ open: true, bus: row })
         }}
-        actions={['edit', 'history', 'delete']}
+        actions={['edit', 'history']}
         icon={<Bus className="w-5 h-5 text-blue-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters(prev => ({ ...prev, [k]: v }))}
         className="border-2 border-slate-200"
+        paginated
+        pageSize={10}
+        topScrollbar
       />
+
+      {/* ── Sold Out / Service Out modal ── */}
+      {serviceOutBus && (
+        <ServiceOutModal
+          bus={serviceOutBus}
+          onConfirm={(date, reason) => markServiceOut({ date, reason })}
+          onClose={() => setServiceOutBus(null)}
+          isPending={markingServiceOut}
+        />
+      )}
 
       {/* ── Edit History modal ── */}
       <AnimatePresence>

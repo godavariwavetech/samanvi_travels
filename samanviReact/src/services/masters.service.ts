@@ -22,6 +22,11 @@ export const mastersService = {
   addChassisModel: (data: unknown) => api.post('/addchassismodel', securePayload(data)).then((r) => r.data),
   deleteChassisModel: (data: unknown) => api.post('/deletechassismodel', securePayload(data)).then((r) => r.data),
 
+  // ── Body Builders ──────────────────────────────────────────
+  getBodyBuilders: () => api.get('/getbodybuilders').then((r) => r.data),
+  addBodyBuilder: (data: unknown) => api.post('/addbodybuilder', securePayload(data)).then((r) => r.data),
+  deleteBodyBuilder: (data: unknown) => api.post('/deletebodybuilder', securePayload(data)).then((r) => r.data),
+
   // ── Luxury Types ─────────────────────────────────────────────
   getLuxuryTypes: () => api.get('/getluxurytypes').then((r) => r.data),
   addLuxuryType: (data: unknown) => api.post('/addluxurytype', securePayload(data)).then((r) => r.data),
@@ -36,8 +41,11 @@ export const mastersService = {
   getBuses: () => api.post('/getbussesdata', {}).then((r) => r.data),
   addBus: (data: unknown) => api.post('/addNewbusnum', securePayload(data)).then((r) => r.data),
   updateBus: (data: unknown) => api.post('/updatebusnumber', securePayload(data)).then((r) => r.data),
-  deleteBus: (data: unknown) => api.post('/deletebusnumber', securePayload(data)).then((r) => r.data),
   getBusHistory: (data: unknown) => api.post('/getbushistory', data).then((r) => r.data),
+  updateBusValidityDate: (data: unknown) => api.post('/updatebusvaliditydate', securePayload(data)).then((r) => r.data),
+  getServiceOutBuses: () => api.post('/getserviceoutbuses', {}).then((r) => r.data),
+  markBusServiceOut: (data: unknown) => api.post('/markbusserviceout', securePayload(data)).then((r) => r.data),
+  reactivateBus: (data: unknown) => api.post('/reactivatebus', securePayload(data)).then((r) => r.data),
 
   // ── Service For (driverone routes) ───────────────────────
   getServiceRoutes: () => api.post('/getdriveone', {}).then((r) => r.data),

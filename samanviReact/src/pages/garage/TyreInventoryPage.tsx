@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CircleDot, Save, Plus, X, Edit2, Truck, ShoppingCart, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
@@ -19,6 +19,9 @@ const emptyPositionRow = (): PositionRow => ({ brand: '', size: '', serial_no: '
 
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
+
+type TyreRow = { brand: string; size: string; serial_no: string; cost: string; remarks: string }
+const emptyTyreRow = (cost = ''): TyreRow => ({ brand: '', size: '', serial_no: '', cost, remarks: '' })
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -52,6 +55,12 @@ export default function TyreInventoryPage() {
   const [ledgerDescription, setLedgerDescription] = useState('')
   const [debit, setDebit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
   const [credit, setCredit] = useState<LedgerEntry[]>([emptyLedgerEntry()])
+
+  // Multiple tyres bought in the same purchase — brand/size/purchase date stay
+  // common, each row gets its own serial no + cost, and one ledger voucher is
+  // raised per tyre (mirrors the single-tyre flow, just looped on save).
+  const [tyreRows, setTyreRows] = useState<TyreRow[]>([emptyTyreRow()])
+  const [sameCost, setSameCost] = useState(false)
 
   const { data, isLoading } = useQuery({ queryKey: ['tyre-inventory'], queryFn: () => garageService.getTyreInventory() })
   const list: any[] = data?.data ?? []
@@ -92,14 +101,37 @@ export default function TyreInventoryPage() {
   const handleCostChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value
     setForm((s) => ({ ...s, cost: val }))
+    if (sameCost) setTyreRows((rows) => rows.map((r) => ({ ...r, cost: val })))
     setDebit((rows) => rows.length === 1 ? [{ ...rows[0], amount: val }] : rows)
     setCredit((rows) => rows.length === 1 ? [{ ...rows[0], amount: val }] : rows)
   }
 
+  const toggleSameCost = (checked: boolean) => {
+    setSameCost(checked)
+    if (checked) setTyreRows((rows) => rows.map((r) => ({ ...r, cost: form.cost })))
+  }
+
+  const handleQuantityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const n = Math.max(1, Math.min(200, parseInt(e.target.value, 10) || 1))
+    setTyreRows((rows) => {
+      if (n === rows.length) return rows
+      if (n > rows.length) return [...rows, ...Array.from({ length: n - rows.length }, () => emptyTyreRow(sameCost ? form.cost : ''))]
+      return rows.slice(0, n)
+    })
+  }
+
+  // With a single debit + single credit line, the amount is auto-filled per
+  // tyre from its own cost at save time (see buildTyreRowPayload) — so
+  // "balanced" just means both sides picked a ledger, not that typed amounts match.
+  const autoLedgerAmount = !isEdit && entryMode === 'new' && debit.length === 1 && credit.length === 1
   const debitTotal = debit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
   const creditTotal = credit.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
-  const hasLedgerEntry = debit.some(e => e.ledger_id && e.amount) || credit.some(e => e.ledger_id && e.amount)
-  const isBalanced = debitTotal > 0 && Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
+  const hasLedgerEntry = autoLedgerAmount
+    ? !!(debit[0]?.ledger_id || credit[0]?.ledger_id)
+    : debit.some(e => e.ledger_id && e.amount) || credit.some(e => e.ledger_id && e.amount)
+  const isBalanced = autoLedgerAmount
+    ? !!(debit[0]?.ledger_id && credit[0]?.ledger_id)
+    : debitTotal > 0 && Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
 
   const buildPayload = () => ({
     ...form,
@@ -111,14 +143,38 @@ export default function TyreInventoryPage() {
     usr_nm: localStorage.getItem('usr_nm'),
   })
 
+  // One call per row — each creates its own tyre_master row and, if a debit/credit
+  // ledger is chosen, its own voucher, so N rows in the form means N ledgers.
+  const buildTyreRowPayload = (row: TyreRow) => {
+    const rowCost = sameCost ? form.cost : row.cost
+    const debitForRow = debit.length === 1 ? [{ ...debit[0], amount: rowCost }] : debit
+    const creditForRow = credit.length === 1 ? [{ ...credit[0], amount: rowCost }] : credit
+    return {
+      brand: row.brand, size: row.size, serial_no: row.serial_no, purchase_date: form.purchase_date,
+      cost: rowCost, status: form.status, remarks: row.remarks,
+      ledger_description: ledgerDescription,
+      debit_ledgers: debitForRow.filter(e => e.ledger_id && e.amount),
+      credit_ledgers: creditForRow.filter(e => e.ledger_id && e.amount),
+      user_id: localStorage.getItem('user_id'),
+      usr_nm: localStorage.getItem('usr_nm'),
+    }
+  }
+
   const { mutate: save, isPending } = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (hasLedgerEntry && !isBalanced) return Promise.reject(new Error('ledger mismatch'))
-      return isEdit ? garageService.editTyre(buildPayload()) : garageService.addTyre(buildPayload())
+      if (isEdit) return garageService.editTyre(buildPayload())
+      for (const row of tyreRows) {
+        const res: any = await garageService.addTyre(buildTyreRowPayload(row))
+        if (res?.status !== 200) throw new Error('add-failed')
+      }
+      return { status: 200 }
     },
-    onSuccess: (res) => {
-      if (res.status === 200) { toast.success(isEdit ? 'Tyre updated!' : 'Tyre added!'); qc.invalidateQueries({ queryKey: ['tyre-inventory'] }); closeForm() }
-      else toast.error('Failed to save')
+    onSuccess: (res: any) => {
+      if (res.status === 200) {
+        toast.success(isEdit ? 'Tyre updated!' : tyreRows.length > 1 ? `${tyreRows.length} tyres added!` : 'Tyre added!')
+        qc.invalidateQueries({ queryKey: ['tyre-inventory'] }); closeForm()
+      } else toast.error('Failed to save')
     },
     onError: (err: any) => toast.error(err?.message === 'ledger mismatch' ? 'Debit and credit totals must match exactly before saving.' : 'Server error'),
   })
@@ -188,11 +244,13 @@ export default function TyreInventoryPage() {
     setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setShowForm(true)
     setEntryMode('new'); setBusNumber(''); setBusPurchaseDate(''); setBusOdometer(''); setSelectedPositions([]); setPositionRows({})
     setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
+    setTyreRows([emptyTyreRow()]); setSameCost(false)
   }
   const closeForm = () => {
     setShowForm(false); setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode('')
     setEntryMode('new'); setBusNumber(''); setBusPurchaseDate(''); setBusOdometer(''); setSelectedPositions([]); setPositionRows({})
     setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
+    setTyreRows([emptyTyreRow()]); setSameCost(false)
   }
 
   const cols: Column[] = [
@@ -226,7 +284,7 @@ export default function TyreInventoryPage() {
     } },
   ]
 
-  const canSaveNew = !!form.brand.trim() && (!hasLedgerEntry || isBalanced)
+  const canSaveNew = tyreRows.length > 0 && tyreRows.every((r) => r.brand.trim()) && (!hasLedgerEntry || isBalanced)
   const canSaveWithBus = !!busNumber && selectedPositions.length > 0 && selectedPositions.every((p) => (positionRows[p]?.brand ?? '').trim())
   const canSave = isEdit ? !!form.brand.trim() : entryMode === 'new' ? canSaveNew : canSaveWithBus
   const saving = isPending || savingWithBus
@@ -291,7 +349,7 @@ export default function TyreInventoryPage() {
                 </div>
               )}
 
-              {(isEdit || entryMode === 'new') && (
+              {isEdit && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <div><Label>Serial No</Label><Input placeholder="e.g. SN-8842190" value={form.serial_no} onChange={f('serial_no')} /></div>
                   <div>
@@ -318,13 +376,77 @@ export default function TyreInventoryPage() {
                   </div>
                   <div><Label>Purchase Date</Label><Input type="date" max={today} value={form.purchase_date} onChange={f('purchase_date')} /></div>
                   <div><Label>Cost (₹)</Label><Input type="number" value={form.cost} onChange={handleCostChange} /></div>
-                  {isEdit && (
-                    <div><Label>Status</Label>
-                      <Select value={form.status} onChange={f('status')}>
-                        {STATUSES.map((s) => <option key={s}>{s}</option>)}
-                      </Select></div>
-                  )}
+                  <div><Label>Status</Label>
+                    <Select value={form.status} onChange={f('status')}>
+                      {STATUSES.map((s) => <option key={s}>{s}</option>)}
+                    </Select></div>
                   <div className="md:col-span-3"><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
+                </div>
+              )}
+
+              {!isEdit && entryMode === 'new' && (
+                <div>
+                  <div className="max-w-xs"><Label>Purchase Date</Label><Input type="date" max={today} value={form.purchase_date} onChange={f('purchase_date')} /></div>
+
+                  <div className="mt-5 pt-5 border-t border-slate-100">
+                  <div className="flex flex-wrap items-end gap-4 mb-3">
+                    <div className="w-32">
+                      <Label>Quantity</Label>
+                      <Input type="number" min={1} max={200} value={tyreRows.length} onChange={handleQuantityChange} />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm font-semibold text-slate-600 cursor-pointer pb-2.5">
+                      <input type="checkbox" className="w-4 h-4 accent-blue-500 rounded" checked={sameCost} onChange={(e) => toggleSameCost(e.target.checked)} />
+                      Same cost for all tyres
+                    </label>
+                    {sameCost && (
+                      <div className="w-40">
+                        <Label>Cost (₹)</Label>
+                        <Input type="number" value={form.cost} onChange={handleCostChange} />
+                      </div>
+                    )}
+                  </div>
+                  <DynamicRows
+                    title="Tyres to Add"
+                    columns={[
+                      { label: 'Serial No', className: 'flex-[1.5]' },
+                      { label: 'Make', className: 'flex-[1.5]' },
+                      { label: 'Size', className: 'flex-[1.5]' },
+                      { label: 'Cost (₹)', className: 'flex-[1.2]' },
+                      { label: 'Remarks', className: 'flex-[1.5]' },
+                    ]}
+                    rows={tyreRows}
+                    onAdd={() => setTyreRows((rows) => [...rows, emptyTyreRow(sameCost ? form.cost : '')])}
+                    onRemove={(i) => setTyreRows((rows) => rows.length > 1 ? rows.filter((_, ri) => ri !== i) : rows)}
+                    renderRow={(row, i) => (
+                      <>
+                        <div className="flex-[1.5] min-w-0">
+                          <Input placeholder="e.g. SN-8842190" value={row.serial_no}
+                            onChange={(e) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, serial_no: e.target.value }))} />
+                        </div>
+                        <div className="flex-[1.5] min-w-0">
+                          <SearchableSelect value={row.brand}
+                            onChange={(v) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, brand: v }))}
+                            options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
+                            placeholder="Make" onReload={() => reloadMakes()} reloading={loadingMakes} />
+                        </div>
+                        <div className="flex-[1.5] min-w-0">
+                          <SearchableSelect value={row.size}
+                            onChange={(v) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, size: v }))}
+                            options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
+                            placeholder="Size" onReload={() => reloadSizes()} reloading={loadingSizes} />
+                        </div>
+                        <div className="flex-[1.2] min-w-0">
+                          <Input type="number" placeholder="Cost" disabled={sameCost} value={sameCost ? form.cost : row.cost}
+                            onChange={(e) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, cost: e.target.value }))} />
+                        </div>
+                        <div className="flex-[1.5] min-w-0">
+                          <Input placeholder="Remarks" value={row.remarks}
+                            onChange={(e) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, remarks: e.target.value }))} />
+                        </div>
+                      </>
+                    )}
+                  />
+                  </div>
                 </div>
               )}
 
@@ -360,7 +482,8 @@ export default function TyreInventoryPage() {
                                   options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                               </div>
                               <div className="flex-[2] min-w-0">
-                                <Input type="number" placeholder="Amount" value={entry.amount}
+                                <Input type="number" placeholder={autoLedgerAmount ? 'Auto (tyre cost)' : 'Amount'} disabled={autoLedgerAmount}
+                                  value={autoLedgerAmount ? (tyreRows.length === 1 ? (sameCost ? form.cost : tyreRows[0].cost) : '') : entry.amount}
                                   onChange={e => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, amount: e.target.value }))} />
                               </div>
                               {debit.length > 1 && (
@@ -385,7 +508,8 @@ export default function TyreInventoryPage() {
                                   options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                               </div>
                               <div className="flex-[2] min-w-0">
-                                <Input type="number" placeholder="Amount" value={entry.amount}
+                                <Input type="number" placeholder={autoLedgerAmount ? 'Auto (tyre cost)' : 'Amount'} disabled={autoLedgerAmount}
+                                  value={autoLedgerAmount ? (tyreRows.length === 1 ? (sameCost ? form.cost : tyreRows[0].cost) : '') : entry.amount}
                                   onChange={e => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, amount: e.target.value }))} />
                               </div>
                               {credit.length > 1 && (
@@ -490,7 +614,7 @@ export default function TyreInventoryPage() {
 
               <div className="flex gap-3 mt-6">
                 <Button onClick={handleSaveClick} disabled={saving || !canSave}>
-                  <Save className="w-4 h-4" />{saving ? 'Saving…' : isEdit ? 'Update Tyre' : 'Save Tyre'}
+                  <Save className="w-4 h-4" />{saving ? 'Saving…' : isEdit ? 'Update Tyre' : !isEdit && entryMode === 'new' && tyreRows.length > 1 ? `Save ${tyreRows.length} Tyres` : 'Save Tyre'}
                 </Button>
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
                 {!isEdit && entryMode === 'new' && hasLedgerEntry && !isBalanced && (

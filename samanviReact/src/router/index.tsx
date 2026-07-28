@@ -13,8 +13,12 @@ import HelpDeskPage from '@/pages/helpdesk/HelpDeskPage'
 import UserManagementPage from '@/pages/users/UserManagementPage'
 import RolesPage from '@/pages/users/RolesPage'
 
+// Validations
+import VehicleValidationsPage from '@/pages/validations/VehicleValidationsPage'
+
 // Masters
 import BusNoPage from '@/pages/masters/BusNoPage'
+import ServiceOutBusesPage from '@/pages/masters/ServiceOutBusesPage'
 import ServiceForPage from '@/pages/masters/ServiceForPage'
 import ServiceNoPage from '@/pages/masters/ServiceNoPage'
 import StaffPage from '@/pages/masters/StaffPage'
@@ -99,6 +103,7 @@ import VehicleTypePage from '@/pages/mainmasters/VehicleTypePage'
 import VehicleCompanyPage from '@/pages/mainmasters/VehicleCompanyPage'
 import SeatingCapacityPage from '@/pages/mainmasters/SeatingCapacityPage'
 import ChassisModelPage from '@/pages/mainmasters/ChassisModelPage'
+import BodyBuilderPage from '@/pages/mainmasters/BodyBuilderPage'
 import LuxuryTypePage from '@/pages/mainmasters/LuxuryTypePage'
 import MfgYearPage from '@/pages/mainmasters/MfgYearPage'
 import BatteryBrandPage from '@/pages/mainmasters/BatteryBrandPage'
@@ -121,10 +126,12 @@ export const router = createBrowserRouter([
       { path: 'helpdesk', element: <HelpDeskPage /> },
       { path: 'users', element: <UserManagementPage /> },
       { path: 'roles', element: <RolesPage /> },
+      { path: 'validations', element: <VehicleValidationsPage /> },
 
       // Masters
       { path: 'masters/service-for', element: <ServiceForPage /> },
       { path: 'masters/bus-no', element: <BusNoPage /> },
+      { path: 'masters/service-out', element: <ServiceOutBusesPage /> },
       { path: 'masters/service-no', element: <ServiceNoPage /> },
       { path: 'masters/staff', element: <StaffPage /> },
       { path: 'masters/spare-tank', element: <SpareTankPage /> },
@@ -206,6 +213,7 @@ export const router = createBrowserRouter([
       { path: 'mainmasters/vehicle-company', element: <VehicleCompanyPage /> },
       { path: 'mainmasters/seating-capacity',element: <SeatingCapacityPage /> },
       { path: 'mainmasters/chassis-model',   element: <ChassisModelPage /> },
+      { path: 'mainmasters/body-builder',    element: <BodyBuilderPage /> },
       { path: 'mainmasters/luxury-type',     element: <LuxuryTypePage /> },
       { path: 'mainmasters/mfg-year',        element: <MfgYearPage /> },
       { path: 'mainmasters/battery-brand',    element: <BatteryBrandPage /> },

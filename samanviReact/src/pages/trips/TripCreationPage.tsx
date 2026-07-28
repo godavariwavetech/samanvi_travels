@@ -8,8 +8,6 @@ import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
 
-const OPT_REG = ['Opt', 'Reg']
-
 const EMPTY = {
   trip_date: new Date().toISOString().split('T')[0],
   bus_no: '',
@@ -88,6 +86,7 @@ export default function TripCreationPage() {
   const { data: driverData } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers() })
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: staffData } = useQuery({ queryKey: ['staff-all'], queryFn: () => mastersService.getStaff({}) })
+  const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
 
   const buses: any[] = (busData?.data ?? []).filter((b: any) => b.d_in === 0 && !b.issparetank)
   const allRoutes: any[] = routeData?.data ?? []
@@ -96,6 +95,7 @@ export default function TripCreationPage() {
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
   const paidToList: any[] = staffData?.data ?? []
+  const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => s.designation === 'Conductor')
 
   // Client-side date filter
   const allTrips: any[] = tripData?.data ?? []
@@ -133,8 +133,8 @@ export default function TripCreationPage() {
   }
 
   const onConductorChange = (id: string) => {
-    const s = paidToList.find((x) => String(x.paid_to_id) === id && x.paid_to_type === 'staff')
-    setForm((f) => ({ ...f, conductor_id: id, conductor_name: s?.paid_to_name ?? '' }))
+    const c = conductors.find((x) => String(x.id) === id)
+    setForm((f) => ({ ...f, conductor_id: id, conductor_name: c?.nickName ?? c?.fullName ?? '' }))
   }
 
   const onPaidToChange = (val: string) => {
@@ -162,7 +162,7 @@ export default function TripCreationPage() {
     onError: () => toast.error('Server error'),
   })
 
-  const canSubmit = form.trip_date && form.bus_no && form.service_no && form.trip_for && form.optreg && form.driver1_name && form.paid_to_name
+  const canSubmit = form.trip_date && form.bus_no && form.service_no && form.trip_for && form.driver1_name && form.paid_to_name
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
@@ -236,7 +236,7 @@ export default function TripCreationPage() {
               </div>
 
               {/* Row 1 */}
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                 <div>
                   <Label>Trip Date <span className="text-red-500">*</span></Label>
                   <Input type="date" max={today} value={form.trip_date} onChange={(e) => set('trip_date', e.target.value)} />
@@ -264,13 +264,10 @@ export default function TripCreationPage() {
                     {serviceForList.map((s) => <option key={s as string} value={s as string}>{s as string}</option>)}
                   </select>
                 </div>
-                <div>
-                  <Label>OPT/REG <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.optreg} onChange={(v) => set('optreg', v)} onClear={() => clear('optreg')}>
-                    <option value="">Select</option>
-                    {OPT_REG.map((o) => <option key={o}>{o}</option>)}
-                  </ClearSelect>
-                </div>
+              </div>
+
+              {/* Row 2 */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                 <div>
                   <Label>Driver1 Name <span className="text-red-500">*</span></Label>
                   <ClearSelect value={form.driver1_id} onChange={(v) => onDriverChange('driver1', v)} onClear={() => setForm((f) => ({ ...f, driver1_id: '', driver1_name: '' }))}>
@@ -278,29 +275,11 @@ export default function TripCreationPage() {
                     {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                   </ClearSelect>
                 </div>
-              </div>
-
-              {/* Row 2 */}
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
                 <div>
-                  <Label>OPT/REG <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.optreg1} onChange={(v) => set('optreg1', v)} onClear={() => clear('optreg1')}>
-                    <option value="">Select</option>
-                    {OPT_REG.map((o) => <option key={o}>{o}</option>)}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>Drive2 Name <span className="text-red-500">*</span></Label>
+                  <Label>Drive2 Name</Label>
                   <ClearSelect value={form.driver2_id} onChange={(v) => onDriverChange('driver2', v)} onClear={() => setForm((f) => ({ ...f, driver2_id: '', driver2_name: '' }))}>
                     <option value="">Select</option>
                     {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>OPT/REG <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.optreg2} onChange={(v) => set('optreg2', v)} onClear={() => clear('optreg2')}>
-                    <option value="">Select</option>
-                    {OPT_REG.map((o) => <option key={o}>{o}</option>)}
                   </ClearSelect>
                 </div>
                 <div>
@@ -314,8 +293,8 @@ export default function TripCreationPage() {
                   <Label>Conductor Name</Label>
                   <ClearSelect value={form.conductor_id} onChange={onConductorChange} onClear={() => setForm((f) => ({ ...f, conductor_id: '', conductor_name: '' }))}>
                     <option value="">Select</option>
-                    {paidToList.filter((p) => p.paid_to_type === 'staff').map((p) => (
-                      <option key={p.paid_to_id} value={p.paid_to_id}>{p.paid_to_name}</option>
+                    {conductors.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>
                     ))}
                   </ClearSelect>
                 </div>

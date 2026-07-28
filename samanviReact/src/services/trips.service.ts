@@ -9,8 +9,11 @@ export const tripsService = {
   deleteTrip: (data: unknown) => api.post('/deletetripcreated', data).then((r) => r.data),
 
   // ── Trip Status ──────────────────────────────────────────
+  // NOTE: backend reads req.body fields directly (vouchervalue, voucherdata.c_number,
+  // voucherdata.id, user_id, user_nm, updated_date) — it does not decrypt, so this
+  // must be sent as plain JSON, not securePayload.
   updateTripAdminStatus: (data: unknown) =>
-    api.post('/updatetripadminstatus', securePayload(data)).then((r) => r.data),
+    api.post('/updatetripadminstatus', data).then((r) => r.data),
 
   // ── Expenses ─────────────────────────────────────────────
   getExpenses: (data: unknown) => api.post('/getexpenses', data).then((r) => r.data),

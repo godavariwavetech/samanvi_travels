@@ -110,12 +110,13 @@ export default function AdminApprovalsPage() {
   })
 
   const { mutate: updateStatus, isPending: updating } = useMutation({
-    mutationFn: (payload: { id: number; status: number }) =>
+    mutationFn: (payload: { id: number; c_number: string; status: number }) =>
       tripsService.updateTripAdminStatus({
-        id: payload.id,
-        admin_status: payload.status,
+        vouchervalue: payload.status,
+        voucherdata: { id: payload.id, c_number: payload.c_number },
         user_id: localStorage.getItem('user_id'),
-        usr_nm: localStorage.getItem('usr_nm'),
+        user_nm: localStorage.getItem('usr_nm'),
+        updated_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
       }),
     onSuccess: (res) => {
       if (res?.status === 200) {
@@ -201,7 +202,7 @@ export default function AdminApprovalsPage() {
               variant="success"
               size="sm"
               disabled={updating}
-              onClick={() => updateStatus({ id: row.id, status: 1 })}
+              onClick={() => updateStatus({ id: row.id, c_number: row.c_number, status: 1 })}
             >
               <CheckCircle className="w-3.5 h-3.5" /> Approve
             </Button>
@@ -211,7 +212,7 @@ export default function AdminApprovalsPage() {
               variant="danger"
               size="sm"
               disabled={updating}
-              onClick={() => updateStatus({ id: row.id, status: 2 })}
+              onClick={() => updateStatus({ id: row.id, c_number: row.c_number, status: 2 })}
             >
               <XCircle className="w-3.5 h-3.5" /> Reject
             </Button>
