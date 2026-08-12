@@ -125,13 +125,13 @@ app.get('/', function(req, res) {
 
 //for ssl
 
-// https.createServer({
-//     key: fs.readFileSync('./privatekey.pem'),
-//     cert: fs.readFileSync('./cert.crt'),
-//     passphrase: '123456'
-// }, app)
-//     .listen(8945);
-// console.log('Empty Api Server is listening at http://%s:%s 8945');
+https.createServer({
+    key: fs.readFileSync('./privatekey.pem'),
+    cert: fs.readFileSync('./cert.crt'),
+    passphrase: '123456'
+}, app)
+    .listen(8945);
+console.log('Empty Api Server is listening at http://%s:%s 8945');
 
 // 4009
 //for ssl
@@ -667,12 +667,14 @@ ensureColumn('mainvoucher_t', 'battery_code', '`battery_code` varchar(50) DEFAUL
 ensureColumn('tyre_master', 'voucher_number', '`voucher_number` varchar(30) DEFAULT NULL');
 ensureColumn('mainvoucher_t', 'tyre_code', '`tyre_code` varchar(50) DEFAULT NULL');
 
-//for local
-var server = app.listen(8945, function() {
-    var host = server.address().address;
-    var port = server.address().port;
-    console.log('8975 Empty API Server is listening at http://%s:%s', host, port);
-});
+//for local — superseded by the https.createServer listener above, which is
+// what production actually needs (the frontend hits https://…:8945 directly,
+// not through a reverse proxy). Both can't bind to :8945 at once.
+// var server = app.listen(8945, function() {
+//     var host = server.address().address;
+//     var port = server.address().port;
+//     console.log('8975 Empty API Server is listening at http://%s:%s', host, port);
+// });
 
 // cron.schedule("0 7 * * *", () => {
 //   console.log("7 AM Cron Started");
