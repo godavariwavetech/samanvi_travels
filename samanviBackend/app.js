@@ -79,7 +79,9 @@ const allowedOrigins = [
     'https://localhost',
     'http://localhost:5745',
     'https://samanvitravels.in',
-    "https://sprint.samanvitravels.in"
+    "https://sprint.samanvitravels.in",
+    'https://samanvitravels.org.in',
+    'https://www.samanvitravels.org.in'
 ];
 app.use(function(req, res, next) {
     const origin = req.headers.origin;
