@@ -35,19 +35,16 @@ jobs:
       # The server account has no git repo for the backend (it was set up via
       # manual file upload), so this deploys by rsyncing source files directly
       # rather than `git pull`-ing on the server.
+      #
+      # Connection flags are passed directly to ssh/rsync on every call below
+      # rather than via an ~/.ssh/config file — an ssh_config path value isn't
+      # tilde-expanded when it arrives inside a double-quoted `-e` string, which
+      # previously broke rsync with "Can't open user config file ~/.ssh/config".
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          cat >> ~/.ssh/config <<EOF
-          Host deploy-target
-            HostName ${{ secrets.SERVER_HOST }}
-            User ${{ secrets.SERVER_USER }}
-            Port ${{ secrets.SERVER_PORT }}
-            IdentityFile ~/.ssh/deploy_key
-            StrictHostKeyChecking no
-          EOF
 
       # ── 4. Sync backend source ──────────────────────────────────────────────
       # No --delete here: files that exist on the server but not in this repo
@@ -65,7 +62,7 @@ jobs:
       - name: Sync backend source to server
         run: |
           rsync -avz \
-            -e "ssh -F ~/.ssh/config" \
+            -e "ssh -i $HOME/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no" \
             --exclude 'config/' \
             --exclude 'uploads/' \
             --exclude 'node_modules/' \
@@ -73,14 +70,15 @@ jobs:
             --exclude 'privatekey.pem' \
             --exclude 'tmp/' \
             samanviBackend/ \
-            deploy-target:${{ secrets.BACKEND_PATH }}/
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.BACKEND_PATH }}/
 
       # ── 5. Install deps + restart PM2 ───────────────────────────────────────
       # node/npm/pm2 aren't on the default non-interactive PATH on this host,
       # so the full paths are exported explicitly.
       - name: Install backend deps and restart PM2
         run: |
-          ssh -F ~/.ssh/config deploy-target '
+          ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
             set -e
             export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
             cd "${{ secrets.BACKEND_PATH }}"
@@ -98,10 +96,10 @@ jobs:
       - name: Sync frontend build to server
         run: |
           rsync -avz --delete \
-            -e "ssh -F ~/.ssh/config" \
+            -e "ssh -i $HOME/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no" \
             --exclude '.htaccess' \
             --exclude '.user.ini' \
             --exclude '.well-known/' \
             --exclude '*.zip' \
             samanviReact/dist/ \
-            deploy-target:${{ secrets.FRONTEND_PATH }}/
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.FRONTEND_PATH }}/
