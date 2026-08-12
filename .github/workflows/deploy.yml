@@ -56,7 +56,12 @@ jobs:
       #   config/       — holds the server's real DB credentials, not the
       #                   local-dev ones committed in this repo
       #   uploads/      — live user-uploaded files (job cards, receipts, etc.)
-      #   node_modules/ — rebuilt on the server, not shipped over the wire
+      #   node_modules/ — never installed/rebuilt automatically (see step 5)
+      #   package.json / package-lock.json — the repo's lockfile is stale
+      #                   relative to what's actually installed on the server
+      #                   (e.g. canvas is really 3.2.3 there, lockfile says
+      #                   2.11.2); syncing it would just make step 5 want to
+      #                   "fix" that drift again
       #   cert.crt / privatekey.pem — server TLS material, gitignored
       #   tmp/          — runtime scratch space
       - name: Sync backend source to server
@@ -66,23 +71,32 @@ jobs:
             --exclude 'config/' \
             --exclude 'uploads/' \
             --exclude 'node_modules/' \
+            --exclude 'package.json' \
+            --exclude 'package-lock.json' \
             --exclude 'cert.crt' \
             --exclude 'privatekey.pem' \
             --exclude 'tmp/' \
             samanviBackend/ \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.BACKEND_PATH }}/
 
-      # ── 5. Install deps + restart PM2 ───────────────────────────────────────
-      # node/npm/pm2 aren't on the default non-interactive PATH on this host,
-      # so the full paths are exported explicitly.
-      - name: Install backend deps and restart PM2
+      # ── 5. Restart PM2 ────────────────────────────────────────────────────
+      # Deliberately NOT running `npm install` here. node_modules on this
+      # server has drifted from package-lock.json in a working way (see the
+      # canvas note above) — some packages there were hand-upgraded past what
+      # the lockfile says. An automatic install tries to reconcile that drift
+      # and fails rebuilding native modules (e.g. canvas needs a system
+      # pixman-1 lib this shared host doesn't have and can't have installed
+      # without root). Adding a genuinely new dependency stays a deliberate,
+      # manual `npm install <pkg>` on the server, not part of every push.
+      #
+      # node/pm2 aren't on the default non-interactive PATH on this host, so
+      # the full paths are exported explicitly.
+      - name: Restart PM2
         run: |
           ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
             set -e
             export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
-            cd "${{ secrets.BACKEND_PATH }}"
-            npm install --omit=dev --no-audit --no-fund
             pm2 restart "${{ secrets.PM2_APP_NAME }}"
             pm2 save
           '
