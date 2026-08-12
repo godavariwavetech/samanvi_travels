@@ -31,42 +31,77 @@ jobs:
         run: npm run build
         # .env.production is committed and sets VITE_API_BASE_URL automatically
 
-      # ── 3. Push frontend build + backend to server ─────────────────────────
-      # We bundle the built frontend (dist/) + the backend into one SSH session
-      # so only one connection is needed.
-      - name: Deploy to server via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          # All commands run as a single script on the remote server
-          script: |
-            set -e   # stop on any error
+      # ── 3. SSH setup ─────────────────────────────────────────────────────
+      # The server account has no git repo for the backend (it was set up via
+      # manual file upload), so this deploys by rsyncing source files directly
+      # rather than `git pull`-ing on the server.
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat >> ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName ${{ secrets.SERVER_HOST }}
+            User ${{ secrets.SERVER_USER }}
+            Port ${{ secrets.SERVER_PORT }}
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking no
+          EOF
 
-            echo "=== Updating backend files ==="
+      # ── 4. Sync backend source ──────────────────────────────────────────────
+      # No --delete here: files that exist on the server but not in this repo
+      # (e.g. old manual-upload leftovers) are left alone rather than removed,
+      # since we don't know which of those are still in use.
+      #
+      # Hard exclusions — these are server-managed and must never be touched
+      # by a deploy:
+      #   config/       — holds the server's real DB credentials, not the
+      #                   local-dev ones committed in this repo
+      #   uploads/      — live user-uploaded files (job cards, receipts, etc.)
+      #   node_modules/ — rebuilt on the server, not shipped over the wire
+      #   cert.crt / privatekey.pem — server TLS material, gitignored
+      #   tmp/          — runtime scratch space
+      - name: Sync backend source to server
+        run: |
+          rsync -avz \
+            -e "ssh -F ~/.ssh/config" \
+            --exclude 'config/' \
+            --exclude 'uploads/' \
+            --exclude 'node_modules/' \
+            --exclude 'cert.crt' \
+            --exclude 'privatekey.pem' \
+            --exclude 'tmp/' \
+            samanviBackend/ \
+            deploy-target:${{ secrets.BACKEND_PATH }}/
+
+      # ── 5. Install deps + restart PM2 ───────────────────────────────────────
+      # node/npm/pm2 aren't on the default non-interactive PATH on this host,
+      # so the full paths are exported explicitly.
+      - name: Install backend deps and restart PM2
+        run: |
+          ssh -F ~/.ssh/config deploy-target '
+            set -e
+            export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
             cd "${{ secrets.BACKEND_PATH }}"
-            git pull origin main
-            npm install --omit=dev
-
-            echo "=== Restarting PM2 ==="
-            pm2 restart "${{ secrets.PM2_APP_NAME }}" \
-              || pm2 start app.js --name "${{ secrets.PM2_APP_NAME }}"
+            npm install --omit=dev --no-audit --no-fund
+            pm2 restart "${{ secrets.PM2_APP_NAME }}"
             pm2 save
+          '
 
-            echo "=== Deploy complete ==="
-
-      # Upload the built React files (dist/) straight to the web root.
-      # This runs AFTER the SSH step so the backend is already restarted.
-      - name: Upload frontend build to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          source: 'samanviReact/dist/'
-          target: '${{ secrets.FRONTEND_PATH }}'
-          strip_components: 2   # removes "samanviReact/dist" prefix, puts files directly in FRONTEND_PATH
-          rm: true              # clears old files before copying (avoids stale assets)
+      # ── 6. Sync frontend build ──────────────────────────────────────────────
+      # --delete here IS safe/desired: it clears out stale hashed JS/CSS
+      # chunks from previous builds (and old manual-upload leftovers like
+      # stray .zip files) so public_html doesn't accumulate cruft. The
+      # excludes protect cPanel/SSL-managed files that live alongside the
+      # built app but aren't part of it.
+      - name: Sync frontend build to server
+        run: |
+          rsync -avz --delete \
+            -e "ssh -F ~/.ssh/config" \
+            --exclude '.htaccess' \
+            --exclude '.user.ini' \
+            --exclude '.well-known/' \
+            --exclude '*.zip' \
+            samanviReact/dist/ \
+            deploy-target:${{ secrets.FRONTEND_PATH }}/

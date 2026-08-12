@@ -172,6 +172,11 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Mfg Year',           path: '/mainmasters/mfg-year' },
       { label: 'Battery Brand',      path: '/mainmasters/battery-brand' },
       { label: 'Battery Capacity',   path: '/mainmasters/battery-capacity' },
+      { label: 'City List',          path: '/mainmasters/city-list' },
+      { label: 'Boarding Point',     path: '/mainmasters/boarding-point' },
+      { label: 'Bus Operator',       path: '/mainmasters/bus-operator' },
+      { label: 'Line Code',          path: '/mainmasters/line-code' },
+      { label: 'Route ID',           path: '/mainmasters/route-id' },
     ],
   },
 ]

@@ -283,7 +283,7 @@ function LedgerTable({ rows, side, offset = 0, onRemove, onEditAmount }: {
     <div className={`border-t pt-3 ${isDr ? 'border-red-100' : 'border-emerald-100'}`}>
       <table className="w-full text-sm">
         <thead>
-          <tr className={`text-xs font-semibold border-b ${isDr ? 'text-red-400 border-red-100' : 'text-emerald-500 border-emerald-100'}`}>
+          <tr className={`sticky top-0 z-10 bg-white text-xs font-semibold border-b ${isDr ? 'text-red-400 border-red-100' : 'text-emerald-500 border-emerald-100'}`}>
             <th className="text-left pb-1.5 w-6">#</th>
             <th className="text-left pb-1.5">Ledger Account</th>
             <th className="text-right pb-1.5 pr-1">Amount (₹)</th>
@@ -1245,10 +1245,10 @@ export default function VoucherEntryPage() {
             No vouchers entered yet.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs font-semibold text-slate-400 border-b border-slate-100">
+                <tr className="sticky top-0 z-10 bg-white text-xs font-semibold text-slate-400 border-b border-slate-100">
                   <th className="text-left pb-2">Rf. No.</th>
                   <th className="text-left pb-2">Type</th>
                   <th className="text-left pb-2">Date</th>

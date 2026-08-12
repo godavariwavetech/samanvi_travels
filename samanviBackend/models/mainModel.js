@@ -167,6 +167,155 @@ var moment = require("moment");
       }
     });
   });
+  // City List master (Service No form: From/To boarding-city dropdowns)
+  sqldb.query(`CREATE TABLE IF NOT EXISTS city_list (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    city_name VARCHAR(100) NOT NULL,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){ if(err) console.log('[DB] city_list init:', err.message); else console.log('[DB] city_list ready'); });
+  // Boarding Points master (Service No form: start/end boarding point dropdowns)
+  sqldb.query(`CREATE TABLE IF NOT EXISTS boarding_points (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    point_name VARCHAR(100) NOT NULL,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){ if(err) console.log('[DB] boarding_points init:', err.message); else console.log('[DB] boarding_points ready'); });
+  // Bus Operator master
+  sqldb.query(`CREATE TABLE IF NOT EXISTS bus_operators (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    operator_name VARCHAR(100) NOT NULL,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){ if(err) console.log('[DB] bus_operators init:', err.message); else console.log('[DB] bus_operators ready'); });
+  // Line Code master (Service No form)
+  sqldb.query(`CREATE TABLE IF NOT EXISTS line_codes (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    line_code VARCHAR(50) NOT NULL,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){ if(err) console.log('[DB] line_codes init:', err.message); else console.log('[DB] line_codes ready'); });
+  // Route ID master (Service No form)
+  sqldb.query(`CREATE TABLE IF NOT EXISTS route_ids (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    route_id_name VARCHAR(50) NOT NULL,
+    d_in TINYINT DEFAULT 0
+  )`, function(err){ if(err) console.log('[DB] route_ids init:', err.message); else console.log('[DB] route_ids ready'); });
+  // Service Route (driverone) — Line Code / Route ID / Boarding Point + time columns
+  [
+    ['line_code', "VARCHAR(50) DEFAULT NULL"],
+    ['route_id', "VARCHAR(50) DEFAULT NULL"],
+    ['start_boarding_point', "VARCHAR(100) DEFAULT NULL"],
+    ['start_boarding_time', "VARCHAR(10) DEFAULT NULL"],
+    ['end_boarding_point', "VARCHAR(100) DEFAULT NULL"],
+    ['end_boarding_time', "VARCHAR(10) DEFAULT NULL"],
+    ['vehicle_type', "VARCHAR(10) DEFAULT 'bus'"],
+    ['bus_operator_id', "TEXT DEFAULT NULL"],
+    ['bus_operator_name', "TEXT DEFAULT NULL"],
+    ['trip_type', "VARCHAR(30) DEFAULT NULL"],
+  ].forEach(function (col) {
+    var colName = col[0], colDef = col[1];
+    sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driverone' AND COLUMN_NAME = '${colName}'`, function (err, rows) {
+      if (!err && rows && rows.length === 0) {
+        sqldb.query(`ALTER TABLE driverone ADD COLUMN ${colName} ${colDef}`, function (err) {
+          if (err) console.log('[DB] driverone.' + colName + ' migration:', err.message);
+          else console.log('[DB] driverone.' + colName + ' column added');
+        });
+      }
+    });
+  });
+  // Trip Created — run status (Running/Halt), separate from the existing `status`
+  // column which already means "converted to an expense entry" (see mainModel.js
+  // trip_created update calls that set status='1').
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'trip_run_status'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE trip_created ADD COLUMN trip_run_status VARCHAR(20) DEFAULT 'Running'`, function (err) {
+        if (err) console.log('[DB] trip_created.trip_run_status migration:', err.message);
+        else console.log('[DB] trip_created.trip_run_status column added');
+      });
+    }
+  });
+  // Trip Creation ledger wiring — Paid-To advance / Van hirer receivable vouchers.
+  // phone_number on mainmasterssubchildtwo lets a Van hirer's ledger be found again
+  // by phone on a repeat booking (temple_name-only dedupe would create a duplicate
+  // ledger for the same person spelled differently the second time).
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mainmasterssubchildtwo' AND COLUMN_NAME = 'phone_number'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE mainmasterssubchildtwo ADD COLUMN phone_number VARCHAR(10) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] mainmasterssubchildtwo.phone_number migration:', err.message);
+        else console.log('[DB] mainmasterssubchildtwo.phone_number column added');
+      });
+    }
+  });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driver_register' AND COLUMN_NAME = 'driver_type'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE driver_register ADD COLUMN driver_type VARCHAR(30) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] driver_register.driver_type migration:', err.message);
+        else console.log('[DB] driver_register.driver_type column added');
+      });
+    }
+  });
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'voucher_number'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE trip_created ADD COLUMN voucher_number VARCHAR(30) DEFAULT NULL, ADD COLUMN hirer_ledger_id INT DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] trip_created.voucher_number/hirer_ledger_id migration:', err.message);
+        else console.log('[DB] trip_created.voucher_number/hirer_ledger_id columns added');
+      });
+    }
+  });
+  // Trip Creation Bus/Van toggle — bulkCreateTripsMdl writes vehicle_type/line_code
+  // for every row plus hirer_name/booking_amount for Van rows; these were never
+  // added to this auto-migration file when that feature landed.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'vehicle_type'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE trip_created
+        ADD COLUMN vehicle_type VARCHAR(10) DEFAULT 'bus',
+        ADD COLUMN line_code VARCHAR(50) DEFAULT NULL,
+        ADD COLUMN hirer_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN booking_amount DECIMAL(12,2) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] trip_created.vehicle_type/line_code/hirer_name/booking_amount migration:', err.message);
+        else console.log('[DB] trip_created.vehicle_type/line_code/hirer_name/booking_amount columns added');
+      });
+    }
+  });
+  // Seed the two split Driver ledger containers (Payables) and the Hirers
+  // container (Receivables) — one-time, idempotent via existence check.
+  sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Bus Operating Driver' AND d_in = 0 LIMIT 1`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, 'Bus Operating Driver', 'Payables', 4, 0, 1, 0, 0)`, function (err) {
+        if (err) console.log('[DB] Bus Operating Driver container seed:', err.message);
+        else console.log('[DB] Bus Operating Driver ledger container seeded');
+      });
+    }
+  });
+  sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Salaried Driver' AND d_in = 0 LIMIT 1`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, 'Salaried Driver', 'Payables', 4, 0, 1, 0, 0)`, function (err) {
+        if (err) console.log('[DB] Salaried Driver container seed:', err.message);
+        else console.log('[DB] Salaried Driver ledger container seeded');
+      });
+    }
+  });
+  sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 3 AND temple_name = 'Hirers' AND d_in = 0 LIMIT 1`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (3, '1', 'ASSETS', '2', '2) CURRENT ASSETS', 3, 'Hirers', 'b) Receivables', 4, 0, 1, 0, 0)`, function (err) {
+        if (err) console.log('[DB] Hirers container seed:', err.message);
+        else console.log('[DB] Hirers ledger container seeded');
+      });
+    }
+  });
+  // Staff / Helpers containers — these predate this app's migration system (they
+  // shipped as part of the original seed data), so unlike the three above there
+  // was never a startup check ensuring they exist. Confirmed missing on at least
+  // one live deployment (Helpers) even though local dev had it — guard them the
+  // same way so ensurePersonLedger("Staff"/"Helpers", ...) never fails with
+  // "No container found under Payables" regardless of the DB's prior history.
+  ['Staff', 'Helpers'].forEach(function (label) {
+    sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
+      if (!err && rows && rows.length === 0) {
+        sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, ?, 'Payables', 4, 0, 1, 0, 0)`, [label], function (err) {
+          if (err) console.log('[DB] ' + label + ' container seed:', err.message);
+          else console.log('[DB] ' + label + ' ledger container seeded');
+        });
+      }
+    });
+  });
 })();
 
 exports.check_user_mobilenoMdl = function (data, callback) {
@@ -756,6 +905,16 @@ exports.driverone = function (data, callback) {
     usr_nm: data.usrnm,
     i_ts: date,
     service_for_id: data.service_for_id,
+    line_code: data.line_code,
+    route_id: data.route_id,
+    start_boarding_point: data.start_boarding_point,
+    start_boarding_time: data.start_boarding_time,
+    end_boarding_point: data.end_boarding_point,
+    end_boarding_time: data.end_boarding_time,
+    vehicle_type: data.vehicle_type || "bus",
+    bus_operator_id: data.bus_operator_id || null,
+    bus_operator_name: data.bus_operator_name || null,
+    trip_type: data.trip_type || null,
   };
   //console.log()dta, 400);
   // var QRY_TO_EXEC = `insert into  driverone (name,mobile_number,cts) VALUES('${data.drive_one}','${data.mobile_number}','${date}')  `;
@@ -898,8 +1057,18 @@ exports.addstaffregisterMdl = function (
       dta,
       cntxtDtls,
       function (err, results) {
-        callback(err, results);
-        return;
+        if (err) { callback(err, results); return; }
+        var disambiguator = data.idNumber || ("#" + results.insertId);
+        module.exports.ensurePersonLedger("Staff", data.fullName, disambiguator, data.entryby, function (ledgerErr, ledgerId) {
+          if (ledgerErr) {
+            console.error("[ensurePersonLedger] failed for staff " + results.insertId + ":", ledgerErr.message);
+            callback(err, results);
+            return;
+          }
+          dbutil.execupdateQuery(sqldb, `UPDATE staff_register SET ledger_id = ? WHERE id = ?`, [ledgerId, results.insertId], cntxtDtls, function () {
+            callback(err, results);
+          });
+        });
       }
     );
   } else {
@@ -965,8 +1134,17 @@ exports.addhelperregisterMdl = function (
         dta,
         cntxtDtls,
         function (err, results) {
-          callback(err, results);
-          return;
+          if (err) { callback(err, results); return; }
+          module.exports.ensurePersonLedger("Helpers", data.helper_name, helperIdNumber, data.entryby, function (ledgerErr, ledgerId) {
+            if (ledgerErr) {
+              console.error("[ensurePersonLedger] failed for helper " + helperIdNumber + ":", ledgerErr.message);
+              callback(err, results);
+              return;
+            }
+            dbutil.execupdateQuery(sqldb, `UPDATE helper_register SET ledger_id = ? WHERE id = ?`, [ledgerId, results.insertId], cntxtDtls, function () {
+              callback(err, results);
+            });
+          });
         }
       );
     } else {
@@ -1035,6 +1213,7 @@ exports.adddriverregisterMdl = function (
       dl_issued_by: data.dl_issued_by || "",
       dl_dob: data.dl_dob || "",
       dl_linked_mobile: data.dl_linked_mobile || "",
+      driver_type: data.driver_type || "Salaried Driver",
     };
     const QRY_TO_EXEC = `INSERT INTO driver_register SET ?;`;
     if (callback && typeof callback === "function") {
@@ -1044,8 +1223,21 @@ exports.adddriverregisterMdl = function (
         dta,
         cntxtDtls,
         function (err, results) {
-          callback(err, results);
-          return;
+          if (err) { callback(err, results); return; }
+          // Best-effort: the driver record is already saved regardless of whether
+          // the ledger auto-creation below succeeds. Ledger container follows
+          // driver_type (Bus Operating Driver / Salaried Driver) instead of the
+          // old single shared "Drivers" container.
+          module.exports.ensurePersonLedger(dta.driver_type, data.driver_name, driverIdNumber, data.entryby, function (ledgerErr, ledgerId) {
+            if (ledgerErr) {
+              console.error("[ensurePersonLedger] failed for driver " + driverIdNumber + ":", ledgerErr.message);
+              callback(err, results);
+              return;
+            }
+            dbutil.execupdateQuery(sqldb, `UPDATE driver_register SET ledger_id = ? WHERE id = ?`, [ledgerId, results.insertId], cntxtDtls, function () {
+              callback(err, results);
+            });
+          });
         }
       );
     } else {
@@ -1350,6 +1542,91 @@ exports.addMfgYearMdl = function (data, callback) {
 exports.deleteMfgYearMdl = function (data, callback) {
   var cntxtDtls = "in deleteMfgYearMdl";
   var QRY_TO_EXEC = `UPDATE mfg_years SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── City List ────────────────────────────────────────────────────────────────
+exports.getCityListMdl = function (callback) {
+  var cntxtDtls = "in getCityListMdl";
+  var QRY_TO_EXEC = `SELECT * FROM city_list WHERE d_in=0 ORDER BY city_name`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+exports.addCityListMdl = function (data, callback) {
+  var cntxtDtls = "in addCityListMdl";
+  var QRY_TO_EXEC = `INSERT INTO city_list (city_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.city_name], cntxtDtls, callback);
+};
+exports.deleteCityListMdl = function (data, callback) {
+  var cntxtDtls = "in deleteCityListMdl";
+  var QRY_TO_EXEC = `UPDATE city_list SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Boarding Points ──────────────────────────────────────────────────────────
+exports.getBoardingPointsMdl = function (callback) {
+  var cntxtDtls = "in getBoardingPointsMdl";
+  var QRY_TO_EXEC = `SELECT * FROM boarding_points WHERE d_in=0 ORDER BY point_name`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+exports.addBoardingPointMdl = function (data, callback) {
+  var cntxtDtls = "in addBoardingPointMdl";
+  var QRY_TO_EXEC = `INSERT INTO boarding_points (point_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.point_name], cntxtDtls, callback);
+};
+exports.deleteBoardingPointMdl = function (data, callback) {
+  var cntxtDtls = "in deleteBoardingPointMdl";
+  var QRY_TO_EXEC = `UPDATE boarding_points SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Bus Operators ────────────────────────────────────────────────────────────
+exports.getBusOperatorsMdl = function (callback) {
+  var cntxtDtls = "in getBusOperatorsMdl";
+  var QRY_TO_EXEC = `SELECT * FROM bus_operators WHERE d_in=0 ORDER BY operator_name`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+exports.addBusOperatorMdl = function (data, callback) {
+  var cntxtDtls = "in addBusOperatorMdl";
+  var QRY_TO_EXEC = `INSERT INTO bus_operators (operator_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.operator_name], cntxtDtls, callback);
+};
+exports.deleteBusOperatorMdl = function (data, callback) {
+  var cntxtDtls = "in deleteBusOperatorMdl";
+  var QRY_TO_EXEC = `UPDATE bus_operators SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Line Codes ───────────────────────────────────────────────────────────────
+exports.getLineCodesMdl = function (callback) {
+  var cntxtDtls = "in getLineCodesMdl";
+  var QRY_TO_EXEC = `SELECT * FROM line_codes WHERE d_in=0 ORDER BY line_code`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+exports.addLineCodeMdl = function (data, callback) {
+  var cntxtDtls = "in addLineCodeMdl";
+  var QRY_TO_EXEC = `INSERT INTO line_codes (line_code) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.line_code], cntxtDtls, callback);
+};
+exports.deleteLineCodeMdl = function (data, callback) {
+  var cntxtDtls = "in deleteLineCodeMdl";
+  var QRY_TO_EXEC = `UPDATE line_codes SET d_in=1 WHERE id=?`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
+};
+
+// ── Route IDs ────────────────────────────────────────────────────────────────
+exports.getRouteIdsMdl = function (callback) {
+  var cntxtDtls = "in getRouteIdsMdl";
+  var QRY_TO_EXEC = `SELECT * FROM route_ids WHERE d_in=0 ORDER BY route_id_name`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+exports.addRouteIdMdl = function (data, callback) {
+  var cntxtDtls = "in addRouteIdMdl";
+  var QRY_TO_EXEC = `INSERT INTO route_ids (route_id_name) VALUES (?)`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.route_id_name], cntxtDtls, callback);
+};
+exports.deleteRouteIdMdl = function (data, callback) {
+  var cntxtDtls = "in deleteRouteIdMdl";
+  var QRY_TO_EXEC = `UPDATE route_ids SET d_in=1 WHERE id=?`;
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [data.id], cntxtDtls, callback);
 };
 
@@ -3487,19 +3764,19 @@ exports.getexpensesdropdownMdl = function (callback) {
 
 exports.getallstfdrivhelpMdl = function (callback) {
   var cntxtDtls = "in getallstfdrivhelpMdl";
-  var QRY_TO_EXEC = `SELECT id AS paid_to_id, nickname AS paid_to_name, 'driver' AS paid_to_type
+  var QRY_TO_EXEC = `SELECT id AS paid_to_id, nickname AS paid_to_name, 'driver' AS paid_to_type, ledger_id
 FROM driver_register
 WHERE d_in = 0
 
 UNION ALL
 
-SELECT id AS paid_to_id, fullName AS paid_to_name, 'staff' AS paid_to_type
+SELECT id AS paid_to_id, fullName AS paid_to_name, 'staff' AS paid_to_type, ledger_id
 FROM staff_register
 WHERE d_in = 0
 
 UNION ALL
 
-SELECT id AS paid_to_id, helper_name AS paid_to_name, 'helper' AS paid_to_type
+SELECT id AS paid_to_id, helper_name AS paid_to_name, 'helper' AS paid_to_type, ledger_id
 FROM helper_register
 WHERE d_in = 0;`;
 
@@ -4283,6 +4560,102 @@ WHERE id = ${data.id};
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
+
+// ── Bulk Trip Creation (date-picker + per-service-route grid) ─────────────────
+// Rows without a bus_no (Halt / left blank) are dropped before insert — nothing
+// is saved for them. c_number is minted once per batch (fetch max c_id, then
+// increment locally per row) and inserted in a single multi-row statement,
+// mirroring bulkUploadServiceRoutesMdl's array-of-arrays batch-insert shape.
+//
+// Ledger/voucher wiring: every row (Bus or Van) can carry its own
+// `debit_ledger_id`/`debit_ledger_name` + `credit_ledger_id`/`credit_ledger_name`
+// + amount (`amount` for Bus, `booking_amount` for Van — both persisted into the
+// same `trip_created.booking_amount` column so Trip Records has one "Amount"
+// column regardless of vehicle type) — the frontend pre-fills debit from the
+// selected Paid-To person (Bus) but the user can override it per row. For Van,
+// if a row's debit_ledger_id is left blank, a Receivables ledger is resolved
+// here via ensureHirerLedger (deduped by phone, so a repeat hirer reuses their
+// ledger) — an explicit debit_ledger_id always wins over that auto-resolve.
+// Rows with both a debit and credit ledger + a positive amount are returned in
+// `voucherCandidates` so the controller can post one Journal voucher per row via
+// createTripVoucherMdl and link it back with `voucher_number`.
+exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback) {
+  var cntxtDtls = 'in bulkCreateTripsMdl';
+  var toInsert = (rows || []).filter(function (r) { return r && r.bus_no; });
+  if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, voucherCandidates: [] });
+
+  // Resolve a Receivables ledger for every Van row that didn't get an explicit
+  // debit_ledger_id, one at a time (ensureHirerLedger does its own dedupe-by-phone
+  // lookup/insert, so these can't run in parallel without risking duplicate
+  // ledgers for the same phone).
+  var vi = 0;
+  var resolveNext = function () {
+    if (vi >= toInsert.length) return proceedWithInsert();
+    var r = toInsert[vi];
+    if (r.vehicle_type === 'van' && !r.debit_ledger_id && r.hirer_name && r.phone_number && r.booking_amount) {
+      exports.ensureHirerLedger(r.hirer_name, r.phone_number, userId, function (err, ledgerId) {
+        if (err) console.error('[ensureHirerLedger] failed for trip hirer ' + r.hirer_name + ':', err.message);
+        else r.hirer_ledger_id = ledgerId;
+        vi++; resolveNext();
+      });
+    } else {
+      vi++; resolveNext();
+    }
+  };
+  resolveNext();
+
+  function proceedWithInsert() {
+    exports.maintripexpenseuniquenoMdl(function (err, cresults1) {
+      if (err) return callback(err, null);
+      var c_id = cresults1[0] ? cresults1[0].c_id : 0;
+      c_id = c_id * 1;
+
+      var now = new Date();
+      var istTime = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+      var formattedDate = istTime.getUTCFullYear() + '-' +
+        String(istTime.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(istTime.getUTCDate()).padStart(2, '0') + ' ' +
+        String(istTime.getUTCHours()).padStart(2, '0') + ':' +
+        String(istTime.getUTCMinutes()).padStart(2, '0') + ':' +
+        String(istTime.getUTCSeconds()).padStart(2, '0');
+
+      var voucherCandidates = [];
+      var vals = toInsert.map(function (r) {
+        c_id = c_id + 1;
+        var c_number = 'TRIP00' + c_id;
+
+        var amount = parseFloat(r.vehicle_type === 'van' ? r.booking_amount : r.amount) || 0;
+        var debitLedgerId = r.debit_ledger_id || (r.vehicle_type === 'van' ? r.hirer_ledger_id : null);
+        var debitLedgerName = r.debit_ledger_name || (r.vehicle_type === 'van' ? r.hirer_name : r.paid_to_name);
+        if (debitLedgerId && r.credit_ledger_id && amount > 0) {
+          voucherCandidates.push({
+            c_number: c_number, amount: amount,
+            debit_ledger_id: debitLedgerId, debit_ledger_name: debitLedgerName,
+            credit_ledger_id: r.credit_ledger_id, credit_ledger_name: r.credit_ledger_name,
+          });
+        }
+
+        return [
+          r.bus_no || null, r.service_no || null, r.optreg || null,
+          r.driver1_name || null, r.optreg1 || null, r.driver2_name || null, r.optreg2 || null,
+          r.helper_name || null, r.conductor_name || null, formattedDate, trip_date,
+          r.trip_for || null, r.trip_for_id || null, r.service_no_id || null,
+          r.paid_to_id || null, r.paid_to_name || null, r.paid_to_type || null, r.remarks || null,
+          userId, usrNm, r.driver1_id || null, r.driver2_id || null, r.conductor_id || null, r.helper_id || null,
+          c_id, c_number, r.trip_run_status || 'Running',
+          r.vehicle_type || 'bus', r.line_code || null, r.hirer_name || null, (amount || null), r.phone_number || null,
+          r.hirer_ledger_id || null,
+        ];
+      });
+      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id) VALUES ?';
+      dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+        if (err) return callback(err, null);
+        callback(null, { inserted: toInsert.length, total: (rows || []).length, voucherCandidates: voucherCandidates });
+      });
+    });
+  }
+};
+
 exports.addtoexpensive_details = function (c_id, c_number, data, callback) {
   const cntxtDtls = "in addtoexpensive_details";
 
@@ -4395,35 +4768,44 @@ exports.gettripceated = function (callback) {
 exports.gettripceated1Mdl = function (callback) {
   var cntxtDtls = "in gettripceated1Mdl";
   // var QRY_TO_EXEC = `select * from trip_created where  d_in='0' order by cts`;
-  var QRY_TO_EXEC = `SELECT 
+  // COALESCE falls back to driver_name/the plain-text column stored at insert
+  // time whenever the JOIN'd nickname is null — driver_register.nickname is
+  // optional and 4/10 active drivers don't have one set, so the un-COALESCE'd
+  // join was silently blanking out driver1/driver2/paid_to names for any trip
+  // assigned to one of those drivers, even though the trip was saved correctly.
+  var QRY_TO_EXEC = `SELECT
   t.*,
-  d1.nickname AS driver1_name,
-  d2.nickname AS driver2_name,
-  h.helper_name AS helper_name,
-  s.fullName AS conductor_name,
-  CASE 
-    WHEN t.paid_to_type = 'driver' THEN d3.nickname
-    WHEN t.paid_to_type = 'helper' THEN h2.helper_name
-    WHEN t.paid_to_type = 'staff' THEN s2.fullName
-    ELSE NULL
-  END AS paid_to_name
-FROM 
+  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(h.helper_name, t.helper_name) AS helper_name,
+  COALESCE(s.fullName, t.conductor_name) AS conductor_name,
+  CASE
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
+    ELSE t.paid_to_name
+  END AS paid_to_name,
+  vd.expensives AS debit_ledger_name,
+  vc.expensives AS credit_ledger_name
+FROM
   trip_created t
-LEFT JOIN 
+LEFT JOIN
   driver_register d1 ON t.driver1_id = d1.id
-LEFT JOIN 
+LEFT JOIN
   driver_register d2 ON t.driver2_id = d2.id
-LEFT JOIN 
+LEFT JOIN
   helper_register h ON t.helper_id = h.id
-LEFT JOIN 
+LEFT JOIN
   staff_register s ON t.conductor_id = s.id
 LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
 LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
-WHERE 
+LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
+LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+WHERE
   t.d_in = '0'
-ORDER BY 
-  CAST(SUBSTRING(c_number, 6) AS UNSIGNED) DESC;
+ORDER BY
+  CAST(SUBSTRING(t.c_number, 6) AS UNSIGNED) DESC;
 `;
 
   if (callback && typeof callback == "function")
@@ -9212,7 +9594,7 @@ exports.updateservicenumber = function (data, callback) {
 exports.updateservicenoMdl = function (data, callback) {
   // console.log(data)
   var cntxtDtls = "in updateservicenoMdl";
-  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id} WHERE  id = '${data.id}'`;
+  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}' WHERE  id = '${data.id}'`;
   //console.log()QRY_TO_EXEC, 10136)
   if (callback && typeof callback == "function")
     dbutil.execQuery(
@@ -9276,6 +9658,7 @@ exports.adddrivereditMdl = function (
     dl_issued_by: data.dl_issued_by || "",
     dl_dob: data.dl_dob || "",
     dl_linked_mobile: data.dl_linked_mobile || "",
+    driver_type: data.driver_type || "Salaried Driver",
     updatedby: data.usrnm,
     updateduser_id: data.entryby,
   };
@@ -9326,16 +9709,37 @@ exports.adddrivereditMdl = function (
     WHERE id = ?
   `;
 
+  function syncDriverLedgerAfterUpdate(err, results) {
+    if (err) { callback(err, results); return; }
+    dbutil.execupdateQuery(sqldb, `SELECT ledger_id FROM driver_register WHERE id = ?`, [data.id], cntxtDtls, function (selErr, selRows) {
+      var existingLedgerId = (!selErr && selRows && selRows[0]) ? selRows[0].ledger_id : null;
+      if (existingLedgerId) {
+        module.exports.renamePersonLedger(existingLedgerId, data.driver_name, data.driver_id_number, function (renameErr) {
+          if (renameErr) console.error("[renamePersonLedger] failed for driver " + data.driver_id_number + ":", renameErr.message);
+          callback(err, results);
+        });
+      } else {
+        module.exports.ensurePersonLedger(dta.driver_type, data.driver_name, data.driver_id_number, data.entryby, function (ledgerErr, ledgerId) {
+          if (ledgerErr) {
+            console.error("[ensurePersonLedger] backfill failed for driver " + data.driver_id_number + ":", ledgerErr.message);
+            callback(err, results);
+            return;
+          }
+          dbutil.execupdateQuery(sqldb, `UPDATE driver_register SET ledger_id = ? WHERE id = ?`, [ledgerId, data.id], cntxtDtls, function () {
+            callback(err, results);
+          });
+        });
+      }
+    });
+  }
+
   if (callback && typeof callback === "function") {
     dbutil.execupdateQuery(
       sqldb,
       QRY_TO_EXEC,
       [dta, data.id],
       cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
+      syncDriverLedgerAfterUpdate
     );
   } else {
     return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
@@ -9470,16 +9874,37 @@ exports.edithelperregisterMdl = function (
 
   const updateQuery = `UPDATE helper_register SET ? WHERE id = ?`;
 
+  function syncHelperLedgerAfterUpdate(err, results) {
+    if (err) { callback(err, results); return; }
+    dbutil.execupdateQuery(sqldb, `SELECT ledger_id FROM helper_register WHERE id = ?`, [data.id], cntxtDtls, function (selErr, selRows) {
+      var existingLedgerId = (!selErr && selRows && selRows[0]) ? selRows[0].ledger_id : null;
+      if (existingLedgerId) {
+        module.exports.renamePersonLedger(existingLedgerId, data.helper_name, data.helper_id_number, function (renameErr) {
+          if (renameErr) console.error("[renamePersonLedger] failed for helper " + data.helper_id_number + ":", renameErr.message);
+          callback(err, results);
+        });
+      } else {
+        module.exports.ensurePersonLedger("Helpers", data.helper_name, data.helper_id_number, data.entryby, function (ledgerErr, ledgerId) {
+          if (ledgerErr) {
+            console.error("[ensurePersonLedger] backfill failed for helper " + data.helper_id_number + ":", ledgerErr.message);
+            callback(err, results);
+            return;
+          }
+          dbutil.execupdateQuery(sqldb, `UPDATE helper_register SET ledger_id = ? WHERE id = ?`, [ledgerId, data.id], cntxtDtls, function () {
+            callback(err, results);
+          });
+        });
+      }
+    });
+  }
+
   if (callback && typeof callback === "function") {
     dbutil.execupdateQuery(
       sqldb,
       updateQuery,
       [dta, data.id],
       cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
+      syncHelperLedgerAfterUpdate
     );
   } else {
     return dbutil.execQuery(sqldb, updateQuery, cntxtDtls);
@@ -9557,16 +9982,38 @@ exports.addstaffeditMdl = function (
 
   const QRY_TO_EXEC = `UPDATE staff_register SET ? WHERE id = ?`;
 
+  function syncStaffLedgerAfterUpdate(err, results) {
+    if (err) { callback(err, results); return; }
+    dbutil.execupdateQuery(sqldb, `SELECT ledger_id FROM staff_register WHERE id = ?`, [data.id], cntxtDtls, function (selErr, selRows) {
+      var existingLedgerId = (!selErr && selRows && selRows[0]) ? selRows[0].ledger_id : null;
+      var disambiguator = data.idNumber || ("#" + data.id);
+      if (existingLedgerId) {
+        module.exports.renamePersonLedger(existingLedgerId, data.fullName, disambiguator, function (renameErr) {
+          if (renameErr) console.error("[renamePersonLedger] failed for staff " + data.id + ":", renameErr.message);
+          callback(err, results);
+        });
+      } else {
+        module.exports.ensurePersonLedger("Staff", data.fullName, disambiguator, data.entryby, function (ledgerErr, ledgerId) {
+          if (ledgerErr) {
+            console.error("[ensurePersonLedger] backfill failed for staff " + data.id + ":", ledgerErr.message);
+            callback(err, results);
+            return;
+          }
+          dbutil.execupdateQuery(sqldb, `UPDATE staff_register SET ledger_id = ? WHERE id = ?`, [ledgerId, data.id], cntxtDtls, function () {
+            callback(err, results);
+          });
+        });
+      }
+    });
+  }
+
   if (callback && typeof callback === "function") {
     dbutil.execupdateQuery(
       sqldb,
       QRY_TO_EXEC,
       [dta, data.id],
       cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
+      syncStaffLedgerAfterUpdate
     );
   } else {
     return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
@@ -10111,6 +10558,231 @@ exports.addledgerdataMdl = function (data, callback) {
         cntxtDtls,
         function (insertErr, insertRes) {
           callback(insertErr, insertRes);
+        }
+      );
+    }
+  );
+};
+
+// ── Auto-ledger creation for Staff / Driver / Helper registration ────────────
+// Keeps the balance sheet in sync with the Staff Register module: every person
+// added there gets a matching ledger under EQUITIES AND LIABILITIES > 3) CURRENT
+// LIABILITIES > Payables > <personLabel>, so nobody has to add it by hand on the
+// Ledger master page afterward. personLabel is one of 'Staff' | 'Drivers' |
+// 'Helpers' | 'Bus Operating Driver' | 'Salaried Driver' — subchild containers
+// living under the fixed "Payables" subgroup (id=5).
+//
+// groupConfig lets ensurePersonLedger also target other groups (e.g. Receivables,
+// id=3, for Van hirers via ensureHirerLedger below) — defaults to Payables so
+// every existing caller (Staff/Driver/Helper) is unaffected.
+var PAYABLES_GROUP_CONFIG = {
+  parentSubgroupId: 5, districtId: "2", staticname: "EQUITIES AND LIABILITIES",
+  mandalId: "5", mandalName: "3) CURRENT LIABILITIES", childLabel: "Payables",
+};
+
+function insertPersonLedgerRow(parentSubchildId, personLabel, name, userId, groupConfig, cntxtDtls, callback) {
+  var g = groupConfig || PAYABLES_GROUP_CONFIG;
+  var date = moment().utcOffset("+05:30").format("YYYY-MM-DD HH:mm:ss");
+  var dta = {
+    parent_subgroup_id: g.parentSubgroupId,
+    parent_subchild_id: parentSubchildId,
+    ledger_type: "inherited",
+    created_at: date,
+    district_id: g.districtId,
+    staticname: g.staticname,
+    mandal_id: g.mandalId,
+    mandal_name: g.mandalName,
+    village_id: g.parentSubgroupId,
+    temple_name: name,
+    entry_by: userId,
+    child: g.childLabel,
+    i_ts: date,
+    subchildtwo: personLabel,
+    subchildtwo_id: parentSubchildId,
+    parent_grp_level: 4,
+  };
+  dbutil.execupdateQuery(sqldb, `INSERT INTO mainmasterssubchildtwo SET ?`, dta, cntxtDtls, function (err, result) {
+    if (err) return callback(err, null);
+    callback(null, result.insertId);
+  });
+}
+
+exports.ensurePersonLedger = function (personLabel, fullName, disambiguator, userId, callback, groupConfig) {
+  var cntxtDtls = "in ensurePersonLedger";
+  var g = groupConfig || PAYABLES_GROUP_CONFIG;
+  var name = String(fullName || "").trim();
+  if (!name) return callback(null, null);
+
+  dbutil.execupdateQuery(
+    sqldb,
+    `SELECT id FROM mainmasterssubchild WHERE temple_name = ? AND parent_subgroup_id = ? AND d_in = 0 LIMIT 1`,
+    [personLabel, g.parentSubgroupId],
+    cntxtDtls,
+    function (err, rows) {
+      if (err) return callback(err, null);
+      if (!rows || !rows.length) {
+        return callback(new Error(`No "${personLabel}" ledger container found under ${g.childLabel}`), null);
+      }
+      var parentSubchildId = rows[0].id;
+
+      dbutil.execupdateQuery(
+        sqldb,
+        `SELECT 1 FROM mainmasterssubchildtwo WHERE temple_name = ? AND d_in = 0 LIMIT 1`,
+        [name],
+        cntxtDtls,
+        function (dupErr, dupRows) {
+          if (dupErr) return callback(dupErr, null);
+          if (!dupRows || !dupRows.length) {
+            return insertPersonLedgerRow(parentSubchildId, personLabel, name, userId, g, cntxtDtls, callback);
+          }
+          // Name collision — disambiguate once using the person's own id number
+          // (e.g. "D0008") rather than silently failing to create the ledger.
+          var altName = disambiguator ? `${name} (${disambiguator})` : null;
+          if (!altName) return callback(new Error("DUPLICATE_LEDGER_NAME"), null);
+          dbutil.execupdateQuery(
+            sqldb,
+            `SELECT 1 FROM mainmasterssubchildtwo WHERE temple_name = ? AND d_in = 0 LIMIT 1`,
+            [altName],
+            cntxtDtls,
+            function (dupErr2, dupRows2) {
+              if (dupErr2) return callback(dupErr2, null);
+              if (dupRows2 && dupRows2.length) {
+                return callback(new Error("DUPLICATE_LEDGER_NAME"), null);
+              }
+              return insertPersonLedgerRow(parentSubchildId, personLabel, altName, userId, g, cntxtDtls, callback);
+            }
+          );
+        }
+      );
+    }
+  );
+};
+
+// Van hirer ledger — same idea as ensurePersonLedger, but lives under Receivables
+// (Assets > Current Assets > Receivables > Hirers, subgroup id=3) since the money
+// is owed TO the company rather than the other way round, and dedupes by phone
+// number (not name) so a repeat customer whose name is typed slightly differently
+// on a later booking still reuses their existing ledger instead of forking a new one.
+var RECEIVABLES_HIRERS_CONFIG = {
+  parentSubgroupId: 3, districtId: "1", staticname: "ASSETS",
+  mandalId: "2", mandalName: "2) CURRENT ASSETS", childLabel: "b) Receivables",
+};
+
+exports.ensureHirerLedger = function (fullName, phone, userId, callback) {
+  var cntxtDtls = "in ensureHirerLedger";
+  var name = String(fullName || "").trim();
+  var phoneNum = String(phone || "").trim();
+  if (!name) return callback(null, null);
+
+  dbutil.execupdateQuery(
+    sqldb,
+    `SELECT id FROM mainmasterssubchild WHERE temple_name = 'Hirers' AND parent_subgroup_id = 3 AND d_in = 0 LIMIT 1`,
+    [],
+    cntxtDtls,
+    function (err, rows) {
+      if (err) return callback(err, null);
+      if (!rows || !rows.length) {
+        return callback(new Error('No "Hirers" ledger container found under Receivables'), null);
+      }
+      var parentSubchildId = rows[0].id;
+
+      var lookupByPhone = function (next) {
+        if (!phoneNum) return next(null, null);
+        dbutil.execupdateQuery(
+          sqldb,
+          `SELECT id FROM mainmasterssubchildtwo WHERE phone_number = ? AND parent_subgroup_id = 3 AND d_in = 0 LIMIT 1`,
+          [phoneNum],
+          cntxtDtls,
+          function (err, rows) {
+            if (err) return next(err, null);
+            next(null, rows && rows.length ? rows[0].id : null);
+          }
+        );
+      };
+
+      lookupByPhone(function (err, existingId) {
+        if (err) return callback(err, null);
+        if (existingId) return callback(null, existingId);
+
+        // No existing ledger for this phone — insert a new one, disambiguating the
+        // display name on a rare temple_name collision (e.g. two different hirers
+        // who happen to share a name but not a phone number).
+        dbutil.execupdateQuery(
+          sqldb,
+          `SELECT 1 FROM mainmasterssubchildtwo WHERE temple_name = ? AND d_in = 0 LIMIT 1`,
+          [name],
+          cntxtDtls,
+          function (dupErr, dupRows) {
+            if (dupErr) return callback(dupErr, null);
+            var finalName = (dupRows && dupRows.length && phoneNum) ? `${name} (${phoneNum})` : name;
+            var date = moment().utcOffset("+05:30").format("YYYY-MM-DD HH:mm:ss");
+            var g = RECEIVABLES_HIRERS_CONFIG;
+            var dta = {
+              parent_subgroup_id: g.parentSubgroupId,
+              parent_subchild_id: parentSubchildId,
+              ledger_type: "inherited",
+              created_at: date,
+              district_id: g.districtId,
+              staticname: g.staticname,
+              mandal_id: g.mandalId,
+              mandal_name: g.mandalName,
+              village_id: g.parentSubgroupId,
+              temple_name: finalName,
+              entry_by: userId,
+              child: g.childLabel,
+              i_ts: date,
+              subchildtwo: "Hirers",
+              subchildtwo_id: parentSubchildId,
+              parent_grp_level: 4,
+              phone_number: phoneNum || null,
+            };
+            dbutil.execupdateQuery(sqldb, `INSERT INTO mainmasterssubchildtwo SET ?`, dta, cntxtDtls, function (err, result) {
+              if (err) return callback(err, null);
+              callback(null, result.insertId);
+            });
+          }
+        );
+      });
+    }
+  );
+};
+
+exports.renamePersonLedger = function (ledgerId, newFullName, disambiguator, callback) {
+  var cntxtDtls = "in renamePersonLedger";
+  var name = String(newFullName || "").trim();
+  if (!ledgerId || !name) return callback(null, null);
+
+  dbutil.execupdateQuery(
+    sqldb,
+    `SELECT 1 FROM mainmasterssubchildtwo WHERE temple_name = ? AND d_in = 0 AND id != ? LIMIT 1`,
+    [name, ledgerId],
+    cntxtDtls,
+    function (dupErr, dupRows) {
+      if (dupErr) return callback(dupErr, null);
+      var finalize = function (finalName) {
+        dbutil.execupdateQuery(
+          sqldb,
+          `UPDATE mainmasterssubchildtwo SET temple_name = ? WHERE id = ?`,
+          [finalName, ledgerId],
+          cntxtDtls,
+          function (err, result) {
+            callback(err, err ? null : result);
+          }
+        );
+      };
+      if (!dupRows || !dupRows.length) return finalize(name);
+
+      var altName = disambiguator ? `${name} (${disambiguator})` : null;
+      if (!altName) return callback(new Error("DUPLICATE_LEDGER_NAME"), null);
+      dbutil.execupdateQuery(
+        sqldb,
+        `SELECT 1 FROM mainmasterssubchildtwo WHERE temple_name = ? AND d_in = 0 AND id != ? LIMIT 1`,
+        [altName, ledgerId],
+        cntxtDtls,
+        function (dupErr2, dupRows2) {
+          if (dupErr2) return callback(dupErr2, null);
+          if (dupRows2 && dupRows2.length) return callback(new Error("DUPLICATE_LEDGER_NAME"), null);
+          finalize(altName);
         }
       );
     }
@@ -10820,19 +11492,19 @@ exports.getservicenumMdl = function (data, callback) {
 
 exports.getpdfpatchdata1Mdl = function (data, callback) {
   var cntxtDtls = "getpdfpatchdata1Mdl";
-  var QRY_TO_EXEC = `SELECT 
+  var QRY_TO_EXEC = `SELECT
   t.*,
-  d1.nickname AS driver1_name,
-  d2.nickname AS driver2_name,
-  h.helper_name AS helper_name,
-  s.fullName AS conductor_name,
-  CASE 
-    WHEN t.paid_to_type = 'driver' THEN d3.nickname
-    WHEN t.paid_to_type = 'helper' THEN h2.helper_name
-    WHEN t.paid_to_type = 'staff' THEN s2.fullName
-    ELSE NULL
+  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(h.helper_name, t.helper_name) AS helper_name,
+  COALESCE(s.fullName, t.conductor_name) AS conductor_name,
+  CASE
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
+    ELSE t.paid_to_name
   END AS paid_to_name
-FROM 
+FROM
   trip_created t
 LEFT JOIN 
   driver_register d1 ON t.driver1_id = d1.id
@@ -13025,6 +13697,76 @@ exports.createBatteryVoucherMdl = function (data, callback) {
   });
 };
 
+function _tripVoucherRows(debit, credit) {
+  return {
+    debit:  (debit  || []).filter(function (e) { return e.ledger_id && e.amount; }),
+    credit: (credit || []).filter(function (e) { return e.ledger_id && e.amount; }),
+  };
+}
+
+// Creates the accounting voucher for a trip's advance/booking amount. Mirrors
+// createBatteryVoucherMdl exactly (single non-repeating Journal voucher),
+// tagged source_type='trip' so Voucher Approvals can show it came from Trip
+// Creation. Bus rows: debit = Paid-To person's ledger, credit = the "Paid From"
+// ledger the user picked. Van rows: debit = the hirer's Receivables ledger,
+// credit = the "Booking Income Ledger" the user picked.
+exports.createTripVoucherMdl = function (data, callback) {
+  var moment   = require('moment');
+  var curDate  = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
+  var vDate    = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+  var datePart = moment().utcOffset('+05:30').format('YYMMDD');
+  var rows = _tripVoucherRows(data.debit_ledgers, data.credit_ledgers);
+  if (rows.debit.length === 0 && rows.credit.length === 0) return callback(null, null);
+
+  dbutil.execupdateQuery(sqldb, `SELECT COUNT(*) as cnt FROM mainvoucher_t WHERE DATE(i_ts) = CURDATE()`, [], 'tripVoucherCount', function (err, countRes) {
+    if (err) return callback(err);
+    var baseCount = countRes && countRes[0] ? (parseInt(countRes[0].cnt) || 0) : 0;
+    var c_number  = 'V' + datePart + String(baseCount + 1).padStart(3, '0');
+    var c_id      = baseCount + 1;
+    var totalAmt  = rows.debit.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
+    var descText  = ((data.description || '') + ' [Trip: ' + (data.trip_c_number || '') + ']').trim();
+
+    var mainRec = {
+      description: descText, name: data.entry_by || '', valueDate: vDate,
+      vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, i_ts: curDate,
+      vouchertype: 'Journal', voucherdate: vDate, c_number: c_number, c_id: c_id,
+      entry_by: data.entry_by || '', user_id: data.user_id || 0, d_in: 0, status: 0,
+      source_type: 'trip',
+    };
+
+    dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_t SET ?', mainRec, 'tripVoucherMain', function (err, result) {
+      if (err) return callback(err);
+      var lastId = result.insertId;
+      var subRows = [];
+      rows.debit.forEach(function (e) {
+        subRows.push({ lastinsert_id: lastId, account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+      });
+      rows.credit.forEach(function (e) {
+        subRows.push({ lastinsert_id: lastId, account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+      });
+
+      var si = 0;
+      var insertNext = function () {
+        if (si >= subRows.length) return callback(null, c_number);
+        dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_subt SET ?', subRows[si], 'tripVoucherSub', function (err) {
+          if (err) return callback(err);
+          si++; insertNext();
+        });
+      };
+      insertNext();
+    });
+  });
+};
+
+exports.setTripVoucherNumberMdl = function (tripCNumber, voucherNumber, callback) {
+  // d_in=0 guard: c_number is minted from a count of active rows, so once older
+  // rows are soft-deleted the same c_number string can resurface — without this
+  // filter the UPDATE would also stamp the stale deleted row sharing it.
+  dbutil.execupdateQuery(sqldb, `UPDATE trip_created SET voucher_number = ? WHERE c_number = ? AND d_in = 0`, [voucherNumber, tripCNumber], 'setTripVoucherNumberMdl', function (err) {
+    callback(err);
+  });
+};
+
 // Replaces the debit/credit lines of a battery's existing voucher (mirrors updateJobVoucherMdl).
 exports.updateBatteryVoucherMdl = function (data, callback) {
   var moment  = require('moment');
@@ -13450,39 +14192,70 @@ exports.createReminderFromRepeatedJobMdl = function (data, callback) {
 };
 
 // ── Bulk Upload — Bus Numbers ─────────────────────────────────────────────────
+// Rows whose bus_no matches an existing active bus are REPLACED (UPDATE) rather
+// than skipped — the frontend preview modal already lets the user manually tick
+// a duplicate row to force it through ("Duplicates are unchecked by default —
+// tick to insert anyway"), so only rows the user deliberately selected ever
+// reach this function. Blindly skipping them here made that override a no-op.
+// Genuinely new bus numbers are still batch-inserted as before.
 exports.bulkUploadBusesMdl = function (rows, userId, usrNm, callback) {
   var cntxtDtls = 'in bulkUploadBusesMdl';
   dbutil.execQuery(sqldb, `SELECT bus_no FROM busses WHERE d_in='0'`, cntxtDtls, function (err, existing) {
     if (err) return callback(err, null);
     var date = moment().utcOffset('+05:30').format('YYYY-MM-DD');
     var existingNos = new Set((existing || []).map(function (r) { return String(r.bus_no || '').toLowerCase().trim(); }));
-    var skipped = [], toInsert = [];
+    var toUpdate = [], toInsert = [];
     rows.forEach(function (r) {
       if (!r.bus_no) return;
       var key = String(r.bus_no).toLowerCase().trim();
-      if (existingNos.has(key)) { skipped.push(r.bus_no); return; }
-      toInsert.push(r);
+      if (existingNos.has(key)) { toUpdate.push(r); } else { toInsert.push(r); }
     });
-    if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
-    var vals = toInsert.map(function (r) {
-      return [
-        r.bus_no, r.engine_no || null, r.chassis_no || null,
-        r.insurance_validity || null, r.pollution_validity || null,
-        r.base_point_validity || null, r.date_of_purchase || null,
-        r.atp_validity || null, r.atp_authentication_validity || null,
-        r.fc_validity || null, r.home_tax_validity || null,
-        r.service_out_date || null, r.remarks || null,
-        userId, usrNm, date, r.odometer || null, r.ownername || null,
-        r.vehicle_type || null, r.issparetank || 0,
-        r.luxury_type || null, r.seating_capacity || null, r.chassis_make || null,
-        r.chassis_model || null, r.body_made || null, r.mfg_year || null, r.reg_date || null
-      ];
-    });
-    var QRY = 'INSERT INTO busses (bus_no, engine_no, chassis_no, insurance_validity, pollution_validity, base_point_validity, date_of_purchase, atp_validity, atp_authentication_validity, fc_validity, home_tax_validity, service_out_date, remarks, user_id, usr_nm, i_ts, odometer, ownername, vehicle_type, issparetank, luxury_type, seating_capacity, chassis_make, chassis_model, body_made, mfg_year, reg_date) VALUES ?';
-    dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
-      if (err) return callback(err, null);
-      callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
-    });
+
+    function doInsert() {
+      if (toInsert.length === 0) return callback(null, { inserted: 0, replaced: toUpdate.length, total: rows.length });
+      var vals = toInsert.map(function (r) {
+        return [
+          r.bus_no, r.engine_no || null, r.chassis_no || null,
+          r.insurance_validity || null, r.pollution_validity || null,
+          r.base_point_validity || null, r.date_of_purchase || null,
+          r.atp_validity || null, r.atp_authentication_validity || null,
+          r.fc_validity || null, r.home_tax_validity || null,
+          r.service_out_date || null, r.remarks || null,
+          userId, usrNm, date, r.odometer || null, r.ownername || null,
+          r.vehicle_type || null, r.issparetank || 0,
+          r.luxury_type || null, r.seating_capacity || null, r.chassis_make || null,
+          r.chassis_model || null, r.body_made || null, r.mfg_year || null, r.reg_date || null
+        ];
+      });
+      var QRY = 'INSERT INTO busses (bus_no, engine_no, chassis_no, insurance_validity, pollution_validity, base_point_validity, date_of_purchase, atp_validity, atp_authentication_validity, fc_validity, home_tax_validity, service_out_date, remarks, user_id, usr_nm, i_ts, odometer, ownername, vehicle_type, issparetank, luxury_type, seating_capacity, chassis_make, chassis_model, body_made, mfg_year, reg_date) VALUES ?';
+      dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
+        if (err) return callback(err, null);
+        callback(null, { inserted: toInsert.length, replaced: toUpdate.length, total: rows.length });
+      });
+    }
+
+    var ui = 0;
+    var updateNext = function () {
+      if (ui >= toUpdate.length) return doInsert();
+      var r = toUpdate[ui];
+      var updateRec = {
+        engine_no: r.engine_no || null, chassis_no: r.chassis_no || null,
+        insurance_validity: r.insurance_validity || null, pollution_validity: r.pollution_validity || null,
+        base_point_validity: r.base_point_validity || null, date_of_purchase: r.date_of_purchase || null,
+        atp_validity: r.atp_validity || null, atp_authentication_validity: r.atp_authentication_validity || null,
+        fc_validity: r.fc_validity || null, home_tax_validity: r.home_tax_validity || null,
+        service_out_date: r.service_out_date || null, remarks: r.remarks || null,
+        updated_by: usrNm, updated_userid: userId, odometer: r.odometer || null, ownername: r.ownername || null,
+        vehicle_type: r.vehicle_type || null, issparetank: r.issparetank || 0,
+        luxury_type: r.luxury_type || null, seating_capacity: r.seating_capacity || null, chassis_make: r.chassis_make || null,
+        chassis_model: r.chassis_model || null, body_made: r.body_made || null, mfg_year: r.mfg_year || null, reg_date: r.reg_date || null,
+      };
+      dbutil.execupdateQuery(sqldb, `UPDATE busses SET ? WHERE bus_no = ? AND d_in = '0'`, [updateRec, r.bus_no], cntxtDtls, function (err) {
+        if (err) return callback(err, null);
+        ui++; updateNext();
+      });
+    };
+    updateNext();
   });
 };
 
@@ -13507,10 +14280,13 @@ exports.bulkUploadServiceRoutesMdl = function (rows, userId, usrNm, callback) {
         r.viaPlaces || null, r.parkingAmount || 0, r.driverOneBeta || 0, r.driverTwoBeta || 0,
         r.helperBeta || 0, r.conductorBeta || 0, r.distance || 0, r.optDriver || 0, r.optHelper || 0,
         r.optDriverSalary || 0, r.optHelperSalary || 0,
-        r.remarks || null, userId, usrNm, date, r.service_for_id || null
+        r.remarks || null, userId, usrNm, date, r.service_for_id || null,
+        r.line_code || null, r.route_id || null,
+        r.start_boarding_point || null, r.start_boarding_time || null,
+        r.end_boarding_point || null, r.end_boarding_time || null,
       ];
     });
-    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, optDriverSalary, optHelperSalary, remarks, user_id, usr_nm, i_ts, service_for_id) VALUES ?';
+    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, optDriverSalary, optHelperSalary, remarks, user_id, usr_nm, i_ts, service_for_id, line_code, route_id, start_boarding_point, start_boarding_time, end_boarding_point, end_boarding_time) VALUES ?';
     dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
       if (err) return callback(err, null);
       callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });

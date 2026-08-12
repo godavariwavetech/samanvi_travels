@@ -420,7 +420,7 @@ function ELedgerTable({ rows, side, offset = 0, ledgers, onRemove, onUpdate, onR
     <div className={`border-t pt-3 ${isDr ? 'border-red-100' : 'border-emerald-100'}`}>
       <table className="w-full text-sm">
         <thead>
-          <tr className={`text-xs font-semibold border-b ${isDr ? 'text-red-400 border-red-100' : 'text-emerald-500 border-emerald-100'}`}>
+          <tr className={`sticky top-0 z-10 bg-white text-xs font-semibold border-b ${isDr ? 'text-red-400 border-red-100' : 'text-emerald-500 border-emerald-100'}`}>
             <th className="text-left pb-1.5 w-6">#</th>
             <th className="text-left pb-1.5">Ledger Account</th>
             <th className="text-right pb-1.5 pr-1">Amount (₹)</th>
@@ -1457,9 +1457,10 @@ export default function VoucherApprovalsPage() {
                           : <span className="ml-auto text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">⚠ Unbalanced</span>
                         }
                       </div>
+                      <div className="overflow-auto max-h-64">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
+                          <tr className="sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
                             <th className="text-left px-4 py-2 w-8">#</th>
                             <th className="text-left px-4 py-2">Particulars</th>
                             <th className="text-right px-4 py-2 w-32">Dr (₹)</th>
@@ -1507,6 +1508,7 @@ export default function VoucherApprovalsPage() {
                           </tr>
                         </tfoot>
                       </table>
+                      </div>
                     </div>
 
                     {/* Transaction details — one card per ledger */}

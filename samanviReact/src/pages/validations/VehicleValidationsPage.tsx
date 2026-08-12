@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ShieldCheck } from 'lucide-react'
 import { motion } from 'motion/react'
-import { DataTable, PageHeader, TopNavTabs } from '@/components/shared'
+import { DataTable, MiniDatePicker, PageHeader, TopNavTabs } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { cn } from '@/lib/utils'
@@ -39,7 +39,7 @@ function fmtDate(d: any) {
   return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 }
 
-// YYYY-MM-DD in the fleet's local timezone — used both as the <input type="date"> value
+// YYYY-MM-DD in the fleet's local timezone — used both as the picker's selected value
 // and as the basis for day-diff math, so it stays correct regardless of the browser's timezone.
 function toKolkataISO(d: any): string {
   if (!d) return ''
@@ -75,15 +75,9 @@ function matchesTab(tab: Exclude<Tab, 'All'>, days: number | null): boolean {
   return days >= 0 && days <= 90 // '3 Months'
 }
 
-interface EditingCell {
-  id: number
-  field: string
-}
-
 export default function VehicleValidationsPage() {
   const qc = useQueryClient()
   const [tab, setTab] = useState<Tab>('All')
-  const [editing, setEditing] = useState<EditingCell | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
@@ -130,33 +124,14 @@ export default function VehicleValidationsPage() {
       key,
       filterable: true,
       render: (v: any, row: any) => {
-        const isEditing = editing?.id === row.id && editing?.field === key
-        if (isEditing) {
-          return (
-            <input
-              type="date"
-              autoFocus
-              defaultValue={toKolkataISO(v)}
-              className="border border-blue-400 rounded-lg px-2 py-1 text-sm w-full"
-              onBlur={() => setEditing(null)}
-              onChange={(e) => {
-                const newVal = e.target.value
-                setEditing(null)
-                if (newVal) saveDate({ bus_id: row.id, field: key, value: newVal })
-              }}
-            />
-          )
-        }
-
         const days = daysRemaining(v)
         const band = bandFor(days)
         const highlighted = tab !== 'All' && matchesTab(tab as Exclude<Tab, 'All'>, days)
 
         return (
-          <button
-            type="button"
-            onClick={() => setEditing({ id: row.id, field: key })}
-            title="Click to edit"
+          <MiniDatePicker
+            value={toKolkataISO(v)}
+            onChange={(iso) => saveDate({ bus_id: row.id, field: key, value: iso })}
             className={cn(
               'inline-flex flex-col items-start px-2.5 py-1 rounded-lg border text-xs whitespace-nowrap transition-all hover:ring-2 hover:ring-blue-300',
               BAND_STYLES[band],
@@ -167,13 +142,13 @@ export default function VehicleValidationsPage() {
             {days != null && (
               <span className="text-[10px] opacity-80">{days < 0 ? `${Math.abs(days)}d overdue` : `${days}d left`}</span>
             )}
-          </button>
+          </MiniDatePicker>
         )
       },
     }))
 
     return [...base, ...dateCols]
-  }, [tab, editing, saveDate])
+  }, [tab, saveDate])
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">

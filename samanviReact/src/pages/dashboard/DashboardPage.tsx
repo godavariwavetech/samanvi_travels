@@ -78,7 +78,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
       <PageHeader
         title="Dashboard"
         subtitle={`FY ${selectedFY.label}`}
@@ -102,10 +102,10 @@ export default function DashboardPage() {
         ) : recentTrips.length === 0 ? (
           <div className="p-8 text-center text-slate-400">No trip records yet. Start by creating a trip in Trip Management.</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-slate-50/60 border-b border-slate-100">
+                <tr className="sticky top-0 z-10 bg-slate-50/60 border-b border-slate-100">
                   {['Trip ID', 'Date', 'Bus', 'Service', 'Driver', 'Status'].map((h) => (
                     <th key={h} className="px-5 py-3 text-xs font-bold text-slate-500 uppercase whitespace-nowrap">{h}</th>
                   ))}

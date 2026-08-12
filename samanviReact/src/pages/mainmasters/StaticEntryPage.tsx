@@ -98,10 +98,10 @@ export default function StaticEntryPage() {
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-blue-600 text-white">
+              <tr className="sticky top-0 z-10 bg-blue-600 text-white">
                 <th className="px-5 py-3 text-sm font-bold w-20 text-center">S.No</th>
                 <th className="px-5 py-3 text-sm font-bold">Entry Name</th>
                 <th className="px-5 py-3 text-sm font-bold text-center w-32">Action</th>

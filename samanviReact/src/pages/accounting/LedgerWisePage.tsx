@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
 import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
+import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
 import * as XLSX from 'xlsx'
@@ -42,14 +43,6 @@ function fmtAmt(n: number): string {
 }
 
 function fmtN(n: number): string { return n.toFixed(2) }
-
-function balStr(b: number): string {
-  return b >= 0 ? `${fmtN(b)} Dr` : `${fmtN(Math.abs(b))} Cr`
-}
-
-function balCls(b: number): string {
-  return b >= 0 ? 'text-slate-700' : 'text-red-500'
-}
 
 // Opening/closing balance specifically use the conventional debit=red,
 // credit=green scheme — distinct from balCls' neutral per-transaction
@@ -215,9 +208,10 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
               : <span className="ml-auto text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">⚠ Unbalanced</span>
             }
           </div>
+          <div className="overflow-auto max-h-64">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
+              <tr className="sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
                 <th className="text-left px-4 py-2 w-8">#</th>
                 <th className="text-left px-4 py-2">Particulars</th>
                 <th className="text-right px-4 py-2 w-32">Dr (₹)</th>
@@ -261,6 +255,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
               </tr>
             </tfoot>
           </table>
+          </div>
         </div>
 
         {/* Transaction detail cards */}
@@ -419,10 +414,10 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
       <div className="p-6 space-y-4">
         <div className="bg-sky-50 rounded-xl overflow-hidden">
           <div className="bg-sky-500 text-white px-4 py-2 text-sm font-bold">Vehicle Details</div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-64">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-sky-100">
+                <tr className="sticky top-0 z-10 bg-sky-100">
                   {['Vehicle No', 'Blankets', 'Pillows', 'Whites', 'Covers', 'Curtains', 'Total'].map(h => (
                     <th key={h} className="px-3 py-2 text-left text-xs font-bold text-sky-700">{h}</th>
                   ))}
@@ -980,7 +975,7 @@ export default function LedgerWisePage() {
 
   // ─── Table helpers ─────────────────────────────────────────────────────────
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
-    <th className={`px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-700 border-r border-blue-600 ${cls}`}>
+    <th className={`sticky top-0 z-10 px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-700 border-r border-blue-600 ${cls}`}>
       {/* text-align on the <th> doesn't affect this flex row's own layout —
           justify-end is needed too so the label+filter icon actually sit on
           the same side as the right-aligned amount cells below */}
@@ -1143,7 +1138,7 @@ export default function LedgerWisePage() {
       ) : (
         <>
         <GlassCard className="overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>

@@ -114,10 +114,10 @@ export default function CollectionAgentPage() {
           <h3 className="font-bold text-slate-900 text-lg">Booking Records</h3>
           <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${bookingList.length} records`}</p>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-left min-w-[900px]">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/50">
+              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
                 <th className="p-4 pl-6 w-12">
                   <input type="checkbox" checked={selected.size === bookingList.length && bookingList.length > 0}
                     onChange={toggleAll} className="w-4 h-4 accent-blue-600 rounded" />

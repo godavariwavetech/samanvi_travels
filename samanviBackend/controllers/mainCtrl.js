@@ -24,9 +24,18 @@ var IMAGE_UPLOAD_DIR_LOCAL = path.join(process.cwd(), "uploads", "dashboardimage
 var USE_LOCAL_IMAGE_DIR = !fs.existsSync(IMAGE_UPLOAD_DIR_PROD);
 if (USE_LOCAL_IMAGE_DIR) fs.mkdirSync(IMAGE_UPLOAD_DIR_LOCAL, { recursive: true });
 var IMAGE_UPLOAD_DIR = USE_LOCAL_IMAGE_DIR ? IMAGE_UPLOAD_DIR_LOCAL : IMAGE_UPLOAD_DIR_PROD;
-var IMAGE_BASE_URL = USE_LOCAL_IMAGE_DIR
-  ? "http://localhost:8945/uploads/dashboardimages/images"
-  : "https://samanvitravels.in/dashboardimages/images";
+// Derived per-request from the actual host that was hit, not hardcoded — this
+// backend has been deployed under more than one domain (e.g. samanviapi.
+// godavariwave.com), and a hardcoded domain here silently breaks every image
+// URL the moment the deployment domain doesn't match whatever string was typed
+// in at the time: the file saves fine, but the URL returned to the browser
+// points at a domain that was never serving it, so the <img> just shows broken.
+function getImageBaseUrl(req) {
+  var origin = req.protocol + "://" + req.get("host");
+  return USE_LOCAL_IMAGE_DIR
+    ? origin + "/uploads/dashboardimages/images"
+    : origin + "/dashboardimages/images";
+}
 var unirest = require("unirest");
 var JWT_SECRET = "7b4743fec0c12eb2da50be672c3988a4";
 
@@ -766,7 +775,7 @@ exports.addstaffregisterCtrl = function (req, res) {
       }
     );
     imageuploadlao =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -796,7 +805,7 @@ exports.addstaffregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaotwo =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -825,7 +834,7 @@ exports.addstaffregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaothree =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -907,7 +916,7 @@ exports.addhelperregisterCtrl = function (req, res) {
         }
       );
       imageuploadlao =
-        IMAGE_BASE_URL + "/" +
+        getImageBaseUrl(req) + "/" +
         unicnumber +
         "." +
         filetype;
@@ -937,7 +946,7 @@ exports.addhelperregisterCtrl = function (req, res) {
         }
       );
       imageuploadlaotwo =
-        IMAGE_BASE_URL + "/" +
+        getImageBaseUrl(req) + "/" +
         unicnumber +
         "." +
         filetype;
@@ -966,7 +975,7 @@ exports.addhelperregisterCtrl = function (req, res) {
         }
       );
       imageuploadlaothree =
-        IMAGE_BASE_URL + "/" +
+        getImageBaseUrl(req) + "/" +
         unicnumber +
         "." +
         filetype;
@@ -1052,7 +1061,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlao =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1082,7 +1091,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaotwo =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1111,7 +1120,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaothree =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1139,7 +1148,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaofour =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1167,7 +1176,7 @@ exports.adddriverregisterCtrl = function (req, res) {
       }
     );
     imageuploadlaofive =
-      IMAGE_BASE_URL + "/" +
+      getImageBaseUrl(req) + "/" +
       unicnumber +
       "." +
       filetype;
@@ -1479,6 +1488,136 @@ exports.deleteMfgYearCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const data = decryptPayload(encryptedPayload);
   appmdl.deleteMfgYearMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── City List ────────────────────────────────────────────────────────────────
+exports.getCityListCtrl = function (req, res) {
+  appmdl.getCityListMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addCityListCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addCityListMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteCityListCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteCityListMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Boarding Points ──────────────────────────────────────────────────────────
+exports.getBoardingPointsCtrl = function (req, res) {
+  appmdl.getBoardingPointsMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addBoardingPointCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addBoardingPointMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteBoardingPointCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteBoardingPointMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Bus Operators ────────────────────────────────────────────────────────────
+exports.getBusOperatorsCtrl = function (req, res) {
+  appmdl.getBusOperatorsMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addBusOperatorCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addBusOperatorMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteBusOperatorCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteBusOperatorMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Line Codes ───────────────────────────────────────────────────────────────
+exports.getLineCodesCtrl = function (req, res) {
+  appmdl.getLineCodesMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addLineCodeCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addLineCodeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteLineCodeCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteLineCodeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+// ── Route IDs ────────────────────────────────────────────────────────────────
+exports.getRouteIdsCtrl = function (req, res) {
+  appmdl.getRouteIdsMdl(function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.addRouteIdCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.addRouteIdMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.deleteRouteIdCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.deleteRouteIdMdl(data, function (err, results) {
     if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
   });
@@ -2944,6 +3083,49 @@ exports.tripcreated = function (req, res) {
   });
 };
 
+exports.bulkCreateTripsCtrl = function (req, res) {
+  var data = req.body;
+  appmdl.bulkCreateTripsMdl(data.trip_date, data.rows, data.user_id, data.usr_nm, function (err, results) {
+    if (err) {
+      console.log(err);
+      res.send({ status: 500, data: null });
+      return;
+    }
+
+    var candidates = (results && results.voucherCandidates) || [];
+    if (candidates.length === 0) {
+      res.send({ status: 200, data: results });
+      return;
+    }
+
+    // Post one Journal voucher per qualifying row, sequentially (createTripVoucherMdl
+    // mints c_number from today's mainvoucher_t count, so overlapping calls could
+    // collide) — mirrors the Garage/Battery "create record, then conditionally post
+    // voucher, then link it back" sequence. Each candidate carries its own
+    // debit AND credit ledger now (both pickable per row on the frontend).
+    var ci = 0;
+    var postNext = function () {
+      if (ci >= candidates.length) { res.send({ status: 200, data: results }); return; }
+      var cand = candidates[ci];
+      appmdl.createTripVoucherMdl({
+        debit_ledgers: [{ ledger_id: cand.debit_ledger_id, ledger_name: cand.debit_ledger_name, amount: cand.amount }],
+        credit_ledgers: [{ ledger_id: cand.credit_ledger_id, ledger_name: cand.credit_ledger_name, amount: cand.amount }],
+        trip_c_number: cand.c_number, entry_by: data.usr_nm, user_id: data.user_id,
+      }, function (voucherErr, voucherNumber) {
+        if (voucherErr) {
+          console.error('[createTripVoucherMdl] failed for trip ' + cand.c_number + ':', voucherErr.message);
+          ci++; postNext();
+          return;
+        }
+        appmdl.setTripVoucherNumberMdl(cand.c_number, voucherNumber, function () {
+          ci++; postNext();
+        });
+      });
+    };
+    postNext();
+  });
+};
+
 exports.deletetripcreatedCtrl = function (req, res) {
   appmdl.deletetripcreatedMdl(req.body, function (err, results) {
     if (err) {
@@ -4406,27 +4588,27 @@ exports.adddrivereditCtrl = function (req, res) {
     // Hold URLs for new images, or fallback to existing ones
     let imageuploadlao =
       data.aadharcardfront && data.aadharcardfront.reviewimg
-        ? saveImage(data.aadharcardfront)
+        ? saveImage(data.aadharcardfront, req)
         : data.aadharcardfront || null;
 
     let imageuploadlaotwo =
       data.aadharcardback && data.aadharcardback.reviewimg
-        ? saveImage(data.aadharcardback)
+        ? saveImage(data.aadharcardback, req)
         : data.aadharcardback || null;
 
     let imageuploadlaothree =
       data.dlfront && data.dlfront.reviewimg
-        ? saveImage(data.dlfront)
+        ? saveImage(data.dlfront, req)
         : data.dlfront || null;
 
     let imageuploadlaofour =
       data.dlback && data.dlback.reviewimg
-        ? saveImage(data.dlback)
+        ? saveImage(data.dlback, req)
         : data.dlback || null;
 
     let imageuploadlaofive =
       data.upiscanner && data.upiscanner.reviewimg
-        ? saveImage(data.upiscanner)
+        ? saveImage(data.upiscanner, req)
         : data.upiscanner || null;
 
     // Call model to update driver info
@@ -4452,7 +4634,7 @@ exports.adddrivereditCtrl = function (req, res) {
 };
 
 // Helper function to save base64 image and return public URL
-function saveImage(fileObj) {
+function saveImage(fileObj, req) {
   const image_url = fileObj.reviewimg;
   const imgTypeRaw = fileObj.imgtype.toLowerCase();
   const filetype =
@@ -4473,7 +4655,7 @@ function saveImage(fileObj) {
     console.error("Error saving image:", err);
   }
 
-  return `${IMAGE_BASE_URL}/${filename}`;
+  return `${getImageBaseUrl(req)}/${filename}`;
 }
 
 exports.edithelperregisterCtrl = function (req, res) {
@@ -4499,7 +4681,7 @@ exports.edithelperregisterCtrl = function (req, res) {
         100000 + Math.random() * 900000
       )}${Date.now()}.${filetype}`;
       const filepath = `${IMAGE_UPLOAD_DIR}/${filename}`;
-      const fullurl = `${IMAGE_BASE_URL}/${filename}`;
+      const fullurl = `${getImageBaseUrl(req)}/${filename}`;
 
       fs.writeFile(filepath, base64Content, "base64", (err) => {
         if (err) {
@@ -4568,7 +4750,7 @@ exports.addstaffeditCtrl = function (req, res) {
       fs.writeFile(filepath, base64Data, "base64", function (err) {
         if (err) console.error("Error saving Aadhaar Front image:", err);
       });
-      imageuploadlao = `${IMAGE_BASE_URL}/${filename}`;
+      imageuploadlao = `${getImageBaseUrl(req)}/${filename}`;
     }
 
     // Aadhaar Back
@@ -4586,7 +4768,7 @@ exports.addstaffeditCtrl = function (req, res) {
       fs.writeFile(filepath, base64Data, "base64", function (err) {
         if (err) console.error("Error saving Aadhaar Back image:", err);
       });
-      imageuploadlaotwo = `${IMAGE_BASE_URL}/${filename}`;
+      imageuploadlaotwo = `${getImageBaseUrl(req)}/${filename}`;
     }
 
     // UPI Scanner
@@ -4603,7 +4785,7 @@ exports.addstaffeditCtrl = function (req, res) {
       fs.writeFile(filepath, base64Data, "base64", function (err) {
         if (err) console.error("Error saving UPI Scanner image:", err);
       });
-      imageuploadlaothree = `${IMAGE_BASE_URL}/${filename}`;
+      imageuploadlaothree = `${getImageBaseUrl(req)}/${filename}`;
     }
 
     // Call model to update DB

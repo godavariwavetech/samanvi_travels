@@ -7,12 +7,12 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
       ref={ref}
       type={type}
       onClick={e => {
-        // Date inputs only open their native picker on the small calendar
-        // glyph by default — clicking anywhere else in the field does
-        // nothing. Opening it on any click matches how every other field
-        // in the app responds to a click, and saves individually wiring
-        // this up on every date input across the codebase.
-        if (type === 'date') (e.target as HTMLInputElement).showPicker?.()
+        // Date/time inputs only open their native picker on the small
+        // calendar/clock glyph by default — clicking anywhere else in the
+        // field does nothing. Opening it on any click matches how every
+        // other field in the app responds to a click, and saves individually
+        // wiring this up on every date/time input across the codebase.
+        if (type === 'date' || type === 'time') (e.target as HTMLInputElement).showPicker?.()
         onClick?.(e)
       }}
       className={cn(

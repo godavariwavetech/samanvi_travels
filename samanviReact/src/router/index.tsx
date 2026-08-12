@@ -108,6 +108,11 @@ import LuxuryTypePage from '@/pages/mainmasters/LuxuryTypePage'
 import MfgYearPage from '@/pages/mainmasters/MfgYearPage'
 import BatteryBrandPage from '@/pages/mainmasters/BatteryBrandPage'
 import BatteryCapacityPage from '@/pages/mainmasters/BatteryCapacityPage'
+import CityListPage from '@/pages/mainmasters/CityListPage'
+import BoardingPointPage from '@/pages/mainmasters/BoardingPointPage'
+import BusOperatorPage from '@/pages/mainmasters/BusOperatorPage'
+import LineCodePage from '@/pages/mainmasters/LineCodePage'
+import RouteIdPage from '@/pages/mainmasters/RouteIdPage'
 
 // Reports
 import ReportsPage from '@/pages/reports/ReportsPage'
@@ -218,6 +223,11 @@ export const router = createBrowserRouter([
       { path: 'mainmasters/mfg-year',        element: <MfgYearPage /> },
       { path: 'mainmasters/battery-brand',    element: <BatteryBrandPage /> },
       { path: 'mainmasters/battery-capacity', element: <BatteryCapacityPage /> },
+      { path: 'mainmasters/city-list',        element: <CityListPage /> },
+      { path: 'mainmasters/boarding-point',   element: <BoardingPointPage /> },
+      { path: 'mainmasters/bus-operator',     element: <BusOperatorPage /> },
+      { path: 'mainmasters/line-code',        element: <LineCodePage /> },
+      { path: 'mainmasters/route-id',         element: <RouteIdPage /> },
       // Group pages — each level gets its own path so NavLink active state works
       { path: 'mainmasters/groups',           element: <GroupPage /> },
       { path: 'mainmasters/main-group',       element: <GroupPage viewLevel={2} /> },

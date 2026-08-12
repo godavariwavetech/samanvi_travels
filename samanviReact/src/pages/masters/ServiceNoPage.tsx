@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Plus, X, Save, Edit2, Search, Route, Upload, Download, FileSpreadsheet } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, ExcelImportPreviewModal } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, MasterListPicker, ExcelImportPreviewModal, TopNavTabs } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -15,27 +15,75 @@ const EMPTY: Record<string, string> = {
   viaPlaces: '', parkingAmount: '0', driverOneBeta: '', driverTwoBeta: '',
   helperBeta: '', conductorBeta: '', distance: '', optDriver: '', optHelper: '',
   optDriverSalary: '', optHelperSalary: '', remarks: '',
+  line_code: '', route_id: '', start_boarding_point: '', start_boarding_time: '',
+  end_boarding_point: '', end_boarding_time: '',
+  vehicle_type: 'bus', bus_operator_id: '', bus_operator_name: '', trip_type: '',
 }
 
 const amt = (v: any) => <span className="font-medium text-slate-800">{v != null && v !== '' ? `₹${v}` : '—'}</span>
 
+// Boarding times must always end up as 24-hour "HH:MM" text, but Excel import
+// can hand back three different shapes for the same cell: a real time-formatted
+// cell (a fraction-of-a-day serial number, e.g. 0.770833 for 18:30 — verified
+// empirically, sheet_to_json with header:1 does NOT auto-convert this to text),
+// a 12-hour string someone typed ("6:30 PM"), or already-correct 24-hour text.
+// Without this, a time-formatted cell would silently import as a garbled
+// decimal string instead of a time.
+function parseExcelTime(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') return null
+  if (typeof raw === 'number') {
+    const fraction = raw - Math.floor(raw)
+    const totalMinutes = Math.round(fraction * 24 * 60)
+    const hh = Math.floor(totalMinutes / 60) % 24
+    const mm = totalMinutes % 60
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+  }
+  const str = String(raw).trim()
+  if (!str) return null
+  const match12 = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])$/)
+  if (match12) {
+    let hh = parseInt(match12[1], 10) % 12
+    if (/pm/i.test(match12[3])) hh += 12
+    return `${String(hh).padStart(2, '0')}:${match12[2]}`
+  }
+  const match24 = str.match(/^(\d{1,2}):(\d{2})/)
+  if (match24) {
+    const hh = Math.min(23, parseInt(match24[1], 10))
+    return `${String(hh).padStart(2, '0')}:${match24[2]}`
+  }
+  return str
+}
+
 const cols: Column[] = [
   { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+  {
+    label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
+    render: (v) => <Badge variant={v === 'van' ? 'purple' : 'info'}>{v === 'van' ? 'Van' : 'Bus'}</Badge>,
+  },
   { label: 'Service For', key: 'serviceFor', filterable: true, render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
   { label: 'Service No', key: 'serviceNo', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
+  { label: 'Bus Operator', key: 'bus_operator_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Trip Type', key: 'trip_type', filterable: true, render: (v) => <span className="text-sm capitalize">{String(v ?? '—')}</span> },
   { label: 'From City', key: 'fromCity', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
   { label: 'To City', key: 'toCity', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
   { label: 'Via Places', key: 'viaPlaces', filterable: true, render: (v) => <span className="text-sm text-slate-500">{String(v ?? '—')}</span> },
+  { label: 'Line Code', key: 'line_code', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Route ID', key: 'route_id', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Start Boarding', key: 'start_boarding_point', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Start Boarding Time', key: 'start_boarding_time', render: (v) => <span className="text-sm font-medium">{String(v ?? '—')}</span> },
+  { label: 'End Boarding', key: 'end_boarding_point', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'End Boarding Time', key: 'end_boarding_time', render: (v) => <span className="text-sm font-medium">{String(v ?? '—')}</span> },
   { label: 'Parking Amt', key: 'parkingAmount', render: amt },
   { label: 'Driver 1 Beta', key: 'driverOneBeta', render: amt },
   { label: 'Driver 2 Beta', key: 'driverTwoBeta', render: amt },
   { label: 'Helper Beta', key: 'helperBeta', render: amt },
   { label: 'Conductor Beta', key: 'conductorBeta', render: amt },
   { label: 'Distance', key: 'distance', render: (v) => <span className="font-medium">{v != null && v !== '' ? `${v} km` : '—'}</span> },
-  { label: 'OPT Driver', key: 'optDriver', render: amt },
-  { label: 'OPT Helper', key: 'optHelper', render: amt },
+  { label: 'OPT Driver', key: 'optDriver', render: (v) => <span className="text-sm">{v != null && v !== '' ? String(v) : '—'}</span> },
+  { label: 'OPT Helper', key: 'optHelper', render: (v) => <span className="text-sm">{v != null && v !== '' ? String(v) : '—'}</span> },
   { label: 'OPT Driver Salary', key: 'optDriverSalary', render: amt },
   { label: 'OPT Helper Salary', key: 'optHelperSalary', render: amt },
+  { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
 ]
 
 const SERVICE_TEMPLATE_HEADERS = [
@@ -43,6 +91,8 @@ const SERVICE_TEMPLATE_HEADERS = [
   'Parking Amount', 'Driver One Beta', 'Driver Two Beta', 'Helper Beta',
   'Conductor Beta', 'Distance (km)', 'OPT Driver', 'OPT Helper',
   'OPT Driver Salary', 'OPT Helper Salary', 'Remarks',
+  'Line Code', 'Route ID', 'Start Boarding Point', 'Start Boarding Time (HH:MM)',
+  'End Boarding Point', 'End Boarding Time (HH:MM)',
 ]
 
 function downloadExcel(data: any[][], filename: string) {
@@ -77,10 +127,22 @@ export default function ServiceNoPage() {
 
   const { data: routes, isLoading } = useQuery({ queryKey: ['routes'], queryFn: () => mastersService.getServiceRoutes() })
   const { data: serviceNames } = useQuery({ queryKey: ['service-names'], queryFn: () => mastersService.getServiceNumbers() })
+  const { data: busOperators } = useQuery({ queryKey: ['bus-operators'], queryFn: () => mastersService.getBusOperators() })
 
   const serviceNameList: any[] = serviceNames?.data ?? []
   const routeList: any[] = routes?.data ?? []
+  const operatorList: any[] = busOperators?.data ?? []
   const serviceForOptions = [...new Set(routeList.map((r) => r.serviceFor).filter(Boolean))]
+
+  const switchVehicleType = (t: 'bus' | 'van') => {
+    setForm((f) => ({
+      ...EMPTY,
+      vehicle_type: t,
+      serviceFor: f.serviceFor,
+      service_for_id: f.service_for_id,
+      serviceNo: f.serviceNo,
+    }))
+  }
 
   const filtered = useMemo(() => routeList.filter((r) => {
     if (search && !String(r.serviceNo ?? '').toLowerCase().includes(search.trim().toLowerCase())) return false
@@ -89,7 +151,12 @@ export default function ServiceNoPage() {
   }), [routeList, search, filterFor])
 
   const buildPayload = () => ({
-    ...form, id: editId,
+    ...form,
+    // Van form has no Service No input (not on the whiteboard sketch) — auto-generate
+    // one on first save since serviceNo is required elsewhere in the app (uniqueness,
+    // search, trip linkage). Editing an existing row keeps its already-assigned value.
+    serviceNo: form.vehicle_type === 'van' && !form.serviceNo ? `VAN-${Date.now()}` : form.serviceNo,
+    id: editId,
     userid: localStorage.getItem('user_id'),
     usrnm: localStorage.getItem('usr_nm'),
   })
@@ -127,13 +194,16 @@ export default function ServiceNoPage() {
   const openAdd = () => { setForm({ ...EMPTY }); setIsEdit(false); setEditId(null); setShowForm(true) }
   const closeForm = () => { setShowForm(false); setForm({ ...EMPTY }); setIsEdit(false); setEditId(null) }
 
-  const canSave = form.serviceFor && form.serviceNo && form.fromCity && form.toCity
+  const canSave = form.vehicle_type === 'van'
+    ? Boolean(form.serviceFor && form.bus_operator_id)
+    : Boolean(form.serviceFor && form.serviceNo && form.fromCity && form.toCity)
 
   // ── Excel download — template ─────────────────────────────────────────────
   const downloadTemplate = () => {
     downloadExcel([
       SERVICE_TEMPLATE_HEADERS,
-      ['Samanvi', 'ST-11', 'Hyderabad', 'Vijayawada', 'Guntur', '50', '800', '700', '500', '400', '250', '600', '400', '300', '200', 'Remarks here'],
+      ['Samanvi', 'ST-11', 'Hyderabad', 'Vijayawada', 'Guntur', '50', '800', '700', '500', '400', '250', '600', '400', '300', '200', 'Remarks here',
+        'LN-01', 'RT-101', 'Ameerpet', '18:30', 'MG Bus Stand', '06:00'],
     ], `ServiceRoute_Upload_Template_${Date.now()}.xlsx`)
   }
 
@@ -144,6 +214,8 @@ export default function ServiceNoPage() {
       r.parkingAmount ?? '', r.driverOneBeta ?? '', r.driverTwoBeta ?? '', r.helperBeta ?? '',
       r.conductorBeta ?? '', r.distance ?? '', r.optDriver ?? '', r.optHelper ?? '',
       r.optDriverSalary ?? '', r.optHelperSalary ?? '', r.remarks ?? '',
+      r.line_code ?? '', r.route_id ?? '', r.start_boarding_point ?? '', r.start_boarding_time ?? '',
+      r.end_boarding_point ?? '', r.end_boarding_time ?? '',
     ])
     downloadExcel([SERVICE_TEMPLATE_HEADERS, ...rows], `ServiceRoutes_${Date.now()}.xlsx`)
     toast.success(`Exported ${rows.length} routes`)
@@ -189,10 +261,18 @@ export default function ServiceNoPage() {
             optHelperSalary: String(r[14] ?? '0').trim() || '0',
             remarks: String(r[15] ?? '').trim() || null,
             service_for_id: found ? String(found.id) : null,
+            line_code: String(r[16] ?? '').trim() || null,
+            route_id: String(r[17] ?? '').trim() || null,
+            start_boarding_point: String(r[18] ?? '').trim() || null,
+            start_boarding_time: parseExcelTime(r[19]),
+            end_boarding_point: String(r[20] ?? '').trim() || null,
+            end_boarding_time: parseExcelTime(r[21]),
           }
           const values = [payload.serviceFor, payload.serviceNo, payload.fromCity, payload.toCity, payload.viaPlaces,
             payload.parkingAmount, payload.driverOneBeta, payload.driverTwoBeta, payload.helperBeta, payload.conductorBeta,
-            payload.distance, payload.optDriver, payload.optHelper, payload.optDriverSalary, payload.optHelperSalary, payload.remarks]
+            payload.distance, payload.optDriver, payload.optHelper, payload.optDriverSalary, payload.optHelperSalary, payload.remarks,
+            payload.line_code, payload.route_id, payload.start_boarding_point, payload.start_boarding_time,
+            payload.end_boarding_point, payload.end_boarding_time]
           return { payload, preview: { values: values.map(v => v ?? ''), isDuplicate: existingNos.has(serviceNo.toLowerCase()) } }
         })
       if (rows.length === 0) { toast.error('No valid rows found (Service For and Service No are required)'); return }
@@ -252,51 +332,113 @@ export default function ServiceNoPage() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div>
-                  <Label>Service For <span className="text-red-500">*</span></Label>
-                  <SearchableSelect
-                    value={form.serviceFor}
-                    onChange={(v) => {
-                      const found = serviceNameList.find((s) => s.name === v)
-                      setForm((f) => ({ ...f, serviceFor: v, service_for_id: String(found?.id ?? '') }))
-                    }}
-                    options={serviceNameList.map((s) => ({ value: s.name, label: s.name }))}
-                    placeholder="Select service"
-                  />
+              <TopNavTabs
+                tabs={['Bus', 'Van']}
+                activeTab={form.vehicle_type === 'van' ? 'Van' : 'Bus'}
+                onChange={(t) => switchVehicleType(t.toLowerCase() as 'bus' | 'van')}
+              />
+
+              {form.vehicle_type === 'van' ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div>
+                    <Label>Service For <span className="text-red-500">*</span></Label>
+                    <SearchableSelect
+                      value={form.serviceFor}
+                      onChange={(v) => {
+                        const found = serviceNameList.find((s) => s.name === v)
+                        setForm((f) => ({ ...f, serviceFor: v, service_for_id: String(found?.id ?? '') }))
+                      }}
+                      options={serviceNameList.map((s) => ({ value: s.name, label: s.name }))}
+                      placeholder="Select service"
+                    />
+                  </div>
+                  <div><Label>Bus Operator <span className="text-red-500">*</span></Label>
+                    <MasterListPicker panelId="svc-bus-operator-panel" queryKey="bus-operators" queryFn={() => mastersService.getBusOperators()}
+                      valueKey="operator_name" value={form.bus_operator_name} onChange={(v) => {
+                        const found = operatorList.find((o) => o.operator_name === v)
+                        setForm((f) => ({ ...f, bus_operator_name: v, bus_operator_id: String(found?.id ?? '') }))
+                      }} placeholder="Select bus operator" /></div>
+                  <div><Label>Line Code</Label>
+                    <MasterListPicker panelId="svc-line-code-panel-van" queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
+                      valueKey="line_code" value={form.line_code} onChange={(v) => setForm((f) => ({ ...f, line_code: v }))} placeholder="Select line code" /></div>
+                  <div><Label>Trip Type</Label>
+                    <Select value={form.trip_type} onChange={set('trip_type')}>
+                      <option value="">Select trip type</option>
+                      <option value="pickup">Pickup</option>
+                      <option value="drop">Drop</option>
+                    </Select></div>
+                  <div><Label>First Boarding Point</Label>
+                    <MasterListPicker panelId="svc-first-bp-panel" queryKey="boarding-points" queryFn={() => mastersService.getBoardingPoints()}
+                      valueKey="point_name" value={form.start_boarding_point} onChange={(v) => setForm((f) => ({ ...f, start_boarding_point: v }))} placeholder="Select boarding point" /></div>
+                  <div><Label>First Boarding Time</Label>
+                    <Input type="time" value={form.start_boarding_time} onChange={set('start_boarding_time')} /></div>
+                  <div><Label>Dropping Point</Label>
+                    <MasterListPicker panelId="svc-dropping-bp-panel" queryKey="boarding-points" queryFn={() => mastersService.getBoardingPoints()}
+                      valueKey="point_name" value={form.end_boarding_point} onChange={(v) => setForm((f) => ({ ...f, end_boarding_point: v }))} placeholder="Select dropping point" /></div>
+                  <div><Label>Dropping Time</Label>
+                    <Input type="time" value={form.end_boarding_time} onChange={set('end_boarding_time')} /></div>
+                  <div className="md:col-span-3"><Label>Via Route</Label>
+                    <Input placeholder="Enter via route" value={form.viaPlaces} onChange={set('viaPlaces')} /></div>
                 </div>
-                <div><Label>Service No <span className="text-red-500">*</span></Label>
-                  <Input placeholder="Enter service number" value={form.serviceNo} onChange={set('serviceNo')} /></div>
-                <div><Label>From <span className="text-red-500">*</span></Label>
-                  <Input placeholder="Enter start city" value={form.fromCity} onChange={set('fromCity')} /></div>
-                <div><Label>To <span className="text-red-500">*</span></Label>
-                  <Input placeholder="Enter end city" value={form.toCity} onChange={set('toCity')} /></div>
-                <div><Label>Via <span className="text-red-500">*</span></Label>
-                  <Input placeholder="Enter via places" value={form.viaPlaces} onChange={set('viaPlaces')} /></div>
-                <div><Label>Parking Amount <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter parking amount" value={form.parkingAmount} onChange={set('parkingAmount')} /></div>
-                <div><Label>Driver One Beta <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter driver one beta" value={form.driverOneBeta} onChange={set('driverOneBeta')} /></div>
-                <div><Label>Driver Two Beta <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter driver two beta" value={form.driverTwoBeta} onChange={set('driverTwoBeta')} /></div>
-                <div><Label>Helper Beta <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter helper beta" value={form.helperBeta} onChange={set('helperBeta')} /></div>
-                <div><Label>Conductor Beta <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter conductor beta" value={form.conductorBeta} onChange={set('conductorBeta')} /></div>
-                <div><Label>Distance <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter distance" value={form.distance} onChange={set('distance')} /></div>
-                <div><Label>OPT-Driver <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter opting driver amount" value={form.optDriver} onChange={set('optDriver')} /></div>
-                <div><Label>OPT-Helper <span className="text-red-500">*</span></Label>
-                  <Input type="number" placeholder="Enter opting helper amount" value={form.optHelper} onChange={set('optHelper')} /></div>
-                <div><Label>OPT-Driver Salary</Label>
-                  <Input type="number" placeholder="Enter opt-driver salary" value={form.optDriverSalary} onChange={set('optDriverSalary')} /></div>
-                <div><Label>OPT-Helper Salary</Label>
-                  <Input type="number" placeholder="Enter opt-helper salary" value={form.optHelperSalary} onChange={set('optHelperSalary')} /></div>
-                <div className="md:col-span-3"><Label>Remarks</Label>
-                  <textarea rows={3} placeholder="Enter Remarks" value={form.remarks} onChange={set('remarks')}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none" /></div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div>
+                    <Label>Service For <span className="text-red-500">*</span></Label>
+                    <SearchableSelect
+                      value={form.serviceFor}
+                      onChange={(v) => {
+                        const found = serviceNameList.find((s) => s.name === v)
+                        setForm((f) => ({ ...f, serviceFor: v, service_for_id: String(found?.id ?? '') }))
+                      }}
+                      options={serviceNameList.map((s) => ({ value: s.name, label: s.name }))}
+                      placeholder="Select service"
+                    />
+                  </div>
+                  <div><Label>Service No <span className="text-red-500">*</span></Label>
+                    <Input placeholder="Enter service number" value={form.serviceNo} onChange={set('serviceNo')} /></div>
+                  <div><Label>Line Code</Label>
+                    <MasterListPicker panelId="svc-line-code-panel" queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
+                      valueKey="line_code" value={form.line_code} onChange={(v) => setForm((f) => ({ ...f, line_code: v }))} placeholder="Select line code" /></div>
+                  <div><Label>Route ID</Label>
+                    <MasterListPicker panelId="svc-route-id-panel" queryKey="route-ids" queryFn={() => mastersService.getRouteIds()}
+                      valueKey="route_id_name" value={form.route_id} onChange={(v) => setForm((f) => ({ ...f, route_id: v }))} placeholder="Select route ID" /></div>
+                  <div><Label>From <span className="text-red-500">*</span></Label>
+                    <MasterListPicker panelId="svc-from-city-panel" queryKey="city-list" queryFn={() => mastersService.getCityList()}
+                      valueKey="city_name" value={form.fromCity} onChange={(v) => setForm((f) => ({ ...f, fromCity: v }))} placeholder="Select start city" /></div>
+                  <div><Label>To <span className="text-red-500">*</span></Label>
+                    <MasterListPicker panelId="svc-to-city-panel" queryKey="city-list" queryFn={() => mastersService.getCityList()}
+                      valueKey="city_name" value={form.toCity} onChange={(v) => setForm((f) => ({ ...f, toCity: v }))} placeholder="Select end city" /></div>
+                  <div><Label>Start Boarding Point</Label>
+                    <MasterListPicker panelId="svc-start-bp-panel" queryKey="boarding-points" queryFn={() => mastersService.getBoardingPoints()}
+                      valueKey="point_name" value={form.start_boarding_point} onChange={(v) => setForm((f) => ({ ...f, start_boarding_point: v }))} placeholder="Select boarding point" /></div>
+                  <div><Label>Start Boarding Time</Label>
+                    <Input type="time" value={form.start_boarding_time} onChange={set('start_boarding_time')} /></div>
+                  <div><Label>End Boarding Point</Label>
+                    <MasterListPicker panelId="svc-end-bp-panel" queryKey="boarding-points" queryFn={() => mastersService.getBoardingPoints()}
+                      valueKey="point_name" value={form.end_boarding_point} onChange={(v) => setForm((f) => ({ ...f, end_boarding_point: v }))} placeholder="Select boarding point" /></div>
+                  <div><Label>End Boarding Time</Label>
+                    <Input type="time" value={form.end_boarding_time} onChange={set('end_boarding_time')} /></div>
+                  <div><Label>Parking Amount <span className="text-red-500">*</span></Label>
+                    <Input type="number" placeholder="Enter parking amount" value={form.parkingAmount} onChange={set('parkingAmount')} /></div>
+                  <div><Label>Driver One Beta <span className="text-red-500">*</span></Label>
+                    <Input type="number" placeholder="Enter driver one beta" value={form.driverOneBeta} onChange={set('driverOneBeta')} /></div>
+                  <div><Label>Driver Two Beta <span className="text-red-500">*</span></Label>
+                    <Input type="number" placeholder="Enter driver two beta" value={form.driverTwoBeta} onChange={set('driverTwoBeta')} /></div>
+                  <div><Label>Helper Beta <span className="text-red-500">*</span></Label>
+                    <Input type="number" placeholder="Enter helper beta" value={form.helperBeta} onChange={set('helperBeta')} /></div>
+                  <div><Label>Conductor Beta <span className="text-red-500">*</span></Label>
+                    <Input type="number" placeholder="Enter conductor beta" value={form.conductorBeta} onChange={set('conductorBeta')} /></div>
+                  <div><Label>Distance <span className="text-red-500">*</span></Label>
+                    <Input type="number" placeholder="Enter distance" value={form.distance} onChange={set('distance')} /></div>
+                  <div><Label>OPT-Driver Salary</Label>
+                    <Input type="number" placeholder="Enter opt-driver salary" value={form.optDriverSalary} onChange={set('optDriverSalary')} /></div>
+                  <div><Label>OPT-Helper Salary</Label>
+                    <Input type="number" placeholder="Enter opt-helper salary" value={form.optHelperSalary} onChange={set('optHelperSalary')} /></div>
+                  <div className="md:col-span-3"><Label>Remarks</Label>
+                    <textarea rows={3} placeholder="Enter Remarks" value={form.remarks} onChange={set('remarks')}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 resize-none" /></div>
+                </div>
+              )}
 
               <div className="flex gap-3 mt-6">
                 <Button onClick={() => save()} disabled={isPending || !canSave}>

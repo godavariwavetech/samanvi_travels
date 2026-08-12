@@ -96,7 +96,7 @@ export default function VoucherTypePage() {
       <GlassCard className="overflow-hidden">
         <table className="w-full text-left">
           <thead>
-            <tr className="bg-blue-600 text-white">
+            <tr className="sticky top-0 z-10 bg-blue-600 text-white">
               <th className="px-5 py-3 text-sm font-bold w-20 text-center">S.No</th>
               <th className="px-5 py-3 text-sm font-bold">Voucher Type</th>
               <th className="px-5 py-3 text-sm font-bold text-center w-32">Action</th>

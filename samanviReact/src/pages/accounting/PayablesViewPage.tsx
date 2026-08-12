@@ -655,9 +655,9 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
       <div className="p-6 space-y-4">
         <div className="bg-sky-50 rounded-xl overflow-hidden">
           <div className="bg-sky-500 text-white px-4 py-2 text-sm font-bold">Vehicle Details</div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-64">
             <table className="w-full text-sm">
-              <thead><tr className="bg-sky-100">{['Vehicle No', 'Blankets', 'Pillows', 'Whites', 'Covers', 'Curtains', 'Total'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-bold text-sky-700">{h}</th>)}</tr></thead>
+              <thead><tr className="sticky top-0 z-10 bg-sky-100">{['Vehicle No', 'Blankets', 'Pillows', 'Whites', 'Covers', 'Curtains', 'Total'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-bold text-sky-700">{h}</th>)}</tr></thead>
               <tbody>
                 <tr>
                   <td className="px-3 py-2">{vehicle}</td>
@@ -1561,7 +1561,7 @@ export default function PayablesViewPage() {
 
   // ── Render helpers ────────────────────────────────────────────────────────
   const TH = ({ children, cls = '' }: { children: React.ReactNode; cls?: string }) => (
-    <th className={`px-3 py-3 text-left text-sm font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0 ${cls}`}>
+    <th className={`sticky top-0 z-10 px-3 py-3 text-left text-sm font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0 ${cls}`}>
       {children}
     </th>
   )
@@ -1714,7 +1714,7 @@ export default function PayablesViewPage() {
             </GlassCard>
           ) : (
             <GlassCard className="overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[70vh]">
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr>
@@ -1969,10 +1969,10 @@ export default function PayablesViewPage() {
                       Enter a payment amount and select a transaction row above to auto-populate debit entries.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-auto max-h-64">
                       <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
                         <thead>
-                          <tr className="bg-slate-100">
+                          <tr className="sticky top-0 z-10 bg-slate-100">
                             <th className="px-3 py-2 text-left text-xs font-bold text-slate-600">S.No</th>
                             <th className="px-3 py-2 text-left text-xs font-bold text-slate-600">Ledger Name</th>
                             <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Amount</th>
@@ -2025,10 +2025,10 @@ export default function PayablesViewPage() {
                   {effectiveCreditEntries.length === 0 ? (
                     <p className="text-sm text-slate-400 italic py-2">No credit entries added yet.</p>
                   ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-auto max-h-64">
                       <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
                         <thead>
-                          <tr className="bg-slate-100">
+                          <tr className="sticky top-0 z-10 bg-slate-100">
                             <th className="px-3 py-2 text-left text-xs font-bold text-slate-600">S.No</th>
                             <th className="px-3 py-2 text-left text-xs font-bold text-slate-600">Ledger Name</th>
                             <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Amount</th>

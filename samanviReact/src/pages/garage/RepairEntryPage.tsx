@@ -466,7 +466,7 @@ export default function RepairEntryPage() {
                 )}
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-auto max-h-[70vh]">
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr>
@@ -481,7 +481,7 @@ export default function RepairEntryPage() {
                       { label: 'Created By',       fk: 'createdBy' },
                       { label: 'Status',           fk: 'status' },
                     ] as { label: string; fk?: string }[]).map(({ label, fk }) => (
-                      <th key={label} className="px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
+                      <th key={label} className="sticky top-0 z-10 px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
                         <div className="flex items-center gap-1.5">
                           <span>{label}</span>
                           {fk && (

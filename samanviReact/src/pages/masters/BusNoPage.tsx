@@ -1,104 +1,15 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { Bus, Save, Plus, X, Edit2, ChevronDown, Upload, Download, FileSpreadsheet, History, Clock, LogOut } from 'lucide-react'
+import { Bus, Save, Plus, X, Edit2, Upload, Download, FileSpreadsheet, History, Clock, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import ChangeNote from '@/components/shared/ChangeNote'
+import { excelCellToISODate } from '@/lib/utils'
 import * as XLSX from 'xlsx'
-
-// ── Generic master-data picker (searchless dropdown backed by a master list) ──
-function MasterListPicker({ panelId, queryKey, queryFn, valueKey, value, onChange, placeholder }: {
-  panelId: string
-  queryKey: string
-  queryFn: () => Promise<any>
-  valueKey: string
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-}) {
-  const [open, setOpen] = useState(false)
-  const [rect, setRect] = useState<DOMRect | null>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-
-  const { data } = useQuery({ queryKey: [queryKey], queryFn })
-  const items: any[] = data?.data ?? []
-
-  const openDropdown = () => {
-    if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
-    setOpen(true)
-  }
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => {
-      if (document.getElementById(panelId)?.contains(e.target as Node) ||
-          btnRef.current?.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    const onScroll = (e: Event) => {
-      if (document.getElementById(panelId)?.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    window.addEventListener('scroll', onScroll, true)
-    return () => { document.removeEventListener('mousedown', close); window.removeEventListener('scroll', onScroll, true) }
-  }, [open, panelId])
-
-  const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
-  const openUpward = spaceBelow < 320
-
-  const panel = open && rect && createPortal(
-    <div id={panelId}
-      style={{
-        position: 'fixed',
-        top: openUpward ? undefined : rect.bottom + 4,
-        bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
-        left: rect.left, width: rect.width, maxHeight: 300, zIndex: 99999,
-      }}
-      className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col overflow-hidden"
-    >
-      <ul className="overflow-y-auto flex-1">
-        <li onMouseDown={() => { onChange(''); setOpen(false) }}
-          className="px-4 py-2.5 text-sm text-slate-400 hover:bg-slate-50 cursor-pointer">— None —</li>
-        {items.map((it) => {
-          const v = String(it[valueKey])
-          return (
-            <li key={it.id}
-              onMouseDown={() => { onChange(v); setOpen(false) }}
-              className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
-                value === v ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
-              }`}>
-              {v}
-            </li>
-          )
-        })}
-      </ul>
-    </div>,
-    document.body
-  )
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={openDropdown}
-        className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 px-4 py-2 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white"
-      >
-        <span className={value ? 'text-slate-900' : 'text-slate-400'}>
-          {value || placeholder}
-        </span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {panel}
-    </>
-  )
-}
 
 // ── Sold Out / Service Out modal ───────────────────────────────────────────
 function ServiceOutModal({ bus, onConfirm, onClose, isPending }: {
@@ -192,7 +103,7 @@ function buildCols(onServiceOut: (row: any) => void): Column[] {
     render: (v) => v ? <Badge variant="info">{String(v)}</Badge> : <span className="text-slate-300">—</span>,
   },
   {
-    label: 'Company', key: 'company', filterable: true,
+    label: 'Chassis Make', key: 'chassis_make', filterable: true,
     render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span>,
   },
   {
@@ -204,7 +115,6 @@ function buildCols(onServiceOut: (row: any) => void): Column[] {
     render: (v) => v ? <span className="font-semibold">{String(v)}</span> : <span className="text-slate-300">—</span>,
   },
   { label: 'Chassis No', key: 'chassis_no', filterable: true, render: (v) => <span className="text-sm whitespace-nowrap">{String(v ?? '—')}</span> },
-  { label: 'Chassis Make', key: 'chassis_make', filterable: true, render: (v) => <span className="text-sm whitespace-nowrap">{String(v ?? '—')}</span> },
   { label: 'Chassis Model', key: 'chassis_model', filterable: true, render: (v) => <span className="text-sm whitespace-nowrap">{String(v ?? '—')}</span> },
   { label: 'Body Made', key: 'body_made', filterable: true, render: (v) => <span className="text-sm whitespace-nowrap">{String(v ?? '—')}</span> },
   { label: 'Mfg Year', key: 'mfg_year', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
@@ -490,18 +400,18 @@ export default function BusNoPage() {
             mfg_year: String(r[6] ?? '').trim() || null,
             engine_no: String(r[7] ?? '').trim() || null,
             chassis_no: String(r[8] ?? '').trim() || null,
-            date_of_purchase: String(r[9] ?? '').trim() || null,
+            date_of_purchase: excelCellToISODate(r[9]) || null,
             bus_no: String(r[10] ?? '').trim(),
             odometer: String(r[11] ?? '').trim() || null,
-            reg_date: String(r[12] ?? '').trim() || null,
-            fc_validity: String(r[13] ?? '').trim() || null,
-            home_tax_validity: String(r[14] ?? '').trim() || null,
-            insurance_validity: String(r[15] ?? '').trim() || null,
-            pollution_validity: String(r[16] ?? '').trim() || null,
-            base_point_validity: String(r[17] ?? '').trim() || null,
-            atp_validity: String(r[18] ?? '').trim() || null,
-            atp_authentication_validity: String(r[19] ?? '').trim() || null,
-            service_out_date: String(r[20] ?? '').trim() || null,
+            reg_date: excelCellToISODate(r[12]) || null,
+            fc_validity: excelCellToISODate(r[13]) || null,
+            home_tax_validity: excelCellToISODate(r[14]) || null,
+            insurance_validity: excelCellToISODate(r[15]) || null,
+            pollution_validity: excelCellToISODate(r[16]) || null,
+            base_point_validity: excelCellToISODate(r[17]) || null,
+            atp_validity: excelCellToISODate(r[18]) || null,
+            atp_authentication_validity: excelCellToISODate(r[19]) || null,
+            service_out_date: excelCellToISODate(r[20]) || null,
             ownername: String(r[21] ?? '').trim() || null,
             remarks: String(r[22] ?? '').trim() || null,
             issparetank: Number(r[23] ?? 0) === 1 ? 1 : 0,
@@ -528,10 +438,10 @@ export default function BusNoPage() {
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadBuses({ rows, user_id: uid, usr_nm: unm })
       if (res.status === 200) {
-        const { inserted, skipped, total } = res.data
+        const { inserted, replaced, total } = res.data
         qc.invalidateQueries({ queryKey: ['buses'] })
-        if (skipped.length > 0) {
-          toast.success(`Inserted ${inserted} of ${total} buses. ${skipped.length} duplicates skipped: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}`)
+        if (replaced > 0) {
+          toast.success(`Inserted ${inserted} new and replaced ${replaced} existing bus${replaced !== 1 ? 'es' : ''} (${total} total)`)
         } else {
           toast.success(`Successfully inserted ${inserted} buses!`)
         }
@@ -716,6 +626,8 @@ export default function BusNoPage() {
         submitting={uploading}
         onCancel={() => setPreviewOpen(false)}
         onConfirm={confirmImport}
+        duplicateHint="Duplicates are checked by default — they'll replace the existing bus's values with this row. Untick to leave that bus unchanged."
+        duplicatesSelectedByDefault
       />
 
       {/* ── Bus fleet table ── */}

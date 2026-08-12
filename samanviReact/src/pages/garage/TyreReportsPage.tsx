@@ -242,9 +242,10 @@ export default function TyreReportsPage() {
                     <p className="text-sm text-slate-400 italic">Never mounted on a bus yet.</p>
                   ) : (
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="overflow-auto max-h-64">
                       <table className="w-full text-left text-sm">
                         <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200">
+                          <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
                             <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Vehicle</th>
                             <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Position</th>
                             <th className="px-3 py-2 text-xs font-bold text-slate-500 uppercase">Fitted</th>
@@ -266,6 +267,7 @@ export default function TyreReportsPage() {
                           ))}
                         </tbody>
                       </table>
+                      </div>
                     </div>
                   )}
                 </div>

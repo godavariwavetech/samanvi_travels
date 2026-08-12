@@ -669,7 +669,7 @@ export default function GroupWisePage() {
   }
 
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
-    <th className={`px-4 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 ${cls}`}>
+    <th className={`sticky top-0 z-10 px-4 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 ${cls}`}>
       {/* text-align on the <th> doesn't affect this flex row's own layout —
           justify-end is needed too so the label+filter icon actually sit on
           the same side as the right-aligned amount cells below */}
@@ -904,7 +904,7 @@ export default function GroupWisePage() {
               </button>
             </div>
           )}
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>

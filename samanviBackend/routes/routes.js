@@ -85,6 +85,26 @@ router.post('/deleteluxurytype', verifyToken, routcontroller.deleteLuxuryTypeCtr
 router.get('/getmfgyears', verifyToken, routcontroller.getMfgYearsCtrl);
 router.post('/addmfgyear', verifyToken, routcontroller.addMfgYearCtrl);
 router.post('/deletemfgyear', verifyToken, routcontroller.deleteMfgYearCtrl);
+// City List
+router.get('/getcitylist', verifyToken, routcontroller.getCityListCtrl);
+router.post('/addcitylist', verifyToken, routcontroller.addCityListCtrl);
+router.post('/deletecitylist', verifyToken, routcontroller.deleteCityListCtrl);
+// Boarding Points
+router.get('/getboardingpoints', verifyToken, routcontroller.getBoardingPointsCtrl);
+router.post('/addboardingpoint', verifyToken, routcontroller.addBoardingPointCtrl);
+router.post('/deleteboardingpoint', verifyToken, routcontroller.deleteBoardingPointCtrl);
+// Bus Operators
+router.get('/getbusoperators', verifyToken, routcontroller.getBusOperatorsCtrl);
+router.post('/addbusoperator', verifyToken, routcontroller.addBusOperatorCtrl);
+router.post('/deletebusoperator', verifyToken, routcontroller.deleteBusOperatorCtrl);
+// Line Codes
+router.get('/getlinecodes', verifyToken, routcontroller.getLineCodesCtrl);
+router.post('/addlinecode', verifyToken, routcontroller.addLineCodeCtrl);
+router.post('/deletelinecode', verifyToken, routcontroller.deleteLineCodeCtrl);
+// Route IDs
+router.get('/getrouteids', verifyToken, routcontroller.getRouteIdsCtrl);
+router.post('/addrouteid', verifyToken, routcontroller.addRouteIdCtrl);
+router.post('/deleterouteid', verifyToken, routcontroller.deleteRouteIdCtrl);
 
 // Terminate / Rejoin
 router.post('/terminatestaff', verifyToken, routcontroller.terminateStaffCtrl);
@@ -197,6 +217,7 @@ router.post('/getLedgerWiseReport', verifyToken, routcontroller.getLedgerWiseRep
 ///sudheer code starts
 router.post("/driverdata", verifyToken, routcontroller.driverdata);
 router.post("/tripcreated", routcontroller.tripcreated);
+router.post("/bulkcreatetrips", routcontroller.bulkCreateTripsCtrl);
 router.post("/deletetripcreated", routcontroller.deletetripcreatedCtrl);
 router.get("/gettripceated", routcontroller.gettripceated);
 

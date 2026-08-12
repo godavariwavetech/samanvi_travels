@@ -37,6 +37,31 @@ export const mastersService = {
   addMfgYear: (data: unknown) => api.post('/addmfgyear', securePayload(data)).then((r) => r.data),
   deleteMfgYear: (data: unknown) => api.post('/deletemfgyear', securePayload(data)).then((r) => r.data),
 
+  // ── City List ──────────────────────────────────────────────────
+  getCityList: () => api.get('/getcitylist').then((r) => r.data),
+  addCityList: (data: unknown) => api.post('/addcitylist', securePayload(data)).then((r) => r.data),
+  deleteCityList: (data: unknown) => api.post('/deletecitylist', securePayload(data)).then((r) => r.data),
+
+  // ── Boarding Points ───────────────────────────────────────────
+  getBoardingPoints: () => api.get('/getboardingpoints').then((r) => r.data),
+  addBoardingPoint: (data: unknown) => api.post('/addboardingpoint', securePayload(data)).then((r) => r.data),
+  deleteBoardingPoint: (data: unknown) => api.post('/deleteboardingpoint', securePayload(data)).then((r) => r.data),
+
+  // ── Bus Operators ─────────────────────────────────────────────
+  getBusOperators: () => api.get('/getbusoperators').then((r) => r.data),
+  addBusOperator: (data: unknown) => api.post('/addbusoperator', securePayload(data)).then((r) => r.data),
+  deleteBusOperator: (data: unknown) => api.post('/deletebusoperator', securePayload(data)).then((r) => r.data),
+
+  // ── Line Codes ─────────────────────────────────────────────────
+  getLineCodes: () => api.get('/getlinecodes').then((r) => r.data),
+  addLineCode: (data: unknown) => api.post('/addlinecode', securePayload(data)).then((r) => r.data),
+  deleteLineCode: (data: unknown) => api.post('/deletelinecode', securePayload(data)).then((r) => r.data),
+
+  // ── Route IDs ──────────────────────────────────────────────────
+  getRouteIds: () => api.get('/getrouteids').then((r) => r.data),
+  addRouteId: (data: unknown) => api.post('/addrouteid', securePayload(data)).then((r) => r.data),
+  deleteRouteId: (data: unknown) => api.post('/deleterouteid', securePayload(data)).then((r) => r.data),
+
   // ── Bus Numbers ──────────────────────────────────────────
   getBuses: () => api.post('/getbussesdata', {}).then((r) => r.data),
   addBus: (data: unknown) => api.post('/addNewbusnum', securePayload(data)).then((r) => r.data),

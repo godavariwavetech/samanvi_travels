@@ -19,15 +19,24 @@ interface ExcelImportPreviewModalProps {
   submitting?: boolean
   onCancel: () => void
   onConfirm: (selectedIndexes: number[]) => void
+  /** What ticking a duplicate row actually does on submit — differs by importer (some skip, some replace). */
+  duplicateHint?: string
+  /** Whether duplicate rows start ticked (for importers where including a duplicate safely
+   * replaces the existing record) or unticked (for importers where it would just be skipped
+   * anyway, so opt-in avoids an unnecessary manual step for the common no-duplicate case). */
+  duplicatesSelectedByDefault?: boolean
 }
 
 export function ExcelImportPreviewModal({
   open, title, headers, rows, submitting, onCancel, onConfirm,
+  duplicateHint = 'Duplicates are unchecked by default — tick to insert anyway.',
+  duplicatesSelectedByDefault = false,
 }: ExcelImportPreviewModalProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
 
   useEffect(() => {
-    setSelected(new Set(rows.map((_, i) => i).filter((i) => !rows[i].isDuplicate)))
+    setSelected(new Set(rows.map((_, i) => i).filter((i) => duplicatesSelectedByDefault || !rows[i].isDuplicate)))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows])
 
   const duplicateCount = useMemo(() => rows.filter((r) => r.isDuplicate).length, [rows])
@@ -74,7 +83,7 @@ export function ExcelImportPreviewModal({
               </label>
               {duplicateCount > 0 && (
                 <span className="inline-flex items-center gap-1.5 text-xs text-amber-600">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Duplicates are unchecked by default — tick to insert anyway.
+                  <AlertTriangle className="w-3.5 h-3.5" /> {duplicateHint}
                 </span>
               )}
             </div>

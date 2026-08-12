@@ -145,10 +145,10 @@ export default function AnalysisPage() {
               <span className="text-sm font-normal text-slate-500">({filteredBuses.length} vehicles)</span>
             </h3>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-left min-w-[900px]">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/50">
+                <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
                   <th className="p-3 pl-6 text-xs font-bold text-slate-500 uppercase">#</th>
                   {VEHICLE_COLS.map((c) => (
                     <th key={c.key} className="p-3 text-xs font-bold text-slate-500 uppercase whitespace-nowrap">{c.label}</th>
@@ -186,10 +186,10 @@ export default function AnalysisPage() {
               <span className="text-sm font-normal text-slate-500">({filteredDrivers.length} drivers)</span>
             </h3>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-left min-w-[600px]">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50/50">
+                <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
                   <th className="p-3 pl-6 text-xs font-bold text-slate-500 uppercase">#</th>
                   {DRIVER_COLS.map((c) => (
                     <th key={c.key} className="p-3 text-xs font-bold text-slate-500 uppercase">{c.label}</th>

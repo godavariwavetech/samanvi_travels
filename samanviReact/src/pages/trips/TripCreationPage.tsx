@@ -1,32 +1,53 @@
-﻿import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Map, Save, X, Plus, Search, Filter } from 'lucide-react'
+import { Map, Save, X, Plus, CalendarDays, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
-
-const EMPTY = {
-  trip_date: new Date().toISOString().split('T')[0],
-  bus_no: '',
-  service_no: '', service_no_id: '',
-  trip_for: '', trip_for_id: '',
-  optreg: '',   driver1_name: '', driver1_id: '',
-  optreg1: '',  driver2_name: '', driver2_id: '',
-  optreg2: '',  helper_name: '',  helper_id: '',
-  conductor_name: '', conductor_id: '',
-  paid_to_name: '', paid_to_id: '', paid_to_type: '',
-  remarks: '',
-}
+import { accountingService } from '@/services/accounting.service'
+import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
+import { cn } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
-const firstOfMonth = today.slice(0, 8) + '01'
+
+type GridRow = {
+  status: 'Running' | 'Halt'
+  bus_no: string
+  driver1_id: string; driver1_name: string
+  driver2_id: string; driver2_name: string
+  helper_id: string; helper_name: string
+  conductor_id: string; conductor_name: string
+  paid_to_id: string; paid_to_name: string; paid_to_type: string; paid_to_ledger_id: string
+  debit_ledger_id: string; debit_ledger_name: string
+  credit_ledger_id: string; credit_ledger_name: string
+  amount: string
+  remarks: string
+}
+
+// Van trip rows are added manually (no pre-defined roster like the Bus grid) —
+// each one is an ad-hoc charter booking for a customer, not a driver/staff.
+type VanRow = {
+  status: 'Running' | 'Halt'
+  line_code: string
+  bus_no: string
+  driver_id: string; driver_name: string
+  hirer_name: string; phone_number: string; booking_amount: string
+  debit_ledger_id: string; debit_ledger_name: string
+  credit_ledger_id: string; credit_ledger_name: string
+  remarks: string
+}
 
 const columns: Column[] = [
   {
-    label: 'Trip ID / Date', key: 'c_number',
+    label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
+    filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
+    render: (v) => <Badge variant={v === 'van' ? 'purple' : 'info'}>{v === 'van' ? 'Van' : 'Bus'}</Badge>,
+  },
+  {
+    label: 'Trip ID / Date', key: 'c_number', filterable: true,
     render: (v, r: any) => (
       <div>
         <div className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</div>
@@ -35,32 +56,74 @@ const columns: Column[] = [
     ),
   },
   {
-    label: 'Bus / Service', key: 'bus_no',
+    label: 'Status', key: 'trip_run_status', filterable: true,
+    filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Halt', value: 'Halt' }],
+    render: (v) => <Badge variant={v === 'Halt' ? 'danger' : 'success'}>{String(v ?? 'Running')}</Badge>,
+  },
+  {
+    label: 'Bus / Service', key: 'bus_no', filterable: true,
     render: (v, r: any) => (
       <div>
         <div className="font-semibold">{String(v ?? '—')}</div>
-        <div className="text-xs text-slate-500">{r.service_no} · {r.trip_for}</div>
+        <div className="text-xs text-slate-500">{r.vehicle_type === 'van' ? r.line_code : `${r.service_no ?? ''} · ${r.trip_for ?? ''}`}</div>
       </div>
     ),
   },
-  { label: 'Driver 1', key: 'driver1_name', render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
-  { label: 'Driver 2', key: 'driver2_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
-  { label: 'Helper', key: 'helper_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
-  { label: 'Paid To', key: 'paid_to_name', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
+  { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
+  { label: 'Helper', key: 'helper_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
+  { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
+  {
+    label: 'Paid To / Hirer', key: 'paid_to_name', filterable: true,
+    render: (v, r: any) => (
+      <div>
+        <div className="text-sm">{String(v ?? r.hirer_name ?? '—')}</div>
+        {r.vehicle_type === 'van' && r.phone_number && <div className="text-xs text-slate-400">{r.phone_number}</div>}
+      </div>
+    ),
+  },
+  {
+    label: 'Amount', key: 'booking_amount',
+    render: (v) => v ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>,
+  },
+  { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  {
+    label: 'Voucher', key: 'voucher_number', filterable: true,
+    render: (v) => v
+      ? <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{String(v)}</span>
+      : <span className="text-slate-300 text-xs">—</span>,
+  },
+  { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
 ]
 
+// Shows a Paid-To person's all-time Dr/Cr ledger balance beneath their select,
+// once resolved from getallstfdrivhelp (which now returns ledger_id per person).
+// Balance only reflects approved vouchers (getsearchdataMdl filters status='1'),
+// so a just-created advance voucher won't move this until it's approved.
+function PaidToBalance({ ledgerId }: { ledgerId: string }) {
+  const { data } = useQuery({
+    queryKey: ['ledger-balance', ledgerId],
+    queryFn: () => accountingService.getSearchData({ ledger_id: ledgerId }),
+    enabled: !!ledgerId,
+  })
+  if (!ledgerId || !data?.data?.opening_balance) return null
+  const bal = signedBalance(data.data.opening_balance)
+  return <div className={`text-[11px] font-semibold mt-1 ${balCls(bal)}`}>{balStr(bal)}</div>
+}
+
 // Clearable select
-function ClearSelect({ value, onChange, onClear, children }: {
-  value: string; onChange: (v: string) => void; onClear: () => void; children: React.ReactNode
+function ClearSelect({ value, onChange, onClear, disabled, className, children }: {
+  value: string; onChange: (v: string) => void; onClear: () => void; disabled?: boolean; className?: string; children: React.ReactNode
 }) {
   return (
-    <div className="relative">
-      <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="w-full h-10 pl-3 pr-8 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 appearance-none">
+    <div className={cn('relative', className)}>
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
+        className="w-full h-9 pl-3 pr-8 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 appearance-none disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
         {children}
       </select>
-      {value
-        ? <button type="button" onClick={onClear} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X className="w-3.5 h-3.5" /></button>
+      {value && !disabled
+        ? <button type="button" onClick={onClear} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X className="w-3 h-3" /></button>
         : <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs">▾</span>
       }
     </div>
@@ -69,15 +132,13 @@ function ClearSelect({ value, onChange, onClear, children }: {
 
 export default function TripCreationPage() {
   const qc = useQueryClient()
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState(EMPTY)
-  const set = (k: keyof typeof EMPTY, v: string) => setForm((f) => ({ ...f, [k]: v }))
-  const clear = (k: keyof typeof EMPTY) => setForm((f) => ({ ...f, [k]: '' }))
-
-  // Date range filter state
-  const [fromDate, setFromDate] = useState(firstOfMonth)
-  const [toDate, setToDate] = useState(today)
-  const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
+  const [showGrid, setShowGrid] = useState(false)
+  const [tripDate, setTripDate] = useState(today)
+  const [gridRows, setGridRows] = useState<Record<number, GridRow>>({})
+  const [vehicleType, setVehicleType] = useState<'Bus' | 'Van'>('Bus')
+  const [serviceForFilter, setServiceForFilter] = useState('')
+  const [vanRows, setVanRows] = useState<VanRow[]>([])
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   // Data queries
   const { data: tripData, isLoading } = useQuery({ queryKey: ['trips'], queryFn: () => tripsService.getTrips1() })
@@ -87,139 +148,168 @@ export default function TripCreationPage() {
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: staffData } = useQuery({ queryKey: ['staff-all'], queryFn: () => mastersService.getStaff({}) })
   const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
+  const { data: ledgerNameData } = useQuery({ queryKey: ['ledger-names-trip'], queryFn: () => accountingService.getLedgerName() })
 
   const buses: any[] = (busData?.data ?? []).filter((b: any) => b.d_in === 0 && !b.issparetank)
   const allRoutes: any[] = routeData?.data ?? []
-  const serviceForList = [...new Set(allRoutes.map((r) => r.serviceFor))].filter(Boolean)
-  const filteredRoutes = form.trip_for ? allRoutes.filter((r) => r.serviceFor === form.trip_for) : allRoutes
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
   const paidToList: any[] = staffData?.data ?? []
-  const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => s.designation === 'Conductor')
+  // designation is a free-text/master-picker field, not a fixed enum, so its
+  // casing varies by whoever entered it (e.g. "CONDUCTOR" vs "Conductor") —
+  // match case-insensitively or real conductors silently vanish from this list.
+  const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
+  const ledgerList: any[] = ledgerNameData?.data ?? []
+  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.ledger_id ?? l.id), label: l.temple_name || l.name || '' }))
 
-  // Client-side date filter
+  // New rows default their credit ledger to one literally named Cash, if one
+  // exists — still editable per row. Debit ledger has no such generic default:
+  // Bus pre-fills it from the selected Paid-To person; Van leaves it blank
+  // (backend auto-resolves/creates the hirer's ledger by phone if left blank).
+  const cash = ledgerList.find((l: any) => (l.temple_name || l.name) === 'Cash')
+  const cashLedgerId = cash ? String(cash.ledger_id ?? cash.id) : ''
+  const cashLedgerName = cash ? (cash.temple_name || cash.name) : ''
+
+  const makeEmptyGridRow = (): GridRow => ({
+    status: 'Running', bus_no: '',
+    driver1_id: '', driver1_name: '', driver2_id: '', driver2_name: '',
+    helper_id: '', helper_name: '', conductor_id: '', conductor_name: '',
+    paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '',
+    debit_ledger_id: '', debit_ledger_name: '',
+    credit_ledger_id: cashLedgerId, credit_ledger_name: cashLedgerName,
+    amount: '', remarks: '',
+  })
+  const makeEmptyVanRow = (): VanRow => ({
+    status: 'Running', line_code: '', bus_no: '',
+    driver_id: '', driver_name: '',
+    hirer_name: '', phone_number: '', booking_amount: '',
+    debit_ledger_id: '', debit_ledger_name: '',
+    credit_ledger_id: cashLedgerId, credit_ledger_name: cashLedgerName,
+    remarks: '',
+  })
+
   const allTrips: any[] = tripData?.data ?? []
-  const filteredTrips = useMemo(() => {
-    if (!applied.from && !applied.to) return allTrips
-    return allTrips.filter((t) => {
+
+  // Bus grid only shows Bus-type routes (any Van-type routes added via Service
+  // Numbers are irrelevant here — Van trips are ad-hoc rows, not roster-driven).
+  const serviceForOptions = [...new Set(allRoutes.map((r) => r.serviceFor).filter(Boolean))]
+  const busRoutes = allRoutes
+    .filter((r) => r.vehicle_type !== 'van')
+    .filter((r) => !serviceForFilter || r.serviceFor === serviceForFilter)
+
+  // Trips already created for the selected grid date, keyed by service_no_id —
+  // those rows render read-only so the same route/day can't be double-booked.
+  const existingByRoute = useMemo(() => {
+    const map: Record<string, any> = {}
+    allTrips.forEach((t) => {
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
-      if (!d) return true
-      if (applied.from && d < applied.from) return false
-      if (applied.to && d > applied.to) return false
-      return true
+      if (d === tripDate && t.service_no_id) map[String(t.service_no_id)] = t
     })
-  }, [allTrips, applied])
+    return map
+  }, [allTrips, tripDate])
 
-  const onServiceNoChange = (routeId: string) => {
-    const route = allRoutes.find((r) => String(r.id) === routeId)
-    setForm((f) => ({
-      ...f,
-      service_no: route?.serviceNo ?? '',
-      service_no_id: routeId,
-      trip_for: route?.serviceFor ?? f.trip_for,
-      trip_for_id: route?.service_for_id ?? '',
-    }))
-  }
+  // Picking a new date starts a fresh roster — already-created rows come from existingByRoute instead
+  useEffect(() => { setGridRows({}) }, [tripDate])
 
-  const onDriverChange = (field: 'driver1' | 'driver2', driverId: string) => {
-    const d = drivers.find((dr) => String(dr.id) === driverId)
-    if (field === 'driver1') setForm((f) => ({ ...f, driver1_id: driverId, driver1_name: d?.nickname ?? d?.driver_name ?? '' }))
-    else setForm((f) => ({ ...f, driver2_id: driverId, driver2_name: d?.nickname ?? d?.driver_name ?? '' }))
-  }
+  const updateRow = (routeId: number, patch: Partial<GridRow>) =>
+    setGridRows((g) => ({ ...g, [routeId]: { ...(g[routeId] ?? makeEmptyGridRow()), ...patch } }))
 
-  const onHelperChange = (helperId: string) => {
-    const h = helpers.find((x) => String(x.id) === helperId)
-    setForm((f) => ({ ...f, helper_id: helperId, helper_name: h?.helper_name ?? '' }))
-  }
+  const filledRoutes = busRoutes.filter((r) => !existingByRoute[String(r.id)] && gridRows[r.id]?.status !== 'Halt' && gridRows[r.id]?.bus_no)
+  const incompleteRoutes = filledRoutes.filter((r) => {
+    const row = gridRows[r.id]
+    if (!row?.driver1_name || !row?.paid_to_name) return true
+    if (parseFloat(row.amount || '') > 0 && (!row.debit_ledger_id || !row.credit_ledger_id)) return true
+    return false
+  })
 
-  const onConductorChange = (id: string) => {
-    const c = conductors.find((x) => String(x.id) === id)
-    setForm((f) => ({ ...f, conductor_id: id, conductor_name: c?.nickName ?? c?.fullName ?? '' }))
-  }
-
-  const onPaidToChange = (val: string) => {
-    const p = paidToList.find((x) => `${x.paid_to_id}_${x.paid_to_type}` === val)
-    setForm((f) => ({ ...f, paid_to_id: String(p?.paid_to_id ?? ''), paid_to_name: p?.paid_to_name ?? '', paid_to_type: p?.paid_to_type ?? '' }))
-  }
-
-  const { mutate: createTrip, isPending } = useMutation({
-    mutationFn: () => tripsService.createTrip({
-      ...form,
-      type: 'add',
-      created_id: localStorage.getItem('user_id'),
-      created_name: localStorage.getItem('usr_nm'),
-      user_id: localStorage.getItem('user_id'),
-      usr_nm: localStorage.getItem('usr_nm'),
-    }),
-    onSuccess: (res) => {
+  const { mutate: submitGrid, isPending: submittingGrid } = useMutation({
+    mutationFn: () => {
+      const rows = filledRoutes.map((r) => {
+        const row = gridRows[r.id]
+        return {
+          service_no: r.serviceNo, service_no_id: r.id,
+          trip_for: r.serviceFor, trip_for_id: r.service_for_id,
+          bus_no: row.bus_no,
+          driver1_id: row.driver1_id, driver1_name: row.driver1_name,
+          driver2_id: row.driver2_id, driver2_name: row.driver2_name,
+          helper_id: row.helper_id, helper_name: row.helper_name,
+          conductor_id: row.conductor_id, conductor_name: row.conductor_name,
+          paid_to_id: row.paid_to_id, paid_to_name: row.paid_to_name, paid_to_type: row.paid_to_type,
+          debit_ledger_id: row.debit_ledger_id, debit_ledger_name: row.debit_ledger_name,
+          credit_ledger_id: row.credit_ledger_id, credit_ledger_name: row.credit_ledger_name,
+          amount: row.amount,
+          remarks: row.remarks, trip_run_status: row.status,
+        }
+      })
+      return tripsService.bulkCreateTrips({
+        trip_date: tripDate, rows,
+        user_id: localStorage.getItem('user_id'),
+        usr_nm: localStorage.getItem('usr_nm'),
+      })
+    },
+    onSuccess: (res: any) => {
       if (res.status === 200) {
-        toast.success(`Trip created — ${res.data?.c_number ?? ''}`)
+        toast.success(`${res.data?.inserted ?? 0} trip(s) created for ${tripDate}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
-        setForm({ ...EMPTY, trip_date: form.trip_date })
-        setShowForm(false)
-      } else toast.error('Failed to create trip')
+        setGridRows({})
+      } else toast.error('Failed to create trips')
     },
     onError: () => toast.error('Server error'),
   })
 
-  const canSubmit = form.trip_date && form.bus_no && form.service_no && form.trip_for && form.driver1_name && form.paid_to_name
+  const addVanRow = () => setVanRows((rows) => [...rows, makeEmptyVanRow()])
+  const removeVanRow = (i: number) => setVanRows((rows) => rows.filter((_, idx) => idx !== i))
+  const updateVanRow = (i: number, patch: Partial<VanRow>) =>
+    setVanRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+
+  const readyVanRows = vanRows
+    .map((row, i) => ({ row, i }))
+    .filter(({ row }) => row.status !== 'Halt' && row.bus_no && row.driver_name && row.hirer_name)
+  const incompleteVanRows = readyVanRows.filter(({ row }) => parseFloat(row.booking_amount || '') > 0 && !row.credit_ledger_id)
+
+  const { mutate: submitVanRows, isPending: submittingVan } = useMutation({
+    mutationFn: () => {
+      const rows = readyVanRows.map(({ row }) => ({
+        vehicle_type: 'van', line_code: row.line_code, bus_no: row.bus_no,
+        driver1_id: row.driver_id, driver1_name: row.driver_name,
+        hirer_name: row.hirer_name, phone_number: row.phone_number, booking_amount: row.booking_amount,
+        debit_ledger_id: row.debit_ledger_id, debit_ledger_name: row.debit_ledger_name,
+        credit_ledger_id: row.credit_ledger_id, credit_ledger_name: row.credit_ledger_name,
+        remarks: row.remarks, trip_run_status: row.status,
+      }))
+      return tripsService.bulkCreateTrips({
+        trip_date: tripDate, rows,
+        user_id: localStorage.getItem('user_id'),
+        usr_nm: localStorage.getItem('usr_nm'),
+      })
+    },
+    onSuccess: (res: any) => {
+      if (res.status === 200) {
+        toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}`)
+        qc.invalidateQueries({ queryKey: ['trips'] })
+        setVanRows([])
+      } else toast.error('Failed to create trips')
+    },
+    onError: () => toast.error('Server error'),
+  })
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
-      <PageHeader title="Trip Related Reports" subtitle="Create and manage trip assignments" />
+      <div className="flex justify-between items-end">
+        <PageHeader title="Trip Related Reports" subtitle="Create and manage trip assignments" />
+        <Button
+          variant={showGrid ? 'danger' : 'teal'}
+          onClick={() => setShowGrid((v) => !v)}
+        >
+          {showGrid ? <><X className="w-4 h-4" /> Close</> : <><Plus className="w-4 h-4" /> Create Trips</>}
+        </Button>
+      </div>
 
-      {/* ── Filter bar + Create button ── */}
-      <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
-        <div className="flex items-end gap-3 flex-wrap">
-          <div>
-            <Label>From Date</Label>
-            <Input type="date" max={today} value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-36" />
-          </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" max={today} value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-36" />
-          </div>
-          <Button
-            variant="primary"
-            onClick={() => setApplied({ from: fromDate, to: toDate })}
-          >
-            <Search className="w-4 h-4" /> Apply Filter
-          </Button>
-          <button
-            onClick={() => { setFromDate(''); setToDate(''); setApplied({ from: '', to: '' }) }}
-            className="text-xs text-slate-500 hover:text-red-500 font-medium underline"
-          >
-            Clear
-          </button>
-
-          <div className="ml-auto">
-            <Button
-              variant={showForm ? 'danger' : 'teal'}
-              onClick={() => setShowForm((v) => !v)}
-            >
-              {showForm ? <><X className="w-4 h-4" /> Close Form</> : <><Plus className="w-4 h-4" /> Create Trip</>}
-            </Button>
-          </div>
-        </div>
-
-        {/* Active filter badge */}
-        {(applied.from || applied.to) && (
-          <div className="flex items-center gap-2 mt-3">
-            <Filter className="w-3.5 h-3.5 text-blue-500" />
-            <span className="text-xs font-semibold text-blue-600">
-              Showing {filteredTrips.length} of {allTrips.length} trips
-              {applied.from && ` from ${applied.from}`}
-              {applied.to && ` to ${applied.to}`}
-            </span>
-          </div>
-        )}
-      </GlassCard>
-
-      {/* ── Trip Creation Form (shown on button click) ── */}
+      {/* ── Daily Trip Sheet: date + per-service-route grid ── */}
       <AnimatePresence>
-        {showForm && (
+        {showGrid && (
           <motion.div
-            key="form"
+            key="grid"
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
@@ -228,107 +318,314 @@ export default function TripCreationPage() {
             <GlassCard className="p-6" colorBar="bg-gradient-to-r from-blue-500 to-indigo-500">
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Map className="w-5 h-5 text-blue-500" /> Create New Trip
+                  <Map className="w-5 h-5 text-blue-500" /> Daily Trip Sheet
                 </h2>
-                <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                <button onClick={() => setShowGrid(false)} className="text-slate-400 hover:text-red-500 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Row 1 */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div>
+              <TopNavTabs tabs={['Bus', 'Van']} activeTab={vehicleType} onChange={(t) => setVehicleType(t as 'Bus' | 'Van')} />
+
+              <div className="mb-5 flex items-end gap-4 flex-wrap">
+                <div className="max-w-xs">
                   <Label>Trip Date <span className="text-red-500">*</span></Label>
-                  <Input type="date" max={today} value={form.trip_date} onChange={(e) => set('trip_date', e.target.value)} />
+                  <div className="relative">
+                    <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    <Input type="date" max={today} value={tripDate} onChange={(e) => setTripDate(e.target.value)} className="pl-9" />
+                  </div>
                 </div>
-                <div>
-                  <Label>Bus Number <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.bus_no} onChange={(v) => set('bus_no', v)} onClear={() => clear('bus_no')}>
-                    <option value="">Select</option>
-                    {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>Service Number <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.service_no_id} onChange={onServiceNoChange} onClear={() => setForm((f) => ({ ...f, service_no: '', service_no_id: '' }))}>
-                    <option value="">Select</option>
-                    {filteredRoutes.map((r) => <option key={r.id} value={r.id}>{r.serviceNo} — {r.fromCity} → {r.toCity}</option>)}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>Service For <span className="text-red-500">*</span></Label>
-                  <select value={form.trip_for}
-                    onChange={(e) => setForm((f) => ({ ...f, trip_for: e.target.value, service_no: '', service_no_id: '', trip_for_id: '' }))}
-                    className="w-full h-10 pl-3 pr-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400">
-                    <option value="">Select</option>
-                    {serviceForList.map((s) => <option key={s as string} value={s as string}>{s as string}</option>)}
-                  </select>
-                </div>
+                {vehicleType === 'Bus' && (
+                  <div className="max-w-xs">
+                    <Label>Service For</Label>
+                    <Select value={serviceForFilter} onChange={(e) => setServiceForFilter(e.target.value)}>
+                      <option value="">All</option>
+                      {serviceForOptions.map((s) => <option key={s as string} value={s as string}>{s as string}</option>)}
+                    </Select>
+                  </div>
+                )}
               </div>
 
-              {/* Row 2 */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-                <div>
-                  <Label>Driver1 Name <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.driver1_id} onChange={(v) => onDriverChange('driver1', v)} onClear={() => setForm((f) => ({ ...f, driver1_id: '', driver1_name: '' }))}>
-                    <option value="">Select</option>
-                    {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                  </ClearSelect>
+              {vehicleType === 'Van' ? (
+                <>
+                  <div className="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="sticky top-0 z-10 text-left text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                          <th className="py-2.5 px-3 w-12">Sl.No</th>
+                          <th className="py-2.5 px-3 w-36">Line Code</th>
+                          <th className="py-2.5 px-3 w-24">Status</th>
+                          <th className="py-2.5 px-3 w-44">Bus No</th>
+                          <th className="py-2.5 px-3 w-48">Driver</th>
+                          <th className="py-2.5 px-3 w-40">Hirer Name</th>
+                          <th className="py-2.5 px-3 w-32">Mobile</th>
+                          <th className="py-2.5 px-3 w-28">Amount</th>
+                          <th className="py-2.5 px-3 w-80">Debit Ledger</th>
+                          <th className="py-2.5 px-3 w-80">Credit Ledger</th>
+                          <th className="py-2.5 px-3 w-36">Remarks</th>
+                          <th className="py-2.5 px-3 w-10" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vanRows.length === 0 ? (
+                          <tr><td colSpan={12} className="py-6 text-center text-sm text-slate-400">No rows yet — click "+ Add Row" to start a van trip entry.</td></tr>
+                        ) : vanRows.map((row, i) => {
+                          const isHalt = row.status === 'Halt'
+                          return (
+                            <tr key={i} className="border-b border-slate-100 align-top">
+                              <td className="py-2 px-3 text-slate-500">{i + 1}</td>
+                              <td className="py-2 px-3">
+                                <MasterListPicker panelId={`van-line-code-panel-${i}`} queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
+                                  valueKey="line_code" value={row.line_code} onChange={(v) => updateVanRow(i, { line_code: v })} placeholder="Select" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <select
+                                  value={row.status}
+                                  onChange={(e) => updateVanRow(i, { status: e.target.value as 'Running' | 'Halt' })}
+                                  className="w-full h-9 rounded-lg border border-slate-200 bg-white text-xs px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                                >
+                                  <option value="Running">Running</option>
+                                  <option value="Halt">Halt</option>
+                                </select>
+                              </td>
+                              <td className="py-2 px-3">
+                                <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.bus_no} onChange={(v) => updateVanRow(i, { bus_no: v })} onClear={() => updateVanRow(i, { bus_no: '' })}>
+                                  <option value="">Select</option>
+                                  {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
+                                </ClearSelect>
+                              </td>
+                              <td className="py-2 px-3">
+                                <ClearSelect disabled={isHalt} className="min-w-[12rem]" value={row.driver_id}
+                                  onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateVanRow(i, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                  onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })}>
+                                  <option value="">Select</option>
+                                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                                </ClearSelect>
+                              </td>
+                              <td className="py-2 px-3">
+                                <Input disabled={isHalt} value={row.hirer_name} onChange={(e) => updateVanRow(i, { hirer_name: e.target.value })}
+                                  placeholder="Name" className="h-9 text-xs" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <Input disabled={isHalt} inputMode="numeric" maxLength={10} value={row.phone_number}
+                                  onChange={(e) => updateVanRow(i, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                                  placeholder="Mobile" className="h-9 text-xs" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <Input disabled={isHalt} inputMode="numeric" value={row.booking_amount}
+                                  onChange={(e) => updateVanRow(i, { booking_amount: e.target.value.replace(/\D/g, '') })}
+                                  placeholder="Amount" className="h-9 text-xs" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <SearchableSelect disabled={isHalt} value={row.debit_ledger_id} className="min-w-[20rem]"
+                                  onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateVanRow(i, { debit_ledger_id: v, debit_ledger_name: l?.label ?? '' }) }}
+                                  options={ledgerOptions} placeholder="Auto (hirer)" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <SearchableSelect disabled={isHalt} value={row.credit_ledger_id} className="min-w-[20rem]"
+                                  onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateVanRow(i, { credit_ledger_id: v, credit_ledger_name: l?.label ?? '' }) }}
+                                  options={ledgerOptions} placeholder="Select ledger…" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <Input disabled={isHalt} value={row.remarks} onChange={(e) => updateVanRow(i, { remarks: e.target.value })}
+                                  placeholder="Remarks" className="h-9 text-xs" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <button onClick={() => removeVanRow(i)} className="text-slate-300 hover:text-red-500 transition-colors">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {incompleteVanRows.length > 0 && (
+                    <p className="text-xs font-semibold text-amber-600 text-center mt-3">
+                      {incompleteVanRows.length} row(s) have an amount but no Credit Ledger selected
+                    </p>
+                  )}
+                  <div className="flex items-center justify-center gap-3 mt-3">
+                    <Button variant="ghost" onClick={addVanRow}>
+                      <Plus className="w-4 h-4" /> Add Row
+                    </Button>
+                    <Button
+                      onClick={() => submitVanRows()}
+                      disabled={submittingVan || readyVanRows.length === 0 || incompleteVanRows.length > 0}
+                      className="px-14 text-base h-11"
+                    >
+                      <Save className="w-4 h-4" />
+                      {submittingVan ? 'Submitting…' : `Submit ${readyVanRows.length > 0 ? `(${readyVanRows.length})` : ''}`}
+                    </Button>
+                  </div>
+                </>
+              ) : busRoutes.length === 0 ? (
+                <p className="text-sm text-slate-400 py-6 text-center">No Bus service routes found — add one under Masters → Service Routes first.</p>
+              ) : (
+                <div className="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="sticky top-0 z-10 text-left text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                        <th className="py-2.5 px-3">Service No</th>
+                        <th className="py-2.5 px-3 w-24">Status</th>
+                        <th className="py-2.5 px-3 w-44">Bus No</th>
+                        <th className="py-2.5 px-3 w-48">Driver 1</th>
+                        <th className="py-2.5 px-3 w-48">Driver 2</th>
+                        <th className="py-2.5 px-3 w-44">Helper</th>
+                        <th className="py-2.5 px-3 w-44">Conductor</th>
+                        <th className="py-2.5 px-3 w-56">Paid To</th>
+                        <th className="py-2.5 px-3 w-28">Amount</th>
+                        <th className="py-2.5 px-3 w-80">Debit Ledger</th>
+                        <th className="py-2.5 px-3 w-80">Credit Ledger</th>
+                        <th className="py-2.5 px-3 w-36">Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {busRoutes.map((r) => {
+                        const existing = existingByRoute[String(r.id)]
+                        if (existing) {
+                          return (
+                            <tr key={r.id} className="border-b border-slate-100 bg-emerald-50/40">
+                              <td className="py-2 px-3">
+                                <div className="font-semibold text-slate-700">{r.serviceNo}</div>
+                                <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
+                              </td>
+                              <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
+                              <td className="py-2 px-3 font-medium">{existing.bus_no || '—'}</td>
+                              <td className="py-2 px-3 text-slate-600">{existing.driver1_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.driver2_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.helper_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.conductor_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-600 text-xs">{existing.paid_to_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-600 text-xs">{existing.booking_amount ? Number(existing.booking_amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.debit_ledger_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.credit_ledger_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
+                            </tr>
+                          )
+                        }
+                        const row = gridRows[r.id] ?? makeEmptyGridRow()
+                        const isHalt = row.status === 'Halt'
+                        return (
+                          <tr key={r.id} className="border-b border-slate-100 align-top">
+                            <td className="py-2 px-3">
+                              <div className="font-semibold text-slate-700">{r.serviceNo}</div>
+                              <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
+                            </td>
+                            <td className="py-2 px-3">
+                              <select
+                                value={row.status}
+                                onChange={(e) => updateRow(r.id, { status: e.target.value as 'Running' | 'Halt' })}
+                                className="w-full h-9 rounded-lg border border-slate-200 bg-white text-xs px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                              >
+                                <option value="Running">Running</option>
+                                <option value="Halt">Halt</option>
+                              </select>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })}>
+                                <option value="">Select</option>
+                                {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect disabled={isHalt} className="min-w-[12rem]" value={row.driver1_id}
+                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver1_id: v, driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })}>
+                                <option value="">Select</option>
+                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect disabled={isHalt} className="min-w-[12rem]" value={row.driver2_id}
+                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver2_id: v, driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })}>
+                                <option value="">Select</option>
+                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.helper_id}
+                                onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { helper_id: v, helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
+                                onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })}>
+                                <option value="">Select</option>
+                                {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.conductor_id}
+                                onChange={(v) => { const c = conductors.find((x) => String(x.id) === v); updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
+                                onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })}>
+                                <option value="">Select</option>
+                                {conductors.map((c) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect disabled={isHalt} className="min-w-[13rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
+                                onChange={(v) => {
+                                  const p = paidToList.find((x) => `${x.paid_to_id}_${x.paid_to_type}` === v)
+                                  const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
+                                  updateRow(r.id, {
+                                    paid_to_id: String(p?.paid_to_id ?? ''), paid_to_name: p?.paid_to_name ?? '', paid_to_type: p?.paid_to_type ?? '', paid_to_ledger_id: ledgerId,
+                                    debit_ledger_id: ledgerId, debit_ledger_name: p?.paid_to_name ?? '',
+                                  })
+                                }}
+                                onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '', debit_ledger_id: '', debit_ledger_name: '' })}>
+                                <option value="">Select</option>
+                                {paidToList.map((p) => (
+                                  <option key={`${p.paid_to_id}_${p.paid_to_type}`} value={`${p.paid_to_id}_${p.paid_to_type}`}>
+                                    {p.paid_to_name} ({p.paid_to_type})
+                                  </option>
+                                ))}
+                              </ClearSelect>
+                              <PaidToBalance ledgerId={row.paid_to_ledger_id} />
+                            </td>
+                            <td className="py-2 px-3">
+                              <Input disabled={isHalt} inputMode="numeric" value={row.amount}
+                                onChange={(e) => updateRow(r.id, { amount: e.target.value.replace(/[^0-9.]/g, '') })}
+                                placeholder="Amount" className="h-9 text-xs" />
+                            </td>
+                            <td className="py-2 px-3">
+                              <SearchableSelect disabled={isHalt} value={row.debit_ledger_id} className="min-w-[20rem]"
+                                onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateRow(r.id, { debit_ledger_id: v, debit_ledger_name: l?.label ?? '' }) }}
+                                options={ledgerOptions} placeholder="Select ledger…" />
+                            </td>
+                            <td className="py-2 px-3">
+                              <SearchableSelect disabled={isHalt} value={row.credit_ledger_id} className="min-w-[20rem]"
+                                onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateRow(r.id, { credit_ledger_id: v, credit_ledger_name: l?.label ?? '' }) }}
+                                options={ledgerOptions} placeholder="Select ledger…" />
+                            </td>
+                            <td className="py-2 px-3">
+                              <Input disabled={isHalt} value={row.remarks} onChange={(e) => updateRow(r.id, { remarks: e.target.value })}
+                                placeholder="Remarks" className="h-9 text-xs" />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-                <div>
-                  <Label>Drive2 Name</Label>
-                  <ClearSelect value={form.driver2_id} onChange={(v) => onDriverChange('driver2', v)} onClear={() => setForm((f) => ({ ...f, driver2_id: '', driver2_name: '' }))}>
-                    <option value="">Select</option>
-                    {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>Helper Name <span className="text-red-500">*</span></Label>
-                  <ClearSelect value={form.helper_id} onChange={onHelperChange} onClear={() => setForm((f) => ({ ...f, helper_id: '', helper_name: '' }))}>
-                    <option value="">Select</option>
-                    {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>Conductor Name</Label>
-                  <ClearSelect value={form.conductor_id} onChange={onConductorChange} onClear={() => setForm((f) => ({ ...f, conductor_id: '', conductor_name: '' }))}>
-                    <option value="">Select</option>
-                    {conductors.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>
-                    ))}
-                  </ClearSelect>
-                </div>
-                <div>
-                  <Label>Paid To <span className="text-red-500">*</span></Label>
-                  <ClearSelect
-                    value={form.paid_to_id ? `${form.paid_to_id}_${form.paid_to_type}` : ''}
-                    onChange={onPaidToChange}
-                    onClear={() => setForm((f) => ({ ...f, paid_to_id: '', paid_to_name: '', paid_to_type: '' }))}
+              )}
+
+              {vehicleType === 'Bus' && (
+                <div className="flex items-center justify-center gap-3 mt-6">
+                  {incompleteRoutes.length > 0 && (
+                    <span className="text-xs font-semibold text-amber-600">
+                      {incompleteRoutes.length} row(s) need Driver 1 + Paid To, or an Amount without both ledgers set
+                    </span>
+                  )}
+                  <Button
+                    onClick={() => submitGrid()}
+                    disabled={submittingGrid || filledRoutes.length === 0 || incompleteRoutes.length > 0}
+                    className="px-14 text-base h-11"
                   >
-                    <option value="">Select</option>
-                    {paidToList.map((p) => (
-                      <option key={`${p.paid_to_id}_${p.paid_to_type}`} value={`${p.paid_to_id}_${p.paid_to_type}`}>
-                        {p.paid_to_name} ({p.paid_to_type})
-                      </option>
-                    ))}
-                  </ClearSelect>
+                    <Save className="w-4 h-4" />
+                    {submittingGrid ? 'Submitting…' : `Submit ${filledRoutes.length > 0 ? `(${filledRoutes.length})` : ''}`}
+                  </Button>
                 </div>
-              </div>
-
-              {/* Row 3: Remarks */}
-              <div className="mb-5">
-                <Label>Remarks</Label>
-                <textarea rows={3} placeholder="Enter remarks" value={form.remarks}
-                  onChange={(e) => set('remarks', e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-none" />
-              </div>
-
-              <div className="flex justify-center">
-                <Button onClick={() => createTrip()} disabled={isPending || !canSubmit} className="px-14 text-base h-11">
-                  <Save className="w-4 h-4" />
-                  {isPending ? 'Submitting…' : 'Submit'}
-                </Button>
-              </div>
+              )}
             </GlassCard>
           </motion.div>
         )}
@@ -336,13 +633,15 @@ export default function TripCreationPage() {
 
       {/* ── Trip Records Table ── */}
       <DataTable
-        title={`Trip Records ${filteredTrips.length !== allTrips.length ? `(${filteredTrips.length} filtered)` : `(${allTrips.length})`}`}
+        title={`Trip Records (${allTrips.length})`}
         columns={columns}
-        data={filteredTrips}
+        data={allTrips}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
         icon={<Map className="w-5 h-5 text-blue-500" />}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
     </motion.div>
   )

@@ -68,10 +68,10 @@ export default function ServiceForPage() {
           <h3 className="font-bold text-slate-900 text-lg">Service For List</h3>
           <span className="text-xs text-slate-500 font-medium">{isLoading ? 'Loading…' : `${list.length} record${list.length !== 1 ? 's' : ''}`}</span>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/60">
+              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/60">
                 <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-24 text-center">S.NO</th>
                 <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Service For</th>
                 <th className="px-6 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right pr-8">Actions</th>

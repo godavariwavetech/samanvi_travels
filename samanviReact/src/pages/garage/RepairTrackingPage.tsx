@@ -1022,7 +1022,7 @@ export default function RepairTrackingPage() {
             </span>
           )}
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
@@ -1038,7 +1038,7 @@ export default function RepairTrackingPage() {
                   { label: 'Status' },
                   { label: 'Action' },
                 ] as { label: string; fk?: string }[]).map(({ label, fk }) => (
-                  <th key={label} className="px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
+                  <th key={label} className="sticky top-0 z-10 px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
                     <div className="flex items-center gap-1.5">
                       <span>{label}</span>
                       {fk && (
@@ -1274,9 +1274,10 @@ export default function RepairTrackingPage() {
                   <div>
                     <h4 className="text-sm font-bold text-slate-700 mb-3">Spare Parts Used</h4>
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="overflow-auto max-h-64">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200">
+                          <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
                             <th className="px-3 py-2 text-left text-slate-500 font-bold">#</th>
                             <th className="px-3 py-2 text-left text-slate-500 font-bold">Part Name</th>
                             <th className="px-3 py-2 text-right text-slate-500 font-bold">Qty</th>
@@ -1304,6 +1305,7 @@ export default function RepairTrackingPage() {
                           </tr>
                         </tfoot>
                       </table>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1466,9 +1468,10 @@ export default function RepairTrackingPage() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-700 mb-3">Parts Used</h4>
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className="overflow-auto max-h-64">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200">
+                        <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
                           <th className="px-3 py-2 text-left text-xs font-bold text-slate-600">Part</th>
                           <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Qty</th>
                           <th className="px-3 py-2 text-right text-xs font-bold text-slate-600">Rate</th>
@@ -1492,6 +1495,7 @@ export default function RepairTrackingPage() {
                         </tr>
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 </div>
               )}

@@ -1,6 +1,11 @@
 var express = require('express');
 const cron = require("node-cron");
 var app = express();
+// Behind a reverse proxy (typical cPanel/Apache Node.js app setup) the proxy
+// terminates TLS and forwards plain HTTP internally — without this, req.protocol
+// always reports 'http' even on the live https:// site, which would make
+// getImageBaseUrl() (mainCtrl.js) build http:// image URLs on an https:// page.
+app.set('trust proxy', true);
 const helmet = require('helmet'); // Security headers
 var bodyParser = require('body-parser');
 var useragent = require('express-useragent');

@@ -351,13 +351,19 @@ export function DataTable<T extends Record<string, unknown>>({
         </div>
       )}
 
-      {/* Table */}
-      <div ref={scrollBodyRef} onScroll={topScrollbar ? handleBodyScroll : undefined} className="overflow-x-auto scrollbar-thin">
+      {/* Table — bounded height + overflow-auto (not just overflow-x) is required for the
+          sticky header below to actually work: overflow-x-auto alone still makes the browser
+          compute overflow-y as auto too (CSS spec quirk), which silently redirects the sticky
+          thead's positioning context to this div — but since an unbounded div always grows to
+          fit its content, it never actually scrolls, so the header just scrolled away with the
+          page instead of sticking. Giving it a real height + overflow-y makes the scrolling
+          (and the sticky header) happen inside the table itself. */}
+      <div ref={scrollBodyRef} onScroll={topScrollbar ? handleBodyScroll : undefined} className="overflow-auto scrollbar-thin max-h-[70vh]">
         <table className="w-full text-left border-collapse min-w-[700px]">
           <thead>
             <tr className="bg-blue-600 text-white [&>th:first-child]:rounded-tl-xl [&>th:last-child]:rounded-tr-xl">
               {selectable && (
-                <th className="pl-5 pr-2 py-4 w-10">
+                <th className="sticky top-0 z-10 bg-blue-600 pl-5 pr-2 py-4 w-10">
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -369,7 +375,7 @@ export function DataTable<T extends Record<string, unknown>>({
               {columns.map((col, i) => (
                 <th
                   key={i}
-                  className={`p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${alignText[col.align ?? 'left']} ${!selectable && i === 0 ? 'pl-6' : ''}`}
+                  className={`sticky top-0 z-10 bg-blue-600 p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${alignText[col.align ?? 'left']} ${!selectable && i === 0 ? 'pl-6' : ''}`}
                 >
                   <div className={`flex items-center gap-1.5 ${alignJustify[col.align ?? 'left']}`}>
                     {col.label}
@@ -385,7 +391,7 @@ export function DataTable<T extends Record<string, unknown>>({
                 </th>
               ))}
               {actionButtons.length > 0 && (
-                <th className="p-4 text-right pr-6 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap w-[220px]">
+                <th className="sticky top-0 z-10 bg-blue-600 p-4 text-right pr-6 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap w-[220px]">
                   Actions
                 </th>
               )}
