@@ -167,7 +167,7 @@ function TerminateModal({ person, staffType, onConfirm, onClose, isPending }: {
 type ViewField = [label: string, key: string]
 
 const DRIVER_VIEW_FIELDS: ViewField[] = [
-  ['Driver ID', 'driver_id_number'], ['Driver Type', 'driver_type'], ['Aadhar Name', 'nickname'], ['Aadhar Number', 'aadhar_number'],
+  ['Driver ID', 'driver_id_number'], ['Aadhar Name', 'nickname'], ['Aadhar Number', 'aadhar_number'],
   ['Date of Birth', 'dldateofbirth'], ['Mobile Number', 'mobile_number'], ['Alternate Mobile', 'alternate_number'],
   ['Emergency Number', 'emergency_mobile_number'], ['Date of Joining', 'date_of_joining'], ['Referred By', 'reference'],
   ['Address', 'address'], ['DL Name', 'driver_name'], ['DL Number', 'dl_number'],
@@ -356,10 +356,9 @@ const emptyDriver = {
   date_of_joining: '', account_holder_name: '', branch_name: '', upi_id: '',
   dldateofbirth: '', drivinglicense_joining_date: '', transportoneissuedate: '',
   transportvalidityfrom: '', transportvalidityto: '', remarks: '', address: '',
-  dl_issued_by: '', dl_dob: '', dl_linked_mobile: '', driver_type: '',
+  dl_issued_by: '', dl_dob: '', dl_linked_mobile: '',
 }
 
-const DRIVER_TYPES = ['Bus Operating Driver', 'Salaried Driver']
 const emptyHelper = {
   helper_name: '', mobile_number: '', adhar_number: '', account_number: '',
   ifsc_code: '', bank_name: '', nickname: '', emergency_mobile_number: '',
@@ -764,7 +763,6 @@ export default function StaffPage() {
   const driverCols: Column[] = [
     slNoCol,
     { label: 'Driver ID', key: 'driver_id_number', filterable: true },
-    { label: 'Driver Type', key: 'driver_type', filterable: true, render: (v) => v ? <Badge variant={v === 'Bus Operating Driver' ? 'purple' : 'info'}>{String(v)}</Badge> : <span className="text-slate-300">—</span> },
     { label: 'Aadhar Name', key: 'nickname', filterable: true },
     { label: 'Mobile Number', key: 'mobile_number', filterable: true },
     { label: 'DL Name', key: 'driver_name', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
@@ -933,12 +931,6 @@ export default function StaffPage() {
                 <div className="space-y-5">
                   <SectionBox title="Personal Details">
                     <div><Label>Aadhar Name <span className="text-red-500">*</span></Label><Input value={driverForm.nickname} onChange={df('nickname')} /></div>
-                    <div><Label>Driver Type <span className="text-red-500">*</span></Label>
-                      <Select value={driverForm.driver_type} onChange={df('driver_type')}>
-                        <option value="">Select…</option>
-                        {DRIVER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </Select>
-                    </div>
                     <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={driverForm.aadhar_number} onChange={digitsOnly(setDriverForm, 'aadhar_number', 12)} /></div>
                     <div><Label>Date of Birth</Label><Input type="date" max={today} value={driverForm.dldateofbirth} onChange={df('dldateofbirth')} /></div>
                     <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={driverForm.mobile_number} onChange={digitsOnly(setDriverForm, 'mobile_number', 10)} /></div>
@@ -1064,7 +1056,7 @@ export default function StaffPage() {
 
               <div className="flex gap-3 mt-6">
                 {(dataType === 'Staff' || isCustomType) && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
-                {dataType === 'Driver' && <Button onClick={() => addDriver()} disabled={addingDriver || !driverForm.driver_name || !driverForm.nickname || !driverForm.driver_type}><Save className="w-4 h-4" />{addingDriver ? 'Saving…' : 'Save Driver'}</Button>}
+                {dataType === 'Driver' && <Button onClick={() => addDriver()} disabled={addingDriver || !driverForm.driver_name || !driverForm.nickname}><Save className="w-4 h-4" />{addingDriver ? 'Saving…' : 'Save Driver'}</Button>}
                 {dataType === 'Helper' && <Button onClick={() => addHelper()} disabled={addingHelper || !helperForm.helper_name}><Save className="w-4 h-4" />{addingHelper ? 'Saving…' : 'Save Helper'}</Button>}
                 <Button variant="ghost" onClick={() => setShowForm(false)}><X className="w-4 h-4" /> Cancel</Button>
               </div>

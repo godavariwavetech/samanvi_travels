@@ -915,6 +915,7 @@ exports.driverone = function (data, callback) {
     bus_operator_id: data.bus_operator_id || null,
     bus_operator_name: data.bus_operator_name || null,
     trip_type: data.trip_type || null,
+    up_down: data.up_down || null,
   };
   //console.log()dta, 400);
   // var QRY_TO_EXEC = `insert into  driverone (name,mobile_number,cts) VALUES('${data.drive_one}','${data.mobile_number}','${date}')  `;
@@ -1213,7 +1214,6 @@ exports.adddriverregisterMdl = function (
       dl_issued_by: data.dl_issued_by || "",
       dl_dob: data.dl_dob || "",
       dl_linked_mobile: data.dl_linked_mobile || "",
-      driver_type: data.driver_type || "Salaried Driver",
     };
     const QRY_TO_EXEC = `INSERT INTO driver_register SET ?;`;
     if (callback && typeof callback === "function") {
@@ -1225,10 +1225,9 @@ exports.adddriverregisterMdl = function (
         function (err, results) {
           if (err) { callback(err, results); return; }
           // Best-effort: the driver record is already saved regardless of whether
-          // the ledger auto-creation below succeeds. Ledger container follows
-          // driver_type (Bus Operating Driver / Salaried Driver) instead of the
-          // old single shared "Drivers" container.
-          module.exports.ensurePersonLedger(dta.driver_type, data.driver_name, driverIdNumber, data.entryby, function (ledgerErr, ledgerId) {
+          // the ledger auto-creation below succeeds. Every driver lands under the
+          // single shared "Drivers" container — no more split by driver type.
+          module.exports.ensurePersonLedger("Drivers", data.driver_name, driverIdNumber, data.entryby, function (ledgerErr, ledgerId) {
             if (ledgerErr) {
               console.error("[ensurePersonLedger] failed for driver " + driverIdNumber + ":", ledgerErr.message);
               callback(err, results);
@@ -9594,7 +9593,7 @@ exports.updateservicenumber = function (data, callback) {
 exports.updateservicenoMdl = function (data, callback) {
   // console.log(data)
   var cntxtDtls = "in updateservicenoMdl";
-  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}' WHERE  id = '${data.id}'`;
+  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}',up_down='${data.up_down || ''}' WHERE  id = '${data.id}'`;
   //console.log()QRY_TO_EXEC, 10136)
   if (callback && typeof callback == "function")
     dbutil.execQuery(
@@ -9658,7 +9657,6 @@ exports.adddrivereditMdl = function (
     dl_issued_by: data.dl_issued_by || "",
     dl_dob: data.dl_dob || "",
     dl_linked_mobile: data.dl_linked_mobile || "",
-    driver_type: data.driver_type || "Salaried Driver",
     updatedby: data.usrnm,
     updateduser_id: data.entryby,
   };
@@ -9719,7 +9717,7 @@ exports.adddrivereditMdl = function (
           callback(err, results);
         });
       } else {
-        module.exports.ensurePersonLedger(dta.driver_type, data.driver_name, data.driver_id_number, data.entryby, function (ledgerErr, ledgerId) {
+        module.exports.ensurePersonLedger("Drivers", data.driver_name, data.driver_id_number, data.entryby, function (ledgerErr, ledgerId) {
           if (ledgerErr) {
             console.error("[ensurePersonLedger] backfill failed for driver " + data.driver_id_number + ":", ledgerErr.message);
             callback(err, results);

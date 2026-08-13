@@ -236,6 +236,10 @@ ensureColumn('service_schedules', 'days_interval', '`days_interval` int DEFAULT 
 ensureColumn('service_schedules', 'free_or_paid', "`free_or_paid` varchar(10) DEFAULT 'Free'");
 ensureColumn('driverone', 'optDriverSalary', '`optDriverSalary` VARCHAR(50) DEFAULT NULL');
 ensureColumn('driverone', 'optHelperSalary', '`optHelperSalary` VARCHAR(50) DEFAULT NULL');
+// Up/Down — manual per-route classification (Up = local Hyderabad buses, Down =
+// everything else), set once when the service number is created/edited, never
+// derived from fromCity/toCity.
+ensureColumn('driverone', 'up_down', "`up_down` VARCHAR(10) DEFAULT NULL");
 
 // Lubricants & Fluids — per-company change periodicities for engine oil,
 // coolant, gear oil etc., managed from Main Masters alongside Service Schedules.

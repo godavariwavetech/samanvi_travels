@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, CalendarDays, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
@@ -21,9 +21,6 @@ type GridRow = {
   helper_id: string; helper_name: string
   conductor_id: string; conductor_name: string
   paid_to_id: string; paid_to_name: string; paid_to_type: string; paid_to_ledger_id: string
-  debit_ledger_id: string; debit_ledger_name: string
-  credit_ledger_id: string; credit_ledger_name: string
-  amount: string
   remarks: string
 }
 
@@ -34,9 +31,7 @@ type VanRow = {
   line_code: string
   bus_no: string
   driver_id: string; driver_name: string
-  hirer_name: string; phone_number: string; booking_amount: string
-  debit_ledger_id: string; debit_ledger_name: string
-  credit_ledger_id: string; credit_ledger_name: string
+  hirer_name: string; phone_number: string
   remarks: string
 }
 
@@ -119,7 +114,7 @@ function ClearSelect({ value, onChange, onClear, disabled, className, children }
   return (
     <div className={cn('relative', className)}>
       <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
-        className="w-full h-9 pl-3 pr-8 rounded-lg border border-slate-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 appearance-none disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
+        className="w-full h-11 pl-3 pr-8 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 appearance-none disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
         {children}
       </select>
       {value && !disabled
@@ -148,7 +143,6 @@ export default function TripCreationPage() {
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: staffData } = useQuery({ queryKey: ['staff-all'], queryFn: () => mastersService.getStaff({}) })
   const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
-  const { data: ledgerNameData } = useQuery({ queryKey: ['ledger-names-trip'], queryFn: () => accountingService.getLedgerName() })
 
   const buses: any[] = (busData?.data ?? []).filter((b: any) => b.d_in === 0 && !b.issparetank)
   const allRoutes: any[] = routeData?.data ?? []
@@ -159,32 +153,18 @@ export default function TripCreationPage() {
   // casing varies by whoever entered it (e.g. "CONDUCTOR" vs "Conductor") —
   // match case-insensitively or real conductors silently vanish from this list.
   const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
-  const ledgerList: any[] = ledgerNameData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.ledger_id ?? l.id), label: l.temple_name || l.name || '' }))
-
-  // New rows default their credit ledger to one literally named Cash, if one
-  // exists — still editable per row. Debit ledger has no such generic default:
-  // Bus pre-fills it from the selected Paid-To person; Van leaves it blank
-  // (backend auto-resolves/creates the hirer's ledger by phone if left blank).
-  const cash = ledgerList.find((l: any) => (l.temple_name || l.name) === 'Cash')
-  const cashLedgerId = cash ? String(cash.ledger_id ?? cash.id) : ''
-  const cashLedgerName = cash ? (cash.temple_name || cash.name) : ''
 
   const makeEmptyGridRow = (): GridRow => ({
     status: 'Running', bus_no: '',
     driver1_id: '', driver1_name: '', driver2_id: '', driver2_name: '',
     helper_id: '', helper_name: '', conductor_id: '', conductor_name: '',
     paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '',
-    debit_ledger_id: '', debit_ledger_name: '',
-    credit_ledger_id: cashLedgerId, credit_ledger_name: cashLedgerName,
-    amount: '', remarks: '',
+    remarks: '',
   })
   const makeEmptyVanRow = (): VanRow => ({
     status: 'Running', line_code: '', bus_no: '',
     driver_id: '', driver_name: '',
-    hirer_name: '', phone_number: '', booking_amount: '',
-    debit_ledger_id: '', debit_ledger_name: '',
-    credit_ledger_id: cashLedgerId, credit_ledger_name: cashLedgerName,
+    hirer_name: '', phone_number: '',
     remarks: '',
   })
 
@@ -217,9 +197,7 @@ export default function TripCreationPage() {
   const filledRoutes = busRoutes.filter((r) => !existingByRoute[String(r.id)] && gridRows[r.id]?.status !== 'Halt' && gridRows[r.id]?.bus_no)
   const incompleteRoutes = filledRoutes.filter((r) => {
     const row = gridRows[r.id]
-    if (!row?.driver1_name || !row?.paid_to_name) return true
-    if (parseFloat(row.amount || '') > 0 && (!row.debit_ledger_id || !row.credit_ledger_id)) return true
-    return false
+    return !row?.driver1_name || !row?.paid_to_name
   })
 
   const { mutate: submitGrid, isPending: submittingGrid } = useMutation({
@@ -235,9 +213,6 @@ export default function TripCreationPage() {
           helper_id: row.helper_id, helper_name: row.helper_name,
           conductor_id: row.conductor_id, conductor_name: row.conductor_name,
           paid_to_id: row.paid_to_id, paid_to_name: row.paid_to_name, paid_to_type: row.paid_to_type,
-          debit_ledger_id: row.debit_ledger_id, debit_ledger_name: row.debit_ledger_name,
-          credit_ledger_id: row.credit_ledger_id, credit_ledger_name: row.credit_ledger_name,
-          amount: row.amount,
           remarks: row.remarks, trip_run_status: row.status,
         }
       })
@@ -265,16 +240,13 @@ export default function TripCreationPage() {
   const readyVanRows = vanRows
     .map((row, i) => ({ row, i }))
     .filter(({ row }) => row.status !== 'Halt' && row.bus_no && row.driver_name && row.hirer_name)
-  const incompleteVanRows = readyVanRows.filter(({ row }) => parseFloat(row.booking_amount || '') > 0 && !row.credit_ledger_id)
 
   const { mutate: submitVanRows, isPending: submittingVan } = useMutation({
     mutationFn: () => {
       const rows = readyVanRows.map(({ row }) => ({
         vehicle_type: 'van', line_code: row.line_code, bus_no: row.bus_no,
         driver1_id: row.driver_id, driver1_name: row.driver_name,
-        hirer_name: row.hirer_name, phone_number: row.phone_number, booking_amount: row.booking_amount,
-        debit_ledger_id: row.debit_ledger_id, debit_ledger_name: row.debit_ledger_name,
-        credit_ledger_id: row.credit_ledger_id, credit_ledger_name: row.credit_ledger_name,
+        hirer_name: row.hirer_name, phone_number: row.phone_number,
         remarks: row.remarks, trip_run_status: row.status,
       }))
       return tripsService.bulkCreateTrips({
@@ -349,28 +321,24 @@ export default function TripCreationPage() {
               {vehicleType === 'Van' ? (
                 <>
                   <div className="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
-                    <table className="w-full text-sm border-collapse">
+                    <table className="table-fixed w-max text-sm border-collapse">
                       <thead>
                         <tr className="sticky top-0 z-10 text-left text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
                           <th className="py-2.5 px-3 w-12">Sl.No</th>
-                          <th className="py-2.5 px-3 w-36">Line Code</th>
-                          <th className="py-2.5 px-3 w-24">Status</th>
-                          <th className="py-2.5 px-3 w-44">Bus No</th>
-                          <th className="py-2.5 px-3 w-48">Driver</th>
+                          <th className="py-2.5 px-3 w-44">Line Code</th>
+                          <th className="py-2.5 px-3 w-32">Status</th>
+                          <th className="py-2.5 px-3 w-52">Bus No</th>
+                          <th className="py-2.5 px-3 w-56">Driver</th>
                           <th className="py-2.5 px-3 w-40">Hirer Name</th>
                           <th className="py-2.5 px-3 w-32">Mobile</th>
-                          <th className="py-2.5 px-3 w-28">Amount</th>
-                          <th className="py-2.5 px-3 w-80">Debit Ledger</th>
-                          <th className="py-2.5 px-3 w-80">Credit Ledger</th>
-                          <th className="py-2.5 px-3 w-36">Remarks</th>
+                          <th className="py-2.5 px-3 w-80">Remarks</th>
                           <th className="py-2.5 px-3 w-10" />
                         </tr>
                       </thead>
                       <tbody>
                         {vanRows.length === 0 ? (
-                          <tr><td colSpan={12} className="py-6 text-center text-sm text-slate-400">No rows yet — click "+ Add Row" to start a van trip entry.</td></tr>
+                          <tr><td colSpan={9} className="py-6 text-center text-sm text-slate-400">No rows yet — click "+ Add Row" to start a van trip entry.</td></tr>
                         ) : vanRows.map((row, i) => {
-                          const isHalt = row.status === 'Halt'
                           return (
                             <tr key={i} className="border-b border-slate-100 align-top">
                               <td className="py-2 px-3 text-slate-500">{i + 1}</td>
@@ -382,20 +350,20 @@ export default function TripCreationPage() {
                                 <select
                                   value={row.status}
                                   onChange={(e) => updateVanRow(i, { status: e.target.value as 'Running' | 'Halt' })}
-                                  className="w-full h-9 rounded-lg border border-slate-200 bg-white text-xs px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                                  className="w-full h-11 rounded-lg border border-slate-200 bg-white text-sm px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                                 >
                                   <option value="Running">Running</option>
                                   <option value="Halt">Halt</option>
                                 </select>
                               </td>
                               <td className="py-2 px-3">
-                                <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.bus_no} onChange={(v) => updateVanRow(i, { bus_no: v })} onClear={() => updateVanRow(i, { bus_no: '' })}>
+                                <ClearSelect className="min-w-[13rem]" value={row.bus_no} onChange={(v) => updateVanRow(i, { bus_no: v })} onClear={() => updateVanRow(i, { bus_no: '' })}>
                                   <option value="">Select</option>
                                   {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
                                 </ClearSelect>
                               </td>
                               <td className="py-2 px-3">
-                                <ClearSelect disabled={isHalt} className="min-w-[12rem]" value={row.driver_id}
+                                <ClearSelect className="min-w-[14rem]" value={row.driver_id}
                                   onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateVanRow(i, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' }) }}
                                   onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })}>
                                   <option value="">Select</option>
@@ -403,32 +371,17 @@ export default function TripCreationPage() {
                                 </ClearSelect>
                               </td>
                               <td className="py-2 px-3">
-                                <Input disabled={isHalt} value={row.hirer_name} onChange={(e) => updateVanRow(i, { hirer_name: e.target.value })}
-                                  placeholder="Name" className="h-9 text-xs" />
+                                <Input value={row.hirer_name} onChange={(e) => updateVanRow(i, { hirer_name: e.target.value })}
+                                  placeholder="Name" className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
-                                <Input disabled={isHalt} inputMode="numeric" maxLength={10} value={row.phone_number}
+                                <Input inputMode="numeric" maxLength={10} value={row.phone_number}
                                   onChange={(e) => updateVanRow(i, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                                  placeholder="Mobile" className="h-9 text-xs" />
+                                  placeholder="Mobile" className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
-                                <Input disabled={isHalt} inputMode="numeric" value={row.booking_amount}
-                                  onChange={(e) => updateVanRow(i, { booking_amount: e.target.value.replace(/\D/g, '') })}
-                                  placeholder="Amount" className="h-9 text-xs" />
-                              </td>
-                              <td className="py-2 px-3">
-                                <SearchableSelect disabled={isHalt} value={row.debit_ledger_id} className="min-w-[20rem]"
-                                  onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateVanRow(i, { debit_ledger_id: v, debit_ledger_name: l?.label ?? '' }) }}
-                                  options={ledgerOptions} placeholder="Auto (hirer)" />
-                              </td>
-                              <td className="py-2 px-3">
-                                <SearchableSelect disabled={isHalt} value={row.credit_ledger_id} className="min-w-[20rem]"
-                                  onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateVanRow(i, { credit_ledger_id: v, credit_ledger_name: l?.label ?? '' }) }}
-                                  options={ledgerOptions} placeholder="Select ledger…" />
-                              </td>
-                              <td className="py-2 px-3">
-                                <Input disabled={isHalt} value={row.remarks} onChange={(e) => updateVanRow(i, { remarks: e.target.value })}
-                                  placeholder="Remarks" className="h-9 text-xs" />
+                                <Input value={row.remarks} onChange={(e) => updateVanRow(i, { remarks: e.target.value })}
+                                  placeholder="Remarks" className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
                                 <button onClick={() => removeVanRow(i)} className="text-slate-300 hover:text-red-500 transition-colors">
@@ -442,18 +395,13 @@ export default function TripCreationPage() {
                     </table>
                   </div>
 
-                  {incompleteVanRows.length > 0 && (
-                    <p className="text-xs font-semibold text-amber-600 text-center mt-3">
-                      {incompleteVanRows.length} row(s) have an amount but no Credit Ledger selected
-                    </p>
-                  )}
                   <div className="flex items-center justify-center gap-3 mt-3">
                     <Button variant="ghost" onClick={addVanRow}>
                       <Plus className="w-4 h-4" /> Add Row
                     </Button>
                     <Button
                       onClick={() => submitVanRows()}
-                      disabled={submittingVan || readyVanRows.length === 0 || incompleteVanRows.length > 0}
+                      disabled={submittingVan || readyVanRows.length === 0}
                       className="px-14 text-base h-11"
                     >
                       <Save className="w-4 h-4" />
@@ -465,21 +413,18 @@ export default function TripCreationPage() {
                 <p className="text-sm text-slate-400 py-6 text-center">No Bus service routes found — add one under Masters → Service Routes first.</p>
               ) : (
                 <div className="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
-                  <table className="w-full text-sm border-collapse">
+                  <table className="table-fixed w-max text-sm border-collapse">
                     <thead>
                       <tr className="sticky top-0 z-10 text-left text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
-                        <th className="py-2.5 px-3">Service No</th>
-                        <th className="py-2.5 px-3 w-24">Status</th>
-                        <th className="py-2.5 px-3 w-44">Bus No</th>
-                        <th className="py-2.5 px-3 w-48">Driver 1</th>
-                        <th className="py-2.5 px-3 w-48">Driver 2</th>
-                        <th className="py-2.5 px-3 w-44">Helper</th>
-                        <th className="py-2.5 px-3 w-44">Conductor</th>
-                        <th className="py-2.5 px-3 w-56">Paid To</th>
-                        <th className="py-2.5 px-3 w-28">Amount</th>
-                        <th className="py-2.5 px-3 w-80">Debit Ledger</th>
-                        <th className="py-2.5 px-3 w-80">Credit Ledger</th>
-                        <th className="py-2.5 px-3 w-36">Remarks</th>
+                        <th className="py-2.5 px-3 w-48">Service No</th>
+                        <th className="py-2.5 px-3 w-32">Status</th>
+                        <th className="py-2.5 px-3 w-52">Bus No</th>
+                        <th className="py-2.5 px-3 w-56">Driver 1</th>
+                        <th className="py-2.5 px-3 w-56">Driver 2</th>
+                        <th className="py-2.5 px-3 w-52">Helper</th>
+                        <th className="py-2.5 px-3 w-52">Conductor</th>
+                        <th className="py-2.5 px-3 w-64">Paid To</th>
+                        <th className="py-2.5 px-3 w-80">Remarks</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -499,15 +444,11 @@ export default function TripCreationPage() {
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.helper_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.conductor_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-600 text-xs">{existing.paid_to_name || '—'}</td>
-                              <td className="py-2 px-3 text-slate-600 text-xs">{existing.booking_amount ? Number(existing.booking_amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.debit_ledger_name || '—'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.credit_ledger_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
                             </tr>
                           )
                         }
                         const row = gridRows[r.id] ?? makeEmptyGridRow()
-                        const isHalt = row.status === 'Halt'
                         return (
                           <tr key={r.id} className="border-b border-slate-100 align-top">
                             <td className="py-2 px-3">
@@ -518,20 +459,20 @@ export default function TripCreationPage() {
                               <select
                                 value={row.status}
                                 onChange={(e) => updateRow(r.id, { status: e.target.value as 'Running' | 'Halt' })}
-                                className="w-full h-9 rounded-lg border border-slate-200 bg-white text-xs px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                                className="w-full h-11 rounded-lg border border-slate-200 bg-white text-sm px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
                               >
                                 <option value="Running">Running</option>
                                 <option value="Halt">Halt</option>
                               </select>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })}>
+                              <ClearSelect className="min-w-[13rem]" value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })}>
                                 <option value="">Select</option>
                                 {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
                               </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={isHalt} className="min-w-[12rem]" value={row.driver1_id}
+                              <ClearSelect className="min-w-[14rem]" value={row.driver1_id}
                                 onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver1_id: v, driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
                                 onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })}>
                                 <option value="">Select</option>
@@ -539,7 +480,7 @@ export default function TripCreationPage() {
                               </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={isHalt} className="min-w-[12rem]" value={row.driver2_id}
+                              <ClearSelect className="min-w-[14rem]" value={row.driver2_id}
                                 onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver2_id: v, driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
                                 onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })}>
                                 <option value="">Select</option>
@@ -547,7 +488,7 @@ export default function TripCreationPage() {
                               </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.helper_id}
+                              <ClearSelect className="min-w-[13rem]" value={row.helper_id}
                                 onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { helper_id: v, helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
                                 onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })}>
                                 <option value="">Select</option>
@@ -555,7 +496,7 @@ export default function TripCreationPage() {
                               </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={isHalt} className="min-w-[11rem]" value={row.conductor_id}
+                              <ClearSelect className="min-w-[13rem]" value={row.conductor_id}
                                 onChange={(v) => { const c = conductors.find((x) => String(x.id) === v); updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
                                 onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })}>
                                 <option value="">Select</option>
@@ -563,16 +504,15 @@ export default function TripCreationPage() {
                               </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={isHalt} className="min-w-[13rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
+                              <ClearSelect className="min-w-[15rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
                                 onChange={(v) => {
                                   const p = paidToList.find((x) => `${x.paid_to_id}_${x.paid_to_type}` === v)
                                   const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
                                   updateRow(r.id, {
                                     paid_to_id: String(p?.paid_to_id ?? ''), paid_to_name: p?.paid_to_name ?? '', paid_to_type: p?.paid_to_type ?? '', paid_to_ledger_id: ledgerId,
-                                    debit_ledger_id: ledgerId, debit_ledger_name: p?.paid_to_name ?? '',
                                   })
                                 }}
-                                onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '', debit_ledger_id: '', debit_ledger_name: '' })}>
+                                onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '' })}>
                                 <option value="">Select</option>
                                 {paidToList.map((p) => (
                                   <option key={`${p.paid_to_id}_${p.paid_to_type}`} value={`${p.paid_to_id}_${p.paid_to_type}`}>
@@ -583,23 +523,8 @@ export default function TripCreationPage() {
                               <PaidToBalance ledgerId={row.paid_to_ledger_id} />
                             </td>
                             <td className="py-2 px-3">
-                              <Input disabled={isHalt} inputMode="numeric" value={row.amount}
-                                onChange={(e) => updateRow(r.id, { amount: e.target.value.replace(/[^0-9.]/g, '') })}
-                                placeholder="Amount" className="h-9 text-xs" />
-                            </td>
-                            <td className="py-2 px-3">
-                              <SearchableSelect disabled={isHalt} value={row.debit_ledger_id} className="min-w-[20rem]"
-                                onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateRow(r.id, { debit_ledger_id: v, debit_ledger_name: l?.label ?? '' }) }}
-                                options={ledgerOptions} placeholder="Select ledger…" />
-                            </td>
-                            <td className="py-2 px-3">
-                              <SearchableSelect disabled={isHalt} value={row.credit_ledger_id} className="min-w-[20rem]"
-                                onChange={(v) => { const l = ledgerOptions.find((o) => o.value === v); updateRow(r.id, { credit_ledger_id: v, credit_ledger_name: l?.label ?? '' }) }}
-                                options={ledgerOptions} placeholder="Select ledger…" />
-                            </td>
-                            <td className="py-2 px-3">
-                              <Input disabled={isHalt} value={row.remarks} onChange={(e) => updateRow(r.id, { remarks: e.target.value })}
-                                placeholder="Remarks" className="h-9 text-xs" />
+                              <Input value={row.remarks} onChange={(e) => updateRow(r.id, { remarks: e.target.value })}
+                                placeholder="Remarks" className="h-11 text-sm" />
                             </td>
                           </tr>
                         )
@@ -613,7 +538,7 @@ export default function TripCreationPage() {
                 <div className="flex items-center justify-center gap-3 mt-6">
                   {incompleteRoutes.length > 0 && (
                     <span className="text-xs font-semibold text-amber-600">
-                      {incompleteRoutes.length} row(s) need Driver 1 + Paid To, or an Amount without both ledgers set
+                      {incompleteRoutes.length} row(s) need Driver 1 + Paid To
                     </span>
                   )}
                   <Button

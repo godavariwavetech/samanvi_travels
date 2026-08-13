@@ -18,6 +18,7 @@ const EMPTY: Record<string, string> = {
   line_code: '', route_id: '', start_boarding_point: '', start_boarding_time: '',
   end_boarding_point: '', end_boarding_time: '',
   vehicle_type: 'bus', bus_operator_id: '', bus_operator_name: '', trip_type: '',
+  up_down: '',
 }
 
 const amt = (v: any) => <span className="font-medium text-slate-800">{v != null && v !== '' ? `₹${v}` : '—'}</span>
@@ -62,6 +63,11 @@ const cols: Column[] = [
   },
   { label: 'Service For', key: 'serviceFor', filterable: true, render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
   { label: 'Service No', key: 'serviceNo', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
+  {
+    label: 'Up/Down', key: 'up_down', filterable: true,
+    filterOptions: [{ label: 'Up', value: 'Up' }, { label: 'Down', value: 'Down' }],
+    render: (v) => v ? <Badge variant={v === 'Up' ? 'info' : 'purple'}>{String(v)}</Badge> : <span className="text-slate-300 text-xs">—</span>,
+  },
   { label: 'Bus Operator', key: 'bus_operator_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
   { label: 'Trip Type', key: 'trip_type', filterable: true, render: (v) => <span className="text-sm capitalize">{String(v ?? '—')}</span> },
   { label: 'From City', key: 'fromCity', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
@@ -152,10 +158,6 @@ export default function ServiceNoPage() {
 
   const buildPayload = () => ({
     ...form,
-    // Van form has no Service No input (not on the whiteboard sketch) — auto-generate
-    // one on first save since serviceNo is required elsewhere in the app (uniqueness,
-    // search, trip linkage). Editing an existing row keeps its already-assigned value.
-    serviceNo: form.vehicle_type === 'van' && !form.serviceNo ? `VAN-${Date.now()}` : form.serviceNo,
     id: editId,
     userid: localStorage.getItem('user_id'),
     usrnm: localStorage.getItem('usr_nm'),
@@ -195,7 +197,7 @@ export default function ServiceNoPage() {
   const closeForm = () => { setShowForm(false); setForm({ ...EMPTY }); setIsEdit(false); setEditId(null) }
 
   const canSave = form.vehicle_type === 'van'
-    ? Boolean(form.serviceFor && form.bus_operator_id)
+    ? Boolean(form.serviceFor && form.serviceNo && form.bus_operator_id)
     : Boolean(form.serviceFor && form.serviceNo && form.fromCity && form.toCity)
 
   // ── Excel download — template ─────────────────────────────────────────────
@@ -352,12 +354,20 @@ export default function ServiceNoPage() {
                       placeholder="Select service"
                     />
                   </div>
+                  <div><Label>Service No <span className="text-red-500">*</span></Label>
+                    <Input placeholder="Enter service number" value={form.serviceNo} onChange={set('serviceNo')} /></div>
                   <div><Label>Bus Operator <span className="text-red-500">*</span></Label>
                     <MasterListPicker panelId="svc-bus-operator-panel" queryKey="bus-operators" queryFn={() => mastersService.getBusOperators()}
                       valueKey="operator_name" value={form.bus_operator_name} onChange={(v) => {
                         const found = operatorList.find((o) => o.operator_name === v)
                         setForm((f) => ({ ...f, bus_operator_name: v, bus_operator_id: String(found?.id ?? '') }))
                       }} placeholder="Select bus operator" /></div>
+                  <div><Label>Up/Down</Label>
+                    <Select value={form.up_down} onChange={set('up_down')}>
+                      <option value="">— Select —</option>
+                      <option value="Up">Up</option>
+                      <option value="Down">Down</option>
+                    </Select></div>
                   <div><Label>Line Code</Label>
                     <MasterListPicker panelId="svc-line-code-panel-van" queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
                       valueKey="line_code" value={form.line_code} onChange={(v) => setForm((f) => ({ ...f, line_code: v }))} placeholder="Select line code" /></div>
@@ -396,6 +406,12 @@ export default function ServiceNoPage() {
                   </div>
                   <div><Label>Service No <span className="text-red-500">*</span></Label>
                     <Input placeholder="Enter service number" value={form.serviceNo} onChange={set('serviceNo')} /></div>
+                  <div><Label>Up/Down</Label>
+                    <Select value={form.up_down} onChange={set('up_down')}>
+                      <option value="">— Select —</option>
+                      <option value="Up">Up</option>
+                      <option value="Down">Down</option>
+                    </Select></div>
                   <div><Label>Line Code</Label>
                     <MasterListPicker panelId="svc-line-code-panel" queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
                       valueKey="line_code" value={form.line_code} onChange={(v) => setForm((f) => ({ ...f, line_code: v }))} placeholder="Select line code" /></div>
