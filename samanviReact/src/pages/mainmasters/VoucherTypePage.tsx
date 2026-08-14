@@ -19,6 +19,23 @@ export default function VoucherTypePage() {
 
   const types: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string, excludeId?: number | null) =>
+    types.some((t: any) => t.id !== excludeId && String(t.voucher_type ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+
+  const handleSubmit = () => {
+    const trimmed = typeName.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Voucher type "${trimmed}" already exists`); return }
+    submit()
+  }
+
+  const handleEditSave = () => {
+    const trimmed = editValue.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed, editId)) { toast.error(`Voucher type "${trimmed}" already exists`); return }
+    editSave()
+  }
+
   const { mutate: submit, isPending } = useMutation({
     mutationFn: () => accountingService.submitVoucherType({
       vouchertype: typeName.trim(),
@@ -75,7 +92,7 @@ export default function VoucherTypePage() {
               placeholder="Enter Voucher Type"
               value={typeName}
               onChange={(e) => setTypeName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && typeName.trim() && submit()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
             />
             {!typeName.trim() && typeName !== '' && (
               <p className="text-xs text-red-500 mt-1">Voucher Type is required</p>
@@ -83,7 +100,7 @@ export default function VoucherTypePage() {
           </div>
           <Button
             variant="primary"
-            onClick={() => submit()}
+            onClick={handleSubmit}
             disabled={isPending || !typeName.trim()}
           >
             <Save className="w-4 h-4" />
@@ -117,7 +134,7 @@ export default function VoucherTypePage() {
                     <Input
                       value={editValue}
                       onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && editValue.trim() && editSave()}
+                      onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
                       className="h-9 max-w-xs"
                       autoFocus
                     />
@@ -129,7 +146,7 @@ export default function VoucherTypePage() {
                   {editId === t.id ? (
                     <div className="flex items-center justify-center gap-2">
                       <button
-                        onClick={() => editValue.trim() && editSave()}
+                        onClick={handleEditSave}
                         className="text-emerald-500 hover:text-emerald-700 transition-colors"
                         title="Save"
                       >

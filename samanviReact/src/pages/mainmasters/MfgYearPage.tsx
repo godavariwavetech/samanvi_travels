@@ -17,6 +17,15 @@ export default function MfgYearPage() {
 
   const years: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    years.some((y: any) => String(y.year_value ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newYear.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Mfg year "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addMfgYear({ year_value: newYear.trim() }),
     onSuccess: (res) => {
@@ -55,10 +64,10 @@ export default function MfgYearPage() {
               placeholder="e.g. 2022, 2023, 2024…"
               value={newYear}
               onChange={(e) => setNewYear(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newYear.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newYear.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newYear.trim()}>
             <Plus className="w-4 h-4" /> Add Year
           </Button>
         </div>

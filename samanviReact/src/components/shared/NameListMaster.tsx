@@ -29,6 +29,25 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
   const { data, isLoading } = useQuery({ queryKey: [queryKey], queryFn: getAll })
   const list: any[] = data?.data ?? []
 
+  // Case-insensitive, trimmed — "Hyderabad" and "hyderabad " are the same
+  // entry as far as every picker that reads this list is concerned.
+  const isDuplicate = (value: string, excludeId?: number | null) =>
+    list.some((item) => item.id !== excludeId && String(item[fieldKey] ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+
+  const handleSubmit = () => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`${label} "${trimmed}" already exists`); return }
+    submit()
+  }
+
+  const handleEditSave = () => {
+    const trimmed = editValue.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed, editId)) { toast.error(`${label} "${trimmed}" already exists`); return }
+    editSave()
+  }
+
   const { mutate: submit, isPending } = useMutation({
     mutationFn: () => add({ [fieldKey]: name.trim() }),
     onSuccess: (res) => {
@@ -66,10 +85,10 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
               placeholder={placeholder}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && name.trim() && submit()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
             />
           </div>
-          <Button onClick={() => submit()} disabled={isPending || !name.trim()}>
+          <Button onClick={handleSubmit} disabled={isPending || !name.trim()}>
             <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Submit'}
           </Button>
         </div>
@@ -85,7 +104,7 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
                 autoFocus
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && editValue.trim()) editSave(); if (e.key === 'Escape') setEditId(null) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditId(null) }}
                 className="h-9 max-w-xs"
               />
             ) : (
@@ -95,7 +114,7 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
           { label: 'Action', key: 'id', align: 'center', render: (_v, row: any) => (
             editId === row.id ? (
               <div className="flex items-center justify-center gap-2">
-                <button onClick={() => editValue.trim() && editSave()} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Save"><Check className="w-4 h-4" /></button>
+                <button onClick={handleEditSave} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Save"><Check className="w-4 h-4" /></button>
                 <button onClick={() => { setEditId(null); setEditValue('') }} className="text-slate-400 hover:text-red-500 transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
               </div>
             ) : (

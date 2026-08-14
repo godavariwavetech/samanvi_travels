@@ -17,6 +17,15 @@ export default function BatteryBrandPage() {
 
   const brands: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    brands.some((b: any) => String(b.brand_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newBrand.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Battery brand "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => garageService.addBatteryBrand({ brand_name: newBrand.trim() }),
     onSuccess: (res) => {
@@ -53,10 +62,10 @@ export default function BatteryBrandPage() {
               placeholder="e.g. Exide, Amaron…"
               value={newBrand}
               onChange={(e) => setNewBrand(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newBrand.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newBrand.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newBrand.trim()}>
             <Plus className="w-4 h-4" /> Add Brand
           </Button>
         </div>

@@ -17,6 +17,15 @@ export default function VehicleTypePage() {
 
   const types: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    types.some((t: any) => String(t.type_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newType.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Vehicle type "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addVehicleType({ type_name: newType.trim() }),
     onSuccess: (res) => {
@@ -54,10 +63,10 @@ export default function VehicleTypePage() {
               placeholder="e.g. AC Sleeper, Volvo, Mini Bus…"
               value={newType}
               onChange={(e) => setNewType(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newType.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newType.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newType.trim()}>
             <Plus className="w-4 h-4" /> Add Type
           </Button>
         </div>

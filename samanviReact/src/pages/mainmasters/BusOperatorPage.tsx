@@ -17,6 +17,15 @@ export default function BusOperatorPage() {
 
   const operators: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    operators.some((o: any) => String(o.operator_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newOperator.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Bus operator "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addBusOperator({ operator_name: newOperator.trim() }),
     onSuccess: (res) => {
@@ -53,10 +62,10 @@ export default function BusOperatorPage() {
               placeholder="e.g. Samanvi Travels, VRL…"
               value={newOperator}
               onChange={(e) => setNewOperator(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newOperator.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newOperator.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newOperator.trim()}>
             <Plus className="w-4 h-4" /> Add Operator
           </Button>
         </div>

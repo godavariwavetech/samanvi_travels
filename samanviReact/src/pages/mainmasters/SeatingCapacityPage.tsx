@@ -17,6 +17,15 @@ export default function SeatingCapacityPage() {
 
   const capacities: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    capacities.some((c: any) => String(c.capacity ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newCapacity.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Seating capacity "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addSeatingCapacity({ capacity: newCapacity.trim() }),
     onSuccess: (res) => {
@@ -55,10 +64,10 @@ export default function SeatingCapacityPage() {
               placeholder="e.g. 32, 40, 52…"
               value={newCapacity}
               onChange={(e) => setNewCapacity(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newCapacity.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newCapacity.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newCapacity.trim()}>
             <Plus className="w-4 h-4" /> Add Capacity
           </Button>
         </div>

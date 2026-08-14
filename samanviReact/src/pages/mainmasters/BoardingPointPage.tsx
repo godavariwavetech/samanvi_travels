@@ -17,6 +17,15 @@ export default function BoardingPointPage() {
 
   const points: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    points.some((p: any) => String(p.point_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newPoint.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Boarding point "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addBoardingPoint({ point_name: newPoint.trim() }),
     onSuccess: (res) => {
@@ -53,10 +62,10 @@ export default function BoardingPointPage() {
               placeholder="e.g. Ameerpet, MG Bus Stand…"
               value={newPoint}
               onChange={(e) => setNewPoint(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newPoint.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newPoint.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newPoint.trim()}>
             <Plus className="w-4 h-4" /> Add Point
           </Button>
         </div>

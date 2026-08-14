@@ -19,6 +19,23 @@ export default function LaundryProductPage() {
 
   const list: any[] = (data?.data ?? []).map((r: any, i: number) => ({ ...r, i: i + 1 }))
 
+  const isDuplicate = (value: string, excludeId?: number | null) =>
+    list.some((item: any) => item.id !== excludeId && String(item.product_name ?? item.vouchertype ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+
+  const handleAdd = () => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Product "${trimmed}" already exists`); return }
+    add()
+  }
+
+  const handleUpdate = () => {
+    const trimmed = editing!.name.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed, editing!.id)) { toast.error(`Product "${trimmed}" already exists`); return }
+    update()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mainmastersService.addLaundryProduct({ vouchertype: name }),
     onSuccess: (res) => {
@@ -60,7 +77,7 @@ export default function LaundryProductPage() {
         editing?.id === row.id ? (
           <div className="flex items-center gap-2">
             <Input value={editing!.name} onChange={(e) => setEditing({ ...editing!, name: e.target.value })} className="h-8 text-sm" />
-            <button onClick={() => update()} disabled={updating} className="text-emerald-600 hover:text-emerald-700"><Save className="w-4 h-4" /></button>
+            <button onClick={handleUpdate} disabled={updating} className="text-emerald-600 hover:text-emerald-700"><Save className="w-4 h-4" /></button>
             <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
           </div>
         ) : (
@@ -84,10 +101,10 @@ export default function LaundryProductPage() {
               placeholder="e.g. Blankets, Bed Covers, Curtains…"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && name.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !name.trim()} variant="primary">
+          <Button onClick={handleAdd} disabled={adding || !name.trim()} variant="primary">
             <Save className="w-4 h-4" /> {adding ? 'Saving…' : 'Save Product'}
           </Button>
         </div>

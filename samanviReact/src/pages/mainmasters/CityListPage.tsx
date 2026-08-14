@@ -17,6 +17,15 @@ export default function CityListPage() {
 
   const cities: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    cities.some((c: any) => String(c.city_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newCity.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`City "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addCityList({ city_name: newCity.trim() }),
     onSuccess: (res) => {
@@ -53,10 +62,10 @@ export default function CityListPage() {
               placeholder="e.g. Hyderabad, Vijayawada…"
               value={newCity}
               onChange={(e) => setNewCity(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newCity.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newCity.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newCity.trim()}>
             <Plus className="w-4 h-4" /> Add City
           </Button>
         </div>

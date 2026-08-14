@@ -17,6 +17,15 @@ export default function VehicleCompanyPage() {
 
   const companies: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    companies.some((c: any) => String(c.company_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newCompany.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Vehicle company "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addVehicleCompany({ company_name: newCompany.trim() }),
     onSuccess: (res) => {
@@ -54,10 +63,10 @@ export default function VehicleCompanyPage() {
               placeholder="e.g. Ashok Leyland, Volvo, Tata…"
               value={newCompany}
               onChange={(e) => setNewCompany(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newCompany.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newCompany.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newCompany.trim()}>
             <Plus className="w-4 h-4" /> Add Company
           </Button>
         </div>

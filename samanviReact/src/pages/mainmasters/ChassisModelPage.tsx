@@ -17,6 +17,15 @@ export default function ChassisModelPage() {
 
   const models: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    models.some((m: any) => String(m.model_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newModel.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Chassis model "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addChassisModel({ model_name: newModel.trim() }),
     onSuccess: (res) => {
@@ -54,10 +63,10 @@ export default function ChassisModelPage() {
               placeholder="e.g. Viking, Skyline, Starbus…"
               value={newModel}
               onChange={(e) => setNewModel(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newModel.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newModel.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newModel.trim()}>
             <Plus className="w-4 h-4" /> Add Model
           </Button>
         </div>

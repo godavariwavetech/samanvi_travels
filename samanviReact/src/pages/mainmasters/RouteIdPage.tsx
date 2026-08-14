@@ -17,6 +17,15 @@ export default function RouteIdPage() {
 
   const routeIds: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    routeIds.some((r: any) => String(r.route_id_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newRouteId.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Route ID "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addRouteId({ route_id_name: newRouteId.trim() }),
     onSuccess: (res) => {
@@ -53,10 +62,10 @@ export default function RouteIdPage() {
               placeholder="e.g. RT-101…"
               value={newRouteId}
               onChange={(e) => setNewRouteId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newRouteId.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newRouteId.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newRouteId.trim()}>
             <Plus className="w-4 h-4" /> Add Route ID
           </Button>
         </div>

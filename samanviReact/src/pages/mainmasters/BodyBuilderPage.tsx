@@ -17,6 +17,15 @@ export default function BodyBuilderPage() {
 
   const builders: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    builders.some((b: any) => String(b.builder_name ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newBuilder.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Body builder "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addBodyBuilder({ builder_name: newBuilder.trim() }),
     onSuccess: (res) => {
@@ -54,10 +63,10 @@ export default function BodyBuilderPage() {
               placeholder="e.g. MG Veera…"
               value={newBuilder}
               onChange={(e) => setNewBuilder(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newBuilder.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newBuilder.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newBuilder.trim()}>
             <Plus className="w-4 h-4" /> Add Builder
           </Button>
         </div>

@@ -17,6 +17,15 @@ export default function LineCodePage() {
 
   const codes: any[] = data?.data ?? []
 
+  const isDuplicate = (value: string) =>
+    codes.some((c: any) => String(c.line_code ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+  const handleAdd = () => {
+    const trimmed = newCode.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Line code "${trimmed}" already exists`); return }
+    add()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mastersService.addLineCode({ line_code: newCode.trim() }),
     onSuccess: (res) => {
@@ -53,10 +62,10 @@ export default function LineCodePage() {
               placeholder="e.g. LN-01, HYD-VJA…"
               value={newCode}
               onChange={(e) => setNewCode(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && newCode.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
-          <Button onClick={() => add()} disabled={adding || !newCode.trim()}>
+          <Button onClick={handleAdd} disabled={adding || !newCode.trim()}>
             <Plus className="w-4 h-4" /> Add Code
           </Button>
         </div>

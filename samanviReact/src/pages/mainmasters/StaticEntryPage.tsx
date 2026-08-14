@@ -19,6 +19,23 @@ export default function StaticEntryPage() {
 
   const list: any[] = (data?.data ?? []).map((r: any, i: number) => ({ ...r, i: i + 1 }))
 
+  const isDuplicate = (value: string, excludeId?: number | null) =>
+    list.some((item: any) => item.id !== excludeId && String(item.districtnm ?? '').trim().toLowerCase() === value.trim().toLowerCase())
+
+  const handleAdd = () => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed)) { toast.error(`Entry "${trimmed}" already exists`); return }
+    add()
+  }
+
+  const handleEditSave = () => {
+    const trimmed = editValue.trim()
+    if (!trimmed) return
+    if (isDuplicate(trimmed, editId)) { toast.error(`Entry "${trimmed}" already exists`); return }
+    edit()
+  }
+
   const { mutate: add, isPending: adding } = useMutation({
     mutationFn: () => mainmastersService.addDistrict({ districtnm: name.trim() }),
     onSuccess: (res) => {
@@ -73,12 +90,12 @@ export default function StaticEntryPage() {
               placeholder="e.g. Assets, Income, Expenses…"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && name.trim() && add()}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
             />
           </div>
           <Button
             variant="primary"
-            onClick={() => add()}
+            onClick={handleAdd}
             disabled={adding || !name.trim()}
             className="w-full sm:w-auto"
           >
@@ -128,7 +145,7 @@ export default function StaticEntryPage() {
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' && editValue.trim()) edit()
+                          if (e.key === 'Enter') handleEditSave()
                           if (e.key === 'Escape') setEditId(null)
                         }}
                         className="h-8 max-w-xs text-sm"
@@ -141,7 +158,7 @@ export default function StaticEntryPage() {
                     {editId === row.id ? (
                       <div className="flex items-center justify-center gap-2">
                         <button
-                          onClick={() => editValue.trim() && edit()}
+                          onClick={handleEditSave}
                           disabled={editing}
                           className="text-emerald-500 hover:text-emerald-700 transition-colors disabled:opacity-50"
                           title="Save"
