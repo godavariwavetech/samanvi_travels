@@ -3763,7 +3763,7 @@ exports.getexpensesdropdownMdl = function (callback) {
 
 exports.getallstfdrivhelpMdl = function (callback) {
   var cntxtDtls = "in getallstfdrivhelpMdl";
-  var QRY_TO_EXEC = `SELECT id AS paid_to_id, nickname AS paid_to_name, 'driver' AS paid_to_type, ledger_id
+  var QRY_TO_EXEC = `SELECT id AS paid_to_id, COALESCE(NULLIF(nickname, ''), driver_name) AS paid_to_name, 'driver' AS paid_to_type, ledger_id
 FROM driver_register
 WHERE d_in = 0
 
@@ -5689,6 +5689,10 @@ exports.getmodaldataMdl = function (data, callback) {
   d2.nickname AS driver2_name,
   h.helper_name AS helper_name,
   s.fullName AS conductor_name,
+  d1.ledger_id AS driver1_ledger_id,
+  d2.ledger_id AS driver2_ledger_id,
+  h.ledger_id AS helper_ledger_id,
+  s.ledger_id AS conductor_ledger_id,
   CASE
       WHEN te.paid_to_type = 'driver' THEN d3.nickname
       WHEN te.paid_to_type = 'helper' THEN h2.helper_name

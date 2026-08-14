@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText } from 'lucide-react'
+import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
@@ -18,7 +18,8 @@ type LedgerObj = {
   parent_subgroup_id?: any; parent_subchild_id?: any; parent_grp_level?: any
 }
 type PersonKey = 'driver1' | 'driver2' | 'helper' | 'conductor'
-type LedgerRow = { ledger: LedgerObj | null; amount: string; personKey?: PersonKey }
+type RowTag = PersonKey | 'paidTo'
+type LedgerRow = { ledger: LedgerObj | null; amount: string; personKey?: RowTag }
 
 type ExpenseForm = {
   id: string; trip_creation_id: string
@@ -42,6 +43,7 @@ const today = new Date().toISOString().split('T')[0]
 const firstOfMonth = today.slice(0, 8) + '01'
 
 const num = (v: any) => Number(v) || 0
+const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor']
 const nowStr = () => {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
@@ -89,12 +91,30 @@ export default function TripExpensesPage() {
   const [debitRows, setDebitRows] = useState<LedgerRow[]>([emptyLedgerRow()])
   const [creditRows, setCreditRows] = useState<LedgerRow[]>([emptyLedgerRow()])
   const [origMeta, setOrigMeta] = useState<OrigMeta>({ c_number: '', c_id: '', date: '', user_id: '', usr_nm: '' })
+  // Ledger ids resolved straight from the reopened expense's own saved row
+  // (via getmodaldataMdl's driverX_ledger_id columns, LEFT JOINed with no
+  // d_in filter) instead of cross-referencing the live drivers/helpers/staff
+  // lists. Those lists only contain ACTIVE people (WHERE d_in='0'), so if a
+  // driver/helper/conductor was terminated after the trip was filed, they'd
+  // silently drop out of the cross-reference and their "Pay" checkbox would
+  // show unchecked on reopen even though their ledger row is still right
+  // there in Debit Accounts. Empty in Add mode (nobody's ledger needs
+  // resolving from a terminated-safe source yet — the assignee is always
+  // active on a brand-new trip), so personLedgerId falls back to the live
+  // lists there.
+  const [resolvedLedgerIds, setResolvedLedgerIds] = useState<Partial<Record<PersonKey, string>>>({})
   const [loadingModal, setLoadingModal] = useState(false)
 
   // View modal
-  const [viewModal, setViewModal] = useState<{ open: boolean; row: any; debit: any[]; credit: any[]; loading: boolean }>(
-    { open: false, row: null, debit: [], credit: [], loading: false }
+  const [viewModal, setViewModal] = useState<{ open: boolean; row: any; debit: any[]; credit: any[]; loading: boolean; ledgerIds: Partial<Record<PersonKey, string>> }>(
+    { open: false, row: null, debit: [], credit: [], loading: false, ledgerIds: {} }
   )
+
+  // Quick "+ New Ledger" popover — opened from a specific debit/credit row so
+  // the freshly created ledger can be auto-selected right back into that row.
+  const [newLedgerFor, setNewLedgerFor] = useState<{ side: 'debit' | 'credit'; index: number } | null>(null)
+  const [newLedgerName, setNewLedgerName] = useState('')
+  const [newLedgerParentId, setNewLedgerParentId] = useState('')
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const { data: listData, isLoading, refetch } = useQuery({
@@ -112,6 +132,13 @@ export default function TripExpensesPage() {
   const { data: driverData } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers() })
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
+  // Leaf containers a new ledger can be filed under (mainmasterssubchild,
+  // level_depth 4 — "Drivers", "Payables", "Direct Expenses" etc.). Each row
+  // already carries its own full ancestor chain (district_id/mandal_id/
+  // mandal_name/child/village_id/staticentry), so no separate group/subgroup
+  // fetch is needed to build the addLedgerData payload — same shape GroupPage
+  // uses for its "add ledger under this node" action.
+  const { data: subchildData } = useQuery({ queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild() })
 
   const trips: any[] = listData?.data ?? []
   const ledgerList: any[] = ledgerData?.data ?? []
@@ -120,7 +147,13 @@ export default function TripExpensesPage() {
 
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
-  const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
+  const activeStaff: any[] = activeStaffData?.data ?? []
+  const conductors: any[] = activeStaff.filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
+
+  const ledgerParents: any[] = (subchildData?.data ?? []).filter((c: any) => Number(c.level_depth) === 4 && Number(c.d_in) === 0)
+  const ledgerParentOptions = ledgerParents.map((c: any) => ({
+    value: String(c.id), label: `${c.staticentry} → ${c.mandal_name} → ${c.child} → ${c.temple_name}`,
+  }))
 
   const personId = (key: PersonKey) => ({
     driver1: form.driver1_id, driver2: form.driver2_id, helper: form.helper_id, conductor: form.conductor_id,
@@ -143,17 +176,72 @@ export default function TripExpensesPage() {
     const rec = list.find((r: any) => String(r.id) === String(id))
     return rec?.ledger_id ? String(rec.ledger_id) : ''
   }
-  const personLedgerId = (key: PersonKey): string => ledgerIdForPerson(key, personId(key))
+  const personLedgerId = (key: PersonKey): string => resolvedLedgerIds[key] || ledgerIdForPerson(key, personId(key))
+  // The ledger-id fallback (not just the personKey tag) exists so a row
+  // loaded from an existing filed expense — which has no personKey tag at
+  // all — still shows as checked. It deliberately excludes 'paidTo' rows:
+  // when this person IS also Paid To, their own ledger and the overflow
+  // ledger are the same account, so matching on 'paidTo' would make their
+  // checkbox look permanently checked and impossible to toggle off (every
+  // uncheck just re-adds the identical ledger back as the remainder).
   const isPersonChecked = (key: PersonKey) => {
     const ledgerId = personLedgerId(key)
-    return debitRows.some((r) => r.personKey === key || (ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId))
+    return debitRows.some((r) => r.personKey === key || (r.personKey !== 'paidTo' && ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId))
   }
+
+  // Paid To's own ledger — resolved by type since they can be a driver,
+  // helper, or staff member (conductor is just a staff designation).
+  const paidToLedgerId = (): string => {
+    if (!form.paid_to_id) return ''
+    const list = form.paid_to_type === 'driver' ? drivers : form.paid_to_type === 'helper' ? helpers : activeStaff
+    const rec = list.find((r: any) => String(r.id) === String(form.paid_to_id))
+    return rec?.ledger_id ? String(rec.ledger_id) : ''
+  }
+
+  // Same ledger can legitimately end up wanting two rows (a checked person
+  // who is ALSO the Paid To recipient — their own share plus the leftover
+  // remainder both resolve to their ledger). Submit validation rejects the
+  // same ledger appearing twice in Debit, so merge those into one row —
+  // keeping whichever tag is a specific person over the generic 'paidTo',
+  // so isPersonChecked keeps recognizing it as that person's own line.
+  const mergeSameLedgerRows = (rows: LedgerRow[]): LedgerRow[] => {
+    const merged: LedgerRow[] = []
+    for (const r of rows) {
+      const existing = r.ledger ? merged.find((m) => m.ledger && String(m.ledger.ledger_id) === String(r.ledger!.ledger_id)) : undefined
+      if (existing) {
+        existing.amount = String(num(existing.amount) + num(r.amount))
+        if (existing.personKey === 'paidTo' && r.personKey && r.personKey !== 'paidTo') existing.personKey = r.personKey
+      } else {
+        merged.push({ ...r })
+      }
+    }
+    return merged
+  }
+
+  // Whoever isn't individually checked has their share fall through to Paid
+  // To instead — every rupee always lands somewhere. Recomputed after every
+  // checkbox toggle from live `form` amounts, then that row is independently
+  // editable like any other row until the next toggle touches it again.
+  const recomputePaidToRow = (rows: LedgerRow[]): LedgerRow[] => {
+    const checkedKeys = PERSON_KEYS.filter((k) => rows.some((r) => r.personKey === k))
+    const remainder = PERSON_KEYS.filter((k) => !checkedKeys.includes(k)).reduce((sum, k) => sum + personAmount(k), 0)
+    const withoutPaidTo = rows.filter((r) => r.personKey !== 'paidTo')
+    if (remainder <= 0) return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
+    const ledgerId = paidToLedgerId()
+    const ledger = ledgerId ? findLedger(ledgerId) : null
+    if (!ledger) {
+      toast.error(`No ledger found for ${form.paid_to_name || 'Paid To'} — the unchecked amount (₹${remainder}) wasn't added automatically`)
+      return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
+    }
+    return mergeSameLedgerRows([...withoutPaidTo, { ledger: toLedgerObj(ledger), amount: String(remainder), personKey: 'paidTo' }])
+  }
+
   const togglePerson = (key: PersonKey) => {
     const ledgerId = personLedgerId(key)
     if (isPersonChecked(key)) {
       setDebitRows((rows) => {
-        const filtered = rows.filter((r) => !(r.personKey === key || (ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId)))
-        return filtered.length ? filtered : [emptyLedgerRow()]
+        const filtered = rows.filter((r) => !(r.personKey === key || (r.personKey !== 'paidTo' && ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId)))
+        return recomputePaidToRow(filtered.length ? filtered : [])
       })
       return
     }
@@ -161,26 +249,33 @@ export default function TripExpensesPage() {
     const ledger = findLedger(ledgerId)
     if (!ledger) { toast.error(`No ledger found for ${personName(key)} — they may not have an auto-created ledger yet`); return }
     setDebitRows((rows) => {
-      const cleaned = rows.filter((r) => r.ledger || r.amount)
-      return [...cleaned, { ledger: toLedgerObj(ledger), amount: String(personAmount(key)), personKey: key }]
+      const cleaned = rows.filter((r) => (r.ledger || r.amount) && r.personKey !== 'paidTo')
+      return recomputePaidToRow([...cleaned, { ledger: toLedgerObj(ledger), amount: String(personAmount(key)), personKey: key }])
     })
   }
   // Read-only View modal: was this person's own ledger among the saved debit
   // rows? (expensive_details.ledger_id, selected straight through by `SELECT *`.)
   const viewPersonPaid = (key: PersonKey, id: string): boolean => {
-    const ledgerId = ledgerIdForPerson(key, id)
+    const ledgerId = viewModal.ledgerIds[key] || ledgerIdForPerson(key, id)
     if (!ledgerId) return false
     return viewModal.debit.some((r: any) => String(r.ledger_id ?? '') === ledgerId)
   }
+  const viewPersonAmount = (key: PersonKey, id: string): number => {
+    const ledgerId = viewModal.ledgerIds[key] || ledgerIdForPerson(key, id)
+    if (!ledgerId) return 0
+    const row = viewModal.debit.find((r: any) => String(r.ledger_id ?? '') === ledgerId)
+    return row ? num(row.amount) : 0
+  }
 
   // ── Modal open/close ─────────────────────────────────────────────────────
-  const closeModal = () => { setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]) }
+  const closeModal = () => { setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}) }
 
   const openAdd = async (row: any) => {
     setModal({ mode: 'add', row })
     setLoadingModal(true)
     setDebitRows([emptyLedgerRow()])
     setCreditRows([emptyLedgerRow()])
+    setResolvedLedgerIds({})
     setForm({
       ...emptyForm(),
       id: String(row.id ?? ''), trip_creation_id: String(row.trip_creation_id ?? row.id ?? ''),
@@ -209,6 +304,21 @@ export default function TripExpensesPage() {
         drivertwosudsalary: f.drivertwobeta === 'opting' ? String(rate.optDriver ?? '') : f.drivertwosudsalary,
         helpersudsalary: f.helperbeta === 'opting' ? String(rate.optHelper ?? '') : f.helpersudsalary,
       }))
+
+      // Nobody's checked yet, so the whole computed total starts out attributed
+      // to Paid To — checking a person later peels their share off into their
+      // own ledger and shrinks this row accordingly (see recomputePaidToRow).
+      const driver1Amt = num(rate.driverOneBeta) + (row.optreg === 'opting' ? num(rate.optDriver) : 0)
+      const driver2Amt = num(rate.driverTwoBeta) + (row.optreg1 === 'opting' ? num(rate.optDriver) : 0)
+      const helperAmt = num(rate.helperBeta) + (row.optreg2 === 'opting' ? num(rate.optHelper) : 0)
+      const conductorAmt = num(rate.conductorBeta)
+      const total = driver1Amt + driver2Amt + helperAmt + conductorAmt
+      const paidToList = row.paid_to_type === 'driver' ? drivers : row.paid_to_type === 'helper' ? helpers : activeStaff
+      const paidToRec = paidToList.find((r: any) => String(r.id) === String(row.paid_to_id))
+      const paidToLedger = paidToRec?.ledger_id ? findLedger(String(paidToRec.ledger_id)) : null
+      if (total > 0 && paidToLedger) {
+        setDebitRows([{ ledger: toLedgerObj(paidToLedger), amount: String(total), personKey: 'paidTo' }])
+      }
     }
     setLoadingModal(false)
   }
@@ -219,6 +329,7 @@ export default function TripExpensesPage() {
     setForm({ ...emptyForm(), id: String(row.id ?? '') })
     setDebitRows([emptyLedgerRow()])
     setCreditRows([emptyLedgerRow()])
+    setResolvedLedgerIds({})
 
     const res = await tripsService.getTripModalData({ serviceNo: row.c_number, sudId: 3 })
     const ledgerRows: any[] = res?.data?.[0] ?? []
@@ -247,6 +358,15 @@ export default function TripExpensesPage() {
         c_number: t.c_number ?? row.c_number ?? '', c_id: String(t.c_id ?? row.c_id ?? ''),
         date: t.date ?? nowStr(), user_id: String(t.user_id ?? ''), usr_nm: t.usr_nm ?? '',
       })
+      // Resolved straight off this expense's own row (LEFT JOINed with no
+      // d_in filter server-side), so a since-terminated driver/helper/
+      // conductor's checkbox still matches their saved ledger row correctly.
+      setResolvedLedgerIds({
+        driver1: t.driver1_ledger_id ? String(t.driver1_ledger_id) : undefined,
+        driver2: t.driver2_ledger_id ? String(t.driver2_ledger_id) : undefined,
+        helper: t.helper_ledger_id ? String(t.helper_ledger_id) : undefined,
+        conductor: t.conductor_ledger_id ? String(t.conductor_ledger_id) : undefined,
+      })
     }
 
     const debit = ledgerRows.filter((r) => r.amount_type === 'Debit Account').map((r) => ({ ledger: toLedgerObj(r), amount: String(r.amount ?? '') }))
@@ -257,14 +377,24 @@ export default function TripExpensesPage() {
   }
 
   const openView = async (row: any) => {
-    setViewModal({ open: true, row, debit: [], credit: [], loading: true })
+    setViewModal({ open: true, row, debit: [], credit: [], loading: true, ledgerIds: {} })
     const res = await tripsService.getTripModalData({ serviceNo: row.c_number, sudId: 3 })
     const rows: any[] = res?.data?.[0] ?? []
+    const t = res?.data?.[1]?.[0]
     setViewModal({
       open: true, row,
       debit: rows.filter((r) => r.amount_type === 'Debit Account'),
       credit: rows.filter((r) => r.amount_type === 'Credit Account'),
       loading: false,
+      // Same terminated-safe resolution as openEdit — driverX_ledger_id comes
+      // straight off this expense's own row (LEFT JOINed with no d_in filter),
+      // so a since-terminated person's "Paid" tick still matches correctly.
+      ledgerIds: t ? {
+        driver1: t.driver1_ledger_id ? String(t.driver1_ledger_id) : undefined,
+        driver2: t.driver2_ledger_id ? String(t.driver2_ledger_id) : undefined,
+        helper: t.helper_ledger_id ? String(t.helper_ledger_id) : undefined,
+        conductor: t.conductor_ledger_id ? String(t.conductor_ledger_id) : undefined,
+      } : {},
     })
   }
 
@@ -358,6 +488,36 @@ export default function TripExpensesPage() {
     onError: () => toast.error('Server error'),
   })
 
+  const { mutate: createLedger, isPending: creatingLedger } = useMutation({
+    mutationFn: () => {
+      const parent = ledgerParents.find((c: any) => String(c.id) === newLedgerParentId)
+      if (!parent) throw new Error('Pick a parent group first')
+      return accountingService.addLedgerData({
+        temple_name: newLedgerName.trim(), amount: 0, parent_level: 4,
+        parent_subgroup_id: parent.village_id, parent_subchild_id: parent.id,
+        district_id: parent.district_id, staticname: parent.staticentry,
+        mandal_id: parent.mandal_id, mandal_name: parent.mandal_name,
+        village_id: parent.village_id, child: parent.child,
+        subchildtwo: parent.temple_name,
+        user_id: localStorage.getItem('user_id'), entry_by: localStorage.getItem('usr_nm'),
+      })
+    },
+    onSuccess: async (res: any) => {
+      if (res?.status !== 200) { toast.error(res?.message ?? 'Failed to create ledger'); return }
+      toast.success('Ledger created')
+      const target = newLedgerFor
+      const createdName = newLedgerName.trim()
+      const reloaded = await reloadLedgers()
+      const created = (reloaded.data?.data ?? []).find((l: any) => l.temple_name === createdName)
+      if (target && created) {
+        const setter = target.side === 'debit' ? setDebitRows : setCreditRows
+        setter((rows) => rows.map((r, idx) => idx === target.index ? { ...r, ledger: toLedgerObj(created) } : r))
+      }
+      setNewLedgerFor(null); setNewLedgerName(''); setNewLedgerParentId('')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
   const { mutate: setAdminStatus, isPending: settingStatus } = useMutation({
     mutationFn: (vars: { row: any; value: string }) => tripsService.updateTripAdminStatus({
       vouchervalue: vars.value,
@@ -369,6 +529,16 @@ export default function TripExpensesPage() {
     onSuccess: (res) => { if (res?.status === 200) { toast.success('Approval status updated'); refetch() } else toast.error('Failed to update status') },
     onError: () => toast.error('Server error'),
   })
+
+  // Reference No click: always opens *a* modal — View if an expense was
+  // already filed, otherwise the same File-Expense modal the edit icon opens
+  // for an unfiled trip. Unlike the eye-icon "view" action (which is meant
+  // to error on an unfiled trip), this is the row's primary click target and
+  // shouldn't dead-end with a toast.
+  const handleReferenceClick = (row: any) => {
+    if (row.status === 1) { openView(row); return }
+    openAdd(row)
+  }
 
   const handleAction = (action: string, row: any) => {
     if (action === 'edit') {
@@ -397,7 +567,7 @@ export default function TripExpensesPage() {
       render: (v, row: any) => (
         <button
           type="button"
-          onClick={() => handleAction('view', row)}
+          onClick={() => handleReferenceClick(row)}
           className="font-bold text-blue-600 hover:text-blue-800 hover:underline transition-colors"
         >
           {String(v ?? '—')}
@@ -507,10 +677,13 @@ export default function TripExpensesPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
                     <div className="space-y-2">
                       {form.driver1_name && (
-                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                          <input type="checkbox" checked={isPersonChecked('driver1')} onChange={() => togglePerson('driver1')} className="w-4 h-4 rounded accent-blue-600" />
-                          Pay {form.driver1_name}
-                        </label>
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('driver1')} onChange={() => togglePerson('driver1')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.driver1_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver1').toLocaleString('en-IN')}</p>
+                        </div>
                       )}
                       <Label>Driver1 Type</Label>
                       <Badge variant={form.driveronebeta === 'opting' ? 'purple' : 'slate'}>{form.driveronebeta || '—'}</Badge>
@@ -525,10 +698,13 @@ export default function TripExpensesPage() {
                     </div>
                     <div className="space-y-2">
                       {form.driver2_name && (
-                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                          <input type="checkbox" checked={isPersonChecked('driver2')} onChange={() => togglePerson('driver2')} className="w-4 h-4 rounded accent-blue-600" />
-                          Pay {form.driver2_name}
-                        </label>
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('driver2')} onChange={() => togglePerson('driver2')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.driver2_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver2').toLocaleString('en-IN')}</p>
+                        </div>
                       )}
                       <Label>Driver2 Type</Label>
                       <Badge variant={form.drivertwobeta === 'opting' ? 'purple' : 'slate'}>{form.drivertwobeta || '—'}</Badge>
@@ -543,10 +719,13 @@ export default function TripExpensesPage() {
                     </div>
                     <div className="space-y-2">
                       {form.helper_name && (
-                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                          <input type="checkbox" checked={isPersonChecked('helper')} onChange={() => togglePerson('helper')} className="w-4 h-4 rounded accent-blue-600" />
-                          Pay {form.helper_name}
-                        </label>
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('helper')} onChange={() => togglePerson('helper')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.helper_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('helper').toLocaleString('en-IN')}</p>
+                        </div>
                       )}
                       <Label>Helper Type</Label>
                       <Badge variant={form.helperbeta === 'opting' ? 'purple' : 'slate'}>{form.helperbeta || '—'}</Badge>
@@ -561,10 +740,13 @@ export default function TripExpensesPage() {
                     </div>
                     <div className="space-y-2">
                       {form.conductor_name && (
-                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                          <input type="checkbox" checked={isPersonChecked('conductor')} onChange={() => togglePerson('conductor')} className="w-4 h-4 rounded accent-blue-600" />
-                          Pay {form.conductor_name}
-                        </label>
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('conductor')} onChange={() => togglePerson('conductor')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.conductor_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('conductor').toLocaleString('en-IN')}</p>
+                        </div>
                       )}
                       <Label>Conductor Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.conductorsalary} onChange={(e) => setForm((f) => ({ ...f, conductorsalary: e.target.value }))} />
@@ -613,6 +795,12 @@ export default function TripExpensesPage() {
                             <div className="flex-[2] min-w-0">
                               <Input type="number" placeholder="Amount" value={row.amount} onChange={(e) => setDebitRows((rs) => rs.map((r, idx) => idx === i ? { ...r, amount: e.target.value } : r))} />
                             </div>
+                            <button
+                              onClick={() => { setNewLedgerFor({ side: 'debit', index: i }); setNewLedgerName(''); setNewLedgerParentId('') }}
+                              title="Create a new ledger" className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
+                            >
+                              <FolderPlus className="w-4 h-4" />
+                            </button>
                             {debitRows.length > 1 && (
                               <button onClick={() => setDebitRows((rs) => rs.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500 p-1 transition-colors">
                                 <MinusCircle className="w-4 h-4" />
@@ -643,6 +831,12 @@ export default function TripExpensesPage() {
                             <div className="flex-[2] min-w-0">
                               <Input type="number" placeholder="Amount" value={row.amount} onChange={(e) => setCreditRows((rs) => rs.map((r, idx) => idx === i ? { ...r, amount: e.target.value } : r))} />
                             </div>
+                            <button
+                              onClick={() => { setNewLedgerFor({ side: 'credit', index: i }); setNewLedgerName(''); setNewLedgerParentId('') }}
+                              title="Create a new ledger" className="text-slate-400 hover:text-emerald-600 p-1 transition-colors"
+                            >
+                              <FolderPlus className="w-4 h-4" />
+                            </button>
                             {creditRows.length > 1 && (
                               <button onClick={() => setCreditRows((rs) => rs.filter((_, idx) => idx !== i))} className="text-slate-400 hover:text-red-500 p-1 transition-colors">
                                 <MinusCircle className="w-4 h-4" />
@@ -674,6 +868,41 @@ export default function TripExpensesPage() {
         )}
       </AnimatePresence>
 
+      {/* ── Quick "+ New Ledger" popover ── */}
+      <AnimatePresence>
+        {newLedgerFor && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <FolderPlus className="w-4 h-4 text-blue-500" /> New Ledger
+                </h3>
+                <button onClick={() => setNewLedgerFor(null)} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <Label>Ledger Name <span className="text-red-500">*</span></Label>
+                  <Input value={newLedgerName} onChange={(e) => setNewLedgerName(e.target.value)} placeholder="e.g. Toll Charges" />
+                </div>
+                <div>
+                  <Label>Parent Group <span className="text-red-500">*</span></Label>
+                  <SearchableSelect value={newLedgerParentId} onChange={setNewLedgerParentId} options={ledgerParentOptions} placeholder="Search groups…" />
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button variant="ghost" onClick={() => setNewLedgerFor(null)}>Cancel</Button>
+                  <Button
+                    onClick={() => createLedger()}
+                    disabled={creatingLedger || !newLedgerName.trim() || !newLedgerParentId}
+                  >
+                    <Save className="w-4 h-4" /> {creatingLedger ? 'Creating…' : 'Create & Select'}
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ── View modal ── */}
       <AnimatePresence>
         {viewModal.open && (
@@ -693,16 +922,24 @@ export default function TripExpensesPage() {
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Service No</p><p className="text-sm font-medium">{viewModal.row?.service_no}</p></div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Driver 1</p><p className="text-sm font-medium flex items-center gap-1.5">
                     <input type="checkbox" readOnly checked={viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />
-                    {viewModal.row?.driver1_name || '—'}</p></div>
+                    {viewModal.row?.driver1_name || '—'}</p>
+                    {viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? '')) && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('driver1', String(viewModal.row?.driver1_id ?? '')).toLocaleString('en-IN')}</p>}
+                  </div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Driver 2</p><p className="text-sm font-medium flex items-center gap-1.5">
                     <input type="checkbox" readOnly checked={viewPersonPaid('driver2', String(viewModal.row?.driver2_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />
-                    {viewModal.row?.driver2_name || '—'}</p></div>
+                    {viewModal.row?.driver2_name || '—'}</p>
+                    {viewPersonPaid('driver2', String(viewModal.row?.driver2_id ?? '')) && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('driver2', String(viewModal.row?.driver2_id ?? '')).toLocaleString('en-IN')}</p>}
+                  </div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Helper</p><p className="text-sm font-medium flex items-center gap-1.5">
                     <input type="checkbox" readOnly checked={viewPersonPaid('helper', String(viewModal.row?.helper_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />
-                    {viewModal.row?.helper_name || '—'}</p></div>
+                    {viewModal.row?.helper_name || '—'}</p>
+                    {viewPersonPaid('helper', String(viewModal.row?.helper_id ?? '')) && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('helper', String(viewModal.row?.helper_id ?? '')).toLocaleString('en-IN')}</p>}
+                  </div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Conductor</p><p className="text-sm font-medium flex items-center gap-1.5">
                     <input type="checkbox" readOnly checked={viewPersonPaid('conductor', String(viewModal.row?.conductor_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />
-                    {viewModal.row?.conductor_name || '—'}</p></div>
+                    {viewModal.row?.conductor_name || '—'}</p>
+                    {viewPersonPaid('conductor', String(viewModal.row?.conductor_id ?? '')) && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('conductor', String(viewModal.row?.conductor_id ?? '')).toLocaleString('en-IN')}</p>}
+                  </div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Paid To</p><p className="text-sm font-medium">{viewModal.row?.paid_to_name || '—'}</p></div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Amount</p><p className="text-sm font-bold text-slate-900">₹{Number(viewModal.row?.grantotal ?? 0).toLocaleString('en-IN')}</p></div>
                 </div>

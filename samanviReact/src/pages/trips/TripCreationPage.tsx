@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, CalendarDays, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -13,13 +13,15 @@ import { cn } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 
+type TripRunStatus = 'Running' | 'Halt' | 'Full Trip'
+
 type GridRow = {
-  status: 'Running' | 'Halt'
+  status: TripRunStatus
   bus_no: string
-  driver1_id: string; driver1_name: string
-  driver2_id: string; driver2_name: string
-  helper_id: string; helper_name: string
-  conductor_id: string; conductor_name: string
+  driver1_id: string; driver1_name: string; driver1_checked: boolean
+  driver2_id: string; driver2_name: string; driver2_checked: boolean
+  helper_id: string; helper_name: string; helper_checked: boolean
+  conductor_id: string; conductor_name: string; conductor_checked: boolean
   paid_to_id: string; paid_to_name: string; paid_to_type: string; paid_to_ledger_id: string
   remarks: string
 }
@@ -27,7 +29,7 @@ type GridRow = {
 // Van trip rows are added manually (no pre-defined roster like the Bus grid) —
 // each one is an ad-hoc charter booking for a customer, not a driver/staff.
 type VanRow = {
-  status: 'Running' | 'Halt'
+  status: TripRunStatus
   line_code: string
   bus_no: string
   driver_id: string; driver_name: string
@@ -52,8 +54,8 @@ const columns: Column[] = [
   },
   {
     label: 'Status', key: 'trip_run_status', filterable: true,
-    filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Halt', value: 'Halt' }],
-    render: (v) => <Badge variant={v === 'Halt' ? 'danger' : 'success'}>{String(v ?? 'Running')}</Badge>,
+    filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Full Trip', value: 'Full Trip' }, { label: 'Halt', value: 'Halt' }],
+    render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v ?? 'Running')}</Badge>,
   },
   {
     label: 'Bus / Service', key: 'bus_no', filterable: true,
@@ -114,13 +116,72 @@ function ClearSelect({ value, onChange, onClear, disabled, className, children }
   return (
     <div className={cn('relative', className)}>
       <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
-        className="w-full h-11 pl-3 pr-8 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 appearance-none disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
+        className="w-full h-11 pl-4 pr-9 rounded-xl border border-slate-200 bg-white text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 appearance-none disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
         {children}
       </select>
       {value && !disabled
-        ? <button type="button" onClick={onClear} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X className="w-3 h-3" /></button>
-        : <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs">▾</span>
+        ? <button type="button" onClick={onClear} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400 transition-colors"><X className="w-3.5 h-3.5" /></button>
+        : <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs">▾</span>
       }
+    </div>
+  )
+}
+
+// Compact checkbox toggle placed beside each of Driver1/Driver2/Helper/Conductor's
+// dropdown (rather than stacked above it) so each grid row stays a single line tall.
+function PersonToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <input
+      type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
+      title={label} aria-label={label}
+      className="w-4 h-4 shrink-0 rounded accent-blue-600 cursor-pointer"
+    />
+  )
+}
+
+// Mirrors a scrollbar above a wide horizontally-scrolling table so it's reachable
+// without first scrolling down past max-h-[70vh] to reach the one at the bottom.
+function DualScrollTable({ children, tableClassName }: { children: React.ReactNode; tableClassName: string }) {
+  const topRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const [scrollWidth, setScrollWidth] = useState(0)
+  const syncing = useRef<'top' | 'bottom' | null>(null)
+
+  useEffect(() => {
+    const el = bottomRef.current
+    if (!el) return
+    const update = () => setScrollWidth(el.scrollWidth)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  return (
+    <div>
+      <div
+        ref={topRef} className="overflow-x-auto overflow-y-hidden"
+        style={{ height: 14 }}
+        onScroll={() => {
+          if (syncing.current === 'bottom') { syncing.current = null; return }
+          if (!topRef.current || !bottomRef.current) return
+          syncing.current = 'top'
+          bottomRef.current.scrollLeft = topRef.current.scrollLeft
+        }}
+      >
+        <div style={{ width: scrollWidth, height: 1 }} />
+      </div>
+      <div
+        ref={bottomRef} className={tableClassName}
+        onScroll={() => {
+          if (syncing.current === 'top') { syncing.current = null; return }
+          if (!topRef.current || !bottomRef.current) return
+          syncing.current = 'bottom'
+          topRef.current.scrollLeft = bottomRef.current.scrollLeft
+        }}
+      >
+        {children}
+      </div>
     </div>
   )
 }
@@ -156,8 +217,10 @@ export default function TripCreationPage() {
 
   const makeEmptyGridRow = (): GridRow => ({
     status: 'Running', bus_no: '',
-    driver1_id: '', driver1_name: '', driver2_id: '', driver2_name: '',
-    helper_id: '', helper_name: '', conductor_id: '', conductor_name: '',
+    driver1_id: '', driver1_name: '', driver1_checked: false,
+    driver2_id: '', driver2_name: '', driver2_checked: false,
+    helper_id: '', helper_name: '', helper_checked: false,
+    conductor_id: '', conductor_name: '', conductor_checked: true,
     paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '',
     remarks: '',
   })
@@ -197,7 +260,7 @@ export default function TripCreationPage() {
   const filledRoutes = busRoutes.filter((r) => !existingByRoute[String(r.id)] && gridRows[r.id]?.status !== 'Halt' && gridRows[r.id]?.bus_no)
   const incompleteRoutes = filledRoutes.filter((r) => {
     const row = gridRows[r.id]
-    return !row?.driver1_name || !row?.paid_to_name
+    return !row?.driver1_name
   })
 
   const { mutate: submitGrid, isPending: submittingGrid } = useMutation({
@@ -320,10 +383,10 @@ export default function TripCreationPage() {
 
               {vehicleType === 'Van' ? (
                 <>
-                  <div className="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
+                  <DualScrollTable tableClassName="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
                     <table className="table-fixed w-max text-sm border-collapse">
                       <thead>
-                        <tr className="sticky top-0 z-10 text-left text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                        <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
                           <th className="py-2.5 px-3 w-12">Sl.No</th>
                           <th className="py-2.5 px-3 w-44">Line Code</th>
                           <th className="py-2.5 px-3 w-32">Status</th>
@@ -349,10 +412,11 @@ export default function TripCreationPage() {
                               <td className="py-2 px-3">
                                 <select
                                   value={row.status}
-                                  onChange={(e) => updateVanRow(i, { status: e.target.value as 'Running' | 'Halt' })}
-                                  className="w-full h-11 rounded-lg border border-slate-200 bg-white text-sm px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                                  onChange={(e) => updateVanRow(i, { status: e.target.value as TripRunStatus })}
+                                  className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm px-3 shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
                                 >
                                   <option value="Running">Running</option>
+                                  <option value="Full Trip">Full Trip</option>
                                   <option value="Halt">Halt</option>
                                 </select>
                               </td>
@@ -393,7 +457,7 @@ export default function TripCreationPage() {
                         })}
                       </tbody>
                     </table>
-                  </div>
+                  </DualScrollTable>
 
                   <div className="flex items-center justify-center gap-3 mt-3">
                     <Button variant="ghost" onClick={addVanRow}>
@@ -412,10 +476,10 @@ export default function TripCreationPage() {
               ) : busRoutes.length === 0 ? (
                 <p className="text-sm text-slate-400 py-6 text-center">No Bus service routes found — add one under Masters → Service Routes first.</p>
               ) : (
-                <div className="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
+                <DualScrollTable tableClassName="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
                   <table className="table-fixed w-max text-sm border-collapse">
                     <thead>
-                      <tr className="sticky top-0 z-10 text-left text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                      <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
                         <th className="py-2.5 px-3 w-48">Service No</th>
                         <th className="py-2.5 px-3 w-32">Status</th>
                         <th className="py-2.5 px-3 w-52">Bus No</th>
@@ -458,10 +522,11 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <select
                                 value={row.status}
-                                onChange={(e) => updateRow(r.id, { status: e.target.value as 'Running' | 'Halt' })}
-                                className="w-full h-11 rounded-lg border border-slate-200 bg-white text-sm px-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400"
+                                onChange={(e) => updateRow(r.id, { status: e.target.value as TripRunStatus })}
+                                className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm px-3 shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
                               >
                                 <option value="Running">Running</option>
+                                <option value="Full Trip">Full Trip</option>
                                 <option value="Halt">Halt</option>
                               </select>
                             </td>
@@ -472,39 +537,51 @@ export default function TripCreationPage() {
                               </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[14rem]" value={row.driver1_id}
-                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver1_id: v, driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })}>
-                                <option value="">Select</option>
-                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                              </ClearSelect>
+                              <div className="flex items-center gap-2">
+                                <PersonToggle label="Driver 1" checked={row.driver1_checked} onChange={(v) => updateRow(r.id, { driver1_checked: v })} />
+                                <ClearSelect className="min-w-[14rem] flex-1" value={row.driver1_id}
+                                  onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver1_id: v, driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                  onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })}>
+                                  <option value="">Select</option>
+                                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                                </ClearSelect>
+                              </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[14rem]" value={row.driver2_id}
-                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver2_id: v, driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })}>
-                                <option value="">Select</option>
-                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                              </ClearSelect>
+                              <div className="flex items-center gap-2">
+                                <PersonToggle label="Driver 2" checked={row.driver2_checked} onChange={(v) => updateRow(r.id, { driver2_checked: v })} />
+                                <ClearSelect className="min-w-[14rem] flex-1" value={row.driver2_id}
+                                  onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver2_id: v, driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                  onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })}>
+                                  <option value="">Select</option>
+                                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                                </ClearSelect>
+                              </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[13rem]" value={row.helper_id}
-                                onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { helper_id: v, helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
-                                onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })}>
-                                <option value="">Select</option>
-                                {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
-                              </ClearSelect>
+                              <div className="flex items-center gap-2">
+                                <PersonToggle label="Helper" checked={row.helper_checked} onChange={(v) => updateRow(r.id, { helper_checked: v })} />
+                                <ClearSelect className="min-w-[13rem] flex-1" value={row.helper_id}
+                                  onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { helper_id: v, helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
+                                  onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })}>
+                                  <option value="">Select</option>
+                                  {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
+                                </ClearSelect>
+                              </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[13rem]" value={row.conductor_id}
-                                onChange={(v) => { const c = conductors.find((x) => String(x.id) === v); updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
-                                onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })}>
-                                <option value="">Select</option>
-                                {conductors.map((c) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
-                              </ClearSelect>
+                              <div className="flex items-center gap-2">
+                                <PersonToggle label="Conductor" checked={row.conductor_checked} onChange={(v) => updateRow(r.id, { conductor_checked: v })} />
+                                <ClearSelect className="min-w-[13rem] flex-1" value={row.conductor_id}
+                                  onChange={(v) => { const c = conductors.find((x) => String(x.id) === v); updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
+                                  onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })}>
+                                  <option value="">Select</option>
+                                  {conductors.map((c) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
+                                </ClearSelect>
+                              </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[15rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
+                              <ClearSelect disabled={row.driver1_checked && row.driver2_checked} className="min-w-[15rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
                                 onChange={(v) => {
                                   const p = paidToList.find((x) => `${x.paid_to_id}_${x.paid_to_type}` === v)
                                   const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
@@ -520,6 +597,9 @@ export default function TripCreationPage() {
                                   </option>
                                 ))}
                               </ClearSelect>
+                              {row.driver1_checked && row.driver2_checked && (
+                                <p className="text-[11px] font-semibold text-slate-400 mt-1">Both drivers selected — paid individually</p>
+                              )}
                               <PaidToBalance ledgerId={row.paid_to_ledger_id} />
                             </td>
                             <td className="py-2 px-3">
@@ -531,14 +611,14 @@ export default function TripCreationPage() {
                       })}
                     </tbody>
                   </table>
-                </div>
+                </DualScrollTable>
               )}
 
               {vehicleType === 'Bus' && (
                 <div className="flex items-center justify-center gap-3 mt-6">
                   {incompleteRoutes.length > 0 && (
                     <span className="text-xs font-semibold text-amber-600">
-                      {incompleteRoutes.length} row(s) need Driver 1 + Paid To
+                      {incompleteRoutes.length} row(s) need Driver 1
                     </span>
                   )}
                   <Button
