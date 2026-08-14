@@ -57,8 +57,8 @@ const NAV_ITEMS: NavItem[] = [
     id: 'trips', label: 'Trip Management', icon: Map,
     children: [
       { label: 'Trip Creation',  path: '/trips/creation' },
-      { label: 'Admin Approvals',path: '/trips/approvals' },
       { label: 'Trip Expenses',  path: '/trips/expenses' },
+      { label: 'Admin Approvals',path: '/trips/approvals' },
       { label: 'Trip Reports',   path: '/trips/reports' },
       { label: 'Deleted Trips',  path: '/trips/deleted' },
       { label: 'Trip Logs',      path: '/trips/logs' },
