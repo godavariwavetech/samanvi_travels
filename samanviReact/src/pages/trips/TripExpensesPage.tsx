@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus } from 'lucide-react'
+import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select } from '@/components/shared'
+import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { accountingService } from '@/services/accounting.service'
@@ -110,6 +111,16 @@ export default function TripExpensesPage() {
     { open: false, row: null, debit: [], credit: [], loading: false, ledgerIds: {} }
   )
 
+  // Bus/driver/helper/conductor edit-history — logged server-side whenever
+  // updateTrip() actually changes one of those fields (see buildUpdateTripPayload).
+  const [historyModal, setHistoryModal] = useState<{ open: boolean; tripId: string; c_number: string }>({ open: false, tripId: '', c_number: '' })
+  const { data: historyData, isLoading: loadingHistory } = useQuery({
+    queryKey: ['trip-history', historyModal.tripId],
+    queryFn: () => tripsService.getTripHistory({ trip_id: historyModal.tripId }),
+    enabled: historyModal.open && !!historyModal.tripId,
+  })
+  const historyList: any[] = historyData?.data ?? []
+
   // Quick "+ New Ledger" popover — opened from a specific debit/credit row so
   // the freshly created ledger can be auto-selected right back into that row.
   const [newLedgerFor, setNewLedgerFor] = useState<{ side: 'debit' | 'credit'; index: number } | null>(null)
@@ -132,6 +143,7 @@ export default function TripExpensesPage() {
   const { data: driverData } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers() })
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
+  const { data: busData } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
   // Leaf containers a new ledger can be filed under (mainmasterssubchild,
   // level_depth 4 — "Drivers", "Payables", "Direct Expenses" etc.). Each row
   // already carries its own full ancestor chain (district_id/mandal_id/
@@ -149,6 +161,7 @@ export default function TripExpensesPage() {
   const helpers: any[] = helperData?.data ?? []
   const activeStaff: any[] = activeStaffData?.data ?? []
   const conductors: any[] = activeStaff.filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
+  const buses: any[] = busData?.data ?? []
 
   const ledgerParents: any[] = (subchildData?.data ?? []).filter((c: any) => Number(c.level_depth) === 4 && Number(c.d_in) === 0)
   const ledgerParentOptions = ledgerParents.map((c: any) => ({
@@ -449,7 +462,25 @@ export default function TripExpensesPage() {
     updatedby_id: localStorage.getItem('user_id'), updatedby_nm: localStorage.getItem('usr_nm'), updatedby_date: nowStr(),
   })
 
+  // Cascades bus/driver/helper/conductor edits back to the actual trip_created
+  // row (and, server-side, into tripexpenses_data + expensive_details if an
+  // expense was already filed) — same /tripcreated endpoint Trip Creation
+  // would use, just with type: 'edit' instead of 'add'.
+  const buildUpdateTripPayload = () => ({
+    id: form.trip_creation_id, c_number: origMeta.c_number,
+    bus_no: form.bus_no, service_no: form.service_no, service_no_id: form.service_no_id,
+    optreg: form.driveronebeta, driver1_name: form.driver1_name, driver1_id: form.driver1_id,
+    optreg1: form.drivertwobeta, driver2_name: form.driver2_name, driver2_id: form.driver2_id,
+    optreg2: form.helperbeta, helper_name: form.helper_name, helper_id: form.helper_id,
+    conductor_name: form.conductor_name, conductor_id: form.conductor_id,
+    trip_date: form.trip_date, trip_for: form.trip_for, trip_for_id: form.trip_for_id,
+    paid_to_type: form.paid_to_type, paid_to_name: form.paid_to_name, paid_to_id: form.paid_to_id,
+    remarks: form.remarks,
+    updatedby_id: localStorage.getItem('user_id'), updatedby_name: localStorage.getItem('usr_nm'), updated_date: nowStr(),
+  })
+
   const validate = () => {
+    if (!form.bus_no) { toast.error('Bus Number is required'); return false }
     if (!form.driveronesalary || !form.drivertwosalary || !form.helpersalary || !form.conductorsalary) {
       toast.error('Please fill all beta amount fields'); return false
     }
@@ -474,8 +505,16 @@ export default function TripExpensesPage() {
     onSuccess: (res) => { if (res?.status === 200) { toast.success('Expense updated'); closeModal(); refetch() } else toast.error('Failed to update expense') },
     onError: () => toast.error('Server error'),
   })
-  const submitting = submittingAdd || submittingEdit
-  const handleSubmit = () => { if (!validate()) return; modal.mode === 'add' ? submitAdd() : submitEdit() }
+  const { mutate: updateTripMutate, isPending: updatingTrip } = useMutation({
+    mutationFn: () => tripsService.updateTrip(buildUpdateTripPayload()),
+    onSuccess: (res) => {
+      if (res?.status !== 200) { toast.error('Failed to update trip details'); return }
+      modal.mode === 'add' ? submitAdd() : submitEdit()
+    },
+    onError: () => toast.error('Server error updating trip'),
+  })
+  const submitting = submittingAdd || submittingEdit || updatingTrip
+  const handleSubmit = () => { if (!validate()) return; updateTripMutate() }
 
   const { mutate: removeExpense } = useMutation({
     mutationFn: (row: any) => tripsService.deleteExpense({
@@ -652,7 +691,16 @@ export default function TripExpensesPage() {
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">{modal.row?.c_number}</p>
                 </div>
-                <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setHistoryModal({ open: true, tripId: form.trip_creation_id, c_number: modal.row?.c_number ?? '' })}
+                    className="text-slate-400 hover:text-amber-600 p-1.5 rounded-lg hover:bg-amber-50 transition-colors"
+                    title="Edit History"
+                  >
+                    <History className="w-4 h-4" />
+                  </button>
+                  <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
+                </div>
               </div>
 
               {loadingModal ? (
@@ -663,12 +711,54 @@ export default function TripExpensesPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     <div><Label>Trip Date</Label><Input value={form.trip_date} readOnly disabled /></div>
                     <div><Label>Trip For</Label><Input value={form.trip_for} readOnly disabled /></div>
-                    <div><Label>Bus Number</Label><Input value={form.bus_no} readOnly disabled /></div>
                     <div><Label>Service Number</Label><Input value={form.service_no} readOnly disabled /></div>
-                    <div><Label>Driver1 Name</Label><Input value={form.driver1_name || '—'} readOnly disabled /></div>
-                    <div><Label>Driver2 Name</Label><Input value={form.driver2_name || '—'} readOnly disabled /></div>
-                    <div><Label>Helper Name</Label><Input value={form.helper_name || '—'} readOnly disabled /></div>
-                    <div><Label>Conductor Name</Label><Input value={form.conductor_name || '—'} readOnly disabled /></div>
+                    <div>
+                      <Label>Bus Number</Label>
+                      <Select value={form.bus_no} onChange={(e) => setForm((f) => ({ ...f, bus_no: e.target.value }))}>
+                        <option value="">— Select —</option>
+                        {buses.map((b: any) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Driver1 Name</Label>
+                      <Select value={form.driver1_id} onChange={(e) => {
+                        const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
+                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '' }))
+                      }}>
+                        <option value="">— Select —</option>
+                        {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Driver2 Name</Label>
+                      <Select value={form.driver2_id} onChange={(e) => {
+                        const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
+                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '' }))
+                      }}>
+                        <option value="">— Select —</option>
+                        {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Helper Name</Label>
+                      <Select value={form.helper_id} onChange={(e) => {
+                        const h = helpers.find((x: any) => String(x.id) === e.target.value)
+                        setForm((f) => ({ ...f, helper_id: e.target.value, helper_name: h?.helper_name ?? h?.nickname ?? '' }))
+                      }}>
+                        <option value="">— Select —</option>
+                        {helpers.map((h: any) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Conductor Name</Label>
+                      <Select value={form.conductor_id} onChange={(e) => {
+                        const c = conductors.find((x: any) => String(x.id) === e.target.value)
+                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.nickName ?? c?.fullName ?? '' }))
+                      }}>
+                        <option value="">— Select —</option>
+                        {conductors.map((c: any) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
+                      </Select>
+                    </div>
                     <div><Label>Paid To</Label><Input value={form.paid_to_name || '—'} readOnly disabled /></div>
                   </div>
 
@@ -897,6 +987,48 @@ export default function TripExpensesPage() {
                     <Save className="w-4 h-4" /> {creatingLedger ? 'Creating…' : 'Create & Select'}
                   </Button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Edit History modal ── */}
+      <AnimatePresence>
+        {historyModal.open && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setHistoryModal((h) => ({ ...h, open: false }))}>
+            <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <History className="w-5 h-5 text-slate-500" /> Edit History
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{historyModal.c_number}</p>
+                </div>
+                <button onClick={() => setHistoryModal((h) => ({ ...h, open: false }))} className="text-slate-400 hover:text-slate-600 p-1">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 overflow-y-auto space-y-4">
+                {loadingHistory ? (
+                  <p className="text-sm text-slate-400 text-center py-8">Loading…</p>
+                ) : historyList.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-8">No edits have been made to this trip yet.</p>
+                ) : (
+                  <ol className="relative border-l-2 border-slate-100 ml-2 space-y-6">
+                    {historyList.map((h: any) => (
+                      <li key={h.id} className="ml-4">
+                        <span className="absolute -left-[7px] w-3 h-3 rounded-full bg-amber-400 border-2 border-white" />
+                        <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          {new Date(h.changed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
+                        </div>
+                        <ChangeNote note={h.changes_note ?? ''} />
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             </motion.div>
           </div>

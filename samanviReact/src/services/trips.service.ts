@@ -6,6 +6,12 @@ export const tripsService = {
   getTrips: () => api.get('/gettripceated').then((r) => r.data),
   getTrips1: () => api.post('/gettripceated1', {}).then((r) => r.data),
   createTrip: (data: unknown) => api.post('/tripcreated', data).then((r) => r.data),
+  // Same endpoint as createTrip — the backend branches on data.type: 'add' inserts
+  // a new trip_created row, 'edit' updates the existing one by data.id (and cascades
+  // bus/driver/helper/conductor into tripexpenses_data + expensive_details if an
+  // expense has already been filed for it).
+  updateTrip: (data: Record<string, unknown>) => api.post('/tripcreated', { ...data, type: 'edit' }).then((r) => r.data),
+  getTripHistory: (data: unknown) => api.post('/gettriphistory', data).then((r) => r.data),
   bulkCreateTrips: (data: unknown) => api.post('/bulkcreatetrips', data).then((r) => r.data),
   deleteTrip: (data: unknown) => api.post('/deletetripcreated', data).then((r) => r.data),
 
