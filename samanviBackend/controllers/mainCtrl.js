@@ -679,6 +679,20 @@ exports.getBusHistoryCtrl = function (req, res) {
     res.send({ status: 200, data: results });
   });
 };
+exports.getTripHistoryCtrl = function (req, res) {
+  var data = req.body;
+  appmdl.getTripHistoryMdl(data, function (err, results) {
+    if (err) { console.log('[getTripHistory] error:', err); return res.send({ status: 500, data: [] }); }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.getDriverHistoryCtrl = function (req, res) {
+  var data = req.body;
+  appmdl.getDriverHistoryMdl(data, function (err, results) {
+    if (err) { console.log('[getDriverHistory] error:', err); return res.send({ status: 500, data: [] }); }
+    res.send({ status: 200, data: results });
+  });
+};
 exports.getbussessparetankdataCtrl = function (req, res) {
   appmdl.getbussessparetankdataMdl(function (err, results) {
     if (err) {

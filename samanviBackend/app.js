@@ -279,6 +279,43 @@ sqldb_init.query(`
     else console.log('bus_edit_history table ready');
 });
 
+// Trip master edit-history log — records a note of what changed (bus/driver/
+// helper/conductor reassignment) on every trip_created update, mirroring
+// bus_edit_history above so Trip Expenses' edit modal can show an audit trail.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS trip_edit_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        trip_id INT NOT NULL,
+        c_number VARCHAR(50),
+        changes_note TEXT,
+        changed_by_id VARCHAR(50),
+        changed_by_name VARCHAR(200),
+        changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_teh_trip (trip_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create trip_edit_history table:', err.message);
+    else console.log('trip_edit_history table ready');
+});
+
+// Driver Register edit-history log — same shape as bus_edit_history/
+// trip_edit_history above, records what changed on every driver profile edit.
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS driver_edit_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        driver_id INT NOT NULL,
+        driver_id_number VARCHAR(50),
+        changes_note TEXT,
+        changed_by_id VARCHAR(50),
+        changed_by_name VARCHAR(200),
+        changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_deh_driver (driver_id)
+    )
+`, function(err) {
+    if (err) console.error('Failed to create driver_edit_history table:', err.message);
+    else console.log('driver_edit_history table ready');
+});
+
 // Auto-create the payables payment-history table if not exists — logs every
 // settle/reverse event against a payable transaction row, so the full
 // payment history (not just the most recent settling voucher) is queryable.

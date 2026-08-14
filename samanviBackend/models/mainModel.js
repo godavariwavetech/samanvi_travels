@@ -4485,6 +4485,11 @@ exports.driverdata = function (callback) {
 };
 
 
+var TRIP_FIELD_LABELS = {
+  bus_no: 'Bus No', driver1_name: 'Driver 1', driver2_name: 'Driver 2',
+  helper_name: 'Helper', conductor_name: 'Conductor',
+};
+
 exports.tripcreated = function (c_id, c_number, data, callback) {
   // Get current time in milliseconds
   const now = new Date();
@@ -4512,10 +4517,30 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
   if (data.type == "add") {
     QRY_TO_EXEC = `insert into  trip_created (bus_no,service_no,optreg,driver1_name,optreg1,driver2_name,optreg2,helper_name,conductor_name,cts,trip_date,trip_for,trip_for_id,service_no_id,paid_to_id,paid_to_name,paid_to_type,remarks,created_id,created_name,driver1_id,driver2_id,conductor_id,helper_id,c_id,c_number) VALUES('${data.bus_no}','${data.service_no}',
   '${data.optreg}','${data.driver1_name}','${data.optreg1}','${data.driver2_name}','${data.optreg2}','${data.helper_name}','${data.conductor_name}','${formattedDate}','${data.trip_date}','${data.trip_for}','${data.trip_for_id}','${data.service_no_id}','${data.paid_to_id}','${data.paid_to_name}','${data.paid_to_type}','${data.remarks}','${data.created_id}','${data.created_name}','${data.driver1_id}','${data.driver2_id}','${data.conductor_id}','${data.helper_id}','${c_id}','${c_number}')`;
-  } else {
+
+    console.log(QRY_TO_EXEC, 3820);
+
+    if (callback && typeof callback == "function")
+      dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+        callback(err, results);
+        return;
+      });
+    else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+    return;
+  }
+
+  // ── Edit: select-before → update → diff bus/driver/helper/conductor →
+  // log a trip_edit_history row if anything actually changed. Mirrors
+  // updatebusnumber's history-logging pattern above.
+  var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+  var trackedFields = { bus_no: data.bus_no, driver1_name: data.driver1_name, driver2_name: data.driver2_name, helper_name: data.helper_name, conductor_name: data.conductor_name };
+
+  sqldb.query(`SELECT bus_no, driver1_name, driver2_name, helper_name, conductor_name FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
+    var before = (!selErr && rows && rows[0]) ? rows[0] : {};
+
     QRY_TO_EXEC = `
         UPDATE trip_created
-SET 
+SET
   bus_no = '${data.bus_no}',
   service_no = '${data.service_no}',
   optreg = '${data.optreg}',
@@ -4543,21 +4568,28 @@ SET
 WHERE id = ${data.id};
 
         `;
-  }
 
-  console.log(QRY_TO_EXEC, 3820);
+    console.log(QRY_TO_EXEC, 3820);
 
-  if (callback && typeof callback == "function")
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+    dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+      if (err) { callback(err, results); return; }
+
+      var changes = [];
+      Object.keys(trackedFields).forEach(function (k) {
+        var oldV = before[k] == null ? '' : String(before[k]);
+        var newV = trackedFields[k] == null ? '' : String(trackedFields[k]);
+        if (oldV !== newV) changes.push(`${TRIP_FIELD_LABELS[k] || k}: '${oldV || '—'}' -> '${newV || '—'}'`);
+      });
+
+      if (changes.length === 0) { callback(null, results); return; }
+
+      var histQ = `INSERT INTO trip_edit_history (trip_id, c_number, changes_note, changed_by_id, changed_by_name) VALUES ('${data.id}', '${esc(data.c_number || '')}', '${esc(changes.join('\n'))}', '${esc(data.updatedby_id)}', '${esc(data.updatedby_name)}')`;
+      sqldb.query(histQ, function (histErr) {
+        if (histErr) console.log('[tripcreated edit] history log error:', histErr.message);
+        callback(null, results);
+      });
+    });
+  });
 };
 
 // ── Bulk Trip Creation (date-picker + per-service-route grid) ─────────────────
@@ -9536,6 +9568,20 @@ exports.getBusHistoryMdl = function (data, callback) {
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
 };
 
+exports.getTripHistoryMdl = function (data, callback) {
+  var cntxtDtls = "getTripHistoryMdl";
+  var tripId = parseInt(data.trip_id) || 0;
+  var QRY_TO_EXEC = `SELECT * FROM trip_edit_history WHERE trip_id = ${tripId} ORDER BY changed_at ASC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
+exports.getDriverHistoryMdl = function (data, callback) {
+  var cntxtDtls = "getDriverHistoryMdl";
+  var driverId = parseInt(data.driver_id) || 0;
+  var QRY_TO_EXEC = `SELECT * FROM driver_edit_history WHERE driver_id = ${driverId} ORDER BY changed_at ASC`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], cntxtDtls, callback);
+};
+
 // Fields editable from the Vehicle Validations screen — whitelisted so the
 // column name (which comes from the client) can never reach raw SQL unchecked.
 var VALIDATION_FIELD_LABELS = {
@@ -9610,6 +9656,18 @@ exports.updateservicenoMdl = function (data, callback) {
       }
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+var DRIVER_FIELD_LABELS = {
+  driver_name: 'DL Name', mobile_number: 'Mobile Number', alternate_number: 'Alternate Mobile',
+  aadhar_number: 'Aadhar Number', reference: 'Referred By', account_holder_name: 'Account Holder Name',
+  account_number: 'Account Number', bank_name: 'Bank Name', branch_name: 'Branch Name', ifsc_code: 'IFSC Code',
+  upi_id: 'UPI ID', date_of_joining: 'Date of Joining', remarks: 'Remarks', nickname: 'Aadhar Name',
+  emergency_mobile_number: 'Emergency Number', dl_number: 'DL Number', dl_expiry_date: 'DL Expiry Date',
+  address: 'Address', dldateofbirth: 'Date of Birth', drivinglicense_joining_date: 'DL Issue Date',
+  transportoneissuedate: 'Transport Issue Date', transportvalidityfrom: 'Transport Valid From',
+  transportvalidityto: 'Transport Valid To', dl_issued_by: 'DL Issued By', dl_dob: 'DL Date of Birth',
+  dl_linked_mobile: 'DL Linked Mobile Number',
 };
 
 exports.adddrivereditMdl = function (
@@ -9735,17 +9793,38 @@ exports.adddrivereditMdl = function (
     });
   }
 
-  if (callback && typeof callback === "function") {
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      [dta, data.id],
-      cntxtDtls,
-      syncDriverLedgerAfterUpdate
-    );
-  } else {
-    return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
-  }
+  // select-before → update → diff tracked fields → log driver_edit_history
+  // row if anything changed, then continue into the existing ledger sync —
+  // mirrors updatebusnumber's history-logging pattern.
+  // dl_dob is a native DATE column (every other tracked field here is varchar);
+  // re-select it as a plain 'YYYY-MM-DD' string so it compares equal to
+  // dta.dl_dob when unchanged — otherwise mysql2 returns a Date object and
+  // every save falsely logs it as edited (same gotcha as updatebusnumber's reg_date).
+  var trackedKeys = Object.keys(DRIVER_FIELD_LABELS);
+  var selectCols = trackedKeys.map(function (k) { return k === 'dl_dob' ? `DATE_FORMAT(dl_dob, '%Y-%m-%d') as dl_dob` : k; }).join(', ');
+  dbutil.execupdateQuery(sqldb, `SELECT ${selectCols} FROM driver_register WHERE id = ?`, [data.id], cntxtDtls, function (selErr, selRows) {
+    var before = (!selErr && selRows && selRows[0]) ? selRows[0] : {};
+
+    dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [dta, data.id], cntxtDtls, function (err, results) {
+      if (err) { callback(err, results); return; }
+
+      var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+      var changes = [];
+      trackedKeys.forEach(function (k) {
+        var oldV = before[k] == null ? '' : String(before[k]);
+        var newV = dta[k] == null ? '' : String(dta[k]);
+        if (oldV !== newV) changes.push(`${DRIVER_FIELD_LABELS[k] || k}: '${oldV || '—'}' -> '${newV || '—'}'`);
+      });
+
+      if (changes.length === 0) { syncDriverLedgerAfterUpdate(err, results); return; }
+
+      var histQ = `INSERT INTO driver_edit_history (driver_id, driver_id_number, changes_note, changed_by_id, changed_by_name) VALUES ('${data.id}', '${esc(data.driver_id_number)}', '${esc(changes.join('\n'))}', '${esc(data.entryby)}', '${esc(data.usrnm)}')`;
+      sqldb.query(histQ, function (histErr) {
+        if (histErr) console.log('[adddrivereditMdl] history log error:', histErr.message);
+        syncDriverLedgerAfterUpdate(err, results);
+      });
+    });
+  });
 };
 // exports.edithelperregisterMdl = function (data, adharFront, adharBack, upiScanner, callback) {
 //     const cntxtDtls = "in edithelperregisterMdl";
@@ -11213,7 +11292,15 @@ exports.getalldrivers = function (callback) {
   // image URLs, etc.) reaches the frontend, matching gethelperMdl's Staff
   // and Helper queries — this used to be a hand-picked 9-column list that
   // silently dropped everything else, including all document images.
-  const QRY_TO_EXEC = `SELECT * FROM driver_register WHERE d_in = '0' ORDER BY id DESC`;
+  //
+  // dl_dob is the one native DATE column on this table (everything else
+  // date-shaped is varchar); re-select it as plain 'YYYY-MM-DD' so it never
+  // comes back as a JS Date object — mysql2 builds that Date at local
+  // midnight, and JSON-serializing it to send over the API shifts it to UTC,
+  // landing on the previous day once the frontend reads the date part back
+  // out. The duplicate `dl_dob` alias overrides SELECT *'s raw column,
+  // same trick as updatebusnumber's reg_date re-select above.
+  const QRY_TO_EXEC = `SELECT *, DATE_FORMAT(dl_dob, '%Y-%m-%d') as dl_dob FROM driver_register WHERE d_in = '0' ORDER BY id DESC`;
 
   if (callback && typeof callback === "function") {
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {

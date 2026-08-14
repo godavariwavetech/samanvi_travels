@@ -219,6 +219,7 @@ router.post("/driverdata", verifyToken, routcontroller.driverdata);
 router.post("/tripcreated", routcontroller.tripcreated);
 router.post("/bulkcreatetrips", routcontroller.bulkCreateTripsCtrl);
 router.post("/deletetripcreated", routcontroller.deletetripcreatedCtrl);
+router.post("/gettriphistory", routcontroller.getTripHistoryCtrl);
 router.get("/gettripceated", routcontroller.gettripceated);
 
 router.post("/gettripceated1", routcontroller.gettripceated1Ctrl);
@@ -315,6 +316,7 @@ router.post('/updatebusvaliditydate',verifyToken,routcontroller.updateBusValidit
 router.post('/updateservicenumber',verifyToken, routcontroller.updateservicenumber);
 router.post('/updateserviceno',verifyToken,routcontroller.updateservicenoCtrl);
 router.post('/adddriveredit',verifyToken,routcontroller.adddrivereditCtrl);
+router.post('/getdriverhistory',verifyToken,routcontroller.getDriverHistoryCtrl);
 router.post('/edithelperregister',verifyToken,routcontroller.edithelperregisterCtrl);
 
 router.post('/addstaffedit',verifyToken, routcontroller.addstaffeditCtrl);
