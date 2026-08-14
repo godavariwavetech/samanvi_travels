@@ -105,7 +105,11 @@ export const mastersService = {
   // ── Drivers ──────────────────────────────────────────────
   getDrivers: () => api.post('/getalldrivers', {}).then((r) => r.data),
   addDriver: (data: unknown) => api.post('/adddriverregister', data).then((r) => r.data),
-  editDriver: (data: unknown) => api.post('/adddriveredit', securePayload(data)).then((r) => r.data),
+  // NOTE: unlike most endpoints here, adddrivereditCtrl reads req.body directly
+  // (no decryptPayload call server-side) — securePayload here would just send
+  // an encrypted blob the backend never unwraps, so every field comes through undefined.
+  editDriver: (data: unknown) => api.post('/adddriveredit', data).then((r) => r.data),
+  getDriverHistory: (data: unknown) => api.post('/getdriverhistory', data).then((r) => r.data),
   deleteDriver: (data: unknown) => api.post('/deletedriverdata', securePayload(data)).then((r) => r.data),
 
   // ── Helpers ──────────────────────────────────────────────
