@@ -19,8 +19,11 @@ type GridRow = {
   status: TripRunStatus
   bus_no: string
   driver1_id: string; driver1_name: string; driver1_checked: boolean
+  opt_driver1_id: string; opt_driver1_name: string
   driver2_id: string; driver2_name: string; driver2_checked: boolean
+  opt_driver2_id: string; opt_driver2_name: string
   helper_id: string; helper_name: string; helper_checked: boolean
+  opt_helper_id: string; opt_helper_name: string
   conductor_id: string; conductor_name: string; conductor_checked: boolean
   paid_to_id: string; paid_to_name: string; paid_to_type: string; paid_to_ledger_id: string
   remarks: string
@@ -67,8 +70,11 @@ const columns: Column[] = [
     ),
   },
   { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
+  { label: 'Opting Driver 1', key: 'opt_driver1_name', filterable: true, render: (v) => <span className="text-slate-400 text-xs">{String(v ?? 'NA')}</span> },
   { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
+  { label: 'Opting Driver 2', key: 'opt_driver2_name', filterable: true, render: (v) => <span className="text-slate-400 text-xs">{String(v ?? 'NA')}</span> },
   { label: 'Helper', key: 'helper_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
+  { label: 'Opting Helper', key: 'opt_helper_name', filterable: true, render: (v) => <span className="text-slate-400 text-xs">{String(v ?? 'NA')}</span> },
   { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
   {
     label: 'Paid To / Hirer', key: 'paid_to_name', filterable: true,
@@ -218,8 +224,11 @@ export default function TripCreationPage() {
   const makeEmptyGridRow = (): GridRow => ({
     status: 'Running', bus_no: '',
     driver1_id: '', driver1_name: '', driver1_checked: false,
+    opt_driver1_id: '', opt_driver1_name: '',
     driver2_id: '', driver2_name: '', driver2_checked: false,
+    opt_driver2_id: '', opt_driver2_name: '',
     helper_id: '', helper_name: '', helper_checked: false,
+    opt_helper_id: '', opt_helper_name: '',
     conductor_id: '', conductor_name: '', conductor_checked: true,
     paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '',
     remarks: '',
@@ -272,8 +281,11 @@ export default function TripCreationPage() {
           trip_for: r.serviceFor, trip_for_id: r.service_for_id,
           bus_no: row.bus_no,
           driver1_id: row.driver1_id, driver1_name: row.driver1_name,
+          opt_driver1_id: row.opt_driver1_id, opt_driver1_name: row.opt_driver1_name,
           driver2_id: row.driver2_id, driver2_name: row.driver2_name,
+          opt_driver2_id: row.opt_driver2_id, opt_driver2_name: row.opt_driver2_name,
           helper_id: row.helper_id, helper_name: row.helper_name,
+          opt_helper_id: row.opt_helper_id, opt_helper_name: row.opt_helper_name,
           conductor_id: row.conductor_id, conductor_name: row.conductor_name,
           paid_to_id: row.paid_to_id, paid_to_name: row.paid_to_name, paid_to_type: row.paid_to_type,
           remarks: row.remarks, trip_run_status: row.status,
@@ -484,8 +496,11 @@ export default function TripCreationPage() {
                         <th className="py-2.5 px-3 w-32">Status</th>
                         <th className="py-2.5 px-3 w-52">Bus No</th>
                         <th className="py-2.5 px-3 w-56">Driver 1</th>
+                        <th className="py-2.5 px-3 w-48">Opting Driver 1</th>
                         <th className="py-2.5 px-3 w-56">Driver 2</th>
+                        <th className="py-2.5 px-3 w-48">Opting Driver 2</th>
                         <th className="py-2.5 px-3 w-52">Helper</th>
+                        <th className="py-2.5 px-3 w-48">Opting Helper</th>
                         <th className="py-2.5 px-3 w-52">Conductor</th>
                         <th className="py-2.5 px-3 w-64">Paid To</th>
                         <th className="py-2.5 px-3 w-80">Remarks</th>
@@ -504,8 +519,11 @@ export default function TripCreationPage() {
                               <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
                               <td className="py-2 px-3 font-medium">{existing.bus_no || '—'}</td>
                               <td className="py-2 px-3 text-slate-600">{existing.driver1_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.opt_driver1_name || 'NA'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.driver2_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.opt_driver2_name || 'NA'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.helper_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.opt_helper_name || 'NA'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.conductor_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-600 text-xs">{existing.paid_to_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
@@ -548,6 +566,14 @@ export default function TripCreationPage() {
                               </div>
                             </td>
                             <td className="py-2 px-3">
+                              <ClearSelect className="min-w-[12rem]" value={row.opt_driver1_id}
+                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { opt_driver1_id: v, opt_driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                onClear={() => updateRow(r.id, { opt_driver1_id: '', opt_driver1_name: '' })}>
+                                <option value="">NA</option>
+                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 2" checked={row.driver2_checked} onChange={(v) => updateRow(r.id, { driver2_checked: v })} />
                                 <ClearSelect className="min-w-[14rem] flex-1" value={row.driver2_id}
@@ -557,6 +583,14 @@ export default function TripCreationPage() {
                                   {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                                 </ClearSelect>
                               </div>
+                            </td>
+                            <td className="py-2 px-3">
+                              <ClearSelect className="min-w-[12rem]" value={row.opt_driver2_id}
+                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { opt_driver2_id: v, opt_driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
+                                onClear={() => updateRow(r.id, { opt_driver2_id: '', opt_driver2_name: '' })}>
+                                <option value="">NA</option>
+                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                              </ClearSelect>
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
@@ -570,6 +604,14 @@ export default function TripCreationPage() {
                               </div>
                             </td>
                             <td className="py-2 px-3">
+                              <ClearSelect className="min-w-[12rem]" value={row.opt_helper_id}
+                                onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { opt_helper_id: v, opt_helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
+                                onClear={() => updateRow(r.id, { opt_helper_id: '', opt_helper_name: '' })}>
+                                <option value="">NA</option>
+                                {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
+                              </ClearSelect>
+                            </td>
+                            <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Conductor" checked={row.conductor_checked} onChange={(v) => updateRow(r.id, { conductor_checked: v })} />
                                 <ClearSelect className="min-w-[13rem] flex-1" value={row.conductor_id}
@@ -581,7 +623,7 @@ export default function TripCreationPage() {
                               </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={row.driver1_checked && row.driver2_checked} className="min-w-[15rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
+                              <ClearSelect disabled={row.driver1_checked && row.driver2_checked && row.helper_checked} className="min-w-[15rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
                                 onChange={(v) => {
                                   const p = paidToList.find((x) => `${x.paid_to_id}_${x.paid_to_type}` === v)
                                   const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
@@ -597,8 +639,8 @@ export default function TripCreationPage() {
                                   </option>
                                 ))}
                               </ClearSelect>
-                              {row.driver1_checked && row.driver2_checked && (
-                                <p className="text-[11px] font-semibold text-slate-400 mt-1">Both drivers selected — paid individually</p>
+                              {row.driver1_checked && row.driver2_checked && row.helper_checked && (
+                                <p className="text-[11px] font-semibold text-slate-400 mt-1">Driver 1, Driver 2 &amp; Helper all paid individually</p>
                               )}
                               <PaidToBalance ledgerId={row.paid_to_ledger_id} />
                             </td>

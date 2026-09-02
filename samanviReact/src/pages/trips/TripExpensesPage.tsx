@@ -18,7 +18,7 @@ type LedgerObj = {
   staticname?: any; mandal_name?: any; subchildtwo_id?: any
   parent_subgroup_id?: any; parent_subchild_id?: any; parent_grp_level?: any
 }
-type PersonKey = 'driver1' | 'driver2' | 'helper' | 'conductor'
+type PersonKey = 'driver1' | 'driver2' | 'helper' | 'conductor' | 'optDriver1' | 'optDriver2' | 'optHelper'
 type RowTag = PersonKey | 'paidTo'
 type LedgerRow = { ledger: LedgerObj | null; amount: string; personKey?: RowTag }
 
@@ -30,11 +30,15 @@ type ExpenseForm = {
   driver2_name: string; driver2_id: string
   helper_name: string; helper_id: string
   conductor_name: string; conductor_id: string
+  opt_driver1_name: string; opt_driver1_id: string
+  opt_driver2_name: string; opt_driver2_id: string
+  opt_helper_name: string; opt_helper_id: string
   paid_to_name: string; paid_to_id: string; paid_to_type: string
   driveronebeta: string; driveronesalary: string; driveronesudsalary: string
   drivertwobeta: string; drivertwosalary: string; drivertwosudsalary: string
   helperbeta: string; helpersalary: string; helpersudsalary: string
   conductorsalary: string
+  parking_amt: string
   remarks: string
 }
 
@@ -44,7 +48,7 @@ const today = new Date().toISOString().split('T')[0]
 const firstOfMonth = today.slice(0, 8) + '01'
 
 const num = (v: any) => Number(v) || 0
-const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor']
+const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor', 'optDriver1', 'optDriver2', 'optHelper']
 const nowStr = () => {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
@@ -59,11 +63,15 @@ const emptyForm = (): ExpenseForm => ({
   driver2_name: '', driver2_id: '',
   helper_name: '', helper_id: '',
   conductor_name: '', conductor_id: '',
+  opt_driver1_name: '', opt_driver1_id: '',
+  opt_driver2_name: '', opt_driver2_id: '',
+  opt_helper_name: '', opt_helper_id: '',
   paid_to_name: '', paid_to_id: '', paid_to_type: '',
   driveronebeta: '', driveronesalary: '', driveronesudsalary: '',
   drivertwobeta: '', drivertwosalary: '', drivertwosudsalary: '',
   helperbeta: '', helpersalary: '', helpersudsalary: '',
   conductorsalary: '',
+  parking_amt: '',
   remarks: '',
 })
 
@@ -170,22 +178,31 @@ export default function TripExpensesPage() {
 
   const personId = (key: PersonKey) => ({
     driver1: form.driver1_id, driver2: form.driver2_id, helper: form.helper_id, conductor: form.conductor_id,
+    optDriver1: form.opt_driver1_id, optDriver2: form.opt_driver2_id, optHelper: form.opt_helper_id,
   }[key])
   const personName = (key: PersonKey) => ({
     driver1: form.driver1_name, driver2: form.driver2_name, helper: form.helper_name, conductor: form.conductor_name,
+    optDriver1: form.opt_driver1_name, optDriver2: form.opt_driver2_name, optHelper: form.opt_helper_name,
   }[key])
-  // Beta (always) + Salary (only if that person opted for salary over per-trip beta) — mirrors totalSalary/totalBeta's per-field logic, just scoped to one person.
+  // Driver1/2, Helper, Conductor are their own per-trip beta only — the
+  // "opting" salary top-up used to be added onto their own amount, but now
+  // belongs to a *separate* opting person (own ledger), so it only counts
+  // here when that role's opt slot actually has someone assigned (NA = 0).
   const personAmount = (key: PersonKey) => {
-    if (key === 'driver1') return num(form.driveronesalary) + (form.driveronebeta === 'opting' ? num(form.driveronesudsalary) : 0)
-    if (key === 'driver2') return num(form.drivertwosalary) + (form.drivertwobeta === 'opting' ? num(form.drivertwosudsalary) : 0)
-    if (key === 'helper') return num(form.helpersalary) + (form.helperbeta === 'opting' ? num(form.helpersudsalary) : 0)
-    return num(form.conductorsalary)
+    if (key === 'driver1') return num(form.driveronesalary)
+    if (key === 'driver2') return num(form.drivertwosalary)
+    if (key === 'helper') return num(form.helpersalary)
+    if (key === 'conductor') return num(form.conductorsalary)
+    if (key === 'optDriver1') return form.opt_driver1_id ? num(form.driveronesudsalary) : 0
+    if (key === 'optDriver2') return form.opt_driver2_id ? num(form.drivertwosudsalary) : 0
+    return form.opt_helper_id ? num(form.helpersudsalary) : 0 // optHelper
   }
   // Generic so the read-only View modal can resolve a person's ledger from
   // its own row data (driverX_id etc.) without going through `form` at all.
   const ledgerIdForPerson = (key: PersonKey, id: string): string => {
     if (!id) return ''
-    const list = key === 'driver1' || key === 'driver2' ? drivers : key === 'helper' ? helpers : conductors
+    const list = key === 'driver1' || key === 'driver2' || key === 'optDriver1' || key === 'optDriver2' ? drivers
+      : key === 'helper' || key === 'optHelper' ? helpers : conductors
     const rec = list.find((r: any) => String(r.id) === String(id))
     return rec?.ledger_id ? String(rec.ledger_id) : ''
   }
@@ -237,7 +254,9 @@ export default function TripExpensesPage() {
   // editable like any other row until the next toggle touches it again.
   const recomputePaidToRow = (rows: LedgerRow[]): LedgerRow[] => {
     const checkedKeys = PERSON_KEYS.filter((k) => rows.some((r) => r.personKey === k))
-    const remainder = PERSON_KEYS.filter((k) => !checkedKeys.includes(k)).reduce((sum, k) => sum + personAmount(k), 0)
+    // Parking has no person/checkbox of its own — it always rides along with
+    // whatever remainder falls to Paid To.
+    const remainder = PERSON_KEYS.filter((k) => !checkedKeys.includes(k)).reduce((sum, k) => sum + personAmount(k), 0) + num(form.parking_amt)
     const withoutPaidTo = rows.filter((r) => r.personKey !== 'paidTo')
     if (remainder <= 0) return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
     const ledgerId = paidToLedgerId()
@@ -298,6 +317,9 @@ export default function TripExpensesPage() {
       driver2_name: row.driver2_name ?? '', driver2_id: String(row.driver2_id ?? ''),
       helper_name: row.helper_name ?? '', helper_id: String(row.helper_id ?? ''),
       conductor_name: row.conductor_name ?? '', conductor_id: String(row.conductor_id ?? ''),
+      opt_driver1_name: row.opt_driver1_name ?? '', opt_driver1_id: String(row.opt_driver1_id ?? ''),
+      opt_driver2_name: row.opt_driver2_name ?? '', opt_driver2_id: String(row.opt_driver2_id ?? ''),
+      opt_helper_name: row.opt_helper_name ?? '', opt_helper_id: String(row.opt_helper_id ?? ''),
       paid_to_name: row.paid_to_name ?? '', paid_to_id: String(row.paid_to_id ?? ''), paid_to_type: row.paid_to_type ?? '',
       driveronebeta: row.optreg ?? '', drivertwobeta: row.optreg1 ?? '', helperbeta: row.optreg2 ?? '',
       remarks: row.remarks ?? '',
@@ -313,19 +335,27 @@ export default function TripExpensesPage() {
         drivertwosalary: String(rate.driverTwoBeta ?? ''),
         helpersalary: String(rate.helperBeta ?? ''),
         conductorsalary: String(rate.conductorBeta ?? ''),
-        driveronesudsalary: f.driveronebeta === 'opting' ? String(rate.optDriver ?? '') : f.driveronesudsalary,
-        drivertwosudsalary: f.drivertwobeta === 'opting' ? String(rate.optDriver ?? '') : f.drivertwosudsalary,
-        helpersudsalary: f.helperbeta === 'opting' ? String(rate.optHelper ?? '') : f.helpersudsalary,
+        // Opting-rate amounts always come along from the route now — whether
+        // they actually count toward a total is gated on an opt person being
+        // assigned (see personAmount), not on this being fetched.
+        driveronesudsalary: String(rate.optDriver ?? ''),
+        drivertwosudsalary: String(rate.optDriver ?? ''),
+        helpersudsalary: String(rate.optHelper ?? ''),
+        parking_amt: String(rate.parkingAmount ?? ''),
       }))
 
       // Nobody's checked yet, so the whole computed total starts out attributed
       // to Paid To — checking a person later peels their share off into their
       // own ledger and shrinks this row accordingly (see recomputePaidToRow).
-      const driver1Amt = num(rate.driverOneBeta) + (row.optreg === 'opting' ? num(rate.optDriver) : 0)
-      const driver2Amt = num(rate.driverTwoBeta) + (row.optreg1 === 'opting' ? num(rate.optDriver) : 0)
-      const helperAmt = num(rate.helperBeta) + (row.optreg2 === 'opting' ? num(rate.optHelper) : 0)
+      const driver1Amt = num(rate.driverOneBeta)
+      const driver2Amt = num(rate.driverTwoBeta)
+      const helperAmt = num(rate.helperBeta)
       const conductorAmt = num(rate.conductorBeta)
-      const total = driver1Amt + driver2Amt + helperAmt + conductorAmt
+      const optDriver1Amt = row.opt_driver1_id ? num(rate.optDriver) : 0
+      const optDriver2Amt = row.opt_driver2_id ? num(rate.optDriver) : 0
+      const optHelperAmt = row.opt_helper_id ? num(rate.optHelper) : 0
+      const parkingAmt = num(rate.parkingAmount)
+      const total = driver1Amt + driver2Amt + helperAmt + conductorAmt + optDriver1Amt + optDriver2Amt + optHelperAmt + parkingAmt
       const paidToList = row.paid_to_type === 'driver' ? drivers : row.paid_to_type === 'helper' ? helpers : activeStaff
       const paidToRec = paidToList.find((r: any) => String(r.id) === String(row.paid_to_id))
       const paidToLedger = paidToRec?.ledger_id ? findLedger(String(paidToRec.ledger_id)) : null
@@ -360,11 +390,15 @@ export default function TripExpensesPage() {
         driver2_name: t.driver2_name ?? '', driver2_id: String(t.driver2_id ?? ''),
         helper_name: t.helper_name ?? '', helper_id: String(t.helper_id ?? ''),
         conductor_name: t.conductor_name ?? '', conductor_id: String(t.conductor_id ?? ''),
+        opt_driver1_name: t.opt_driver1_name ?? '', opt_driver1_id: String(t.opt_driver1_id ?? ''),
+        opt_driver2_name: t.opt_driver2_name ?? '', opt_driver2_id: String(t.opt_driver2_id ?? ''),
+        opt_helper_name: t.opt_helper_name ?? '', opt_helper_id: String(t.opt_helper_id ?? ''),
         paid_to_name: t.paid_to_name ?? '', paid_to_id: String(t.paid_to_id ?? ''), paid_to_type: t.paid_to_type ?? '',
         driveronebeta: t.driveronebeta ?? '', driveronesudsalary: t.driveronesalary ?? '', driveronesalary: String(t.driver1Beta ?? ''),
         drivertwobeta: t.drivertwobeta ?? '', drivertwosudsalary: t.drivertwosalary ?? '', drivertwosalary: String(t.driver2Beta ?? ''),
         helperbeta: t.helperbeta ?? '', helpersudsalary: t.helpersalary ?? '', helpersalary: String(t.helpersudBeta ?? ''),
         conductorsalary: String(t.ConductorsudBeta ?? ''),
+        parking_amt: String(t.parking_amt ?? ''),
         remarks: t.remarks ?? '',
       }))
       setOrigMeta({
@@ -412,10 +446,10 @@ export default function TripExpensesPage() {
   }
 
   // ── Totals ───────────────────────────────────────────────────────────────
-  const totalSalary = (form.driveronebeta === 'opting' ? num(form.driveronesudsalary) : 0)
-    + (form.drivertwobeta === 'opting' ? num(form.drivertwosudsalary) : 0)
-    + (form.helperbeta === 'opting' ? num(form.helpersudsalary) : 0)
-  const totalBeta = num(form.driveronesalary) + num(form.drivertwosalary) + num(form.helpersalary) + num(form.conductorsalary)
+  // Salary = opting top-ups (only counted when that role's opt slot actually
+  // has someone assigned). Beta = the 4 regular per-trip amounts + parking.
+  const totalSalary = personAmount('optDriver1') + personAmount('optDriver2') + personAmount('optHelper')
+  const totalBeta = personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor') + num(form.parking_amt)
   const validDebit = debitRows.filter((r) => r.ledger && num(r.amount) > 0)
   const validCredit = creditRows.filter((r) => r.ledger && num(r.amount) > 0)
   const debitTotal = validDebit.reduce((s, r) => s + num(r.amount), 0)
@@ -437,6 +471,10 @@ export default function TripExpensesPage() {
     trip_creation_id: form.trip_creation_id,
     driver1_id: form.driver1_id, driver2_id: form.driver2_id, conductor_id: form.conductor_id, helper_id: form.helper_id,
     conductor_name: form.conductor_name,
+    opt_driver1_id: form.opt_driver1_id, opt_driver1_name: form.opt_driver1_name,
+    opt_driver2_id: form.opt_driver2_id, opt_driver2_name: form.opt_driver2_name,
+    opt_helper_id: form.opt_helper_id, opt_helper_name: form.opt_helper_name,
+    parking_amt: form.parking_amt,
     remarks: form.remarks,
   })
 
@@ -775,13 +813,16 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver1').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Driver1 Type</Label>
-                      <Badge variant={form.driveronebeta === 'opting' ? 'purple' : 'slate'}>{form.driveronebeta || '—'}</Badge>
                       <Label>Driver1 Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.driveronesalary} onChange={(e) => setForm((f) => ({ ...f, driveronesalary: e.target.value }))} />
-                      {form.driveronebeta === 'opting' && (
+                      {form.opt_driver1_id && (
                         <>
-                          <Label>Driver1 Salary (₹)</Label>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none pt-1">
+                            <input type="checkbox" checked={isPersonChecked('optDriver1')} onChange={() => togglePerson('optDriver1')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.opt_driver1_name} (Opting)
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6 -mt-1">₹{personAmount('optDriver1').toLocaleString('en-IN')}</p>
+                          <Label>Opting Driver1 Salary (₹)</Label>
                           <Input type="number" value={form.driveronesudsalary} onChange={(e) => setForm((f) => ({ ...f, driveronesudsalary: e.target.value }))} />
                         </>
                       )}
@@ -796,13 +837,16 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver2').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Driver2 Type</Label>
-                      <Badge variant={form.drivertwobeta === 'opting' ? 'purple' : 'slate'}>{form.drivertwobeta || '—'}</Badge>
                       <Label>Driver2 Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.drivertwosalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosalary: e.target.value }))} />
-                      {form.drivertwobeta === 'opting' && (
+                      {form.opt_driver2_id && (
                         <>
-                          <Label>Driver2 Salary (₹)</Label>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none pt-1">
+                            <input type="checkbox" checked={isPersonChecked('optDriver2')} onChange={() => togglePerson('optDriver2')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.opt_driver2_name} (Opting)
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6 -mt-1">₹{personAmount('optDriver2').toLocaleString('en-IN')}</p>
+                          <Label>Opting Driver2 Salary (₹)</Label>
                           <Input type="number" value={form.drivertwosudsalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosudsalary: e.target.value }))} />
                         </>
                       )}
@@ -817,13 +861,16 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('helper').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Helper Type</Label>
-                      <Badge variant={form.helperbeta === 'opting' ? 'purple' : 'slate'}>{form.helperbeta || '—'}</Badge>
                       <Label>Helper Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.helpersalary} onChange={(e) => setForm((f) => ({ ...f, helpersalary: e.target.value }))} />
-                      {form.helperbeta === 'opting' && (
+                      {form.opt_helper_id && (
                         <>
-                          <Label>Helper Salary (₹)</Label>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none pt-1">
+                            <input type="checkbox" checked={isPersonChecked('optHelper')} onChange={() => togglePerson('optHelper')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.opt_helper_name} (Opting)
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6 -mt-1">₹{personAmount('optHelper').toLocaleString('en-IN')}</p>
+                          <Label>Opting Helper Salary (₹)</Label>
                           <Input type="number" value={form.helpersudsalary} onChange={(e) => setForm((f) => ({ ...f, helpersudsalary: e.target.value }))} />
                         </>
                       )}
@@ -841,6 +888,13 @@ export default function TripExpensesPage() {
                       <Label>Conductor Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.conductorsalary} onChange={(e) => setForm((f) => ({ ...f, conductorsalary: e.target.value }))} />
                     </div>
+                    {Number(form.parking_amt) > 0 && (
+                      <div className="space-y-2">
+                        <Label>Parking (₹)</Label>
+                        <Input type="number" value={form.parking_amt} onChange={(e) => setForm((f) => ({ ...f, parking_amt: e.target.value }))} />
+                        <p className="text-[11px] text-slate-400">No individual payee — always folds into Paid To.</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Remarks */}

@@ -274,6 +274,43 @@ var moment = require("moment");
       });
     }
   });
+  // Opting driver/helper — a separate relief person (own ledger) assignable per
+  // Driver1/Driver2/Helper slot on the Daily Trip Sheet, distinct from driverone's
+  // route-level optDriver/optHelper *rate* columns. Selecting one is itself the
+  // "opting" signal (replaces the old unwired optreg checkbox flag).
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'opt_driver1_id'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE trip_created
+        ADD COLUMN opt_driver1_id INT DEFAULT NULL,
+        ADD COLUMN opt_driver1_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN opt_driver2_id INT DEFAULT NULL,
+        ADD COLUMN opt_driver2_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN opt_helper_id INT DEFAULT NULL,
+        ADD COLUMN opt_helper_name VARCHAR(255) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] trip_created.opt_driver1_id/etc migration:', err.message);
+        else console.log('[DB] trip_created.opt_driver1_id/etc columns added');
+      });
+    }
+  });
+  // Same opting-person columns on tripexpenses_data (denormalized copy carried
+  // through at filing time), plus parking_amt — a snapshot of the service's
+  // driverone.parkingAmount at the moment the expense was filed, so it survives
+  // even if the service route's parking amount changes later.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tripexpenses_data' AND COLUMN_NAME = 'opt_driver1_id'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE tripexpenses_data
+        ADD COLUMN opt_driver1_id INT DEFAULT NULL,
+        ADD COLUMN opt_driver1_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN opt_driver2_id INT DEFAULT NULL,
+        ADD COLUMN opt_driver2_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN opt_helper_id INT DEFAULT NULL,
+        ADD COLUMN opt_helper_name VARCHAR(255) DEFAULT NULL,
+        ADD COLUMN parking_amt DECIMAL(12,2) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] tripexpenses_data.opt_driver1_id/etc/parking_amt migration:', err.message);
+        else console.log('[DB] tripexpenses_data.opt_driver1_id/etc/parking_amt columns added');
+      });
+    }
+  });
   // Seed the two split Driver ledger containers (Payables) and the Hirers
   // container (Receivables) — one-time, idempotent via existence check.
   sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Bus Operating Driver' AND d_in = 0 LIMIT 1`, function (err, rows) {
@@ -4422,10 +4459,10 @@ exports.updateadddiagnoptntDtsmmdl = function (c_id, c_number, data, callback) {
   var cntxtDtls = "in adddiagnoptntDtsmmdl";
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD HH:mm:ss");
   var QRY_TO_EXEC = `insert into tripexpenses_data(date,
-		driveronebeta,driver1Beta,driveronesalary,driverone_payment,drivertwobeta,driver2Beta,drivertwosalary,drivertwo_payment ,helperbeta,helpersudBeta,helpersalary,conductor_beta,ConductorsudBeta,conductor_salary,helper_payment,bus_no,service_no,driver1_name,driver2_name,helper_name,amount,status,user_id,usr_nm,driveronebeta_payment,drivertwobeta_payment,helperbeta_payment,tot_salary,tot_beta,tot_salary_beta,total_amount,trip_date,trip_for,c_id,c_number,paid_to_id,paid_to_name,paid_to_type,trip_creation_id,driver1_id,driver2_id,helper_id,conductor_id,conductor_name,updatedby_id,updatedby_name,updatedby_date,service_no_id,trip_for_id,remarks)values( '${data.date}',
+		driveronebeta,driver1Beta,driveronesalary,driverone_payment,drivertwobeta,driver2Beta,drivertwosalary,drivertwo_payment ,helperbeta,helpersudBeta,helpersalary,conductor_beta,ConductorsudBeta,conductor_salary,helper_payment,bus_no,service_no,driver1_name,driver2_name,helper_name,amount,status,user_id,usr_nm,driveronebeta_payment,drivertwobeta_payment,helperbeta_payment,tot_salary,tot_beta,tot_salary_beta,total_amount,trip_date,trip_for,c_id,c_number,paid_to_id,paid_to_name,paid_to_type,trip_creation_id,driver1_id,driver2_id,helper_id,conductor_id,conductor_name,updatedby_id,updatedby_name,updatedby_date,service_no_id,trip_for_id,remarks,opt_driver1_id,opt_driver1_name,opt_driver2_id,opt_driver2_name,opt_helper_id,opt_helper_name,parking_amt)values( '${data.date}',
 		'${data.expensedetails.driveronebeta}' , '${data.expensedetails.driveronesalary}','${data.expensedetails.driveronesudsalary}' , '${data.expensedetails.driverone_payment}' ,
 		 '${data.expensedetails.drivertwobeta}' , '${data.expensedetails.drivertwosalary}','${data.expensedetails.drivertwosudsalary}', '${data.expensedetails.drivertwo_payment}','${data.expensedetails.helperbeta}','${data.expensedetails.helpersalary}',
-     '${data.expensedetails.helpersudsalary}','${data.expensedetails.conductorbeta}','${data.expensedetails.conductorsalary}','${data.expensedetails.conductorudsalary}','${data.expensedetails.helper_payment}','${data.expensedetails.bus_no}','${data.expensedetails.service_no}','${data.expensedetails.driver1_name}','${data.expensedetails.driver2_name}','${data.expensedetails.helper_name}','${data.expensedetails.grandtotal}','1','${data.expensedetails.user_id}','${data.expensedetails.named}','${data.expensedetails.driveronebeta_payment}','${data.expensedetails.drivertwobeta_payment}','${data.expensedetails.helperbeta_payment}','${data.total_salary}','${data.total_beta}','${data.total_salary_beta}','${data.total_amount}','${data.expensedetails.trip_date}','${data.expensedetails.trip_for}','${data.c_id}','${data.c_number}','${data.paid_to_id}','${data.paid_to_name}','${data.paid_to_type}','${data.trip_creation_id}','${data.driver1_id}','${data.driver2_id}','${data.helper_id}','${data.conductor_id}','${data.expensedetails.conductor_name}','${data.updatedby_id}','${data.updatedby_nm}','${data.updatedby_date}','${data.service_no_id}','${data.trip_for_id}','${data.remarks}')`;
+     '${data.expensedetails.helpersudsalary}','${data.expensedetails.conductorbeta}','${data.expensedetails.conductorsalary}','${data.expensedetails.conductorudsalary}','${data.expensedetails.helper_payment}','${data.expensedetails.bus_no}','${data.expensedetails.service_no}','${data.expensedetails.driver1_name}','${data.expensedetails.driver2_name}','${data.expensedetails.helper_name}','${data.expensedetails.grandtotal}','1','${data.expensedetails.user_id}','${data.expensedetails.named}','${data.expensedetails.driveronebeta_payment}','${data.expensedetails.drivertwobeta_payment}','${data.expensedetails.helperbeta_payment}','${data.total_salary}','${data.total_beta}','${data.total_salary_beta}','${data.total_amount}','${data.expensedetails.trip_date}','${data.expensedetails.trip_for}','${data.c_id}','${data.c_number}','${data.paid_to_id}','${data.paid_to_name}','${data.paid_to_type}','${data.trip_creation_id}','${data.driver1_id}','${data.driver2_id}','${data.helper_id}','${data.conductor_id}','${data.expensedetails.conductor_name}','${data.updatedby_id}','${data.updatedby_nm}','${data.updatedby_date}','${data.service_no_id}','${data.trip_for_id}','${data.remarks}','${data.expensedetails.opt_driver1_id || ''}','${data.expensedetails.opt_driver1_name || ''}','${data.expensedetails.opt_driver2_id || ''}','${data.expensedetails.opt_driver2_name || ''}','${data.expensedetails.opt_helper_id || ''}','${data.expensedetails.opt_helper_name || ''}','${data.expensedetails.parking_amt || 0}')`;
 
   console.log(QRY_TO_EXEC, 3645);
 
@@ -4446,10 +4483,10 @@ exports.adddiagnoptntDtsmmdl = function (c_id, c_number, data, callback) {
   var cntxtDtls = "in adddiagnoptntDtsmmdl";
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD HH:mm:ss");
   var QRY_TO_EXEC = `insert into tripexpenses_data(date,
-		driveronebeta,driver1Beta,driveronesalary,driverone_payment,drivertwobeta,	driver2Beta,drivertwosalary,drivertwo_payment ,helperbeta,helpersudBeta,helpersalary,conductor_beta,ConductorsudBeta,conductor_salary,helper_payment,bus_no,service_no,driver1_name,driver2_name,helper_name,amount,status,user_id,usr_nm,driveronebeta_payment,drivertwobeta_payment,helperbeta_payment,tot_salary,tot_beta,tot_salary_beta,total_amount,trip_date,trip_for,c_id,c_number,paid_to_id,paid_to_name,paid_to_type,trip_creation_id,driver1_id,driver2_id,helper_id,conductor_id,conductor_name,service_no_id,trip_for_id,remarks)values( '${date}',
+		driveronebeta,driver1Beta,driveronesalary,driverone_payment,drivertwobeta,	driver2Beta,drivertwosalary,drivertwo_payment ,helperbeta,helpersudBeta,helpersalary,conductor_beta,ConductorsudBeta,conductor_salary,helper_payment,bus_no,service_no,driver1_name,driver2_name,helper_name,amount,status,user_id,usr_nm,driveronebeta_payment,drivertwobeta_payment,helperbeta_payment,tot_salary,tot_beta,tot_salary_beta,total_amount,trip_date,trip_for,c_id,c_number,paid_to_id,paid_to_name,paid_to_type,trip_creation_id,driver1_id,driver2_id,helper_id,conductor_id,conductor_name,service_no_id,trip_for_id,remarks,opt_driver1_id,opt_driver1_name,opt_driver2_id,opt_driver2_name,opt_helper_id,opt_helper_name,parking_amt)values( '${date}',
 		'${data.expensedetails.driveronebeta}' , '${data.expensedetails.driveronesalary}','${data.expensedetails.driveronesudsalary}' , '${data.expensedetails.driverone_payment}' ,
 		 '${data.expensedetails.drivertwobeta}' , '${data.expensedetails.drivertwosalary}','${data.expensedetails.drivertwosudsalary}', '${data.expensedetails.drivertwo_payment}','${data.expensedetails.helperbeta}','${data.expensedetails.helpersalary}',
-     '${data.expensedetails.helpersudsalary}','${data.expensedetails.conductorbeta}','${data.expensedetails.conductorsalary}','${data.expensedetails.conductorudsalary}','${data.expensedetails.helper_payment}','${data.expensedetails.bus_no}','${data.expensedetails.service_no}','${data.expensedetails.driver1_name}','${data.expensedetails.driver2_name}','${data.expensedetails.helper_name}','${data.expensedetails.grandtotal}','1','${data.expensedetails.user_id}','${data.expensedetails.named}','${data.expensedetails.driveronebeta_payment}','${data.expensedetails.drivertwobeta_payment}','${data.expensedetails.helperbeta_payment}','${data.total_salary}','${data.total_beta}','${data.total_salary_beta}','${data.total_amount}','${data.expensedetails.trip_date}','${data.expensedetails.trip_for}','${c_id}','${c_number}','${data.expensedetails.paid_to_id}','${data.expensedetails.paid_to_name}','${data.expensedetails.paid_to_type}','${data.expensedetails.trip_creation_id}','${data.expensedetails.driver1_id}','${data.expensedetails.driver2_id}','${data.expensedetails.helper_id}','${data.expensedetails.conductor_id}','${data.expensedetails.conductor_name}','${data.service_no_id}','${data.trip_for_id}','${data.remarks}')`;
+     '${data.expensedetails.helpersudsalary}','${data.expensedetails.conductorbeta}','${data.expensedetails.conductorsalary}','${data.expensedetails.conductorudsalary}','${data.expensedetails.helper_payment}','${data.expensedetails.bus_no}','${data.expensedetails.service_no}','${data.expensedetails.driver1_name}','${data.expensedetails.driver2_name}','${data.expensedetails.helper_name}','${data.expensedetails.grandtotal}','1','${data.expensedetails.user_id}','${data.expensedetails.named}','${data.expensedetails.driveronebeta_payment}','${data.expensedetails.drivertwobeta_payment}','${data.expensedetails.helperbeta_payment}','${data.total_salary}','${data.total_beta}','${data.total_salary_beta}','${data.total_amount}','${data.expensedetails.trip_date}','${data.expensedetails.trip_for}','${c_id}','${c_number}','${data.expensedetails.paid_to_id}','${data.expensedetails.paid_to_name}','${data.expensedetails.paid_to_type}','${data.expensedetails.trip_creation_id}','${data.expensedetails.driver1_id}','${data.expensedetails.driver2_id}','${data.expensedetails.helper_id}','${data.expensedetails.conductor_id}','${data.expensedetails.conductor_name}','${data.service_no_id}','${data.trip_for_id}','${data.remarks}','${data.expensedetails.opt_driver1_id || ''}','${data.expensedetails.opt_driver1_name || ''}','${data.expensedetails.opt_driver2_id || ''}','${data.expensedetails.opt_driver2_name || ''}','${data.expensedetails.opt_helper_id || ''}','${data.expensedetails.opt_helper_name || ''}','${data.expensedetails.parking_amt || 0}')`;
   //console.log()1531, QRY_TO_EXEC);
 
   console.log(QRY_TO_EXEC);
@@ -4676,9 +4713,12 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
           c_id, c_number, r.trip_run_status || 'Running',
           r.vehicle_type || 'bus', r.line_code || null, r.hirer_name || null, (amount || null), r.phone_number || null,
           r.hirer_ledger_id || null,
+          r.opt_driver1_id || null, r.opt_driver1_name || null,
+          r.opt_driver2_id || null, r.opt_driver2_name || null,
+          r.opt_helper_id || null, r.opt_helper_name || null,
         ];
       });
-      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id) VALUES ?';
+      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         callback(null, { inserted: toInsert.length, total: (rows || []).length, voucherCandidates: voucherCandidates });
