@@ -292,6 +292,36 @@ var moment = require("moment");
       });
     }
   });
+  // Per-person "pay directly" flags ticked on the Trip Creation grid. They decide
+  // which "Pay <name>" checkboxes come up already ticked in the Trip Expenses
+  // modal — i.e. whose beta goes to their own ledger instead of falling through
+  // to Paid To. Only the four roles that have a checkbox at creation time; the
+  // opting people are never pre-ticked because that grid has no toggle for them.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'driver1_paid_direct'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      // trip_created sits exactly on MariaDB's 8126-byte inline row limit — not
+      // even one TINYINT can be added until something moves off-page (verified:
+      // a single probe column fails with "Row size too large"). optreg/optreg1/
+      // optreg2 are the dead legacy per-role "opting" flags, superseded by the
+      // opt_driverX_id columns and written as NULL by every current insert, so
+      // widening those three to TEXT frees the room without touching a column
+      // anything still reads. Runs first, and only inside this one-time guard.
+      sqldb.query(`ALTER TABLE trip_created
+        MODIFY COLUMN optreg TEXT DEFAULT NULL,
+        MODIFY COLUMN optreg1 TEXT DEFAULT NULL,
+        MODIFY COLUMN optreg2 TEXT DEFAULT NULL`, function (convErr) {
+        if (convErr) console.log('[DB] trip_created.optreg TEXT conversion:', convErr.message);
+        sqldb.query(`ALTER TABLE trip_created
+          ADD COLUMN driver1_paid_direct TINYINT(1) DEFAULT 0,
+          ADD COLUMN driver2_paid_direct TINYINT(1) DEFAULT 0,
+          ADD COLUMN helper_paid_direct TINYINT(1) DEFAULT 0,
+          ADD COLUMN conductor_paid_direct TINYINT(1) DEFAULT 0`, function (err) {
+          if (err) console.log('[DB] trip_created.driverX_paid_direct migration:', err.message);
+          else console.log('[DB] trip_created.driverX_paid_direct columns added');
+        });
+      });
+    }
+  });
   // Same opting-person columns on tripexpenses_data (denormalized copy carried
   // through at filing time), plus parking_amt — a snapshot of the service's
   // driverone.parkingAmount at the moment the expense was filed, so it survives
@@ -311,23 +341,29 @@ var moment = require("moment");
       });
     }
   });
-  // Seed the two split Driver ledger containers (Payables) and the Hirers
-  // container (Receivables) — one-time, idempotent via existence check.
-  sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Bus Operating Driver' AND d_in = 0 LIMIT 1`, function (err, rows) {
-    if (!err && rows && rows.length === 0) {
-      sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, 'Bus Operating Driver', 'Payables', 4, 0, 1, 0, 0)`, function (err) {
-        if (err) console.log('[DB] Bus Operating Driver container seed:', err.message);
-        else console.log('[DB] Bus Operating Driver ledger container seeded');
+  // "Bus Operating Driver" and "Salaried Driver" used to be seeded as separate
+  // Payables containers. Every driver now files under the single "Drivers"
+  // container regardless of how they are paid, so those two are retired here:
+  // anything still parked under them is moved to Drivers first (never orphaned),
+  // then the empty container is soft-deleted. Idempotent — once they are gone
+  // the lookup finds nothing and this does nothing.
+  ['Bus Operating Driver', 'Salaried Driver'].forEach(function (label) {
+    sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
+      if (err || !rows || rows.length === 0) return;
+      var staleId = rows[0].id;
+      sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Drivers' AND d_in = 0 LIMIT 1`, function (err, driverRows) {
+        if (err || !driverRows || driverRows.length === 0) return; // Drivers seeded below; retry next boot
+        var driversId = driverRows[0].id;
+        sqldb.query(`UPDATE mainmasterssubchildtwo SET subchildtwo = 'Drivers', subchildtwo_id = ?, parent_subchild_id = ? WHERE d_in = 0 AND (subchildtwo = ? OR subchildtwo_id = ?)`, [driversId, driversId, label, staleId], function (err, res) {
+          if (err) return console.log('[DB] ' + label + ' ledger move:', err.message);
+          if (res && res.affectedRows) console.log('[DB] moved ' + res.affectedRows + ' ledger(s) from ' + label + ' to Drivers');
+          sqldb.query(`UPDATE mainmasterssubchild SET d_in = 1 WHERE id = ?`, [staleId], function (err) {
+            if (err) console.log('[DB] ' + label + ' container retire:', err.message);
+            else console.log('[DB] ' + label + ' ledger container retired');
+          });
+        });
       });
-    }
-  });
-  sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Salaried Driver' AND d_in = 0 LIMIT 1`, function (err, rows) {
-    if (!err && rows && rows.length === 0) {
-      sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, 'Salaried Driver', 'Payables', 4, 0, 1, 0, 0)`, function (err) {
-        if (err) console.log('[DB] Salaried Driver container seed:', err.message);
-        else console.log('[DB] Salaried Driver ledger container seeded');
-      });
-    }
+    });
   });
   sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 3 AND temple_name = 'Hirers' AND d_in = 0 LIMIT 1`, function (err, rows) {
     if (!err && rows && rows.length === 0) {
@@ -337,13 +373,14 @@ var moment = require("moment");
       });
     }
   });
-  // Staff / Helpers containers — these predate this app's migration system (they
-  // shipped as part of the original seed data), so unlike the three above there
-  // was never a startup check ensuring they exist. Confirmed missing on at least
-  // one live deployment (Helpers) even though local dev had it — guard them the
-  // same way so ensurePersonLedger("Staff"/"Helpers", ...) never fails with
-  // "No container found under Payables" regardless of the DB's prior history.
-  ['Staff', 'Helpers'].forEach(function (label) {
+  // Drivers / Staff / Helpers — the three containers every registered person
+  // files under. They predate this app's migration system (they shipped as part
+  // of the original seed data), so there was never a startup check ensuring they
+  // exist. Confirmed missing on at least one live deployment (Helpers) even
+  // though local dev had it, and "Drivers" had no guard at all — so guard all
+  // three, and ensurePersonLedger("Drivers"/"Staff"/"Helpers", ...) can never
+  // fail with "No container found under Payables" regardless of the DB's history.
+  ['Drivers', 'Staff', 'Helpers'].forEach(function (label) {
     sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
       if (!err && rows && rows.length === 0) {
         sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, ?, 'Payables', 4, 0, 1, 0, 0)`, [label], function (err) {
@@ -353,6 +390,7 @@ var moment = require("moment");
       }
     });
   });
+
 })();
 
 exports.check_user_mobilenoMdl = function (data, callback) {
@@ -4716,9 +4754,11 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
           r.opt_driver1_id || null, r.opt_driver1_name || null,
           r.opt_driver2_id || null, r.opt_driver2_name || null,
           r.opt_helper_id || null, r.opt_helper_name || null,
+          r.driver1_paid_direct ? 1 : 0, r.driver2_paid_direct ? 1 : 0,
+          r.helper_paid_direct ? 1 : 0, r.conductor_paid_direct ? 1 : 0,
         ];
       });
-      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name) VALUES ?';
+      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         callback(null, { inserted: toInsert.length, total: (rows || []).length, voucherCandidates: voucherCandidates });
@@ -10690,8 +10730,9 @@ exports.addledgerdataMdl = function (data, callback) {
 // added there gets a matching ledger under EQUITIES AND LIABILITIES > 3) CURRENT
 // LIABILITIES > Payables > <personLabel>, so nobody has to add it by hand on the
 // Ledger master page afterward. personLabel is one of 'Staff' | 'Drivers' |
-// 'Helpers' | 'Bus Operating Driver' | 'Salaried Driver' — subchild containers
-// living under the fixed "Payables" subgroup (id=5).
+// 'Helpers' — subchild containers living under the fixed "Payables" subgroup
+// (id=5). Drivers are never split by how they are paid: there is one "Drivers"
+// container, one "Helpers", one "Staff".
 //
 // groupConfig lets ensurePersonLedger also target other groups (e.g. Receivables,
 // id=3, for Van hirers via ensureHirerLedger below) — defaults to Payables so

@@ -3,13 +3,12 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, CalendarDays, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
-import { cn } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -115,24 +114,6 @@ function PaidToBalance({ ledgerId }: { ledgerId: string }) {
   return <div className={`text-[11px] font-semibold mt-1 ${balCls(bal)}`}>{balStr(bal)}</div>
 }
 
-// Clearable select
-function ClearSelect({ value, onChange, onClear, disabled, className, children }: {
-  value: string; onChange: (v: string) => void; onClear: () => void; disabled?: boolean; className?: string; children: React.ReactNode
-}) {
-  return (
-    <div className={cn('relative', className)}>
-      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
-        className="w-full h-11 pl-4 pr-9 rounded-xl border border-slate-200 bg-white text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400 appearance-none disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
-        {children}
-      </select>
-      {value && !disabled
-        ? <button type="button" onClick={onClear} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400 transition-colors"><X className="w-3.5 h-3.5" /></button>
-        : <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-xs">▾</span>
-      }
-    </div>
-  )
-}
-
 // Compact checkbox toggle placed beside each of Driver1/Driver2/Helper/Conductor's
 // dropdown (rather than stacked above it) so each grid row stays a single line tall.
 function PersonToggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -221,6 +202,16 @@ export default function TripCreationPage() {
   // match case-insensitively or real conductors silently vanish from this list.
   const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
 
+  // Option lists for the searchable dropdowns — built once per render and shared
+  // by every grid row, rather than re-mapping the same master list per <td>.
+  const busOptions = buses.map((b: any) => ({ value: String(b.bus_no), label: String(b.bus_no) }))
+  const driverOptions = drivers.map((d: any) => ({ value: String(d.id), label: String(d.nickname ?? d.driver_name ?? '') }))
+  const helperOptions = helpers.map((h: any) => ({ value: String(h.id), label: String(h.helper_name ?? h.nickname ?? '') }))
+  const conductorOptions = conductors.map((c: any) => ({ value: String(c.id), label: String(c.nickName ?? c.fullName ?? '') }))
+  const paidToOptions = paidToList.map((p: any) => ({
+    value: p.paid_to_id + '_' + p.paid_to_type, label: p.paid_to_name + ' (' + p.paid_to_type + ')',
+  }))
+
   const makeEmptyGridRow = (): GridRow => ({
     status: 'Running', bus_no: '',
     driver1_id: '', driver1_name: '', driver1_checked: false,
@@ -288,6 +279,12 @@ export default function TripCreationPage() {
           opt_helper_id: row.opt_helper_id, opt_helper_name: row.opt_helper_name,
           conductor_id: row.conductor_id, conductor_name: row.conductor_name,
           paid_to_id: row.paid_to_id, paid_to_name: row.paid_to_name, paid_to_type: row.paid_to_type,
+          // Persisted so the Trip Expenses modal opens with the same people
+          // already ticked — without these the selection died with the grid.
+          driver1_paid_direct: row.driver1_checked ? 1 : 0,
+          driver2_paid_direct: row.driver2_checked ? 1 : 0,
+          helper_paid_direct: row.helper_checked ? 1 : 0,
+          conductor_paid_direct: row.conductor_checked ? 1 : 0,
           remarks: row.remarks, trip_run_status: row.status,
         }
       })
@@ -433,18 +430,13 @@ export default function TripCreationPage() {
                                 </select>
                               </td>
                               <td className="py-2 px-3">
-                                <ClearSelect className="min-w-[13rem]" value={row.bus_no} onChange={(v) => updateVanRow(i, { bus_no: v })} onClear={() => updateVanRow(i, { bus_no: '' })}>
-                                  <option value="">Select</option>
-                                  {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-                                </ClearSelect>
+                                <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptions}
+                                  value={row.bus_no} onChange={(v) => updateVanRow(i, { bus_no: v })} onClear={() => updateVanRow(i, { bus_no: '' })} />
                               </td>
                               <td className="py-2 px-3">
-                                <ClearSelect className="min-w-[14rem]" value={row.driver_id}
+                                <SearchableSelect className="min-w-[14rem]" placeholder="Select" options={driverOptions} value={row.driver_id}
                                   onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateVanRow(i, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                  onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })}>
-                                  <option value="">Select</option>
-                                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                                </ClearSelect>
+                                  onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })} />
                               </td>
                               <td className="py-2 px-3">
                                 <Input value={row.hirer_name} onChange={(e) => updateVanRow(i, { hirer_name: e.target.value })}
@@ -549,96 +541,69 @@ export default function TripCreationPage() {
                               </select>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[13rem]" value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })}>
-                                <option value="">Select</option>
-                                {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-                              </ClearSelect>
+                              <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptions}
+                                value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })} />
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 1" checked={row.driver1_checked} onChange={(v) => updateRow(r.id, { driver1_checked: v })} />
-                                <ClearSelect className="min-w-[14rem] flex-1" value={row.driver1_id}
+                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={row.driver1_id}
                                   onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver1_id: v, driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })}>
-                                  <option value="">Select</option>
-                                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                                </ClearSelect>
+                                  onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })} />
                               </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[12rem]" value={row.opt_driver1_id}
+                              <SearchableSelect className="min-w-[12rem]" placeholder="NA" options={driverOptions} value={row.opt_driver1_id}
                                 onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { opt_driver1_id: v, opt_driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                onClear={() => updateRow(r.id, { opt_driver1_id: '', opt_driver1_name: '' })}>
-                                <option value="">NA</option>
-                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                              </ClearSelect>
+                                onClear={() => updateRow(r.id, { opt_driver1_id: '', opt_driver1_name: '' })} />
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 2" checked={row.driver2_checked} onChange={(v) => updateRow(r.id, { driver2_checked: v })} />
-                                <ClearSelect className="min-w-[14rem] flex-1" value={row.driver2_id}
+                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={row.driver2_id}
                                   onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver2_id: v, driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })}>
-                                  <option value="">Select</option>
-                                  {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                                </ClearSelect>
+                                  onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })} />
                               </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[12rem]" value={row.opt_driver2_id}
+                              <SearchableSelect className="min-w-[12rem]" placeholder="NA" options={driverOptions} value={row.opt_driver2_id}
                                 onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { opt_driver2_id: v, opt_driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                onClear={() => updateRow(r.id, { opt_driver2_id: '', opt_driver2_name: '' })}>
-                                <option value="">NA</option>
-                                {drivers.map((d) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
-                              </ClearSelect>
+                                onClear={() => updateRow(r.id, { opt_driver2_id: '', opt_driver2_name: '' })} />
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Helper" checked={row.helper_checked} onChange={(v) => updateRow(r.id, { helper_checked: v })} />
-                                <ClearSelect className="min-w-[13rem] flex-1" value={row.helper_id}
+                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={helperOptions} value={row.helper_id}
                                   onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { helper_id: v, helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })}>
-                                  <option value="">Select</option>
-                                  {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
-                                </ClearSelect>
+                                  onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })} />
                               </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect className="min-w-[12rem]" value={row.opt_helper_id}
+                              <SearchableSelect className="min-w-[12rem]" placeholder="NA" options={helperOptions} value={row.opt_helper_id}
                                 onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { opt_helper_id: v, opt_helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
-                                onClear={() => updateRow(r.id, { opt_helper_id: '', opt_helper_name: '' })}>
-                                <option value="">NA</option>
-                                {helpers.map((h) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
-                              </ClearSelect>
+                                onClear={() => updateRow(r.id, { opt_helper_id: '', opt_helper_name: '' })} />
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Conductor" checked={row.conductor_checked} onChange={(v) => updateRow(r.id, { conductor_checked: v })} />
-                                <ClearSelect className="min-w-[13rem] flex-1" value={row.conductor_id}
+                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={conductorOptions} value={row.conductor_id}
                                   onChange={(v) => { const c = conductors.find((x) => String(x.id) === v); updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })}>
-                                  <option value="">Select</option>
-                                  {conductors.map((c) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
-                                </ClearSelect>
+                                  onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })} />
                               </div>
                             </td>
                             <td className="py-2 px-3">
-                              <ClearSelect disabled={row.driver1_checked && row.driver2_checked && row.helper_checked} className="min-w-[15rem]" value={row.paid_to_id ? `${row.paid_to_id}_${row.paid_to_type}` : ''}
+                              <SearchableSelect
+                                disabled={row.driver1_checked && row.driver2_checked && row.helper_checked}
+                                className="min-w-[15rem]" placeholder="Select" options={paidToOptions}
+                                value={row.paid_to_id ? row.paid_to_id + '_' + row.paid_to_type : ''}
                                 onChange={(v) => {
-                                  const p = paidToList.find((x) => `${x.paid_to_id}_${x.paid_to_type}` === v)
+                                  const p = paidToList.find((x) => x.paid_to_id + '_' + x.paid_to_type === v)
                                   const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
                                   updateRow(r.id, {
                                     paid_to_id: String(p?.paid_to_id ?? ''), paid_to_name: p?.paid_to_name ?? '', paid_to_type: p?.paid_to_type ?? '', paid_to_ledger_id: ledgerId,
                                   })
                                 }}
-                                onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '' })}>
-                                <option value="">Select</option>
-                                {paidToList.map((p) => (
-                                  <option key={`${p.paid_to_id}_${p.paid_to_type}`} value={`${p.paid_to_id}_${p.paid_to_type}`}>
-                                    {p.paid_to_name} ({p.paid_to_type})
-                                  </option>
-                                ))}
-                              </ClearSelect>
+                                onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '' })} />
                               {row.driver1_checked && row.driver2_checked && row.helper_checked && (
                                 <p className="text-[11px] font-semibold text-slate-400 mt-1">Driver 1, Driver 2 &amp; Helper all paid individually</p>
                               )}

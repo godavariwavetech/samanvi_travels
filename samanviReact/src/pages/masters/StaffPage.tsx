@@ -198,7 +198,7 @@ const STAFF_VIEW_IMAGES: ViewField[] = [
 ]
 
 const HELPER_VIEW_FIELDS: ViewField[] = [
-  ['Helper ID', 'helper_id_number'], ['Nick Name', 'nickname'], ['Aadhar Name', 'helper_name'], ['Aadhar Number', 'adhar_number'],
+  ['Helper ID', 'helper_id_number'], ['Aadhar Name', 'helper_name'], ['Aadhar Number', 'adhar_number'],
   ['Date of Birth', 'dob'], ['Mobile Number', 'mobile_number'], ['Alternate Number', 'alternate_number'],
   ['Emergency Mobile', 'emergencymobilenumber'], ['Date of Joining', 'date_of_joining'], ['Reference', 'reference'],
   ['Address', 'address'], ['Account Holder Name', 'account_holder_name'], ['Account Number', 'account_number'],
@@ -377,7 +377,7 @@ const emptyDriver = {
 
 const emptyHelper = {
   helper_name: '', mobile_number: '', adhar_number: '', account_number: '',
-  ifsc_code: '', bank_name: '', nickname: '', emergency_mobile_number: '',
+  ifsc_code: '', bank_name: '', emergency_mobile_number: '',
   alternate_number: '', reference: '', account_holder_name: '', branch_name: '',
   upi_id: '', date_of_joining: '', remarks: '', dob: '', address: '',
 }
@@ -460,7 +460,7 @@ const STAFF_TEMPLATE_HEADERS = [
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
 ]
 const HELPER_TEMPLATE_HEADERS = [
-  'Nick Name', 'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
+  'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
   'Mobile Number*', 'Alternate Number', 'Emergency Mobile', 'Date of Joining*',
   'Reference*', 'Address', 'Account Holder Name*', 'Account Number*',
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
@@ -669,7 +669,7 @@ export default function StaffPage() {
       downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
     } else if (dataType === 'Helper') {
       rows = helperList.map(r => [
-        r.nickname ?? '', r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
+        r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
         r.mobile_number ?? '', r.alternate_number ?? '', r.emergency_mobile_number ?? '',
         r.date_of_joining ?? '', r.reference ?? '', r.address ?? '',
         r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
@@ -762,25 +762,24 @@ export default function StaffPage() {
           return { payload, key: payload.fullName }
         })
       } else {
-        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => r && String(r[0] ?? '').trim()).map(r => {
           const payload = {
-            nickname: String(r[0] ?? '').trim() || null,
-            helper_name: String(r[1] ?? '').trim(),
-            adhar_number: String(r[2] ?? '').trim() || null,
-            dob: excelCellToISODate(r[3]) || null,
-            mobile_number: String(r[4] ?? '').trim(),
-            alternate_number: String(r[5] ?? '').trim() || null,
-            emergency_mobile_number: String(r[6] ?? '').trim() || null,
-            date_of_joining: excelCellToISODate(r[7]) || null,
-            reference: String(r[8] ?? '').trim() || null,
-            address: String(r[9] ?? '').trim() || null,
-            account_holder_name: String(r[10] ?? '').trim() || null,
-            account_number: String(r[11] ?? '').trim() || null,
-            bank_name: String(r[12] ?? '').trim() || null,
-            branch_name: String(r[13] ?? '').trim() || null,
-            ifsc_code: String(r[14] ?? '').trim() || null,
-            upi_id: String(r[15] ?? '').trim() || null,
-            remarks: String(r[16] ?? '').trim() || null,
+            helper_name: String(r[0] ?? '').trim(),
+            adhar_number: String(r[1] ?? '').trim() || null,
+            dob: excelCellToISODate(r[2]) || null,
+            mobile_number: String(r[3] ?? '').trim(),
+            alternate_number: String(r[4] ?? '').trim() || null,
+            emergency_mobile_number: String(r[5] ?? '').trim() || null,
+            date_of_joining: excelCellToISODate(r[6]) || null,
+            reference: String(r[7] ?? '').trim() || null,
+            address: String(r[8] ?? '').trim() || null,
+            account_holder_name: String(r[9] ?? '').trim() || null,
+            account_number: String(r[10] ?? '').trim() || null,
+            bank_name: String(r[11] ?? '').trim() || null,
+            branch_name: String(r[12] ?? '').trim() || null,
+            ifsc_code: String(r[13] ?? '').trim() || null,
+            upi_id: String(r[14] ?? '').trim() || null,
+            remarks: String(r[15] ?? '').trim() || null,
           }
           return { payload, key: payload.helper_name }
         })
@@ -1103,7 +1102,6 @@ export default function StaffPage() {
               {dataType === 'Helper' && (
                 <div className="space-y-5">
                   <SectionBox title="Personal Details">
-                    <div><Label>Nick Name</Label><Input value={helperForm.nickname} onChange={hf('nickname')} /></div>
                     <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={helperForm.helper_name} onChange={hf('helper_name')} /></div>
                     <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={helperForm.adhar_number} onChange={digitsOnly(setHelperForm, 'adhar_number', 12)} /></div>
                     <div><Label>Date of Birth</Label><Input type="date" max={today} value={helperForm.dob} onChange={hf('dob')} /></div>

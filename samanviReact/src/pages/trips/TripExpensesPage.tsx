@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -19,7 +19,15 @@ type LedgerObj = {
   parent_subgroup_id?: any; parent_subchild_id?: any; parent_grp_level?: any
 }
 type PersonKey = 'driver1' | 'driver2' | 'helper' | 'conductor' | 'optDriver1' | 'optDriver2' | 'optHelper'
-type RowTag = PersonKey | 'paidTo'
+// Debit-side categories — the pre-existing EXPENSES ledgers the Angular app has
+// always posted trip costs to, not new ones. Same ledgers, same split, same
+// hardcoded ids as expenses.component.ts's addAutoDebitSalaryAndBeta(): Salaries
+// (61) takes total_salary and Betas (62) takes total_beta, conductor included.
+// Parking is the one addition — that screen has no parking field at all, but the
+// ledger has always existed, so the amount posts there instead of being folded
+// into Betas where it would be indistinguishable from crew pay.
+type ExpenseKey = 'beta' | 'salary' | 'parking'
+type RowTag = PersonKey | ExpenseKey | 'paidTo'
 type LedgerRow = { ledger: LedgerObj | null; amount: string; personKey?: RowTag }
 
 type ExpenseForm = {
@@ -49,6 +57,15 @@ const firstOfMonth = today.slice(0, 8) + '01'
 
 const num = (v: any) => Number(v) || 0
 const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor', 'optDriver1', 'optDriver2', 'optHelper']
+const EXPENSE_KEYS: ExpenseKey[] = ['beta', 'salary', 'parking']
+// Resolved by id first (same ids the Angular app hardcodes — one DB lineage, so
+// they hold everywhere), falling back to the name within EXPENSES if a database
+// ever renumbered them.
+const EXPENSE_LEDGERS: Record<ExpenseKey, { id: number; name: string }> = {
+  beta: { id: 62, name: 'Betas' },
+  salary: { id: 61, name: 'Salaries' },
+  parking: { id: 84, name: 'Parking' },
+}
 const nowStr = () => {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
@@ -107,7 +124,7 @@ export default function TripExpensesPage() {
   // driver/helper/conductor was terminated after the trip was filed, they'd
   // silently drop out of the cross-reference and their "Pay" checkbox would
   // show unchecked on reopen even though their ledger row is still right
-  // there in Debit Accounts. Empty in Add mode (nobody's ledger needs
+  // there in Credit Accounts. Empty in Add mode (nobody's ledger needs
   // resolving from a terminated-safe source yet — the assignee is always
   // active on a brand-new trip), so personLedgerId falls back to the live
   // lists there.
@@ -188,7 +205,7 @@ export default function TripExpensesPage() {
   // "opting" salary top-up used to be added onto their own amount, but now
   // belongs to a *separate* opting person (own ledger), so it only counts
   // here when that role's opt slot actually has someone assigned (NA = 0).
-  const personAmount = (key: PersonKey) => {
+  const personAmount = (key: PersonKey): number => {
     if (key === 'driver1') return num(form.driveronesalary)
     if (key === 'driver2') return num(form.drivertwosalary)
     if (key === 'helper') return num(form.helpersalary)
@@ -207,16 +224,85 @@ export default function TripExpensesPage() {
     return rec?.ledger_id ? String(rec.ledger_id) : ''
   }
   const personLedgerId = (key: PersonKey): string => resolvedLedgerIds[key] || ledgerIdForPerson(key, personId(key))
-  // The ledger-id fallback (not just the personKey tag) exists so a row
-  // loaded from an existing filed expense — which has no personKey tag at
-  // all — still shows as checked. It deliberately excludes 'paidTo' rows:
-  // when this person IS also Paid To, their own ledger and the overflow
-  // ledger are the same account, so matching on 'paidTo' would make their
-  // checkbox look permanently checked and impossible to toggle off (every
-  // uncheck just re-adds the identical ledger back as the remainder).
+  // Person ledgers live on the CREDIT side: booking a trip's beta credits what
+  // the company owes each crew member (their Payables ledger) against whichever
+  // expense ledger is picked on the Debit side. The ledger-id fallback (not just
+  // the personKey tag) is kept so a row loaded from an already-filed expense
+  // still shows as checked. It deliberately excludes 'paidTo' rows: when this
+  // person IS also Paid To, their own ledger and the overflow ledger are the
+  // same account, so matching on 'paidTo' would make their checkbox look
+  // permanently checked and impossible to toggle off (every uncheck just re-adds
+  // the identical ledger back as the remainder).
   const isPersonChecked = (key: PersonKey) => {
     const ledgerId = personLedgerId(key)
-    return debitRows.some((r) => r.personKey === key || (r.personKey !== 'paidTo' && ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId))
+    return creditRows.some((r) => r.personKey === key || (r.personKey !== 'paidTo' && ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId))
+  }
+
+  const findExpenseLedger = (key: ExpenseKey) => {
+    const { id, name } = EXPENSE_LEDGERS[key]
+    return ledgerList.find((l: any) => Number(l.ledger_id) === id)
+      ?? ledgerList.find((l: any) => String(l.staticname ?? '') === 'EXPENSES' && String(l.temple_name ?? '') === name)
+  }
+
+  // Mirrors calculateTotalBeta()/calculateTotalSalary() in the Angular screen:
+  // beta is the per-trip beta of all four roles, salary is the opting top-ups.
+  const expenseAmount = (key: ExpenseKey): number => {
+    if (key === 'beta') return personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor')
+    if (key === 'salary') return personAmount('optDriver1') + personAmount('optDriver2') + personAmount('optHelper')
+    return num(form.parking_amt) // parking
+  }
+
+  // Legacy parity with onDebitLedgerChange/onCreditLedgerChange + addroe/addroe1:
+  // a ledger may not sit on both sides, nor twice on one side, and the auto-added
+  // expense ledgers are rejected outright on the Credit side. The Angular screen
+  // blocks all three at selection time rather than only at submit, so the same
+  // checks run here on pick — validate() still repeats them as a backstop.
+  // Picking by hand also drops the row's tag: an overridden row is the user's,
+  // so the amount re-price below leaves it alone from then on.
+  const pickLedger = (side: 'debit' | 'credit', index: number, ledgerId: string) => {
+    const setRows = side === 'debit' ? setDebitRows : setCreditRows
+    const chosen = findLedger(ledgerId)
+    if (!chosen) { setRows((rs) => rs.map((r, i) => (i === index ? { ...r, ledger: null } : r))); return }
+    const name = String(chosen.temple_name ?? '')
+    const otherSide = side === 'debit' ? creditRows : debitRows
+    const thisSide = side === 'debit' ? debitRows : creditRows
+    if (otherSide.some((r) => r.ledger && String(r.ledger.ledger_id) === ledgerId)) {
+      toast.error(`"${name}" is already used in ${side === 'debit' ? 'Credit' : 'Debit'} Accounts — the same ledger can't be on both sides`)
+      return
+    }
+    if (thisSide.some((r, i) => i !== index && r.ledger && String(r.ledger.ledger_id) === ledgerId)) {
+      toast.error(`"${name}" is already added in ${side === 'debit' ? 'Debit' : 'Credit'} Accounts`)
+      return
+    }
+    if (side === 'credit' && EXPENSE_KEYS.some((k) => { const el = findExpenseLedger(k); return !!el && String(el.ledger_id) === ledgerId })) {
+      toast.error(`"${name}" is a trip expense ledger — it belongs on the Debit side`)
+      return
+    }
+    setRows((rs) => rs.map((r, i) => (i === index
+      ? (side === 'debit' ? { ledger: toLedgerObj(chosen), amount: r.amount } : { ...r, ledger: toLedgerObj(chosen) })
+      : r)))
+  }
+
+  // The Debit side is derived, not picked: one row per category that has an
+  // amount, always adding up to the same total the Credit side does — so a
+  // filed trip balances on its own. Rows the user added by hand (no tag) are
+  // kept as typed and appended after the derived ones.
+  const buildExpenseRows = (rows: LedgerRow[], opts: { amounts?: Record<ExpenseKey, number>; silent?: boolean } = {}): LedgerRow[] => {
+    const manual = rows.filter((r) => !r.personKey && (r.ledger || r.amount))
+    const derived: LedgerRow[] = []
+    const missing: string[] = []
+    EXPENSE_KEYS.forEach((key) => {
+      const amount = opts.amounts ? opts.amounts[key] : expenseAmount(key)
+      if (amount <= 0) return
+      const ledger = findExpenseLedger(key)
+      if (!ledger) { missing.push(EXPENSE_LEDGERS[key].name); return }
+      derived.push({ ledger: toLedgerObj(ledger), amount: String(amount), personKey: key })
+    })
+    if (missing.length && !opts.silent) {
+      toast.error(`Ledger not found: ${missing.join(', ')} — pick a debit ledger by hand for that amount`)
+    }
+    const next = [...derived, ...manual]
+    return next.length ? next : [emptyLedgerRow()]
   }
 
   // Paid To's own ledger — resolved by type since they can be a driver,
@@ -231,7 +317,7 @@ export default function TripExpensesPage() {
   // Same ledger can legitimately end up wanting two rows (a checked person
   // who is ALSO the Paid To recipient — their own share plus the leftover
   // remainder both resolve to their ledger). Submit validation rejects the
-  // same ledger appearing twice in Debit, so merge those into one row —
+  // same ledger appearing twice on one side, so merge those into one row —
   // keeping whichever tag is a specific person over the generic 'paidTo',
   // so isPersonChecked keeps recognizing it as that person's own line.
   const mergeSameLedgerRows = (rows: LedgerRow[]): LedgerRow[] => {
@@ -252,7 +338,7 @@ export default function TripExpensesPage() {
   // To instead — every rupee always lands somewhere. Recomputed after every
   // checkbox toggle from live `form` amounts, then that row is independently
   // editable like any other row until the next toggle touches it again.
-  const recomputePaidToRow = (rows: LedgerRow[]): LedgerRow[] => {
+  const recomputePaidToRow = (rows: LedgerRow[], silent = false): LedgerRow[] => {
     const checkedKeys = PERSON_KEYS.filter((k) => rows.some((r) => r.personKey === k))
     // Parking has no person/checkbox of its own — it always rides along with
     // whatever remainder falls to Paid To.
@@ -262,7 +348,9 @@ export default function TripExpensesPage() {
     const ledgerId = paidToLedgerId()
     const ledger = ledgerId ? findLedger(ledgerId) : null
     if (!ledger) {
-      toast.error(`No ledger found for ${form.paid_to_name || 'Paid To'} — the unchecked amount (₹${remainder}) wasn't added automatically`)
+      // `silent` for the keystroke-driven re-sync below — only a deliberate
+      // checkbox toggle should be able to raise this toast.
+      if (!silent) toast.error(`No ledger found for ${form.paid_to_name || 'Paid To'} — the unchecked amount (₹${remainder}) wasn't added automatically`)
       return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
     }
     return mergeSameLedgerRows([...withoutPaidTo, { ledger: toLedgerObj(ledger), amount: String(remainder), personKey: 'paidTo' }])
@@ -271,7 +359,7 @@ export default function TripExpensesPage() {
   const togglePerson = (key: PersonKey) => {
     const ledgerId = personLedgerId(key)
     if (isPersonChecked(key)) {
-      setDebitRows((rows) => {
+      setCreditRows((rows) => {
         const filtered = rows.filter((r) => !(r.personKey === key || (r.personKey !== 'paidTo' && ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId)))
         return recomputePaidToRow(filtered.length ? filtered : [])
       })
@@ -280,24 +368,50 @@ export default function TripExpensesPage() {
     if (!ledgerId) { toast.error(`No ledger found for ${personName(key)} — they may not have an auto-created ledger yet`); return }
     const ledger = findLedger(ledgerId)
     if (!ledger) { toast.error(`No ledger found for ${personName(key)} — they may not have an auto-created ledger yet`); return }
-    setDebitRows((rows) => {
+    setCreditRows((rows) => {
       const cleaned = rows.filter((r) => (r.ledger || r.amount) && r.personKey !== 'paidTo')
       return recomputePaidToRow([...cleaned, { ledger: toLedgerObj(ledger), amount: String(personAmount(key)), personKey: key }])
     })
   }
-  // Read-only View modal: was this person's own ledger among the saved debit
-  // rows? (expensive_details.ledger_id, selected straight through by `SELECT *`.)
-  const viewPersonPaid = (key: PersonKey, id: string): boolean => {
+
+  // Editing a Beta/Salary/Parking box re-prices every ledger row that belongs to
+  // a person, then re-derives the Paid To remainder from the new numbers — so the
+  // ledgers always agree with the amounts shown above them. Rows the user typed
+  // themselves (no personKey tag) are left exactly as entered.
+  //
+  // `lastAmountSig` makes this fire on real edits only: the first pass after a
+  // modal finishes loading just records the amounts it opened with. Without that,
+  // reopening a filed expense would immediately overwrite a hand-adjusted ledger
+  // amount with the per-person rate before the user touched anything.
+  const amountSig = [
+    form.driveronesalary, form.drivertwosalary, form.helpersalary, form.conductorsalary,
+    form.driveronesudsalary, form.drivertwosudsalary, form.helpersudsalary, form.parking_amt,
+  ].join('|')
+  const lastAmountSig = useRef<string | null>(null)
+  useEffect(() => {
+    if (!modal.mode || loadingModal) { lastAmountSig.current = null; return }
+    if (lastAmountSig.current === null || lastAmountSig.current === amountSig) { lastAmountSig.current = amountSig; return }
+    lastAmountSig.current = amountSig
+    setCreditRows((rows) => {
+      if (!rows.some((r) => r.personKey)) return rows
+      const priced = rows.map((r) => (r.personKey && r.personKey !== 'paidTo' ? { ...r, amount: String(personAmount(r.personKey as PersonKey)) } : r))
+      return recomputePaidToRow(priced, true)
+    })
+    setDebitRows((rows) => (rows.some((r) => r.personKey) ? buildExpenseRows(rows, { silent: true }) : rows))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amountSig, modal.mode, loadingModal])
+  // Read-only View modal: was this person's own ledger among the saved rows?
+  // (expensive_details.ledger_id, selected straight through by `SELECT *`.)
+  // Credit is where person rows land now; debit is still searched as a fallback
+  // so expenses filed before that switch keep showing their ticks correctly.
+  const viewPersonRow = (key: PersonKey, id: string): any | undefined => {
     const ledgerId = viewModal.ledgerIds[key] || ledgerIdForPerson(key, id)
-    if (!ledgerId) return false
-    return viewModal.debit.some((r: any) => String(r.ledger_id ?? '') === ledgerId)
+    if (!ledgerId) return undefined
+    return viewModal.credit.find((r: any) => String(r.ledger_id ?? '') === ledgerId)
+      ?? viewModal.debit.find((r: any) => String(r.ledger_id ?? '') === ledgerId)
   }
-  const viewPersonAmount = (key: PersonKey, id: string): number => {
-    const ledgerId = viewModal.ledgerIds[key] || ledgerIdForPerson(key, id)
-    if (!ledgerId) return 0
-    const row = viewModal.debit.find((r: any) => String(r.ledger_id ?? '') === ledgerId)
-    return row ? num(row.amount) : 0
-  }
+  const viewPersonPaid = (key: PersonKey, id: string): boolean => !!viewPersonRow(key, id)
+  const viewPersonAmount = (key: PersonKey, id: string): number => num(viewPersonRow(key, id)?.amount)
 
   // ── Modal open/close ─────────────────────────────────────────────────────
   const closeModal = () => { setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}) }
@@ -344,9 +458,6 @@ export default function TripExpensesPage() {
         parking_amt: String(rate.parkingAmount ?? ''),
       }))
 
-      // Nobody's checked yet, so the whole computed total starts out attributed
-      // to Paid To — checking a person later peels their share off into their
-      // own ledger and shrinks this row accordingly (see recomputePaidToRow).
       const driver1Amt = num(rate.driverOneBeta)
       const driver2Amt = num(rate.driverTwoBeta)
       const helperAmt = num(rate.helperBeta)
@@ -356,11 +467,58 @@ export default function TripExpensesPage() {
       const optHelperAmt = row.opt_helper_id ? num(rate.optHelper) : 0
       const parkingAmt = num(rate.parkingAmount)
       const total = driver1Amt + driver2Amt + helperAmt + conductorAmt + optDriver1Amt + optDriver2Amt + optHelperAmt + parkingAmt
+      const amountFor: Record<PersonKey, number> = {
+        driver1: driver1Amt, driver2: driver2Amt, helper: helperAmt, conductor: conductorAmt,
+        optDriver1: optDriver1Amt, optDriver2: optDriver2Amt, optHelper: optHelperAmt,
+      }
+
+      // "Pay directly" ticks carried over from the Trip Creation grid
+      // (trip_created.driverX_paid_direct): those people's share starts out on
+      // their own ledger — so their checkbox opens already ticked — instead of
+      // falling through to Paid To. Everything not ticked (the opting people and
+      // parking always included, since the creation grid has no toggle for them)
+      // makes up the Paid To remainder, exactly as recomputePaidToRow would.
+      // All of it lands on the Credit side — the Debit side is the expense
+      // ledger, which the user picks.
+      const PRE_TICKED: [PersonKey, string, string, string][] = [
+        ['driver1', 'driver1_paid_direct', 'driver1_id', 'driver1_name'],
+        ['driver2', 'driver2_paid_direct', 'driver2_id', 'driver2_name'],
+        ['helper', 'helper_paid_direct', 'helper_id', 'helper_name'],
+        ['conductor', 'conductor_paid_direct', 'conductor_id', 'conductor_name'],
+      ]
+      const personRows: LedgerRow[] = []
+      const unresolved: string[] = []
+      let claimed = 0
+      PRE_TICKED.forEach(([key, flagCol, idCol, nameCol]) => {
+        if (Number(row[flagCol] ?? 0) !== 1) return
+        const personIdValue = String(row[idCol] ?? '')
+        const amount = amountFor[key]
+        if (!personIdValue || amount <= 0) return
+        const ledgerId = ledgerIdForPerson(key, personIdValue)
+        const ledger = ledgerId ? findLedger(ledgerId) : null
+        if (!ledger) { unresolved.push(String(row[nameCol] ?? key)); return }
+        personRows.push({ ledger: toLedgerObj(ledger), amount: String(amount), personKey: key })
+        claimed += amount
+      })
+
+      const remainder = total - claimed
       const paidToList = row.paid_to_type === 'driver' ? drivers : row.paid_to_type === 'helper' ? helpers : activeStaff
       const paidToRec = paidToList.find((r: any) => String(r.id) === String(row.paid_to_id))
       const paidToLedger = paidToRec?.ledger_id ? findLedger(String(paidToRec.ledger_id)) : null
-      if (total > 0 && paidToLedger) {
-        setDebitRows([{ ledger: toLedgerObj(paidToLedger), amount: String(total), personKey: 'paidTo' }])
+      const seeded: LedgerRow[] = [...personRows]
+      if (remainder > 0 && paidToLedger) {
+        seeded.push({ ledger: toLedgerObj(paidToLedger), amount: String(remainder), personKey: 'paidTo' })
+      }
+      if (seeded.length) setCreditRows(mergeSameLedgerRows(seeded))
+      setDebitRows(buildExpenseRows([], {
+        amounts: {
+          beta: driver1Amt + driver2Amt + helperAmt + conductorAmt,
+          salary: optDriver1Amt + optDriver2Amt + optHelperAmt,
+          parking: parkingAmt,
+        },
+      }))
+      if (unresolved.length) {
+        toast.error(`No ledger found for ${unresolved.join(', ')} — their share stayed with Paid To`)
       }
     }
     setLoadingModal(false)
@@ -416,8 +574,44 @@ export default function TripExpensesPage() {
       })
     }
 
-    const debit = ledgerRows.filter((r) => r.amount_type === 'Debit Account').map((r) => ({ ledger: toLedgerObj(r), amount: String(r.amount ?? '') }))
-    const credit = ledgerRows.filter((r) => r.amount_type === 'Credit Account').map((r) => ({ ledger: toLedgerObj(r), amount: String(r.amount ?? '') }))
+    // Saved rows carry no personKey, so re-derive each one by matching its
+    // ledger back to this trip's people. Without the tags recomputePaidToRow
+    // would treat every crew member as unpaid and pile their whole share onto
+    // Paid To again on the next toggle, and the live re-price above would have
+    // nothing to update.
+    const savedLedgerIds: Partial<Record<PersonKey, string>> = t ? {
+      driver1: t.driver1_ledger_id ? String(t.driver1_ledger_id) : ledgerIdForPerson('driver1', String(t.driver1_id ?? '')),
+      driver2: t.driver2_ledger_id ? String(t.driver2_ledger_id) : ledgerIdForPerson('driver2', String(t.driver2_id ?? '')),
+      helper: t.helper_ledger_id ? String(t.helper_ledger_id) : ledgerIdForPerson('helper', String(t.helper_id ?? '')),
+      conductor: t.conductor_ledger_id ? String(t.conductor_ledger_id) : ledgerIdForPerson('conductor', String(t.conductor_id ?? '')),
+      optDriver1: ledgerIdForPerson('optDriver1', String(t.opt_driver1_id ?? '')),
+      optDriver2: ledgerIdForPerson('optDriver2', String(t.opt_driver2_id ?? '')),
+      optHelper: ledgerIdForPerson('optHelper', String(t.opt_helper_id ?? '')),
+    } : {}
+    const savedPaidToLedgerId = (() => {
+      if (!t?.paid_to_id) return ''
+      const list = t.paid_to_type === 'driver' ? drivers : t.paid_to_type === 'helper' ? helpers : activeStaff
+      const rec = list.find((r: any) => String(r.id) === String(t.paid_to_id))
+      return rec?.ledger_id ? String(rec.ledger_id) : ''
+    })()
+    // A person who is also the Paid To shares one ledger — tag it as the person
+    // (same preference mergeSameLedgerRows applies) so their checkbox still works.
+    const tagFor = (ledgerId: string): RowTag | undefined =>
+      PERSON_KEYS.find((k) => savedLedgerIds[k] && savedLedgerIds[k] === ledgerId)
+      ?? (savedPaidToLedgerId && savedPaidToLedgerId === ledgerId ? 'paidTo' : undefined)
+
+    // Same reason the credit rows get tagged: without a tag a saved expense row
+    // is indistinguishable from one the user typed, so editing an amount later
+    // would leave it stale.
+    const expenseTagFor = (ledgerId: string): ExpenseKey | undefined =>
+      EXPENSE_KEYS.find((k) => { const l = findExpenseLedger(k); return !!l && String(l.ledger_id) === ledgerId })
+
+    const debit = ledgerRows.filter((r) => r.amount_type === 'Debit Account').map((r) => ({
+      ledger: toLedgerObj(r), amount: String(r.amount ?? ''), personKey: expenseTagFor(String(r.ledger_id ?? '')),
+    }))
+    const credit = ledgerRows.filter((r) => r.amount_type === 'Credit Account').map((r) => ({
+      ledger: toLedgerObj(r), amount: String(r.amount ?? ''), personKey: tagFor(String(r.ledger_id ?? '')),
+    }))
     setDebitRows(debit.length ? debit : [emptyLedgerRow()])
     setCreditRows(credit.length ? credit : [emptyLedgerRow()])
     setLoadingModal(false)
@@ -801,7 +995,7 @@ export default function TripExpensesPage() {
                   </div>
 
                   {/* Salary / Beta breakdown — checking a person drops their own
-                      ledger + auto-filled amount straight into Debit Accounts below. */}
+                      ledger + auto-filled amount straight into Credit Accounts below. */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
                     <div className="space-y-2">
                       {form.driver1_name && (
@@ -917,7 +1111,8 @@ export default function TripExpensesPage() {
                     </div>
                   </div>
 
-                  {/* Debit / Credit ledgers */}
+                  {/* Debit / Credit ledgers. Debit is shown first; the crew's own
+                      ledgers auto-fill on the Credit side (see isPersonChecked). */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
                       <div className="flex items-center justify-between px-4 py-2 bg-blue-600">
@@ -932,7 +1127,7 @@ export default function TripExpensesPage() {
                             <div className="flex-[3] min-w-0">
                               <SearchableSelect
                                 value={row.ledger ? String(row.ledger.ledger_id) : ''}
-                                onChange={(v) => { const l = findLedger(v); setDebitRows((rs) => rs.map((r, idx) => idx === i ? { ...r, ledger: l ? toLedgerObj(l) : null } : r)) }}
+                                onChange={(v) => pickLedger('debit', i, v)}
                                 options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers}
                               />
                             </div>
@@ -968,7 +1163,7 @@ export default function TripExpensesPage() {
                             <div className="flex-[3] min-w-0">
                               <SearchableSelect
                                 value={row.ledger ? String(row.ledger.ledger_id) : ''}
-                                onChange={(v) => { const l = findLedger(v); setCreditRows((rs) => rs.map((r, idx) => idx === i ? { ...r, ledger: l ? toLedgerObj(l) : null } : r)) }}
+                                onChange={(v) => pickLedger('credit', i, v)}
                                 options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers}
                               />
                             </div>

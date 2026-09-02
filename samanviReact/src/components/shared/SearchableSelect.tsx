@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, RefreshCw, Search } from 'lucide-react'
+import { ChevronDown, RefreshCw, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface SearchableSelectOption {
@@ -18,9 +18,12 @@ interface SearchableSelectProps {
   reloading?: boolean
   className?: string
   disabled?: boolean
+  // Pass to get an inline clear (×) button once something is selected — lets a
+  // wrongly picked row be emptied again without a dedicated "— none —" option.
+  onClear?: () => void
 }
 
-export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading, className, disabled }: SearchableSelectProps) {
+export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading, className, disabled, onClear }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
@@ -54,6 +57,8 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
     window.addEventListener('scroll', onScroll, true)
     return () => { document.removeEventListener('mousedown', close); window.removeEventListener('scroll', onScroll, true) }
   }, [open])
+
+  const canClear = !!onClear && !!value && !disabled
 
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = spaceBelow < 320
@@ -102,18 +107,33 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
 
   return (
     <div className={cn('flex items-center gap-1.5', className)}>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={openDropdown}
-        disabled={disabled}
-        className="flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 px-4 py-2 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100 disabled:hover:border-slate-200"
-      >
-        <span className={cn('truncate', (selected || displayLabel) ? 'text-slate-900' : 'text-slate-400')}>
-          {selected ? selected.label : (displayLabel || placeholder)}
-        </span>
-        <ChevronDown className={cn('w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform', open && 'rotate-180')} />
-      </button>
+      <div className="relative flex-1 min-w-0">
+        <button
+          ref={btnRef}
+          type="button"
+          onClick={openDropdown}
+          disabled={disabled}
+          className={cn(
+            'flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 py-2 pl-4 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100 disabled:hover:border-slate-200',
+            canClear ? 'pr-11' : 'pr-4',
+          )}
+        >
+          <span className={cn('truncate', (selected || displayLabel) ? 'text-slate-900' : 'text-slate-400')}>
+            {selected ? selected.label : (displayLabel || placeholder)}
+          </span>
+          <ChevronDown className={cn('w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform', open && 'rotate-180')} />
+        </button>
+        {canClear && (
+          <button
+            type="button"
+            onClick={() => { onClear!(); setOpen(false) }}
+            title="Clear"
+            className="absolute right-8 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
       {onReload && !disabled && (
         <button
           type="button"
