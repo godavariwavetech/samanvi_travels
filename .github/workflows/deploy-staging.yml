@@ -1,0 +1,98 @@
+name: Deploy to Staging
+
+# Staging mirrors the production workflow (.github/workflows/deploy.yml) but
+# targets the second Node process on :8946 and its own frontend directory. It
+# fires only on the `staging` branch, so pushing to main never touches staging
+# and vice versa.
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── 1. Get the code ─────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Build the React frontend for staging ─────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: samanviReact/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: samanviReact
+        run: npm ci
+
+      # `--mode staging` picks up .env.staging, which points the app at
+      # https://samanvitravels.org.in:8946/nodeapp/ instead of the :8945
+      # production API. Output goes to samanviReact/staging/, not dist/, so a
+      # staging build can never be mistaken for (or rsynced as) a prod one.
+      - name: Build frontend (staging)
+        working-directory: samanviReact
+        run: npm run build:staging
+
+      # ── 3. SSH setup ────────────────────────────────────────────────────────
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      # ── 4. Sync backend source ──────────────────────────────────────────────
+      # Same exclusions as production, and for the same reasons: config/ holds
+      # this instance's own DB credentials (that is what makes it a separate
+      # environment), uploads/ is live data, and node_modules/package files are
+      # server-managed. See deploy.yml for the full rationale.
+      - name: Sync backend source to staging server
+        run: |
+          rsync -avz \
+            -e "ssh -i $HOME/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no" \
+            --exclude 'config/' \
+            --exclude 'uploads/' \
+            --exclude 'node_modules/' \
+            --exclude 'package.json' \
+            --exclude 'package-lock.json' \
+            --exclude 'cert.crt' \
+            --exclude 'privatekey.pem' \
+            --exclude 'tmp/' \
+            samanviBackend/ \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.STAGING_BACKEND_PATH }}/
+
+      # ── 5. Restart the staging PM2 app ──────────────────────────────────────
+      # No npm install here either — see deploy.yml. The staging process must be
+      # started once by hand with PORT=8946 in its environment, e.g.
+      #   PORT=8946 FRONTEND_DIR=<STAGING_FRONTEND_PATH> pm2 start app.js --name samanvi-staging
+      #   pm2 save
+      # PORT defaults to 8945 and FRONTEND_DIR to unset (API only), so an existing
+      # production process keeps behaving exactly as it does today.
+      - name: Restart PM2 (staging)
+        run: |
+          ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            set -e
+            export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
+            pm2 restart "${{ secrets.STAGING_PM2_APP_NAME }}" --update-env
+            pm2 save
+          '
+
+      # ── 6. Sync frontend build ──────────────────────────────────────────────
+      # --delete clears stale hashed chunks from earlier staging builds. Same
+      # cPanel/SSL exclusions as production.
+      - name: Sync staging frontend build to server
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i $HOME/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no" \
+            --exclude '.htaccess' \
+            --exclude '.user.ini' \
+            --exclude '.well-known/' \
+            --exclude '*.zip' \
+            samanviReact/staging/ \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.STAGING_FRONTEND_PATH }}/

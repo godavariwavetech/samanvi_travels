@@ -11,6 +11,8 @@ build/
 dist/
 out/
 .next/
+# Staging build output, produced by `npm run build:staging`
+samanviReact/staging/
 
 # Logs
 *.log

@@ -81,7 +81,11 @@ const allowedOrigins = [
     'https://samanvitravels.in',
     "https://sprint.samanvitravels.in",
     'https://samanvitravels.org.in',
-    'https://www.samanvitravels.org.in'
+    'https://www.samanvitravels.org.in',
+    // Staging runs the same app on its own port against its own DB; the browser
+    // sees :8946 as a distinct origin from :8945, so it needs listing separately.
+    'https://samanvitravels.org.in:8946',
+    'https://www.samanvitravels.org.in:8946'
 ];
 app.use(function(req, res, next) {
     const origin = req.headers.origin;
@@ -121,19 +125,49 @@ function logErrors(err, req, res, next) {
     next(err);
 }
 
+// Staging serves its own frontend build straight out of this process, because
+// https://samanvitravels.org.in:8946/ IS this process — nothing else is
+// listening on that port. Production is different: Apache/cPanel serves
+// public_html and node only answers the API on 8945, so FRONTEND_DIR is left
+// unset there and everything below is skipped.
+//
+// Set it in the staging PM2 process's environment, pointing at the directory
+// the staging deploy rsyncs the build into (STAGING_FRONTEND_PATH), e.g.
+//   PORT=8946 FRONTEND_DIR=/home/<user>/staging pm2 start app.js --name samanvi-staging
+const FRONTEND_DIR = process.env.FRONTEND_DIR;
+if (FRONTEND_DIR) {
+    const staticPath = require('path').resolve(FRONTEND_DIR);
+    app.use(express.static(staticPath));
+    // SPA fallback: any GET that isn't the API and didn't match a real file is a
+    // client-side route (/trips/expenses etc.), so hand back index.html and let
+    // the router sort it out. Written as middleware rather than a wildcard route
+    // so it behaves the same if express is ever upgraded to 5, where the path
+    // pattern syntax changed.
+    app.use(function(req, res, next) {
+        if (req.method !== 'GET' || req.path.indexOf('/nodeapp') === 0) return next();
+        res.sendFile(require('path').join(staticPath, 'index.html'));
+    });
+    console.log('Serving frontend build from ' + staticPath);
+}
+
 app.get('/', function(req, res) {
     res.send("Empty Api Server");
 });
 
 //for ssl
 
+// Production listens on 8945, staging on 8946 — one PM2 process per port, each
+// with its own config/dbconnect.js (that directory is never overwritten by a
+// deploy). Set PORT in the staging process's environment; it defaults to the
+// production port so nothing changes for an existing deployment.
+const PORT = Number(process.env.PORT) || 8945;
 https.createServer({
     key: fs.readFileSync('./privatekey.pem'),
     cert: fs.readFileSync('./cert.crt'),
     passphrase: '123456'
 }, app)
-    .listen(8945);
-console.log('Empty Api Server is listening at http://%s:%s 8945');
+    .listen(PORT);
+console.log('Empty Api Server is listening on port ' + PORT);
 
 // 4009
 //for ssl
