@@ -380,6 +380,43 @@ var moment = require("moment");
   // though local dev had it, and "Drivers" had no guard at all — so guard all
   // three, and ensurePersonLedger("Drivers"/"Staff"/"Helpers", ...) can never
   // fail with "No container found under Payables" regardless of the DB's history.
+  // Trip expense ledgers — the DEBIT side of a filed trip expense. These are the
+  // ledgers the old Angular screen posted to (addAutoDebitSalaryAndBeta hardcodes
+  // Salaries and Betas), but they live in that app's older database: the dump this
+  // deployment was seeded from carries only Diesel and Mechanical Works & Spares
+  // under EXPENSES, so the names resolve to nothing here and the Trip Expenses
+  // modal reports "Ledger not found".
+  //
+  // Seeded under their original homes and with their original names — Salaries and
+  // Betas under 3) Employee Benefit Expenses, Parking under 2) Operating And Direct
+  // Expenses — at level 2, directly under the group, which is how this app stores a
+  // ledger added straight to a level-2 node (see the PSRR capital ledger). Matched
+  // on a normalised name so an existing "Beta's"/"Salary's" is reused rather than
+  // duplicated, which also makes this a no-op on any database that already has them.
+  [
+    { aliases: ['salaries', 'salarys', 'salary'], name: 'Salaries', mandalId: 12, mandalName: '3) Employee Benefit Expenses' },
+    { aliases: ['betas', 'beta'], name: 'Betas', mandalId: 12, mandalName: '3) Employee Benefit Expenses' },
+    { aliases: ['parking'], name: 'Parking', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+  ].forEach(function (led) {
+    var normalised = "REPLACE(REPLACE(REPLACE(LOWER(temple_name), '''', ''), ' ', ''), '-', '')";
+    sqldb.query(
+      `SELECT id FROM mainmasterssubchildtwo WHERE district_id = '4' AND d_in = 0 AND ${normalised} IN (?) LIMIT 1`,
+      [led.aliases],
+      function (err, rows) {
+        if (err || (rows && rows.length)) return;
+        var ts = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
+        sqldb.query(`INSERT INTO mainmasterssubchildtwo
+          (parent_subgroup_id, parent_subchild_id, ledger_type, created_at, updated_at, district_id, staticname,
+           mandal_id, mandal_name, village_id, temple_name, entry_by, d_in, child, i_ts, subchildtwo,
+           subchildtwo_id, parent_grp_level)
+          VALUES (NULL, NULL, 'inherited', ?, ?, '4', 'EXPENSES', ?, ?, NULL, ?, 'system', 0, '', ?, ?, NULL, 2)`,
+          [ts, ts, String(led.mandalId), led.mandalName, led.name, ts, led.mandalName],
+          function (err) {
+            if (err) console.log('[DB] trip expense ledger "' + led.name + '" seed:', err.message);
+            else console.log('[DB] trip expense ledger seeded: ' + led.name);
+          });
+      });
+  });
   ['Drivers', 'Staff', 'Helpers'].forEach(function (label) {
     sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
       if (!err && rows && rows.length === 0) {

@@ -58,13 +58,17 @@ const firstOfMonth = today.slice(0, 8) + '01'
 const num = (v: any) => Number(v) || 0
 const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor', 'optDriver1', 'optDriver2', 'optHelper']
 const EXPENSE_KEYS: ExpenseKey[] = ['beta', 'salary', 'parking']
-// Resolved by id first (same ids the Angular app hardcodes — one DB lineage, so
-// they hold everywhere), falling back to the name within EXPENSES if a database
-// ever renumbered them.
-const EXPENSE_LEDGERS: Record<ExpenseKey, { id: number; name: string }> = {
-  beta: { id: 62, name: 'Betas' },
-  salary: { id: 61, name: 'Salaries' },
-  parking: { id: 84, name: 'Parking' },
+// Resolved by NAME, not id: these ledgers are seeded per database (see the trip
+// expense ledger seed server-side), so their ids differ between deployments — the
+// Angular app's hardcoded 61/62 only hold in its own older database. Names are
+// normalised before comparing so "Beta's" and "Betas", "Salary's" and "Salaries"
+// all resolve; the legacy id stays as a last-resort fallback.
+const normLedgerName = (v: any) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '')
+const isExpensesGroup = (l: any) => String(l?.district_id ?? '') === '4' || String(l?.staticname ?? '') === 'EXPENSES'
+const EXPENSE_LEDGERS: Record<ExpenseKey, { id: number; name: string; aliases: string[] }> = {
+  beta: { id: 62, name: 'Betas', aliases: ['betas', 'beta'] },
+  salary: { id: 61, name: 'Salaries', aliases: ['salaries', 'salarys', 'salary'] },
+  parking: { id: 84, name: 'Parking', aliases: ['parking'] },
 }
 const nowStr = () => {
   const d = new Date()
@@ -239,9 +243,9 @@ export default function TripExpensesPage() {
   }
 
   const findExpenseLedger = (key: ExpenseKey) => {
-    const { id, name } = EXPENSE_LEDGERS[key]
-    return ledgerList.find((l: any) => Number(l.ledger_id) === id)
-      ?? ledgerList.find((l: any) => String(l.staticname ?? '') === 'EXPENSES' && String(l.temple_name ?? '') === name)
+    const { id, aliases } = EXPENSE_LEDGERS[key]
+    return ledgerList.find((l: any) => isExpensesGroup(l) && aliases.includes(normLedgerName(l.temple_name)))
+      ?? ledgerList.find((l: any) => Number(l.ledger_id) === id)
   }
 
   // Mirrors calculateTotalBeta()/calculateTotalSalary() in the Angular screen:
