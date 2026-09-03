@@ -251,6 +251,22 @@ var moment = require("moment");
       });
     }
   });
+  // ledger_id links a registered person to the Payables ledger auto-created for
+  // them. adddriverMdl/addstaffMdl/addhelperMdl write it, and the edit path uses
+  // it to decide between renaming an existing ledger and backfilling a missing
+  // one — but nothing ever created the column, so on a database seeded from the
+  // production dump those writes fail with "Unknown column" and are swallowed by
+  // the ignore-everything callbacks around them. Add it wherever it is absent.
+  ['staff_register', 'driver_register', 'helper_register'].forEach(function (tbl) {
+    sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'ledger_id'`, [tbl], function (err, rows) {
+      if (!err && rows && rows.length === 0) {
+        sqldb.query(`ALTER TABLE \`${tbl}\` ADD COLUMN ledger_id INT DEFAULT NULL`, function (err) {
+          if (err) console.log('[DB] ' + tbl + '.ledger_id migration:', err.message);
+          else console.log('[DB] ' + tbl + '.ledger_id column added');
+        });
+      }
+    });
+  });
   sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'voucher_number'`, function (err, rows) {
     if (!err && rows && rows.length === 0) {
       sqldb.query(`ALTER TABLE trip_created ADD COLUMN voucher_number VARCHAR(30) DEFAULT NULL, ADD COLUMN hirer_ledger_id INT DEFAULT NULL`, function (err) {
@@ -14502,6 +14518,36 @@ exports.bulkUploadServiceRoutesMdl = function (rows, userId, usrNm, callback) {
 };
 
 // ── Bulk Upload — Staff (Staff / Driver / Helper) ──────────────────────────────
+// Excel-imported people need the same Payables ledger that adddriverMdl and its
+// siblings create for a person added one at a time — without this an imported
+// driver exists in driver_register but never appears under Payables > Drivers,
+// so nothing can be paid to them.
+//
+// Sequential on purpose: ensurePersonLedger dedupes on the ledger name with a
+// SELECT-then-INSERT, so firing a batch off in parallel races and lets two rows
+// with the same name through. Best-effort per person, matching the single-add
+// path — a ledger failure is logged and never fails the import, because the
+// people are already committed by the time this runs.
+function createLedgersForImport(label, people, tbl, idCol, userId, cntxtDtls, done) {
+  var i = 0, made = 0, failed = [];
+  (function next() {
+    if (i >= people.length) return done(made, failed);
+    var p = people[i++];
+    module.exports.ensurePersonLedger(label, p.name, p.disambiguator, userId, function (err, ledgerId) {
+      if (err || !ledgerId) {
+        if (err) {
+          console.error('[bulkUpload] ledger failed for ' + label + ' "' + p.name + '":', err.message);
+          failed.push(p.name);
+        }
+        return next();
+      }
+      made++;
+      dbutil.execupdateQuery(sqldb, `UPDATE \`${tbl}\` SET ledger_id = ? WHERE \`${idCol}\` = ?`,
+        [ledgerId, p.key], cntxtDtls, function () { next(); });
+    });
+  })();
+}
+
 exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
   var cntxtDtls = 'in bulkUploadStaffMdl';
   var date = moment().utcOffset('+05:30').format('YYYY-MM-DD');
@@ -14529,7 +14575,14 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       var QRY = 'INSERT INTO staff_register (designation, fullName, nickName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+        // staff_register has no generated id number, so the ledger is keyed on
+        // the name — which is also what the dedupe above guarantees is unique.
+        var people = toInsert.map(function (r) {
+          return { name: r.fullName, disambiguator: null, key: r.fullName };
+        });
+        createLedgersForImport('Staff', people, 'staff_register', 'fullName', userId, cntxtDtls, function (made, failed) {
+          callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length, ledgers_created: made, ledgers_failed: failed });
+        });
       });
     });
 
@@ -14564,7 +14617,13 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
         var QRY = 'INSERT INTO driver_register (driver_id_number, driver_name, nickname, dldateofbirth, mobile_number, alternate_number, emergency_mobile_number, aadhar_number, dl_number, dl_issued_by, dl_dob, dl_linked_mobile, dl_expiry_date, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, drivinglicense_joining_date, transportoneissuedate, transportvalidityfrom, transportvalidityto, date_of_joining, reference, remarks, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
         dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
           if (err) return callback(err, null);
-          callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+          var people = toInsert.map(function (r, i) {
+            var did = 'D' + String(startId + i).padStart(4, '0');
+            return { name: r.driver_name, disambiguator: did, key: did };
+          });
+          createLedgersForImport('Drivers', people, 'driver_register', 'driver_id_number', userId, cntxtDtls, function (made, failed) {
+            callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length, ledgers_created: made, ledgers_failed: failed });
+          });
         });
       });
     });
@@ -14598,7 +14657,13 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
         var QRY = 'INSERT INTO helper_register (helper_id_number, helper_name, nickname, mobile_number, alternate_number, emergencymobilenumber, adhar_number, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, date_of_joining, reference, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
         dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
           if (err) return callback(err, null);
-          callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });
+          var people = toInsert.map(function (r, i) {
+            var hid = 'H' + String(startId + i).padStart(4, '0');
+            return { name: r.helper_name, disambiguator: hid, key: hid };
+          });
+          createLedgersForImport('Helpers', people, 'helper_register', 'helper_id_number', userId, cntxtDtls, function (made, failed) {
+            callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length, ledgers_created: made, ledgers_failed: failed });
+          });
         });
       });
     });
