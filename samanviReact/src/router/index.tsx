@@ -20,6 +20,7 @@ import VehicleValidationsPage from '@/pages/validations/VehicleValidationsPage'
 import BusNoPage from '@/pages/masters/BusNoPage'
 import ServiceOutBusesPage from '@/pages/masters/ServiceOutBusesPage'
 import ServiceForPage from '@/pages/masters/ServiceForPage'
+import DesignationPage from '@/pages/masters/DesignationPage'
 import ServiceNoPage from '@/pages/masters/ServiceNoPage'
 import StaffPage from '@/pages/masters/StaffPage'
 import SpareTankPage from '@/pages/masters/SpareTankPage'
@@ -228,6 +229,7 @@ export const router = createBrowserRouter([
       { path: 'mainmasters/bus-operator',     element: <BusOperatorPage /> },
       { path: 'mainmasters/line-code',        element: <LineCodePage /> },
       { path: 'mainmasters/route-id',         element: <RouteIdPage /> },
+      { path: 'mainmasters/designation',      element: <DesignationPage /> },
       // Group pages — each level gets its own path so NavLink active state works
       { path: 'mainmasters/groups',           element: <GroupPage /> },
       { path: 'mainmasters/main-group',       element: <GroupPage viewLevel={2} /> },
@@ -241,4 +243,9 @@ export const router = createBrowserRouter([
       { path: '*', element: <Navigate to="/dashboard" replace /> },
     ],
   },
-])
+], {
+  // '/' for the production build, '/staging/' for the subfolder one — set by
+  // `base` in vite.config.ts. Without it every route path would be matched
+  // against the full pathname including the /staging/ prefix and miss.
+  basename: import.meta.env.BASE_URL,
+})

@@ -134,6 +134,9 @@ export default function TripExpensesPage() {
   // lists there.
   const [resolvedLedgerIds, setResolvedLedgerIds] = useState<Partial<Record<PersonKey, string>>>({})
   const [loadingModal, setLoadingModal] = useState(false)
+  // Set when the user unticks Paid To — they want to place the leftover on some
+  // other ledger by hand, so the auto-derived Paid To row stops coming back.
+  const [paidToOptedOut, setPaidToOptedOut] = useState(false)
 
   // View modal
   const [viewModal, setViewModal] = useState<{ open: boolean; row: any; debit: any[]; credit: any[]; loading: boolean; ledgerIds: Partial<Record<PersonKey, string>> }>(
@@ -173,6 +176,11 @@ export default function TripExpensesPage() {
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
   const { data: busData } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
+  // Drivers + helpers + staff in one list, each tagged with its paid_to_type —
+  // the same source the Trip Creation grid's Paid To picker draws from (shared
+  // query key, so it comes off that cache), letting Paid To be corrected here
+  // rather than only back on the trip.
+  const { data: paidToData } = useQuery({ queryKey: ['staff-all'], queryFn: () => mastersService.getStaff({}) })
   // Leaf containers a new ledger can be filed under (mainmasterssubchild,
   // level_depth 4 — "Drivers", "Payables", "Direct Expenses" etc.). Each row
   // already carries its own full ancestor chain (district_id/mandal_id/
@@ -183,14 +191,31 @@ export default function TripExpensesPage() {
 
   const trips: any[] = listData?.data ?? []
   const ledgerList: any[] = ledgerData?.data ?? []
+  // openAdd/openEdit await getBeta before resolving ledgers, and a callback holds
+  // the ledgerList from the render it was created in — so if the ledger query was
+  // still in flight when the row was clicked, the whole handler ran against an
+  // empty list and reported "Ledger not found" for Betas/Salaries/Parking even
+  // though they exist. The ref always points at the newest list; ensureLedgers()
+  // covers the case where the query genuinely hasn't returned yet.
+  const ledgerRef = useRef<any[]>([])
+  ledgerRef.current = ledgerList
+  const ensureLedgers = async () => {
+    if (ledgerRef.current.length) return
+    const r = await reloadLedgers()
+    ledgerRef.current = r.data?.data ?? []
+  }
   const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.ledger_id), label: l.temple_name }))
-  const findLedger = (id: string) => ledgerList.find((l: any) => String(l.ledger_id) === id)
+  const findLedger = (id: string) => ledgerRef.current.find((l: any) => String(l.ledger_id) === id)
 
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
   const activeStaff: any[] = activeStaffData?.data ?? []
   const conductors: any[] = activeStaff.filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
   const buses: any[] = busData?.data ?? []
+  const paidToList: any[] = paidToData?.data ?? []
+  const paidToOptions = paidToList.map((p: any) => ({
+    value: p.paid_to_id + '_' + p.paid_to_type, label: p.paid_to_name + ' (' + p.paid_to_type + ')',
+  }))
 
   const ledgerParents: any[] = (subchildData?.data ?? []).filter((c: any) => Number(c.level_depth) === 4 && Number(c.d_in) === 0)
   const ledgerParentOptions = ledgerParents.map((c: any) => ({
@@ -205,18 +230,29 @@ export default function TripExpensesPage() {
     driver1: form.driver1_name, driver2: form.driver2_name, helper: form.helper_name, conductor: form.conductor_name,
     optDriver1: form.opt_driver1_name, optDriver2: form.opt_driver2_name, optHelper: form.opt_helper_name,
   }[key])
+  // A role only counts as "opting" when its own slot is NOT held by a real
+  // person — an opting hand covers a vacant seat, they don't ride alongside the
+  // assigned driver. Trips written before the Opting picker existed carry an
+  // opt_* person next to a real driver; those aren't opting arrangements, so
+  // they must neither show an Opting block nor bill an opting salary.
+  const optingActive = (slotId: any, optId: any) => !!String(optId ?? '') && !String(slotId ?? '')
+  const isOptingRole = (key: 'driver1' | 'driver2' | 'helper'): boolean => (
+    key === 'driver1' ? optingActive(form.driver1_id, form.opt_driver1_id)
+      : key === 'driver2' ? optingActive(form.driver2_id, form.opt_driver2_id)
+        : optingActive(form.helper_id, form.opt_helper_id)
+  )
   // Driver1/2, Helper, Conductor are their own per-trip beta only — the
   // "opting" salary top-up used to be added onto their own amount, but now
   // belongs to a *separate* opting person (own ledger), so it only counts
-  // here when that role's opt slot actually has someone assigned (NA = 0).
+  // here when that role is genuinely being covered by an opting hand.
   const personAmount = (key: PersonKey): number => {
     if (key === 'driver1') return num(form.driveronesalary)
     if (key === 'driver2') return num(form.drivertwosalary)
     if (key === 'helper') return num(form.helpersalary)
     if (key === 'conductor') return num(form.conductorsalary)
-    if (key === 'optDriver1') return form.opt_driver1_id ? num(form.driveronesudsalary) : 0
-    if (key === 'optDriver2') return form.opt_driver2_id ? num(form.drivertwosudsalary) : 0
-    return form.opt_helper_id ? num(form.helpersudsalary) : 0 // optHelper
+    if (key === 'optDriver1') return isOptingRole('driver1') ? num(form.driveronesudsalary) : 0
+    if (key === 'optDriver2') return isOptingRole('driver2') ? num(form.drivertwosudsalary) : 0
+    return isOptingRole('helper') ? num(form.helpersudsalary) : 0 // optHelper
   }
   // Generic so the read-only View modal can resolve a person's ledger from
   // its own row data (driverX_id etc.) without going through `form` at all.
@@ -244,8 +280,8 @@ export default function TripExpensesPage() {
 
   const findExpenseLedger = (key: ExpenseKey) => {
     const { id, aliases } = EXPENSE_LEDGERS[key]
-    return ledgerList.find((l: any) => isExpensesGroup(l) && aliases.includes(normLedgerName(l.temple_name)))
-      ?? ledgerList.find((l: any) => Number(l.ledger_id) === id)
+    return ledgerRef.current.find((l: any) => isExpensesGroup(l) && aliases.includes(normLedgerName(l.temple_name)))
+      ?? ledgerRef.current.find((l: any) => Number(l.ledger_id) === id)
   }
 
   // Mirrors calculateTotalBeta()/calculateTotalSalary() in the Angular screen:
@@ -342,12 +378,19 @@ export default function TripExpensesPage() {
   // To instead — every rupee always lands somewhere. Recomputed after every
   // checkbox toggle from live `form` amounts, then that row is independently
   // editable like any other row until the next toggle touches it again.
-  const recomputePaidToRow = (rows: LedgerRow[], silent = false): LedgerRow[] => {
+  // `optedOut` is passed explicitly rather than read from state because the
+  // toggle below flips it and recomputes in the same tick, when the closure
+  // would still be holding the previous value.
+  const recomputePaidToRow = (rows: LedgerRow[], silent = false, optedOut = paidToOptedOut): LedgerRow[] => {
     const checkedKeys = PERSON_KEYS.filter((k) => rows.some((r) => r.personKey === k))
     // Parking has no person/checkbox of its own — it always rides along with
     // whatever remainder falls to Paid To.
     const remainder = PERSON_KEYS.filter((k) => !checkedKeys.includes(k)).reduce((sum, k) => sum + personAmount(k), 0) + num(form.parking_amt)
     const withoutPaidTo = rows.filter((r) => r.personKey !== 'paidTo')
+    // Opted out: the remainder is the user's to place by hand, so don't keep
+    // re-adding the Paid To row underneath them. Submit validation still blocks
+    // an unbalanced entry, so nothing can slip through half-assigned.
+    if (optedOut) return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
     if (remainder <= 0) return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
     const ledgerId = paidToLedgerId()
     const ledger = ledgerId ? findLedger(ledgerId) : null
@@ -357,7 +400,10 @@ export default function TripExpensesPage() {
       if (!silent) toast.error(`No ledger found for ${form.paid_to_name || 'Paid To'} — the unchecked amount (₹${remainder}) wasn't added automatically`)
       return withoutPaidTo.length ? withoutPaidTo : [emptyLedgerRow()]
     }
-    return mergeSameLedgerRows([...withoutPaidTo, { ledger: toLedgerObj(ledger), amount: String(remainder), personKey: 'paidTo' }])
+    // Drop the blank placeholder left behind while Paid To was off, so re-ticking
+    // doesn't leave an empty "Select Ledger" row sitting beside the restored one.
+    const kept = withoutPaidTo.filter((r) => r.ledger || r.amount)
+    return mergeSameLedgerRows([...kept, { ledger: toLedgerObj(ledger), amount: String(remainder), personKey: 'paidTo' }])
   }
 
   const togglePerson = (key: PersonKey) => {
@@ -404,6 +450,19 @@ export default function TripExpensesPage() {
     setDebitRows((rows) => (rows.some((r) => r.personKey) ? buildExpenseRows(rows, { silent: true }) : rows))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amountSig, modal.mode, loadingModal])
+
+  // Repoint the derived Paid To row when the Paid To person is changed here.
+  // Same first-pass guard as above: the value the modal opens with is recorded,
+  // not acted on, so loading an already-filed expense doesn't rewrite its rows.
+  const paidToSig = form.paid_to_id + '_' + form.paid_to_type
+  const lastPaidToSig = useRef<string | null>(null)
+  useEffect(() => {
+    if (!modal.mode || loadingModal) { lastPaidToSig.current = null; return }
+    if (lastPaidToSig.current === null || lastPaidToSig.current === paidToSig) { lastPaidToSig.current = paidToSig; return }
+    lastPaidToSig.current = paidToSig
+    setCreditRows((rows) => recomputePaidToRow(rows, true))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paidToSig, modal.mode, loadingModal])
   // Read-only View modal: was this person's own ledger among the saved rows?
   // (expensive_details.ledger_id, selected straight through by `SELECT *`.)
   // Credit is where person rows land now; debit is still searched as a fallback
@@ -418,14 +477,16 @@ export default function TripExpensesPage() {
   const viewPersonAmount = (key: PersonKey, id: string): number => num(viewPersonRow(key, id)?.amount)
 
   // ── Modal open/close ─────────────────────────────────────────────────────
-  const closeModal = () => { setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}) }
+  const closeModal = () => { setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}); setPaidToOptedOut(false) }
 
   const openAdd = async (row: any) => {
     setModal({ mode: 'add', row })
     setLoadingModal(true)
+    await ensureLedgers()
     setDebitRows([emptyLedgerRow()])
     setCreditRows([emptyLedgerRow()])
     setResolvedLedgerIds({})
+    setPaidToOptedOut(false)
     setForm({
       ...emptyForm(),
       id: String(row.id ?? ''), trip_creation_id: String(row.trip_creation_id ?? row.id ?? ''),
@@ -466,9 +527,12 @@ export default function TripExpensesPage() {
       const driver2Amt = num(rate.driverTwoBeta)
       const helperAmt = num(rate.helperBeta)
       const conductorAmt = num(rate.conductorBeta)
-      const optDriver1Amt = row.opt_driver1_id ? num(rate.optDriver) : 0
-      const optDriver2Amt = row.opt_driver2_id ? num(rate.optDriver) : 0
-      const optHelperAmt = row.opt_helper_id ? num(rate.optHelper) : 0
+      // Same "vacant seat" rule as isOptingRole — an opting hand only bills when
+      // the role's own slot is empty, so a legacy row carrying an opt_* person
+      // beside a real driver doesn't seed a phantom opting salary.
+      const optDriver1Amt = optingActive(row.driver1_id, row.opt_driver1_id) ? num(rate.optDriver) : 0
+      const optDriver2Amt = optingActive(row.driver2_id, row.opt_driver2_id) ? num(rate.optDriver) : 0
+      const optHelperAmt = optingActive(row.helper_id, row.opt_helper_id) ? num(rate.optHelper) : 0
       const parkingAmt = num(rate.parkingAmount)
       const total = driver1Amt + driver2Amt + helperAmt + conductorAmt + optDriver1Amt + optDriver2Amt + optHelperAmt + parkingAmt
       const amountFor: Record<PersonKey, number> = {
@@ -529,12 +593,14 @@ export default function TripExpensesPage() {
   }
 
   const openEdit = async (row: any) => {
+    await ensureLedgers()
     setModal({ mode: 'edit', row })
     setLoadingModal(true)
     setForm({ ...emptyForm(), id: String(row.id ?? '') })
     setDebitRows([emptyLedgerRow()])
     setCreditRows([emptyLedgerRow()])
     setResolvedLedgerIds({})
+    setPaidToOptedOut(false)
 
     const res = await tripsService.getTripModalData({ serviceNo: row.c_number, sudId: 3 })
     const ledgerRows: any[] = res?.data?.[0] ?? []
@@ -641,6 +707,21 @@ export default function TripExpensesPage() {
         conductor: t.conductor_ledger_id ? String(t.conductor_ledger_id) : undefined,
       } : {},
     })
+  }
+
+  // The Paid To line is derived, not chosen: whatever crew isn't individually
+  // ticked — plus parking, which has no payee of its own — lands on the Paid To
+  // person's ledger. So its checkbox mirrors that state instead of toggling it.
+  // Tick every crew member and there is no remainder left, so it goes disabled,
+  // exactly the way the Paid To picker does on the Trip Creation grid.
+  const paidToRowAmount = num(creditRows.find((r) => r.personKey === 'paidTo')?.amount)
+  const paidToActive = paidToRowAmount > 0
+  // Unticking hands the leftover back to the user to place manually; reticking
+  // re-derives it. Mirrors how each crew checkbox adds/removes its own row.
+  const togglePaidTo = () => {
+    const nextOptedOut = !paidToOptedOut
+    setPaidToOptedOut(nextOptedOut)
+    setCreditRows((rows) => recomputePaidToRow(rows, true, nextOptedOut))
   }
 
   // ── Totals ───────────────────────────────────────────────────────────────
@@ -995,7 +1076,41 @@ export default function TripExpensesPage() {
                         {conductors.map((c: any) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
                       </Select>
                     </div>
-                    <div><Label>Paid To</Label><Input value={form.paid_to_name || '—'} readOnly disabled /></div>
+                    <div>
+                      <Label>Paid To</Label>
+                      <SearchableSelect
+                        placeholder="Select" options={paidToOptions}
+                        value={form.paid_to_id ? form.paid_to_id + '_' + form.paid_to_type : ''}
+                        onChange={(v) => {
+                          const p = paidToList.find((x: any) => x.paid_to_id + '_' + x.paid_to_type === v)
+                          setForm((f) => ({
+                            ...f,
+                            paid_to_id: p ? String(p.paid_to_id) : '',
+                            paid_to_name: p?.paid_to_name ?? '',
+                            paid_to_type: p?.paid_to_type ?? '',
+                          }))
+                        }}
+                        onClear={() => setForm((f) => ({ ...f, paid_to_id: '', paid_to_name: '', paid_to_type: '' }))} />
+                      {form.paid_to_name && (
+                        <div className="mt-2">
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input
+                              type="checkbox" checked={paidToActive} onChange={togglePaidTo}
+                              title="Receives every share left unticked below — untick to place that leftover on another ledger yourself"
+                              className="w-4 h-4 rounded accent-blue-600"
+                            />
+                            Pay {form.paid_to_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">
+                            {paidToActive
+                              ? `₹${paidToRowAmount.toLocaleString('en-IN')}`
+                              : paidToOptedOut
+                                ? 'Off — assign the leftover yourself in Credit Accounts'
+                                : 'Everyone ticked — nothing left over'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Salary / Beta breakdown — checking a person drops their own
@@ -1013,7 +1128,7 @@ export default function TripExpensesPage() {
                       )}
                       <Label>Driver1 Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.driveronesalary} onChange={(e) => setForm((f) => ({ ...f, driveronesalary: e.target.value }))} />
-                      {form.opt_driver1_id && (
+                      {isOptingRole('driver1') && (
                         <>
                           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none pt-1">
                             <input type="checkbox" checked={isPersonChecked('optDriver1')} onChange={() => togglePerson('optDriver1')} className="w-4 h-4 rounded accent-blue-600" />
@@ -1037,7 +1152,7 @@ export default function TripExpensesPage() {
                       )}
                       <Label>Driver2 Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.drivertwosalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosalary: e.target.value }))} />
-                      {form.opt_driver2_id && (
+                      {isOptingRole('driver2') && (
                         <>
                           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none pt-1">
                             <input type="checkbox" checked={isPersonChecked('optDriver2')} onChange={() => togglePerson('optDriver2')} className="w-4 h-4 rounded accent-blue-600" />
@@ -1061,7 +1176,7 @@ export default function TripExpensesPage() {
                       )}
                       <Label>Helper Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.helpersalary} onChange={(e) => setForm((f) => ({ ...f, helpersalary: e.target.value }))} />
-                      {form.opt_helper_id && (
+                      {isOptingRole('helper') && (
                         <>
                           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none pt-1">
                             <input type="checkbox" checked={isPersonChecked('optHelper')} onChange={() => togglePerson('optHelper')} className="w-4 h-4 rounded accent-blue-600" />

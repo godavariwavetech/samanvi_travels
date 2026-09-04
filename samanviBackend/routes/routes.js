@@ -57,6 +57,7 @@ router.post('/bulkuploadstaff', verifyToken, routcontroller.bulkUploadStaffCtrl)
 router.get('/getstafftypes', verifyToken, routcontroller.getStaffTypesCtrl);
 router.post('/addstafftype', verifyToken, routcontroller.addStaffTypeCtrl);
 router.post('/deletestafftype', verifyToken, routcontroller.deleteStaffTypeCtrl);
+router.post('/updatestafftype', verifyToken, routcontroller.updateStaffTypeCtrl);
 // Vehicle Types
 router.get('/getvehicletypes', verifyToken, routcontroller.getVehicleTypesCtrl);
 router.post('/addvehicletype', verifyToken, routcontroller.addVehicleTypeCtrl);

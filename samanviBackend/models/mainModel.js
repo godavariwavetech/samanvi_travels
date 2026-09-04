@@ -443,6 +443,42 @@ var moment = require("moment");
       }
     });
   });
+  // Trip reference on a voucher, so a trip-sourced voucher can show which trip
+  // it came from the same way job_card_number/battery_code/tyre_code already do
+  // for their modules — rather than being buried in the description text.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mainvoucher_t' AND COLUMN_NAME = 'trip_c_number'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE mainvoucher_t ADD COLUMN trip_c_number VARCHAR(50) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] mainvoucher_t.trip_c_number migration:', err.message);
+        else console.log('[DB] mainvoucher_t.trip_c_number column added');
+      });
+    }
+  });
+  // Backfill runs on every boot rather than only alongside the ALTER: it is
+  // idempotent (only touches rows still NULL) and older trip vouchers arrive
+  // by two different routes. Pass 1 uses trip_created's own voucher_number
+  // link; pass 2 covers the vouchers that predate that link being written,
+  // whose trip number survives only in the "[Trip: TRIPnnn]" description tag.
+  sqldb.query(`UPDATE mainvoucher_t mv JOIN trip_created t ON t.voucher_number = mv.c_number AND t.d_in = 0
+    SET mv.trip_c_number = t.c_number WHERE mv.trip_c_number IS NULL`, function (bfErr, res) {
+    if (bfErr) return console.log('[DB] trip_c_number backfill (link):', bfErr.message);
+    if (res && res.affectedRows) console.log('[DB] trip_c_number backfilled from link on ' + res.affectedRows + ' voucher(s)');
+    sqldb.query(`UPDATE mainvoucher_t SET trip_c_number = TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(description, '[Trip: ', -1), ']', 1))
+      WHERE trip_c_number IS NULL AND source_type = 'trip' AND description LIKE '%[Trip: %]%'`, function (dErr, dRes) {
+      if (dErr) console.log('[DB] trip_c_number backfill (description):', dErr.message);
+      else if (dRes && dRes.affectedRows) console.log('[DB] trip_c_number backfilled from description on ' + dRes.affectedRows + ' voucher(s)');
+    });
+  });
+  // Seniority rank on the Designation master (staff_types) — lower number sorts
+  // higher (1 = most senior). NULL for existing rows until someone sets it.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'staff_types' AND COLUMN_NAME = 'level'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE staff_types ADD COLUMN level INT DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] staff_types.level migration:', err.message);
+        else console.log('[DB] staff_types.level column added');
+      });
+    }
+  });
 
 })();
 
@@ -1525,16 +1561,18 @@ exports.deletehelperdata = function (data, callback) {
 };
 
 // ── Staff Types ──────────────────────────────────────────────────────────────
+// `level` is a seniority rank (1 = most senior) — rows without one sort last.
 exports.getStaffTypesMdl = function (callback) {
   var cntxtDtls = "in getStaffTypesMdl";
-  var QRY_TO_EXEC = `SELECT * FROM staff_types WHERE d_in=0 ORDER BY type_name`;
+  var QRY_TO_EXEC = `SELECT * FROM staff_types WHERE d_in=0 ORDER BY level IS NULL, level, type_name`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) { callback(err, results); });
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 exports.addStaffTypeMdl = function (data, callback) {
   var cntxtDtls = "in addStaffTypeMdl";
-  var QRY_TO_EXEC = `INSERT INTO staff_types (type_name) VALUES ('${data.type_name}')`;
+  var level = (data.level !== undefined && data.level !== null && data.level !== '') ? Number(data.level) : 'NULL';
+  var QRY_TO_EXEC = `INSERT INTO staff_types (type_name, level) VALUES ('${data.type_name}', ${level})`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) { callback(err, results); });
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
@@ -1542,6 +1580,14 @@ exports.addStaffTypeMdl = function (data, callback) {
 exports.deleteStaffTypeMdl = function (data, callback) {
   var cntxtDtls = "in deleteStaffTypeMdl";
   var QRY_TO_EXEC = `UPDATE staff_types SET d_in=1 WHERE id='${data.id}'`;
+  if (callback && typeof callback == "function")
+    dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) { callback(err, results); });
+  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+exports.updateStaffTypeMdl = function (data, callback) {
+  var cntxtDtls = "in updateStaffTypeMdl";
+  var level = (data.level !== undefined && data.level !== null && data.level !== '') ? Number(data.level) : 'NULL';
+  var QRY_TO_EXEC = `UPDATE staff_types SET type_name='${data.type_name}', level=${level} WHERE id='${data.id}'`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) { callback(err, results); });
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
@@ -2542,20 +2588,20 @@ exports.getexpensesMdl = function (data, callback) {
   var cntxtDtls = "in getexpensesMdl";
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD ");
   var QRY_TO_EXEC = `
-  SELECT 
-  t.*, 
+  SELECT
+  t.*,
   t.id AS trip_creation_id,
-  d1.nickname AS driver1_name,
-  d2.nickname AS driver2_name,
-  h.helper_name AS helper_name,
-  s.fullName AS conductor_name,
-  CASE 
-    WHEN t.paid_to_type = 'driver' THEN d3.nickname
-    WHEN t.paid_to_type = 'helper' THEN h2.helper_name
-    WHEN t.paid_to_type = 'staff' THEN s2.fullName
-    ELSE NULL
+  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(h.helper_name, t.helper_name) AS helper_name,
+  COALESCE(s.fullName, t.conductor_name) AS conductor_name,
+  CASE
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
+    ELSE t.paid_to_name
   END AS paid_to_name
-FROM 
+FROM
   trip_created t
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
 LEFT JOIN driver_register d2 ON t.driver2_id = d2.id
@@ -2564,7 +2610,7 @@ LEFT JOIN staff_register s ON t.conductor_id = s.id
 LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
 LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
-WHERE 
+WHERE
   t.d_in = '0' AND t.admin_status != '1'
   order by trip_date DESC;
 `;
@@ -4616,6 +4662,7 @@ exports.driverdata = function (callback) {
 var TRIP_FIELD_LABELS = {
   bus_no: 'Bus No', driver1_name: 'Driver 1', driver2_name: 'Driver 2',
   helper_name: 'Helper', conductor_name: 'Conductor',
+  trip_run_status: 'Status', hirer_name: 'Hirer',
 };
 
 exports.tripcreated = function (c_id, c_number, data, callback) {
@@ -4661,41 +4708,33 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
   // log a trip_edit_history row if anything actually changed. Mirrors
   // updatebusnumber's history-logging pattern above.
   var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
-  var trackedFields = { bus_no: data.bus_no, driver1_name: data.driver1_name, driver2_name: data.driver2_name, helper_name: data.helper_name, conductor_name: data.conductor_name };
+  var trackedFields = { bus_no: data.bus_no, driver1_name: data.driver1_name, driver2_name: data.driver2_name, helper_name: data.helper_name, conductor_name: data.conductor_name, trip_run_status: data.trip_run_status, hirer_name: data.hirer_name };
 
-  sqldb.query(`SELECT bus_no, driver1_name, driver2_name, helper_name, conductor_name FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
+  sqldb.query(`SELECT bus_no, driver1_name, driver2_name, helper_name, conductor_name, trip_run_status, hirer_name FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
     var before = (!selErr && rows && rows[0]) ? rows[0] : {};
 
-    QRY_TO_EXEC = `
-        UPDATE trip_created
-SET
-  bus_no = '${data.bus_no}',
-  service_no = '${data.service_no}',
-  optreg = '${data.optreg}',
-  driver1_name = '${data.driver1_name}',
-  optreg1 = '${data.optreg1}',
-  driver2_name = '${data.driver2_name}',
-  optreg2 = '${data.optreg2}',
-  helper_name = '${data.helper_name}',
-  conductor_name = '${data.conductor_name}',
-  trip_date = '${data.trip_date}',
-  trip_for = '${data.trip_for}',
-  trip_for_id = '${data.trip_for_id}',
-  service_no_id = '${data.service_no_id}',
-  paid_to_type = '${data.paid_to_type}',
-  paid_to_name = '${data.paid_to_name}',
-  paid_to_id = '${data.paid_to_id}',
-  remarks = '${data.remarks}',
-  updatedby_id = '${data.updatedby_id}',
-  updatedby_name = '${data.updatedby_name}',
-  updated_date = '${data.updated_date}',
-  driver1_id = '${data.driver1_id}',
-  driver2_id = '${data.driver2_id}',
-  conductor_id = '${data.conductor_id}',
-  helper_id = '${data.helper_id}'
-WHERE id = ${data.id};
-
-        `;
+    // Only the fields actually supplied are written. A Bus edit has no
+    // hirer_name and a Van edit has no service_no_id, so writing a fixed column
+    // list would blank whichever the form didn't show. optreg/optreg1/optreg2
+    // stay editable because Trip Expenses stores the per-role beta amounts in
+    // them (buildUpdateTripPayload in TripExpensesPage.tsx).
+    // Values are escaped - a name containing an apostrophe used to break this
+    // query outright.
+    var EDITABLE = ['bus_no', 'service_no', 'service_no_id',
+      'driver1_name', 'driver1_id', 'driver2_name', 'driver2_id',
+      'helper_name', 'helper_id', 'conductor_name', 'conductor_id',
+      'optreg', 'optreg1', 'optreg2',
+      'opt_driver1_id', 'opt_driver1_name', 'opt_driver2_id', 'opt_driver2_name', 'opt_helper_id', 'opt_helper_name',
+      'trip_date', 'trip_for', 'trip_for_id', 'trip_run_status',
+      'paid_to_type', 'paid_to_name', 'paid_to_id',
+      'hirer_name', 'phone_number', 'line_code', 'remarks',
+      'driver1_paid_direct', 'driver2_paid_direct', 'helper_paid_direct', 'conductor_paid_direct',
+      'updatedby_id', 'updatedby_name', 'updated_date'];
+    var sets = EDITABLE
+      .filter(function (k) { return data[k] !== undefined; })
+      .map(function (k) { return '`' + k + "` = '" + esc(data[k]) + "'"; });
+    if (sets.length === 0) { callback(null, { affectedRows: 0 }); return; }
+    QRY_TO_EXEC = 'UPDATE trip_created SET ' + sets.join(', ') + ' WHERE id = ' + Number(data.id);
 
     console.log(QRY_TO_EXEC, 3820);
 
@@ -4740,7 +4779,12 @@ WHERE id = ${data.id};
 // createTripVoucherMdl and link it back with `voucher_number`.
 exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback) {
   var cntxtDtls = 'in bulkCreateTripsMdl';
-  var toInsert = (rows || []).filter(function (r) { return r && r.bus_no; });
+  // A Halt row records that the service did not run, so it legitimately has no
+  // bus and no crew — filtering on bus_no alone silently threw those away and
+  // the day's sheet lost them.
+  var toInsert = (rows || []).filter(function (r) {
+    return r && (r.bus_no || r.trip_run_status === 'Halt');
+  });
   if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, voucherCandidates: [] });
 
   // Resolve a Receivables ledger for every Van row that didn't get an explicit
@@ -5850,19 +5894,19 @@ exports.getmodaldataMdl = function (data, callback) {
     var QRY_TO_EXEC = `SELECT * from  expensive_details where d_in=0 and c_number='${data.serviceNo}';
         SELECT
   te.*,
-  d1.nickname AS driver1_name,
-  d2.nickname AS driver2_name,
-  h.helper_name AS helper_name,
-  s.fullName AS conductor_name,
+  COALESCE(d1.nickname, d1.driver_name, te.driver1_name) AS driver1_name,
+  COALESCE(d2.nickname, d2.driver_name, te.driver2_name) AS driver2_name,
+  COALESCE(h.helper_name, te.helper_name) AS helper_name,
+  COALESCE(s.fullName, te.conductor_name) AS conductor_name,
   d1.ledger_id AS driver1_ledger_id,
   d2.ledger_id AS driver2_ledger_id,
   h.ledger_id AS helper_ledger_id,
   s.ledger_id AS conductor_ledger_id,
   CASE
-      WHEN te.paid_to_type = 'driver' THEN d3.nickname
-      WHEN te.paid_to_type = 'helper' THEN h2.helper_name
-      WHEN te.paid_to_type = 'staff'  THEN s2.fullName
-      ELSE NULL
+      WHEN te.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, te.paid_to_name)
+      WHEN te.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, te.paid_to_name)
+      WHEN te.paid_to_type = 'staff'  THEN COALESCE(s2.fullName, te.paid_to_name)
+      ELSE te.paid_to_name
   END AS paid_to_name
 FROM
   tripexpenses_data te
@@ -13954,7 +13998,7 @@ exports.createTripVoucherMdl = function (data, callback) {
       vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, i_ts: curDate,
       vouchertype: 'Journal', voucherdate: vDate, c_number: c_number, c_id: c_id,
       entry_by: data.entry_by || '', user_id: data.user_id || 0, d_in: 0, status: 0,
-      source_type: 'trip',
+      source_type: 'trip', trip_c_number: data.trip_c_number || null,
     };
 
     dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_t SET ?', mainRec, 'tripVoucherMain', function (err, result) {
@@ -13988,6 +14032,56 @@ exports.setTripVoucherNumberMdl = function (tripCNumber, voucherNumber, callback
   dbutil.execupdateQuery(sqldb, `UPDATE trip_created SET voucher_number = ? WHERE c_number = ? AND d_in = 0`, [voucherNumber, tripCNumber], 'setTripVoucherNumberMdl', function (err) {
     callback(err);
   });
+};
+
+exports.getTripVoucherNumberMdl = function (tripCNumber, callback) {
+  dbutil.execupdateQuery(sqldb, `SELECT voucher_number FROM trip_created WHERE c_number = ? AND d_in = 0 LIMIT 1`, [tripCNumber], 'getTripVoucherNumberMdl', callback);
+};
+
+// Replaces the debit/credit lines of a trip's existing voucher (mirrors
+// updateBatteryVoucherMdl) — used when re-filing/editing a Trip Expense that
+// already posted a voucher on an earlier filing, so re-filing doesn't pile up
+// a fresh voucher every time.
+exports.updateTripVoucherMdl = function (data, callback) {
+  var moment  = require('moment');
+  var curDate = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
+  var vDate   = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+  var c_number = data.voucher_number;
+  var rows     = _tripVoucherRows(data.debit_ledgers, data.credit_ledgers);
+  var totalAmt = rows.debit.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
+  var descText = ((data.description || '') + ' [Trip: ' + (data.trip_c_number || '') + ']').trim().replace(/'/g, "''");
+
+  dbutil.execupdateQuery(sqldb,
+    "UPDATE mainvoucher_subt SET d_in=1 WHERE c_number='" + c_number + "' AND d_in=0",
+    [], 'tripVoucherUpdDelete',
+    function (err) {
+      if (err) return callback(err);
+      dbutil.execupdateQuery(sqldb,
+        "UPDATE mainvoucher_t SET description='" + descText + "', creditanddebitamount=" + totalAmt + " WHERE c_number='" + c_number + "' AND d_in=0",
+        [], 'tripVoucherUpdMain',
+        function (err) {
+          if (err) return callback(err);
+          var allEntries = [];
+          rows.debit.forEach(function (e) {
+            allEntries.push({ account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+          });
+          rows.credit.forEach(function (e) {
+            allEntries.push({ account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+          });
+          if (allEntries.length === 0) return callback(null);
+          var si = 0;
+          var insertNext = function () {
+            if (si >= allEntries.length) return callback(null);
+            dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_subt SET ?', allEntries[si], 'tripVoucherUpdSub', function (err) {
+              if (err) return callback(err);
+              si++; insertNext();
+            });
+          };
+          insertNext();
+        }
+      );
+    }
+  );
 };
 
 // Replaces the debit/credit lines of a battery's existing voucher (mirrors updateJobVoucherMdl).
@@ -14564,15 +14658,24 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
         toInsert.push(r);
       });
       if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      // staff_register declares designation/idNumber/mobile/emergencyContact/
+      // aadhaar/accountHolderName/accountNumber/bankName/ifscCode as NOT NULL
+      // with no default, unlike driver_register (only `id`) and helper_register
+      // (whose id is generated below). idNumber was missing from the column list
+      // entirely, so every staff import failed with "Field 'idNumber' doesn't
+      // have a default value"; the rest failed for any row that left an optional
+      // cell blank, because `|| null` fed NULL into a NOT NULL column.
+      // Empty string is what addstaffregisterMdl stores for these, so match it.
+      var blank = function (v) { return v == null || v === '' ? '' : v; };
       var vals = toInsert.map(function (r) {
-        return [r.designation || null, r.fullName, r.nickName || null, r.mobile || null,
-          r.emergencyContact || null, r.alternativemobilenumber || null, r.dateOfJoining || null,
-          r.aadhaar || null, r.accountHolderName || null, r.accountNumber || null,
-          r.ifscCode || null, r.bankName || null, r.referencename || null, r.branchname || null,
+        return [blank(r.designation) || 'Staff', '', r.fullName, r.nickName || null, blank(r.mobile),
+          blank(r.emergencyContact), r.alternativemobilenumber || null, r.dateOfJoining || null,
+          blank(r.aadhaar), blank(r.accountHolderName), blank(r.accountNumber),
+          blank(r.ifscCode), blank(r.bankName), r.referencename || null, r.branchname || null,
           r.upiId || null, r.remarks || null, r.dob || null, r.address || null,
           userId, usrNm, date, 0];
       });
-      var QRY = 'INSERT INTO staff_register (designation, fullName, nickName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
+      var QRY = 'INSERT INTO staff_register (designation, idNumber, fullName, nickName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         // staff_register has no generated id number, so the ledger is keyed on

@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
@@ -208,10 +208,10 @@ interface FilterOpts {
 // Required columns — always visible, no checkbox in the picker.
 const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Voucher Date', 'Dr. Ledger', 'Cr. Ledger', 'Amount'] as const
 // Optional columns — user can toggle visibility via checkboxes.
-const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
+const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
 const ALL_VOUCHER_COLS = [...REQUIRED_VOUCHER_COLS, ...OPTIONAL_VOUCHER_COLS] as const
 type VoucherColId = typeof ALL_VOUCHER_COLS[number]
-const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Bus / Vehicle', 'Driver'])
+const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver'])
 
 const buildCols = (
   onApprove: (row: any) => void,
@@ -268,6 +268,11 @@ const buildCols = (
             <CircleDot className="w-2.5 h-2.5" /> Tyre
           </span>
         )}
+        {(row.source_type === 'trip' || row.trip_c_number) && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
+            <Map className="w-2.5 h-2.5" /> Trip
+          </span>
+        )}
       </div>
     ),
   })
@@ -288,6 +293,13 @@ const buildCols = (
     label: 'Battery Ref', key: 'battery_code', filterable: true, filterType: 'text',
     render: (v: any) => v
       ? <span className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded whitespace-nowrap">{String(v)}</span>
+      : <span className="text-slate-300">—</span>,
+  })
+
+  if (show('Trip Ref')) cols.push({
+    label: 'Trip Ref', key: 'trip_c_number', filterable: true, filterType: 'text',
+    render: (v: any) => v
+      ? <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded whitespace-nowrap">{String(v)}</span>
       : <span className="text-slate-300">—</span>,
   })
 
@@ -887,6 +899,7 @@ export default function VoucherApprovalsPage() {
       status: fresh.status ?? v.status,
       source_type: fresh.source_type ?? v.source_type,
       job_card_number: fresh.job_card_number ?? v.job_card_number,
+      trip_c_number: fresh.trip_c_number ?? v.trip_c_number,
       driver_name: fresh.driver_name ?? v.driver_name,
     } : v)
   }, [modalData])
@@ -1420,6 +1433,25 @@ export default function VoucherApprovalsPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition-colors whitespace-nowrap"
                     >
                       Open Tyre Inventory
+                    </button>
+                  </div>
+                )}
+
+                {/* Trip voucher banner */}
+                {(viewModal.source_type === 'trip' || viewModal.trip_c_number) && (
+                  <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
+                      <Map className="w-3 h-3" /> TRIP
+                    </span>
+                    <p className="text-sm text-blue-800 flex-1">
+                      This voucher was generated from trip{' '}
+                      <span className="font-bold">{viewModal.trip_c_number || '—'}</span>.
+                    </p>
+                    <button
+                      onClick={() => navigate('/trips/expenses')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+                    >
+                      Open Trip Expenses
                     </button>
                   </div>
                 )}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Map, Save, X, Plus, CalendarDays, Trash2 } from 'lucide-react'
+import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
@@ -25,6 +25,11 @@ type GridRow = {
   opt_helper_id: string; opt_helper_name: string
   conductor_id: string; conductor_name: string; conductor_checked: boolean
   paid_to_id: string; paid_to_name: string; paid_to_type: string; paid_to_ledger_id: string
+  // Checking this means the trip genuinely has no Paid To recipient (e.g. every
+  // role is already paid_direct) — it clears and locks the Paid To picker rather
+  // than leaving it merely blank-and-unfilled, which reads the same as "not
+  // gotten to yet". Separate from the auto-disable below (all three checked).
+  paid_to_skip: boolean
   remarks: string
 }
 
@@ -69,11 +74,8 @@ const columns: Column[] = [
     ),
   },
   { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
-  { label: 'Opting Driver 1', key: 'opt_driver1_name', filterable: true, render: (v) => <span className="text-slate-400 text-xs">{String(v ?? 'NA')}</span> },
   { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
-  { label: 'Opting Driver 2', key: 'opt_driver2_name', filterable: true, render: (v) => <span className="text-slate-400 text-xs">{String(v ?? 'NA')}</span> },
   { label: 'Helper', key: 'helper_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
-  { label: 'Opting Helper', key: 'opt_helper_name', filterable: true, render: (v) => <span className="text-slate-400 text-xs">{String(v ?? 'NA')}</span> },
   { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
   {
     label: 'Paid To / Hirer', key: 'paid_to_name', filterable: true,
@@ -183,6 +185,12 @@ export default function TripCreationPage() {
   const [vanRows, setVanRows] = useState<VanRow[]>([])
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
+  // Edit a trip that has already been created. Bus and Van rows share this one
+  // form — the fields differ, so it branches on the row's vehicle_type rather
+  // than trying to show every column for both.
+  const [editRow, setEditRow] = useState<any | null>(null)
+  const [editForm, setEditForm] = useState<Record<string, string>>({})
+
   // Data queries
   const { data: tripData, isLoading } = useQuery({ queryKey: ['trips'], queryFn: () => tripsService.getTrips1() })
   const { data: busData } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
@@ -197,17 +205,65 @@ export default function TripCreationPage() {
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
   const paidToList: any[] = staffData?.data ?? []
-  // designation is a free-text/master-picker field, not a fixed enum, so its
-  // casing varies by whoever entered it (e.g. "CONDUCTOR" vs "Conductor") —
-  // match case-insensitively or real conductors silently vanish from this list.
-  const conductors: any[] = (activeStaffData?.data ?? []).filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
+  // Every active staff member is selectable as conductor, not just those whose
+  // designation happens to read "CONDUCTOR" — designation is free text from a
+  // master picker, so filtering on it left the dropdown empty on databases where
+  // nobody had been given that exact designation. The designation is shown in
+  // the label instead, so the list stays readable.
+  const conductors: any[] = activeStaffData?.data ?? []
 
   // Option lists for the searchable dropdowns — built once per render and shared
   // by every grid row, rather than re-mapping the same master list per <td>.
   const busOptions = buses.map((b: any) => ({ value: String(b.bus_no), label: String(b.bus_no) }))
-  const driverOptions = drivers.map((d: any) => ({ value: String(d.id), label: String(d.nickname ?? d.driver_name ?? '') }))
-  const helperOptions = helpers.map((h: any) => ({ value: String(h.id), label: String(h.helper_name ?? h.nickname ?? '') }))
-  const conductorOptions = conductors.map((c: any) => ({ value: String(c.id), label: String(c.nickName ?? c.fullName ?? '') }))
+  // One dropdown per role, listing everyone — the separate "Opting" selects that
+  // used to sit beside each of these drew from these very same lists, so folding
+  // them away costs no one their place in the list. Driver type and staff
+  // designation ride along in the label so a substitute is still identifiable.
+  const withSuffix = (name: string, suffix?: string) =>
+    suffix && String(suffix).trim() ? `${name} — ${String(suffix).trim()}` : name
+  // "NA" is a real entry rather than just a placeholder, so an unfilled slot
+  // reads NA on screen and can be set back to NA after a wrong pick without
+  // hunting for the × — SearchableSelect matches it because its value is ''.
+  // Both dropdowns carry two fixed entries above the people: "NA" for an unfilled
+  // slot and "Opting" for a slot covered by an opting hand whose name isn't being
+  // recorded. They are plain options rather than a suffix on every name, so the
+  // list stays one entry per person.
+  const NA_OPTION = { value: '', label: 'NA' }
+  const OPTING = 'Opting'
+  const OPTING_OPTION = { value: OPTING, label: OPTING }
+  const driverName = (d: any) => String(d.nickname ?? d.driver_name ?? '')
+  const helperName = (h: any) => String(h.helper_name ?? h.nickname ?? '')
+  const withOpting = (list: any[], name: (x: any) => string, suffix?: (x: any) => string | undefined) => [
+    NA_OPTION,
+    OPTING_OPTION,
+    ...list.map((x: any) => ({ value: String(x.id), label: withSuffix(name(x), suffix?.(x)) })),
+  ]
+
+  // "Opting" is stored in the role's name with no id behind it, so it shows up
+  // as-is in the grid, the records table and the edit modal without needing a
+  // person to point at.
+  const personPatch = (v: string, list: any[], nameOf: (x: any) => string,
+    idKey: string, nameKey: string, optIdKey: string, optNameKey: string) => {
+    if (v === OPTING) {
+      return ({ [idKey]: '', [nameKey]: OPTING, [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
+    }
+    const person = list.find((x: any) => String(x.id) === v)
+    return ({ [idKey]: v, [nameKey]: person ? nameOf(person) : '', [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
+  }
+  const personValue = (id: string, name: string) => (id ? id : name === OPTING ? OPTING : '')
+  const clearPerson = (idKey: string, nameKey: string, optIdKey: string, optNameKey: string) =>
+    ({ [idKey]: '', [nameKey]: '', [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
+
+  const driverOptions = withOpting(drivers, driverName, (d) => d.driver_type)
+  const helperOptions = withOpting(helpers, helperName)
+  // Plain (no NA/Opting pseudo-entries) — for the "who is actually opting in"
+  // picker that appears once a role's main dropdown is itself set to Opting.
+  const plainDriverOptions = drivers.map((d: any) => ({ value: String(d.id), label: withSuffix(driverName(d), d.driver_type) }))
+  const plainHelperOptions = helpers.map((h: any) => ({ value: String(h.id), label: helperName(h) }))
+  const conductorOptions = [NA_OPTION, ...conductors.map((c: any) => ({
+    value: String(c.id),
+    label: withSuffix(String(c.nickName ?? c.fullName ?? ''), c.designation),
+  }))]
   const paidToOptions = paidToList.map((p: any) => ({
     value: p.paid_to_id + '_' + p.paid_to_type, label: p.paid_to_name + ' (' + p.paid_to_type + ')',
   }))
@@ -221,7 +277,7 @@ export default function TripCreationPage() {
     helper_id: '', helper_name: '', helper_checked: false,
     opt_helper_id: '', opt_helper_name: '',
     conductor_id: '', conductor_name: '', conductor_checked: true,
-    paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '',
+    paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '', paid_to_skip: false,
     remarks: '',
   })
   const makeEmptyVanRow = (): VanRow => ({
@@ -257,15 +313,22 @@ export default function TripCreationPage() {
   const updateRow = (routeId: number, patch: Partial<GridRow>) =>
     setGridRows((g) => ({ ...g, [routeId]: { ...(g[routeId] ?? makeEmptyGridRow()), ...patch } }))
 
+  // A running row needs a bus before it counts as filled. A Halt row is the
+  // opposite: nothing ran, so it has no bus and no crew to enter — but it still
+  // has to be saved, otherwise the day's sheet silently loses the fact that the
+  // service was halted and the route looks untouched tomorrow.
   const filledRoutes = busRoutes.filter((r) => !existingByRoute[String(r.id)] && gridRows[r.id]?.status !== 'Halt' && gridRows[r.id]?.bus_no)
+  const haltRoutes = busRoutes.filter((r) => !existingByRoute[String(r.id)] && gridRows[r.id]?.status === 'Halt')
+  const submitRoutes = [...filledRoutes, ...haltRoutes]
+  // Only running rows need a driver — a Halt row is complete by definition.
   const incompleteRoutes = filledRoutes.filter((r) => {
     const row = gridRows[r.id]
-    return !row?.driver1_name
+    return !row?.driver1_name && !row?.opt_driver1_name
   })
 
   const { mutate: submitGrid, isPending: submittingGrid } = useMutation({
     mutationFn: () => {
-      const rows = filledRoutes.map((r) => {
+      const rows = submitRoutes.map((r) => {
         const row = gridRows[r.id]
         return {
           service_no: r.serviceNo, service_no_id: r.id,
@@ -333,6 +396,75 @@ export default function TripCreationPage() {
         qc.invalidateQueries({ queryKey: ['trips'] })
         setVanRows([])
       } else toast.error('Failed to create trips')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const openEdit = (row: any) => {
+    setEditRow(row)
+    setEditForm({
+      trip_run_status: String(row.trip_run_status ?? 'Running'),
+      bus_no: String(row.bus_no ?? ''),
+      driver1_id: String(row.driver1_id ?? ''), driver1_name: String(row.driver1_name ?? ''),
+      opt_driver1_id: String(row.opt_driver1_id ?? ''), opt_driver1_name: String(row.opt_driver1_name ?? ''),
+      driver1_checked: row.driver1_paid_direct ? '1' : '',
+      driver2_id: String(row.driver2_id ?? ''), driver2_name: String(row.driver2_name ?? ''),
+      opt_driver2_id: String(row.opt_driver2_id ?? ''), opt_driver2_name: String(row.opt_driver2_name ?? ''),
+      driver2_checked: row.driver2_paid_direct ? '1' : '',
+      helper_id: String(row.helper_id ?? ''), helper_name: String(row.helper_name ?? ''),
+      opt_helper_id: String(row.opt_helper_id ?? ''), opt_helper_name: String(row.opt_helper_name ?? ''),
+      helper_checked: row.helper_paid_direct ? '1' : '',
+      conductor_id: String(row.conductor_id ?? ''), conductor_name: String(row.conductor_name ?? ''),
+      conductor_checked: row.conductor_paid_direct ? '1' : '',
+      paid_to_id: String(row.paid_to_id ?? ''), paid_to_name: String(row.paid_to_name ?? ''),
+      paid_to_type: String(row.paid_to_type ?? ''),
+      // Always starts unchecked — defaulting this on from a merely-blank
+      // paid_to_id would lock the picker shut on exactly the trips someone is
+      // opening Edit to fix, indistinguishable from a deliberate skip.
+      paid_to_skip: '',
+      hirer_name: String(row.hirer_name ?? ''), phone_number: String(row.phone_number ?? ''),
+      line_code: String(row.line_code ?? ''),
+      remarks: String(row.remarks ?? ''),
+    })
+  }
+  const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
+
+  const { mutate: saveEdit, isPending: savingEdit } = useMutation({
+    // Only the keys relevant to this row's vehicle type are sent — the backend
+    // writes exactly what it receives, so omitting the others leaves them alone
+    // rather than blanking them.
+    mutationFn: () => {
+      const isVan = editRow?.vehicle_type === 'van'
+      const common = {
+        id: editRow.id, c_number: editRow.c_number,
+        bus_no: editForm.bus_no, trip_run_status: editForm.trip_run_status,
+        remarks: editForm.remarks,
+        driver1_id: editForm.driver1_id, driver1_name: editForm.driver1_name,
+        opt_driver1_id: editForm.opt_driver1_id, opt_driver1_name: editForm.opt_driver1_name,
+        updatedby_id: localStorage.getItem('user_id') ?? '',
+        updatedby_name: localStorage.getItem('usr_nm') ?? '',
+        updated_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      }
+      return tripsService.updateTrip(isVan
+        ? { ...common, hirer_name: editForm.hirer_name, phone_number: editForm.phone_number, line_code: editForm.line_code }
+        : { ...common,
+            driver2_id: editForm.driver2_id, driver2_name: editForm.driver2_name,
+            opt_driver2_id: editForm.opt_driver2_id, opt_driver2_name: editForm.opt_driver2_name,
+            helper_id: editForm.helper_id, helper_name: editForm.helper_name,
+            opt_helper_id: editForm.opt_helper_id, opt_helper_name: editForm.opt_helper_name,
+            conductor_id: editForm.conductor_id, conductor_name: editForm.conductor_name,
+            paid_to_id: editForm.paid_to_id, paid_to_name: editForm.paid_to_name, paid_to_type: editForm.paid_to_type,
+            driver1_paid_direct: editForm.driver1_checked === '1' ? 1 : 0,
+            driver2_paid_direct: editForm.driver2_checked === '1' ? 1 : 0,
+            helper_paid_direct: editForm.helper_checked === '1' ? 1 : 0,
+            conductor_paid_direct: editForm.conductor_checked === '1' ? 1 : 0 })
+    },
+    onSuccess: (res: any) => {
+      if (res?.status === 200 || res?.status === undefined) {
+        toast.success('Trip updated')
+        qc.invalidateQueries({ queryKey: ['trips'] })
+        setEditRow(null)
+      } else toast.error(res?.msg ?? 'Failed to update trip')
     },
     onError: () => toast.error('Server error'),
   })
@@ -488,14 +620,12 @@ export default function TripCreationPage() {
                         <th className="py-2.5 px-3 w-32">Status</th>
                         <th className="py-2.5 px-3 w-52">Bus No</th>
                         <th className="py-2.5 px-3 w-56">Driver 1</th>
-                        <th className="py-2.5 px-3 w-48">Opting Driver 1</th>
                         <th className="py-2.5 px-3 w-56">Driver 2</th>
-                        <th className="py-2.5 px-3 w-48">Opting Driver 2</th>
                         <th className="py-2.5 px-3 w-52">Helper</th>
-                        <th className="py-2.5 px-3 w-48">Opting Helper</th>
                         <th className="py-2.5 px-3 w-52">Conductor</th>
                         <th className="py-2.5 px-3 w-64">Paid To</th>
                         <th className="py-2.5 px-3 w-80">Remarks</th>
+                        <th className="py-2.5 px-3 w-24">Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -510,15 +640,22 @@ export default function TripCreationPage() {
                               </td>
                               <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
                               <td className="py-2 px-3 font-medium">{existing.bus_no || '—'}</td>
-                              <td className="py-2 px-3 text-slate-600">{existing.driver1_name || '—'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.opt_driver1_name || 'NA'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.driver2_name || '—'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.opt_driver2_name || 'NA'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.helper_name || '—'}</td>
-                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.opt_helper_name || 'NA'}</td>
+                              <td className="py-2 px-3 text-slate-600">{existing.driver1_name || existing.opt_driver1_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.driver2_name || existing.opt_driver2_name || '—'}</td>
+                              <td className="py-2 px-3 text-slate-500 text-xs">{existing.helper_name || existing.opt_helper_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.conductor_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-600 text-xs">{existing.paid_to_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
+                              <td className="py-2 px-3">
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit(existing)}
+                                  title="Edit this trip"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" /> Edit
+                                </button>
+                              </td>
                             </tr>
                           )
                         }
@@ -547,41 +684,44 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 1" checked={row.driver1_checked} onChange={(v) => updateRow(r.id, { driver1_checked: v })} />
-                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={row.driver1_id}
-                                  onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver1_id: v, driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { driver1_id: '', driver1_name: '' })} />
+                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={personValue(row.driver1_id, row.driver1_name)}
+                                  onChange={(v) => updateRow(r.id, personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)}
+                                  onClear={() => updateRow(r.id, clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)} />
                               </div>
-                            </td>
-                            <td className="py-2 px-3">
-                              <SearchableSelect className="min-w-[12rem]" placeholder="NA" options={driverOptions} value={row.opt_driver1_id}
-                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { opt_driver1_id: v, opt_driver1_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                onClear={() => updateRow(r.id, { opt_driver1_id: '', opt_driver1_name: '' })} />
+                              {row.driver1_name === OPTING && (
+                                <SearchableSelect className="min-w-[14rem] mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
+                                  value={row.opt_driver1_id}
+                                  onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); updateRow(r.id, { opt_driver1_id: v, opt_driver1_name: d ? driverName(d) : '' }) }}
+                                  onClear={() => updateRow(r.id, { opt_driver1_id: '', opt_driver1_name: '' })} />
+                              )}
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 2" checked={row.driver2_checked} onChange={(v) => updateRow(r.id, { driver2_checked: v })} />
-                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={row.driver2_id}
-                                  onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { driver2_id: v, driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { driver2_id: '', driver2_name: '' })} />
+                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={personValue(row.driver2_id, row.driver2_name)}
+                                  onChange={(v) => updateRow(r.id, personPatch(v, drivers, driverName, 'driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)}
+                                  onClear={() => updateRow(r.id, clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)} />
                               </div>
-                            </td>
-                            <td className="py-2 px-3">
-                              <SearchableSelect className="min-w-[12rem]" placeholder="NA" options={driverOptions} value={row.opt_driver2_id}
-                                onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateRow(r.id, { opt_driver2_id: v, opt_driver2_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                onClear={() => updateRow(r.id, { opt_driver2_id: '', opt_driver2_name: '' })} />
+                              {row.driver2_name === OPTING && (
+                                <SearchableSelect className="min-w-[14rem] mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
+                                  value={row.opt_driver2_id}
+                                  onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); updateRow(r.id, { opt_driver2_id: v, opt_driver2_name: d ? driverName(d) : '' }) }}
+                                  onClear={() => updateRow(r.id, { opt_driver2_id: '', opt_driver2_name: '' })} />
+                              )}
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Helper" checked={row.helper_checked} onChange={(v) => updateRow(r.id, { helper_checked: v })} />
-                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={helperOptions} value={row.helper_id}
-                                  onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { helper_id: v, helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
-                                  onClear={() => updateRow(r.id, { helper_id: '', helper_name: '' })} />
+                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={helperOptions} value={personValue(row.helper_id, row.helper_name)}
+                                  onChange={(v) => updateRow(r.id, personPatch(v, helpers, helperName, 'helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)}
+                                  onClear={() => updateRow(r.id, clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)} />
                               </div>
-                            </td>
-                            <td className="py-2 px-3">
-                              <SearchableSelect className="min-w-[12rem]" placeholder="NA" options={helperOptions} value={row.opt_helper_id}
-                                onChange={(v) => { const h = helpers.find((x) => String(x.id) === v); updateRow(r.id, { opt_helper_id: v, opt_helper_name: h?.helper_name ?? h?.nickname ?? '' }) }}
-                                onClear={() => updateRow(r.id, { opt_helper_id: '', opt_helper_name: '' })} />
+                              {row.helper_name === OPTING && (
+                                <SearchableSelect className="min-w-[13rem] mt-1.5" placeholder="Who is opting in?" options={plainHelperOptions}
+                                  value={row.opt_helper_id}
+                                  onChange={(v) => { const h = helpers.find((x: any) => String(x.id) === v); updateRow(r.id, { opt_helper_id: v, opt_helper_name: h ? helperName(h) : '' }) }}
+                                  onClear={() => updateRow(r.id, { opt_helper_id: '', opt_helper_name: '' })} />
+                              )}
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
@@ -592,19 +732,30 @@ export default function TripCreationPage() {
                               </div>
                             </td>
                             <td className="py-2 px-3">
-                              <SearchableSelect
-                                disabled={row.driver1_checked && row.driver2_checked && row.helper_checked}
-                                className="min-w-[15rem]" placeholder="Select" options={paidToOptions}
-                                value={row.paid_to_id ? row.paid_to_id + '_' + row.paid_to_type : ''}
-                                onChange={(v) => {
-                                  const p = paidToList.find((x) => x.paid_to_id + '_' + x.paid_to_type === v)
-                                  const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
-                                  updateRow(r.id, {
-                                    paid_to_id: String(p?.paid_to_id ?? ''), paid_to_name: p?.paid_to_name ?? '', paid_to_type: p?.paid_to_type ?? '', paid_to_ledger_id: ledgerId,
-                                  })
-                                }}
-                                onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '' })} />
-                              {row.driver1_checked && row.driver2_checked && row.helper_checked && (
+                              <div className="flex items-center gap-2">
+                                <PersonToggle label="No Paid To needed" checked={row.paid_to_skip} onChange={(v) => updateRow(r.id, v
+                                  ? { paid_to_skip: true, paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '' }
+                                  : { paid_to_skip: false })} />
+                                <SearchableSelect
+                                  disabled={row.paid_to_skip}
+                                  className="min-w-[15rem] flex-1" placeholder="Select" options={paidToOptions}
+                                  value={row.paid_to_id ? row.paid_to_id + '_' + row.paid_to_type : ''}
+                                  onChange={(v) => {
+                                    const p = paidToList.find((x) => x.paid_to_id + '_' + x.paid_to_type === v)
+                                    const ledgerId = p?.ledger_id ? String(p.ledger_id) : ''
+                                    updateRow(r.id, {
+                                      paid_to_id: String(p?.paid_to_id ?? ''), paid_to_name: p?.paid_to_name ?? '', paid_to_type: p?.paid_to_type ?? '', paid_to_ledger_id: ledgerId,
+                                    })
+                                  }}
+                                  onClear={() => updateRow(r.id, { paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '' })} />
+                              </div>
+                              {row.paid_to_skip ? (
+                                <p className="text-[11px] font-semibold text-slate-400 mt-1">No Paid To needed for this trip</p>
+                              ) : row.driver1_checked && row.driver2_checked && row.helper_checked && (
+                                // Informational only — the picker stays open. The Conductor and
+                                // parking can still leave a remainder, and these ticks are
+                                // re-editable at expense time, so locking it here would strand
+                                // that remainder with nowhere to go.
                                 <p className="text-[11px] font-semibold text-slate-400 mt-1">Driver 1, Driver 2 &amp; Helper all paid individually</p>
                               )}
                               <PaidToBalance ledgerId={row.paid_to_ledger_id} />
@@ -613,6 +764,8 @@ export default function TripCreationPage() {
                               <Input value={row.remarks} onChange={(e) => updateRow(r.id, { remarks: e.target.value })}
                                 placeholder="Remarks" className="h-11 text-sm" />
                             </td>
+                            {/* Nothing to edit until the row exists — keeps the column count matching the header. */}
+                            <td className="py-2 px-3" />
                           </tr>
                         )
                       })}
@@ -630,11 +783,11 @@ export default function TripCreationPage() {
                   )}
                   <Button
                     onClick={() => submitGrid()}
-                    disabled={submittingGrid || filledRoutes.length === 0 || incompleteRoutes.length > 0}
+                    disabled={submittingGrid || submitRoutes.length === 0 || incompleteRoutes.length > 0}
                     className="px-14 text-base h-11"
                   >
                     <Save className="w-4 h-4" />
-                    {submittingGrid ? 'Submitting…' : `Submit ${filledRoutes.length > 0 ? `(${filledRoutes.length})` : ''}`}
+                    {submittingGrid ? 'Submitting…' : `Submit ${submitRoutes.length > 0 ? `(${submitRoutes.length})` : ''}`}
                   </Button>
                 </div>
               )}
@@ -649,12 +802,185 @@ export default function TripCreationPage() {
         columns={columns}
         data={allTrips}
         loading={isLoading}
-        onAction={() => {}}
-        actions={[]}
+        onAction={(action, row) => { if (action === 'edit') openEdit(row) }}
+        actions={['edit']}
         icon={<Map className="w-5 h-5 text-blue-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
+
+      {/* ── Edit a created trip (Bus or Van) ── */}
+      <AnimatePresence>
+        {editRow && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+            onClick={() => setEditRow(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-200">
+                    <Map className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">
+                      Edit {editRow.vehicle_type === 'van' ? 'Van' : 'Bus'} Trip
+                    </h3>
+                    <p className="text-xs font-medium text-slate-500">
+                      <span className="text-blue-600">{editRow.c_number ?? '#' + editRow.id}</span>
+                      {editRow.trip_date ? ' · ' + String(editRow.trip_date).split('T')[0] : ''}
+                      {editRow.service_no ? ' · ' + editRow.service_no : ''}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setEditRow(null)} className="text-slate-400 hover:text-red-500 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label>Status</Label>
+                  <Select value={editForm.trip_run_status} onChange={(e) => patchEdit({ trip_run_status: e.target.value })}>
+                    <option value="Running">Running</option>
+                    <option value="Full Trip">Full Trip</option>
+                    <option value="Halt">Halt</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Bus No <span className="text-red-500">*</span></Label>
+                  <SearchableSelect placeholder="Select" options={busOptions} value={editForm.bus_no}
+                    onChange={(v) => patchEdit({ bus_no: v })} onClear={() => patchEdit({ bus_no: '' })} />
+                </div>
+
+                {editRow.vehicle_type === 'van' ? (
+                  <>
+                    <div>
+                      <Label>Driver <span className="text-red-500">*</span></Label>
+                      <SearchableSelect placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name)}
+                        onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))}
+                        onClear={() => patchEdit(clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))} />
+                    </div>
+                    <div>
+                      <Label>Line Code</Label>
+                      <Input value={editForm.line_code} onChange={(e) => patchEdit({ line_code: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Hirer Name <span className="text-red-500">*</span></Label>
+                      <Input value={editForm.hirer_name} onChange={(e) => patchEdit({ hirer_name: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Phone Number</Label>
+                      <Input value={editForm.phone_number} onChange={(e) => patchEdit({ phone_number: e.target.value })} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label>Driver 1 <span className="text-red-500">*</span></Label>
+                      <div className="flex items-center gap-2">
+                        <PersonToggle label="Driver 1" checked={editForm.driver1_checked === '1'} onChange={(v) => patchEdit({ driver1_checked: v ? '1' : '' })} />
+                        <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name)}
+                          onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))}
+                          onClear={() => patchEdit(clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))} />
+                      </div>
+                      {editForm.driver1_name === OPTING && (
+                        <SearchableSelect className="mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
+                          value={editForm.opt_driver1_id}
+                          onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); patchEdit({ opt_driver1_id: v, opt_driver1_name: d ? driverName(d) : '' }) }}
+                          onClear={() => patchEdit({ opt_driver1_id: '', opt_driver1_name: '' })} />
+                      )}
+                    </div>
+                    <div>
+                      <Label>Driver 2</Label>
+                      <div className="flex items-center gap-2">
+                        <PersonToggle label="Driver 2" checked={editForm.driver2_checked === '1'} onChange={(v) => patchEdit({ driver2_checked: v ? '1' : '' })} />
+                        <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver2_id, editForm.driver2_name)}
+                          onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))}
+                          onClear={() => patchEdit(clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))} />
+                      </div>
+                      {editForm.driver2_name === OPTING && (
+                        <SearchableSelect className="mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
+                          value={editForm.opt_driver2_id}
+                          onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); patchEdit({ opt_driver2_id: v, opt_driver2_name: d ? driverName(d) : '' }) }}
+                          onClear={() => patchEdit({ opt_driver2_id: '', opt_driver2_name: '' })} />
+                      )}
+                    </div>
+                    <div>
+                      <Label>Helper</Label>
+                      <div className="flex items-center gap-2">
+                        <PersonToggle label="Helper" checked={editForm.helper_checked === '1'} onChange={(v) => patchEdit({ helper_checked: v ? '1' : '' })} />
+                        <SearchableSelect className="flex-1" placeholder="Select" options={helperOptions} value={personValue(editForm.helper_id, editForm.helper_name)}
+                          onChange={(v) => patchEdit(personPatch(v, helpers, helperName, 'helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))}
+                          onClear={() => patchEdit(clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))} />
+                      </div>
+                      {editForm.helper_name === OPTING && (
+                        <SearchableSelect className="mt-1.5" placeholder="Who is opting in?" options={plainHelperOptions}
+                          value={editForm.opt_helper_id}
+                          onChange={(v) => { const h = helpers.find((x: any) => String(x.id) === v); patchEdit({ opt_helper_id: v, opt_helper_name: h ? helperName(h) : '' }) }}
+                          onClear={() => patchEdit({ opt_helper_id: '', opt_helper_name: '' })} />
+                      )}
+                    </div>
+                    <div>
+                      <Label>Conductor</Label>
+                      <div className="flex items-center gap-2">
+                        <PersonToggle label="Conductor" checked={editForm.conductor_checked === '1'} onChange={(v) => patchEdit({ conductor_checked: v ? '1' : '' })} />
+                        <SearchableSelect className="flex-1" placeholder="Select" options={conductorOptions} value={editForm.conductor_id}
+                          onChange={(v) => { const c = conductors.find((x: any) => String(x.id) === v); patchEdit({ conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
+                          onClear={() => patchEdit({ conductor_id: '', conductor_name: '' })} />
+                      </div>
+                    </div>
+                    <div className="md:col-span-2">
+                      <Label>Paid To</Label>
+                      <div className="flex items-center gap-2">
+                        <PersonToggle label="No Paid To needed" checked={editForm.paid_to_skip === '1'} onChange={(v) => patchEdit(v
+                          ? { paid_to_skip: '1', paid_to_id: '', paid_to_name: '', paid_to_type: '' }
+                          : { paid_to_skip: '' })} />
+                        <SearchableSelect
+                          className="flex-1"
+                          disabled={editForm.paid_to_skip === '1'}
+                          placeholder="Select" options={paidToOptions}
+                          value={editForm.paid_to_id ? editForm.paid_to_id + '_' + editForm.paid_to_type : ''}
+                          onChange={(v) => {
+                            const pp = paidToList.find((x: any) => x.paid_to_id + '_' + x.paid_to_type === v)
+                            patchEdit({ paid_to_id: pp ? String(pp.paid_to_id) : '', paid_to_name: pp?.paid_to_name ?? '', paid_to_type: pp?.paid_to_type ?? '' })
+                          }}
+                          onClear={() => patchEdit({ paid_to_id: '', paid_to_name: '', paid_to_type: '' })} />
+                      </div>
+                      {editForm.paid_to_skip === '1' ? (
+                        <p className="text-[11px] font-semibold text-slate-400 mt-1">No Paid To needed for this trip</p>
+                      ) : editForm.driver1_checked === '1' && editForm.driver2_checked === '1' && editForm.helper_checked === '1' && (
+                        <p className="text-[11px] font-semibold text-slate-400 mt-1">Driver 1, Driver 2 &amp; Helper all paid individually</p>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                <div className="md:col-span-2">
+                  <Label>Remarks</Label>
+                  <Input value={editForm.remarks} onChange={(e) => patchEdit({ remarks: e.target.value })} />
+                </div>
+              </div>
+
+              <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
+                <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
+                <Button
+                  onClick={() => saveEdit()}
+                  disabled={savingEdit || !editForm.bus_no || (!editForm.driver1_name && !editForm.opt_driver1_name) ||
+                    (editRow.vehicle_type === 'van' && !editForm.hirer_name)}
+                >
+                  <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

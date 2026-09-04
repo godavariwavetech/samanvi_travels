@@ -66,7 +66,7 @@ export default function BookingExpensesPage() {
       {tab === 'Additional Expenses' && (
         <GlassCard className="p-10 text-center">
           <p className="text-slate-500 font-medium">Additional expenses are tracked via Trip Expenses module.</p>
-          <Button variant="outline" className="mt-4" onClick={() => window.location.href = '/trips/expenses'}>Go to Trip Expenses</Button>
+          <Button variant="outline" className="mt-4" onClick={() => window.location.href = `${import.meta.env.BASE_URL}trips/expenses`}>Go to Trip Expenses</Button>
         </GlassCard>
       )}
     </motion.div>

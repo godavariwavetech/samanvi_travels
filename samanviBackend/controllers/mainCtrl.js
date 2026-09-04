@@ -1324,6 +1324,15 @@ exports.deleteStaffTypeCtrl = function (req, res) {
     res.send({ status: 200, data: results });
   });
 };
+exports.updateStaffTypeCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.updateStaffTypeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
 
 // ── Vehicle Types ────────────────────────────────────────────────────────────
 exports.getVehicleTypesCtrl = function (req, res) {
@@ -2181,6 +2190,21 @@ exports.deleteexpensesdataCtrl = function (req, res) {
 //     });
 // };
 
+// Debit/credit rows arrive shaped for expensive_details (d_test_name/credit_name
+// carrying the full ledger object) — reshape into the {ledger_id, ledger_name,
+// amount} pairs createTripVoucherMdl/updateTripVoucherMdl expect.
+function buildTripVoucherLedgers(body) {
+  var debit_ledgers = (body.patientsTstdts || []).map(function (r) {
+    var l = r.d_test_name || {};
+    return { ledger_id: l.ledger_id, ledger_name: l.temple_name || l.expensives || '', amount: r.d_test_amount };
+  });
+  var credit_ledgers = (body.credit || []).map(function (r) {
+    var l = r.credit_name || {};
+    return { ledger_id: l.ledger_id, ledger_name: l.temple_name || l.expensives || '', amount: r.credit_amount };
+  });
+  return { debit_ledgers: debit_ledgers, credit_ledgers: credit_ledgers };
+}
+
 exports.addexpensesdetails = function (req, res) {
   // appmdl.maintripexpenseuniquenoMdl(async function (err, cresults1) {
   //   if (err) {
@@ -2243,11 +2267,31 @@ exports.addexpensesdetails = function (req, res) {
                         message: "Failed to update function.",
                       });
                   }
-                  // Send final success response
-                  return res.status(200).send({
-                    status: 200,
-                    message: "Successfully added and updated expenses.",
-                    data: updateResult,
+                  var finish = function () {
+                    return res.status(200).send({
+                      status: 200,
+                      message: "Successfully added and updated expenses.",
+                      data: updateResult,
+                    });
+                  };
+                  // Post the accounting voucher for this trip's debit/credit
+                  // lines, then link it back onto trip_created.voucher_number.
+                  // The expense itself already saved fine above, so a voucher
+                  // failure here is logged and swallowed rather than failing
+                  // the whole request.
+                  var ledgers = buildTripVoucherLedgers(req.body);
+                  appmdl.createTripVoucherMdl({
+                    debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
+                    trip_c_number: c_number,
+                    entry_by: (req.body.expensedetails && req.body.expensedetails.named) || '',
+                    user_id: (req.body.expensedetails && req.body.expensedetails.user_id) || 0,
+                  }, function (voucherErr, voucherNumber) {
+                    if (voucherErr) {
+                      console.error('[createTripVoucherMdl] failed for trip ' + c_number + ':', voucherErr.message);
+                      return finish();
+                    }
+                    if (!voucherNumber) return finish();
+                    appmdl.setTripVoucherNumberMdl(c_number, voucherNumber, finish);
                   });
                 }
               );
@@ -2318,11 +2362,46 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
                           message: "Failed to update function.",
                         });
                     }
-                    // Send final success response
-                    return res.status(200).send({
-                      status: 200,
-                      message: "Successfully added and updated expenses.",
-                      data: updateResult,
+                    var finish = function () {
+                      return res.status(200).send({
+                        status: 200,
+                        message: "Successfully added and updated expenses.",
+                        data: updateResult,
+                      });
+                    };
+                    // The trip's own c_number is stable across edits (it's what
+                    // deletetripexpensesMdl above superseded the old row by) —
+                    // NOT the `c_number` in this closure, which is freshly minted
+                    // for the new tripexpenses_data row on every edit. Re-filing
+                    // replaces an existing voucher's lines instead of piling up
+                    // a new voucher each time.
+                    var tripCNumber = req.body.c_number;
+                    var ledgers = buildTripVoucherLedgers(req.body);
+                    appmdl.getTripVoucherNumberMdl(tripCNumber, function (vErr, vRows) {
+                      var existingVoucher = (!vErr && vRows && vRows[0] && vRows[0].voucher_number) || null;
+                      if (existingVoucher) {
+                        appmdl.updateTripVoucherMdl({
+                          voucher_number: existingVoucher, trip_c_number: tripCNumber,
+                          debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
+                          user_id: req.body.updatedby_id || 0,
+                        }, function (uErr) {
+                          if (uErr) console.error('[updateTripVoucherMdl] failed for trip ' + tripCNumber + ':', uErr.message);
+                          finish();
+                        });
+                        return;
+                      }
+                      appmdl.createTripVoucherMdl({
+                        debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
+                        trip_c_number: tripCNumber,
+                        entry_by: req.body.updatedby_nm || '', user_id: req.body.updatedby_id || 0,
+                      }, function (cErr, voucherNumber) {
+                        if (cErr) {
+                          console.error('[createTripVoucherMdl] failed for trip ' + tripCNumber + ':', cErr.message);
+                          return finish();
+                        }
+                        if (!voucherNumber) return finish();
+                        appmdl.setTripVoucherNumberMdl(tripCNumber, voucherNumber, finish);
+                      });
                     });
                   }
                 );

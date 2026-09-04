@@ -15,7 +15,10 @@ api.interceptors.request.use((config) => {
 
 function redirectToLogin() {
   localStorage.clear()
-  window.location.href = '/auth/login'
+  // Full page load, so it bypasses the router and needs the deployment's base
+  // ('/' in production, '/staging/' in the subfolder build) spelled out —
+  // otherwise an expired session on staging lands on production's login page.
+  window.location.href = `${import.meta.env.BASE_URL}auth/login`
 }
 
 api.interceptors.response.use(

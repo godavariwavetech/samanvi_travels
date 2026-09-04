@@ -92,9 +92,10 @@ export const mastersService = {
   editStaff: (data: unknown) => api.post('/addstaffedit', securePayload(data)).then((r) => r.data),
   deleteStaff: (data: unknown) => api.post('/deletestaffdata', securePayload(data)).then((r) => r.data),
 
-  // ── Staff Types ──────────────────────────────────────────
+  // ── Staff Types (Designation master) ──────────────────────
   getStaffTypes: () => api.get('/getstafftypes').then((r) => r.data),
   addStaffType: (data: unknown) => api.post('/addstafftype', securePayload(data)).then((r) => r.data),
+  updateStaffType: (data: unknown) => api.post('/updatestafftype', securePayload(data)).then((r) => r.data),
   deleteStaffType: (data: unknown) => api.post('/deletestafftype', securePayload(data)).then((r) => r.data),
 
   // ── Terminate / Rejoin ───────────────────────────────────
