@@ -210,7 +210,14 @@ export default function TripExpensesPage() {
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
   const activeStaff: any[] = activeStaffData?.data ?? []
-  const conductors: any[] = activeStaff.filter((s: any) => String(s.designation ?? '').toUpperCase() === 'CONDUCTOR')
+  // Every active staff member, not just those whose designation happens to read
+  // "CONDUCTOR" — same reasoning as the Trip Creation grid, which dropped this
+  // filter for exactly this bug. Designation is free text from a master picker,
+  // so on a database where nobody carries that literal word the list came back
+  // empty, the conductor dropdown had nothing in it, and resolving the trip's
+  // conductor to their own ledger failed with "No ledger found for <name>" even
+  // though the ledger existed and was correctly linked.
+  const conductors: any[] = activeStaff
   const buses: any[] = busData?.data ?? []
   const paidToList: any[] = paidToData?.data ?? []
   const paidToOptions = paidToList.map((p: any) => ({
