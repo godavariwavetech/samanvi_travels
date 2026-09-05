@@ -67,6 +67,13 @@ const optRate = (rate: any, role: 'Driver' | 'Helper'): number =>
   num(rate?.['opt' + role + 'Salary']) || num(rate?.['opt' + role])
 const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor', 'optDriver1', 'optDriver2', 'optHelper']
 const EXPENSE_KEYS: ExpenseKey[] = ['beta', 'salary', 'parking']
+// Which of those the Debit side actually derives a row for. Betas is
+// deliberately NOT one of them any more: a trip's crew pay posts to Salaries,
+// so Betas would only ever be a ₹0 row. It stays in EXPENSE_KEYS above because
+// it is still an expense ledger — still blocked from the Credit side, and still
+// recognised when reopening an expense filed under the old split, so that its
+// stale Betas row is replaced by a Salaries one instead of being left behind.
+const DERIVED_EXPENSE_KEYS: ExpenseKey[] = ['salary', 'parking']
 // Resolved by NAME, not id: these ledgers are seeded per database (see the trip
 // expense ledger seed server-side), so their ids differ between deployments — the
 // Angular app's hardcoded 61/62 only hold in its own older database. Names are
@@ -300,11 +307,17 @@ export default function TripExpensesPage() {
       ?? ledgerRef.current.find((l: any) => Number(l.ledger_id) === id)
   }
 
-  // Mirrors calculateTotalBeta()/calculateTotalSalary() in the Angular screen:
-  // beta is the per-trip beta of all four roles, salary is the opting top-ups.
+  // The Debit-side split, which must stay disjoint: every rupee lands in exactly
+  // one category so the debit total matches the credit total. Salaries takes the
+  // whole crew payout — the four regular betas plus any opting substitute's rate
+  // — and Parking takes the only other amount there is. Betas gets nothing: the
+  // crew's pay is booked as salary now, so it never derives a row (see
+  // DERIVED_EXPENSE_KEYS). Summing the same PERSON_KEYS that recomputePaidToRow
+  // uses for the credit remainder is what keeps the two sides balanced by
+  // construction rather than by luck.
   const expenseAmount = (key: ExpenseKey): number => {
-    if (key === 'beta') return personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor')
-    if (key === 'salary') return personAmount('optDriver1') + personAmount('optDriver2') + personAmount('optHelper')
+    if (key === 'beta') return 0
+    if (key === 'salary') return PERSON_KEYS.reduce((sum, k) => sum + personAmount(k), 0)
     return num(form.parking_amt) // parking
   }
 
@@ -347,7 +360,7 @@ export default function TripExpensesPage() {
     const manual = rows.filter((r) => !r.personKey && (r.ledger || r.amount))
     const derived: LedgerRow[] = []
     const missing: string[] = []
-    EXPENSE_KEYS.forEach((key) => {
+    DERIVED_EXPENSE_KEYS.forEach((key) => {
       const amount = opts.amounts ? opts.amounts[key] : expenseAmount(key)
       if (amount <= 0) return
       const ledger = findExpenseLedger(key)
@@ -598,8 +611,8 @@ export default function TripExpensesPage() {
       if (seeded.length) setCreditRows(mergeSameLedgerRows(seeded))
       setDebitRows(buildExpenseRows([], {
         amounts: {
-          beta: driver1Amt + driver2Amt + helperAmt + conductorAmt,
-          salary: optDriver1Amt + optDriver2Amt + optHelperAmt,
+          beta: 0,
+          salary: driver1Amt + driver2Amt + helperAmt + conductorAmt + optDriver1Amt + optDriver2Amt + optHelperAmt,
           parking: parkingAmt,
         },
       }))
@@ -743,10 +756,20 @@ export default function TripExpensesPage() {
   }
 
   // ── Totals ───────────────────────────────────────────────────────────────
-  // Salary = opting top-ups (only counted when that role's opt slot actually
-  // has someone assigned). Beta = the 4 regular per-trip amounts + parking.
-  const totalSalary = personAmount('optDriver1') + personAmount('optDriver2') + personAmount('optHelper')
-  const totalBeta = personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor') + num(form.parking_amt)
+  // These two boxes are overlapping summaries of the same money, not a split of
+  // it. Beta is the per-trip allowance line: the 4 regular crew amounts plus
+  // parking (which has no payee of its own). Salary is the whole crew payout:
+  // those same 4 amounts plus any opting substitute's rate. So on a trip with no
+  // opting hand they read the same figure, and Salary is the larger of the two
+  // as soon as a seat is covered by someone opting in.
+  //
+  // Neither box is the Debit ledger split — that one (expenseAmount above) is
+  // disjoint by necessity, since the debit side has to balance against credit:
+  // Salaries takes the whole crew payout and Parking the rest.
+  const optingTotal = personAmount('optDriver1') + personAmount('optDriver2') + personAmount('optHelper')
+  const crewBetaTotal = personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor')
+  const totalSalary = crewBetaTotal + optingTotal
+  const totalBeta = crewBetaTotal + num(form.parking_amt)
   const validDebit = debitRows.filter((r) => r.ledger && num(r.amount) > 0)
   const validCredit = creditRows.filter((r) => r.ledger && num(r.amount) > 0)
   const debitTotal = validDebit.reduce((s, r) => s + num(r.amount), 0)
@@ -780,7 +803,14 @@ export default function TripExpensesPage() {
     expensedetails: buildExpenseDetails(),
     patientsTstdts: validDebit.map((r) => ({ d_test_name: r.ledger, d_test_amount: num(r.amount), account_name: 'Debit Account' })),
     credit: validCredit.map((r) => ({ credit_name: r.ledger, credit_amount: num(r.amount), account_name: 'Credit Account' })),
-    total_salary: totalSalary, total_beta: totalBeta, total_salary_beta: totalSalary + totalBeta, total_amount: totalSalary + totalBeta + debitTotal,
+    // tot_salary / tot_beta now overlap (see the Totals block), so the two
+    // derived columns can no longer be plain sums of them or they'd count the
+    // crew betas two or three times over. tot_salary_beta is the full derived
+    // trip cost (crew payout + parking) and total_amount — the figure Trip
+    // Reports shows as "Total Exp" and Admin Approvals as "Total Amount" — is
+    // the actual balanced debit total.
+    total_salary: totalSalary, total_beta: totalBeta,
+    total_salary_beta: totalSalary + num(form.parking_amt), total_amount: debitTotal,
     trip_for_id: form.trip_for_id, service_no_id: form.service_no_id, remarks: form.remarks,
   })
 
@@ -788,7 +818,8 @@ export default function TripExpensesPage() {
     expensedetails: buildExpenseDetails(),
     patientsTstdts: validDebit.map((r) => ({ d_test_name: r.ledger, d_test_amount: num(r.amount), account_name: 'Debit Account' })),
     credit: validCredit.map((r) => ({ credit_name: r.ledger, credit_amount: num(r.amount), account_name: 'Credit Account' })),
-    total_salary: totalSalary, total_beta: totalBeta, total_salary_beta: totalSalary + totalBeta, total_amount: totalSalary + totalBeta + debitTotal,
+    total_salary: totalSalary, total_beta: totalBeta,
+    total_salary_beta: totalSalary + num(form.parking_amt), total_amount: debitTotal,
     service_no_id: form.service_no_id, trip_for_id: form.trip_for_id, remarks: form.remarks,
     paid_to_id: form.paid_to_id, paid_to_name: form.paid_to_name, paid_to_type: form.paid_to_type,
     trip_creation_id: form.trip_creation_id,
@@ -1241,10 +1272,16 @@ export default function TripExpensesPage() {
                     <div className="rounded-xl border border-slate-200 p-3 text-center">
                       <p className="text-xs font-bold text-slate-500 uppercase">Total Salary</p>
                       <p className="text-lg font-extrabold text-slate-800">₹{totalSalary.toLocaleString('en-IN')}</p>
+                      <p className="text-[11px] text-slate-400">
+                        Crew betas{optingTotal > 0 ? ` + opting ₹${optingTotal.toLocaleString('en-IN')}` : ''}
+                      </p>
                     </div>
                     <div className="rounded-xl border border-slate-200 p-3 text-center">
                       <p className="text-xs font-bold text-slate-500 uppercase">Total Beta</p>
                       <p className="text-lg font-extrabold text-slate-800">₹{totalBeta.toLocaleString('en-IN')}</p>
+                      <p className="text-[11px] text-slate-400">
+                        Per-trip betas{num(form.parking_amt) > 0 ? ` + parking ₹${num(form.parking_amt).toLocaleString('en-IN')}` : ''}
+                      </p>
                     </div>
                   </div>
 
