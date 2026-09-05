@@ -73,14 +73,25 @@ jobs:
       #   pm2 save
       # PORT defaults to 8945 and FRONTEND_DIR to unset (API only), so an existing
       # production process keeps behaving exactly as it does today.
+      # Restarts the process that actually serves :8946 - the one this workflow
+      # documents starting as `samanvi-staging` above. The STAGING_PM2_APP_NAME
+      # secret was pointing elsewhere: deploy logs showed it restarting pm2 ids
+      # 0 and 1 (164 and 176 restarts) while `samanvi-staging` sat at 0 restarts
+      # and 19h uptime, so every backend change since this environment was
+      # created rsynced fine and then never took effect. Use the name directly
+      # so the two cannot drift again; the secret stays as a fallback for a
+      # differently-named deployment, and pm2 list makes the next mismatch
+      # visible straight from the deploy log.
       - name: Restart PM2 (staging)
         run: |
           ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
             set -e
             export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
-            pm2 restart "${{ secrets.STAGING_PM2_APP_NAME }}" --update-env
+            pm2 restart samanvi-staging --update-env \
+              || pm2 restart "${{ secrets.STAGING_PM2_APP_NAME }}" --update-env
             pm2 save
+            pm2 list
           '
 
       # ── 6. Sync frontend build ──────────────────────────────────────────────
