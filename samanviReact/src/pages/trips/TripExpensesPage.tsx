@@ -1050,8 +1050,14 @@ export default function TripExpensesPage() {
     { label: 'Driver 2', key: 'driver2_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
     { label: 'Helper', key: 'helper_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
     {
+      // trip_created.grantotal is a text column and comes back as the STRING
+      // "0" on every trip that has no expense filed yet — truthy, so a plain
+      // `v ?` guard rendered ₹0 on all of them instead of a dash. Compare the
+      // number.
       label: 'Amount', key: 'grantotal', align: 'right',
-      render: (v) => v ? <span className="font-bold text-slate-900">₹{Number(v).toLocaleString('en-IN')}</span> : <span className="text-slate-300">—</span>,
+      render: (v) => num(v) > 0
+        ? <span className="font-bold text-slate-900">₹{num(v).toLocaleString('en-IN')}</span>
+        : <span className="text-slate-300">—</span>,
     },
     {
       label: 'Approval', key: 'admin_status',
