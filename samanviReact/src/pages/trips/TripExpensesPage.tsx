@@ -270,20 +270,26 @@ export default function TripExpensesPage() {
         : seatIsOpting(form.helper_id, form.helper_name, form.opt_helper_id)
   )
   const anyoneOpting = OPTING_SEATS.some(isOptingRole)
-  // Per-seat opting amount: the service number's OPT-Driver / OPT-Helper salary,
-  // editable in the modal. It REPLACES that seat's regular beta — the master
-  // prices an opting seat as its own flat figure (helper beta 350 vs OPT-helper
-  // 250 on ST-A01), it isn't a top-up on a beta nobody is there to earn.
-  const optingSeatAmount = (key: OptingSeat): number => {
-    if (!isOptingRole(key)) return 0
-    return num(key === 'driver1' ? form.driveronesudsalary : key === 'driver2' ? form.drivertwosudsalary : form.helpersudsalary)
-  }
+  // Legacy parity (expenses.component.ts:313-339 in D:\samanvi). Every seat earns
+  // its per-trip BETA — calculateTotalBeta() sums all four unconditionally, so an
+  // opting seat is charged its beta too. SALARY is the opting premium only: the
+  // service number's OPT-Driver / OPT-Helper Salary, added just for a seat marked
+  // Opting, exactly as calculateTotalSalary() gates on the OPT/REG flag. A fully
+  // regular crew therefore has no salary at all.
+  //
+  // Opting differs from legacy in one respect only, by design: legacy marks a
+  // NAMED driver as opting, whereas here an opting seat is an unlisted person
+  // (their name goes in Remarks), so their beta + salary is credited to the
+  // shared Opting ledger rather than to a personal one.
+  const seatBeta = (seat: OptingSeat | 'conductor'): number => num(
+    seat === 'driver1' ? form.driveronesalary : seat === 'driver2' ? form.drivertwosalary
+      : seat === 'helper' ? form.helpersalary : form.conductorsalary)
+  const seatSalary = (seat: OptingSeat): number => (isOptingRole(seat) ? num(
+    seat === 'driver1' ? form.driveronesudsalary : seat === 'driver2' ? form.drivertwosudsalary : form.helpersudsalary) : 0)
   const personAmount = (key: PersonKey): number => {
-    if (key === 'driver1') return isOptingRole('driver1') ? 0 : num(form.driveronesalary)
-    if (key === 'driver2') return isOptingRole('driver2') ? 0 : num(form.drivertwosalary)
-    if (key === 'helper') return isOptingRole('helper') ? 0 : num(form.helpersalary)
-    if (key === 'conductor') return num(form.conductorsalary)
-    return OPTING_SEATS.reduce((sum, seat) => sum + optingSeatAmount(seat), 0) // opting
+    if (key === 'conductor') return seatBeta('conductor')
+    if (key === 'opting') return OPTING_SEATS.filter(isOptingRole).reduce((sum, seat) => sum + seatBeta(seat) + seatSalary(seat), 0)
+    return isOptingRole(key) ? 0 : seatBeta(key) // driver1 / driver2 / helper
   }
   const findOptingLedger = () =>
     ledgerRef.current.find((l: any) => isPayablesLedger(l) && normLedgerName(l.temple_name) === 'opting')
@@ -351,18 +357,16 @@ export default function TripExpensesPage() {
       ?? ledgerRef.current.find((l: any) => Number(l.ledger_id) === id)
   }
 
-  // The Debit-side split, which must stay disjoint so the debit total matches
-  // the credit total. It follows the Service No master's own naming: the four
-  // per-role amounts it calls "Driver One Beta" .. "Conductor Beta" post to
-  // Betas, its "OPT-Driver Salary" / "OPT-Helper Salary" post to Salaries (only
-  // when someone is actually opting on this trip — see personAmount), and
-  // Parking is its own line. Same rule as the legacy addAutoDebitSalaryAndBeta().
-  // Beta + Salary together cover exactly PERSON_KEYS, which is also what
+  // The Debit-side split, which must stay disjoint so the debit total matches the
+  // credit total — the same one legacy's addAutoDebitSalaryAndBeta() posts: all
+  // four betas to Betas, the opting premium to Salaries, and Parking on its own
+  // line (the one addition; legacy has no parking field). Betas + Salaries is
+  // exactly the sum of PERSON_KEYS' amounts, which is also what
   // recomputePaidToRow sums for the credit remainder — that is what keeps the
   // two sides balanced by construction.
   const expenseAmount = (key: ExpenseKey): number => {
-    if (key === 'beta') return personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor')
-    if (key === 'salary') return personAmount('opting')
+    if (key === 'beta') return seatBeta('driver1') + seatBeta('driver2') + seatBeta('helper') + seatBeta('conductor')
+    if (key === 'salary') return seatSalary('driver1') + seatSalary('driver2') + seatSalary('helper')
     return num(form.parking_amt) // parking
   }
 
@@ -597,26 +601,30 @@ export default function TripExpensesPage() {
       const hOpting = seatIsOpting(row.helper_id, row.helper_name, row.opt_helper_id)
       setForm((f) => ({
         ...f,
-        // An opting seat's regular beta is left blank on purpose — it is not
-        // charged (see optingSeatAmount) and shouldn't be stored as if it were.
-        driveronesalary: d1Opting ? '' : String(rate.driverOneBeta ?? ''),
-        drivertwosalary: d2Opting ? '' : String(rate.driverTwoBeta ?? ''),
-        helpersalary: hOpting ? '' : String(rate.helperBeta ?? ''),
+        driveronesalary: String(rate.driverOneBeta ?? ''),
+        drivertwosalary: String(rate.driverTwoBeta ?? ''),
+        helpersalary: String(rate.helperBeta ?? ''),
         conductorsalary: String(rate.conductorBeta ?? ''),
-        // Opting-rate amounts always come along from the route now — whether
-        // they actually count toward a total is gated on an opt person being
-        // assigned (see personAmount), not on this being fetched.
+        // Per-seat salary — the service number's OPT-Driver / OPT-Helper Salary,
+        // earned on every trip by whoever holds the seat (see personAmount).
         driveronesudsalary: String(optDriverRate || ''),
         drivertwosudsalary: String(optDriverRate || ''),
         helpersudsalary: String(optHelperRate || ''),
         parking_amt: String(rate.parkingAmount ?? ''),
       }))
 
-      const driver1Amt = d1Opting ? 0 : num(rate.driverOneBeta)
-      const driver2Amt = d2Opting ? 0 : num(rate.driverTwoBeta)
-      const helperAmt = hOpting ? 0 : num(rate.helperBeta)
+      // Same arithmetic as personAmount, off the freshly fetched rate: a regular
+      // seat is paid its beta, an opting seat its beta plus the opting premium.
+      const d1Beta = num(rate.driverOneBeta)
+      const d2Beta = num(rate.driverTwoBeta)
+      const hBeta = num(rate.helperBeta)
+      const driver1Amt = d1Opting ? 0 : d1Beta
+      const driver2Amt = d2Opting ? 0 : d2Beta
+      const helperAmt = hOpting ? 0 : hBeta
       const conductorAmt = num(rate.conductorBeta)
-      const optingAmt = (d1Opting ? optDriverRate : 0) + (d2Opting ? optDriverRate : 0) + (hOpting ? optHelperRate : 0)
+      const optingAmt = (d1Opting ? d1Beta + optDriverRate : 0)
+        + (d2Opting ? d2Beta + optDriverRate : 0)
+        + (hOpting ? hBeta + optHelperRate : 0)
       const parkingAmt = num(rate.parkingAmount)
       const total = driver1Amt + driver2Amt + helperAmt + conductorAmt + optingAmt + parkingAmt
       const amountFor: Record<PersonKey, number> = {
@@ -673,8 +681,8 @@ export default function TripExpensesPage() {
       if (seeded.length) setCreditRows(mergeSameLedgerRows(seeded))
       setDebitRows(buildExpenseRows([], {
         amounts: {
-          beta: driver1Amt + driver2Amt + helperAmt + conductorAmt,
-          salary: optingAmt,
+          beta: d1Beta + d2Beta + hBeta + conductorAmt,
+          salary: (d1Opting ? optDriverRate : 0) + (d2Opting ? optDriverRate : 0) + (hOpting ? optHelperRate : 0),
           parking: parkingAmt,
         },
       }))
@@ -821,14 +829,11 @@ export default function TripExpensesPage() {
   }
 
   // ── Totals ───────────────────────────────────────────────────────────────
-  // Same split as the Service No master and the Debit side: Beta is the four
-  // per-role betas (plus parking, which has no payee of its own), Salary is the
-  // OPT-Driver / OPT-Helper amount and is only non-zero when a seat on this trip
-  // is actually being covered by someone opting in. A fully crewed trip with
-  // nobody opting therefore reads Total Salary ₹0 — that is correct, not a
-  // missed calculation, and the caption under the box says so.
-  const totalSalary = personAmount('opting')
-  const totalBeta = personAmount('driver1') + personAmount('driver2') + personAmount('helper') + personAmount('conductor') + num(form.parking_amt)
+  // Same split as the Debit side: Beta is the four per-role betas (plus parking,
+  // which has no payee of its own); Salary is the opting premium, so a trip with
+  // no opting seat correctly reads ₹0 — the caption under the box says so.
+  const totalSalary = expenseAmount('salary')
+  const totalBeta = expenseAmount('beta') + num(form.parking_amt)
   const validDebit = debitRows.filter((r) => r.ledger && num(r.amount) > 0)
   const validCredit = creditRows.filter((r) => r.ledger && num(r.amount) > 0)
   const debitTotal = validDebit.reduce((s, r) => s + num(r.amount), 0)
@@ -903,12 +908,10 @@ export default function TripExpensesPage() {
 
   const validate = () => {
     if (!form.bus_no) { toast.error('Bus Number is required'); return false }
-    const betaMissing = (!isOptingRole('driver1') && !form.driveronesalary)
-      || (!isOptingRole('driver2') && !form.drivertwosalary)
-      || (!isOptingRole('helper') && !form.helpersalary)
-      || !form.conductorsalary
-    if (betaMissing) { toast.error('Please fill all beta amount fields'); return false }
-    if (OPTING_SEATS.some((seat) => isOptingRole(seat) && optingSeatAmount(seat) <= 0)) {
+    if (!form.driveronesalary || !form.drivertwosalary || !form.helpersalary || !form.conductorsalary) {
+      toast.error('Please fill all beta amount fields'); return false
+    }
+    if (OPTING_SEATS.some((seat) => isOptingRole(seat) && seatSalary(seat) <= 0)) {
       toast.error('Enter the opting salary for each seat marked Opting'); return false
     }
     if (validDebit.length === 0) { toast.error('Add at least one debit ledger entry'); return false }
@@ -1236,23 +1239,25 @@ export default function TripExpensesPage() {
                       {isOptingRole('driver1') ? (
                         <>
                           <p className="text-xs font-semibold text-slate-600">Driver1: <span className="text-amber-600">Opting</span></p>
-                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Paid through the Opting ledger below.</p>
+                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Beta + salary go to the Opting ledger below.</p>
+                        </>
+                      ) : form.driver1_name && (
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('driver1')} onChange={() => togglePerson('driver1')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.driver1_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver1').toLocaleString('en-IN')}</p>
+                        </div>
+                      )}
+                      <Label>Driver1 Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Input type="number" value={form.driveronesalary} onChange={(e) => setForm((f) => ({ ...f, driveronesalary: e.target.value }))} />
+                      {/* Legacy shows the Salary box only for an opting seat
+                          (expenses.component.html *ngIf="...=== 'opting'"). */}
+                      {isOptingRole('driver1') && (
+                        <>
                           <Label>Opting Driver1 Salary (₹) <span className="text-red-500">*</span></Label>
                           <Input type="number" value={form.driveronesudsalary} onChange={(e) => setForm((f) => ({ ...f, driveronesudsalary: e.target.value }))} />
-                        </>
-                      ) : (
-                        <>
-                          {form.driver1_name && (
-                            <div>
-                              <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                                <input type="checkbox" checked={isPersonChecked('driver1')} onChange={() => togglePerson('driver1')} className="w-4 h-4 rounded accent-blue-600" />
-                                Pay {form.driver1_name}
-                              </label>
-                              <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver1').toLocaleString('en-IN')}</p>
-                            </div>
-                          )}
-                          <Label>Driver1 Beta (₹) <span className="text-red-500">*</span></Label>
-                          <Input type="number" value={form.driveronesalary} onChange={(e) => setForm((f) => ({ ...f, driveronesalary: e.target.value }))} />
                         </>
                       )}
                     </div>
@@ -1260,23 +1265,25 @@ export default function TripExpensesPage() {
                       {isOptingRole('driver2') ? (
                         <>
                           <p className="text-xs font-semibold text-slate-600">Driver2: <span className="text-amber-600">Opting</span></p>
-                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Paid through the Opting ledger below.</p>
+                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Beta + salary go to the Opting ledger below.</p>
+                        </>
+                      ) : form.driver2_name && (
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('driver2')} onChange={() => togglePerson('driver2')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.driver2_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver2').toLocaleString('en-IN')}</p>
+                        </div>
+                      )}
+                      <Label>Driver2 Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Input type="number" value={form.drivertwosalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosalary: e.target.value }))} />
+                      {/* Legacy shows the Salary box only for an opting seat
+                          (expenses.component.html *ngIf="...=== 'opting'"). */}
+                      {isOptingRole('driver2') && (
+                        <>
                           <Label>Opting Driver2 Salary (₹) <span className="text-red-500">*</span></Label>
                           <Input type="number" value={form.drivertwosudsalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosudsalary: e.target.value }))} />
-                        </>
-                      ) : (
-                        <>
-                          {form.driver2_name && (
-                            <div>
-                              <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                                <input type="checkbox" checked={isPersonChecked('driver2')} onChange={() => togglePerson('driver2')} className="w-4 h-4 rounded accent-blue-600" />
-                                Pay {form.driver2_name}
-                              </label>
-                              <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver2').toLocaleString('en-IN')}</p>
-                            </div>
-                          )}
-                          <Label>Driver2 Beta (₹) <span className="text-red-500">*</span></Label>
-                          <Input type="number" value={form.drivertwosalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosalary: e.target.value }))} />
                         </>
                       )}
                     </div>
@@ -1284,23 +1291,25 @@ export default function TripExpensesPage() {
                       {isOptingRole('helper') ? (
                         <>
                           <p className="text-xs font-semibold text-slate-600">Helper: <span className="text-amber-600">Opting</span></p>
-                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Paid through the Opting ledger below.</p>
+                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Beta + salary go to the Opting ledger below.</p>
+                        </>
+                      ) : form.helper_name && (
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
+                            <input type="checkbox" checked={isPersonChecked('helper')} onChange={() => togglePerson('helper')} className="w-4 h-4 rounded accent-blue-600" />
+                            Pay {form.helper_name}
+                          </label>
+                          <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('helper').toLocaleString('en-IN')}</p>
+                        </div>
+                      )}
+                      <Label>Helper Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Input type="number" value={form.helpersalary} onChange={(e) => setForm((f) => ({ ...f, helpersalary: e.target.value }))} />
+                      {/* Legacy shows the Salary box only for an opting seat
+                          (expenses.component.html *ngIf="...=== 'opting'"). */}
+                      {isOptingRole('helper') && (
+                        <>
                           <Label>Opting Helper Salary (₹) <span className="text-red-500">*</span></Label>
                           <Input type="number" value={form.helpersudsalary} onChange={(e) => setForm((f) => ({ ...f, helpersudsalary: e.target.value }))} />
-                        </>
-                      ) : (
-                        <>
-                          {form.helper_name && (
-                            <div>
-                              <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                                <input type="checkbox" checked={isPersonChecked('helper')} onChange={() => togglePerson('helper')} className="w-4 h-4 rounded accent-blue-600" />
-                                Pay {form.helper_name}
-                              </label>
-                              <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('helper').toLocaleString('en-IN')}</p>
-                            </div>
-                          )}
-                          <Label>Helper Beta (₹) <span className="text-red-500">*</span></Label>
-                          <Input type="number" value={form.helpersalary} onChange={(e) => setForm((f) => ({ ...f, helpersalary: e.target.value }))} />
                         </>
                       )}
                     </div>
@@ -1325,7 +1334,7 @@ export default function TripExpensesPage() {
                         </label>
                         <p className="text-[11px] font-bold text-slate-500 pl-6">₹{personAmount('opting').toLocaleString('en-IN')}</p>
                         <p className="text-[11px] text-slate-400">
-                          Credits the <span className="font-semibold">Opting</span> ledger under Payables{OPTING_SEATS.filter(isOptingRole).length > 1 ? ' (all opting seats together)' : ''}. Unticked, it falls to Paid To like anyone else.
+                          Beta + salary of the opting seat{OPTING_SEATS.filter(isOptingRole).length > 1 ? 's, together' : ''} — credits the <span className="font-semibold">Opting</span> ledger under Payables. Unticked, it falls to Paid To like anyone else.
                         </p>
                       </div>
                     )}
@@ -1352,7 +1361,7 @@ export default function TripExpensesPage() {
                       <p className="text-xs font-bold text-slate-500 uppercase">Total Salary</p>
                       <p className="text-lg font-extrabold text-slate-800">₹{totalSalary.toLocaleString('en-IN')}</p>
                       <p className="text-[11px] text-slate-400">
-                        {anyoneOpting ? 'Opting seats — OPT-Driver / OPT-Helper salary from the service number' : 'No one opting on this trip'}
+                        {anyoneOpting ? 'Opting seats only — OPT-Driver / OPT-Helper Salary from the service number' : 'No one opting on this trip'}
                       </p>
                     </div>
                     <div className="rounded-xl border border-slate-200 p-3 text-center">

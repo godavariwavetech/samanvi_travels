@@ -409,27 +409,104 @@ var moment = require("moment");
   // ledger added straight to a level-2 node (see the PSRR capital ledger). Matched
   // on a normalised name so an existing "Beta's"/"Salary's" is reused rather than
   // duplicated, which also makes this a no-op on any database that already has them.
-  [
-    { aliases: ['salaries', 'salarys', 'salary'], name: 'Salaries', mandalId: 12, mandalName: '3) Employee Benefit Expenses' },
-    { aliases: ['betas', 'beta'], name: 'Betas', mandalId: 12, mandalName: '3) Employee Benefit Expenses' },
-    { aliases: ['parking'], name: 'Parking', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
-  ].forEach(function (led) {
-    var normalised = "REPLACE(REPLACE(REPLACE(LOWER(temple_name), '''', ''), ' ', ''), '-', '')";
+  // The full EXPENSES chart of accounts as it stands on the live database (39
+  // ledgers). Only Diesel and Mechanical Works & Spares survived into the dump
+  // this deployment was seeded from, so the rest are recreated here: without
+  // them the Trip Expenses / voucher debit pickers offer a near-empty EXPENSES
+  // group and there is nowhere to post a toll, a challan or a repair.
+  //
+  // `sub` names the level-3 container the ledger sits in (Fuels / Vehicles
+  // Maintenance); those rows carry parent_subgroup_id + village_id pointing at
+  // it and parent_grp_level 3. Everything else hangs straight off its group at
+  // level 2, which is how this app stores a ledger added directly to a level-2
+  // node. Matched on a normalised name so an existing "Beta's"/"Salary's" is
+  // reused rather than duplicated — a no-op on any database that already has
+  // them, including live.
+  var EXPENSE_CHART = [
+    // 1) Cost Of Materials Consumed
+    { name: 'Diesel', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Fuels' },
+    { name: 'Engine oil', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Fuels' },
+    { name: 'Ad Blue', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Fuels' },
+    { name: 'Mechanical Works & Spares', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Automotive Service Bills', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Electrical Works & Spares', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Accidental Repairs', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'AC Works & Spares', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Tyre Maintenance', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Police Challans', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'RTO Challans', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'RTO Check Reports', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Glass Maintenance', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    { name: 'Battery Maintenance', mandalId: 10, mandalName: '1) Cost Of Materials Consumed', sub: 'Vehicles Maintenance' },
+    // 2) Operating And Direct Expenses
+    { name: 'Parking', mandalId: 11, mandalName: '2) Operating And Direct Expenses', aliases: ['parking'] },
+    { name: 'Wheel Alignment', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Laundry Expenses', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Water Cases', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'PC Expenses', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Toll Charges', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Transport & Courier Charges', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Other Expenses', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Room Fresheners', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Free Tickets', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Settlements', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Cleaning Water', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Tickets Shifting & Refund', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Pooja', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Grease', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Office Expenses', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Bike Maintenance', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Pollution Certificate', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Permit Expenses', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'Hire vehicle charges', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    { name: 'New Parking (Ameenpur) Expenses', mandalId: 11, mandalName: '2) Operating And Direct Expenses' },
+    // 3) Employee Benefit Expenses
+    { name: 'Salaries', mandalId: 12, mandalName: '3) Employee Benefit Expenses', aliases: ['salaries', 'salarys', 'salary'] },
+    { name: 'Betas', mandalId: 12, mandalName: '3) Employee Benefit Expenses', aliases: ['betas', 'beta'] },
+    { name: 'Conductors Beta', mandalId: 12, mandalName: '3) Employee Benefit Expenses' },
+    // 4) Other Expenses
+    { name: 'Bank Charges', mandalId: 13, mandalName: '4) Other Expenses' },
+  ];
+  var normLedgerSql = "REPLACE(REPLACE(REPLACE(LOWER(temple_name), '''', ''), ' ', ''), '-', '')";
+  EXPENSE_CHART.forEach(function (led) {
+    // Must normalise EXACTLY as normLedgerSql does below (lower-case, then
+    // drop apostrophes, spaces and hyphens — nothing else), or a name carrying
+    // any other punctuation never matches its existing row and is re-inserted
+    // on every boot. 'New Parking (Ameenpur) Expenses' is the one that bites.
+    var aliases = led.aliases || [String(led.name).toLowerCase().replace(/['\s-]/g, '')];
     sqldb.query(
-      `SELECT id FROM mainmasterssubchildtwo WHERE district_id = '4' AND d_in = 0 AND ${normalised} IN (?) LIMIT 1`,
-      [led.aliases],
+      `SELECT id FROM mainmasterssubchildtwo WHERE district_id = '4' AND d_in = 0 AND ${normLedgerSql} IN (?) LIMIT 1`,
+      [aliases],
       function (err, rows) {
         if (err || (rows && rows.length)) return;
         var ts = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
-        sqldb.query(`INSERT INTO mainmasterssubchildtwo
-          (parent_subgroup_id, parent_subchild_id, ledger_type, created_at, updated_at, district_id, staticname,
-           mandal_id, mandal_name, village_id, temple_name, entry_by, d_in, child, i_ts, subchildtwo,
-           subchildtwo_id, parent_grp_level)
-          VALUES (NULL, NULL, 'inherited', ?, ?, '4', 'EXPENSES', ?, ?, NULL, ?, 'system', 0, '', ?, ?, NULL, 2)`,
-          [ts, ts, String(led.mandalId), led.mandalName, led.name, ts, led.mandalName],
-          function (err) {
-            if (err) console.log('[DB] trip expense ledger "' + led.name + '" seed:', err.message);
-            else console.log('[DB] trip expense ledger seeded: ' + led.name);
+        var insert = function (parentSubgroupId) {
+          // A level-3 ledger whose container is missing would render nowhere, so
+          // it is skipped rather than filed under the wrong node.
+          if (led.sub && !parentSubgroupId) return;
+          var lvl = led.sub ? 3 : 2;
+          var child = led.sub || '';
+          var subchildtwo = led.sub || led.mandalName;
+          sqldb.query(`INSERT INTO mainmasterssubchildtwo
+            (parent_subgroup_id, parent_subchild_id, ledger_type, created_at, updated_at, district_id, staticname,
+             mandal_id, mandal_name, village_id, temple_name, entry_by, d_in, child, i_ts, subchildtwo,
+             subchildtwo_id, parent_grp_level)
+            VALUES (?, NULL, 'inherited', ?, ?, '4', 'EXPENSES', ?, ?, ?, ?, 'system', 0, ?, ?, ?, NULL, ?)`,
+            [parentSubgroupId, ts, ts, String(led.mandalId), led.mandalName, parentSubgroupId,
+             led.name, child, ts, subchildtwo, lvl],
+            function (err) {
+              if (err) console.log('[DB] expense ledger "' + led.name + '" seed:', err.message);
+              else console.log('[DB] expense ledger seeded: ' + led.name);
+            });
+        };
+        if (!led.sub) return insert(null);
+        // Resolve the container by NAME, not id — subgroup ids differ per database.
+        sqldb.query(
+          `SELECT id FROM mainmasterssubgroup WHERE d_in = 0 AND district_id = 4 AND LOWER(village_name) = ? LIMIT 1`,
+          [String(led.sub).toLowerCase()],
+          function (err2, subRows) {
+            if (err2) return console.log('[DB] expense ledger "' + led.name + '" container lookup:', err2.message);
+            insert(subRows && subRows.length ? subRows[0].id : null);
           });
       });
   });
