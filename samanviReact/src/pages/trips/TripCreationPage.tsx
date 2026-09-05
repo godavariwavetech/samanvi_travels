@@ -225,9 +225,11 @@ export default function TripCreationPage() {
   // reads NA on screen and can be set back to NA after a wrong pick without
   // hunting for the × — SearchableSelect matches it because its value is ''.
   // Both dropdowns carry two fixed entries above the people: "NA" for an unfilled
-  // slot and "Opting" for a slot covered by an opting hand whose name isn't being
-  // recorded. They are plain options rather than a suffix on every name, so the
-  // list stays one entry per person.
+  // slot and "Opting" for a seat covered by someone who is NOT on the driver /
+  // helper register — their name goes in Remarks, and Trip Expenses pays that
+  // seat through the shared "Opting" ledger at the service number's OPT rate.
+  // They are plain options rather than a suffix on every name, so the list
+  // stays one entry per person.
   const NA_OPTION = { value: '', label: 'NA' }
   const OPTING = 'Opting'
   const OPTING_OPTION = { value: OPTING, label: OPTING }
@@ -256,10 +258,6 @@ export default function TripCreationPage() {
 
   const driverOptions = withOpting(drivers, driverName, (d) => d.driver_type)
   const helperOptions = withOpting(helpers, helperName)
-  // Plain (no NA/Opting pseudo-entries) — for the "who is actually opting in"
-  // picker that appears once a role's main dropdown is itself set to Opting.
-  const plainDriverOptions = drivers.map((d: any) => ({ value: String(d.id), label: withSuffix(driverName(d), d.driver_type) }))
-  const plainHelperOptions = helpers.map((h: any) => ({ value: String(h.id), label: helperName(h) }))
   const conductorOptions = [NA_OPTION, ...conductors.map((c: any) => ({
     value: String(c.id),
     label: withSuffix(String(c.nickName ?? c.fullName ?? ''), c.designation),
@@ -689,10 +687,7 @@ export default function TripCreationPage() {
                                   onClear={() => updateRow(r.id, clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)} />
                               </div>
                               {row.driver1_name === OPTING && (
-                                <SearchableSelect className="min-w-[14rem] mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
-                                  value={row.opt_driver1_id}
-                                  onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); updateRow(r.id, { opt_driver1_id: v, opt_driver1_name: d ? driverName(d) : '' }) }}
-                                  onClear={() => updateRow(r.id, { opt_driver1_id: '', opt_driver1_name: '' })} />
+                                <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
                               )}
                             </td>
                             <td className="py-2 px-3">
@@ -703,10 +698,7 @@ export default function TripCreationPage() {
                                   onClear={() => updateRow(r.id, clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)} />
                               </div>
                               {row.driver2_name === OPTING && (
-                                <SearchableSelect className="min-w-[14rem] mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
-                                  value={row.opt_driver2_id}
-                                  onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); updateRow(r.id, { opt_driver2_id: v, opt_driver2_name: d ? driverName(d) : '' }) }}
-                                  onClear={() => updateRow(r.id, { opt_driver2_id: '', opt_driver2_name: '' })} />
+                                <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
                               )}
                             </td>
                             <td className="py-2 px-3">
@@ -717,10 +709,7 @@ export default function TripCreationPage() {
                                   onClear={() => updateRow(r.id, clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)} />
                               </div>
                               {row.helper_name === OPTING && (
-                                <SearchableSelect className="min-w-[13rem] mt-1.5" placeholder="Who is opting in?" options={plainHelperOptions}
-                                  value={row.opt_helper_id}
-                                  onChange={(v) => { const h = helpers.find((x: any) => String(x.id) === v); updateRow(r.id, { opt_helper_id: v, opt_helper_name: h ? helperName(h) : '' }) }}
-                                  onClear={() => updateRow(r.id, { opt_helper_id: '', opt_helper_name: '' })} />
+                                <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
                               )}
                             </td>
                             <td className="py-2 px-3">
@@ -890,10 +879,7 @@ export default function TripCreationPage() {
                           onClear={() => patchEdit(clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))} />
                       </div>
                       {editForm.driver1_name === OPTING && (
-                        <SearchableSelect className="mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
-                          value={editForm.opt_driver1_id}
-                          onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); patchEdit({ opt_driver1_id: v, opt_driver1_name: d ? driverName(d) : '' }) }}
-                          onClear={() => patchEdit({ opt_driver1_id: '', opt_driver1_name: '' })} />
+                        <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
                       )}
                     </div>
                     <div>
@@ -905,10 +891,7 @@ export default function TripCreationPage() {
                           onClear={() => patchEdit(clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))} />
                       </div>
                       {editForm.driver2_name === OPTING && (
-                        <SearchableSelect className="mt-1.5" placeholder="Who is opting in?" options={plainDriverOptions}
-                          value={editForm.opt_driver2_id}
-                          onChange={(v) => { const d = drivers.find((x: any) => String(x.id) === v); patchEdit({ opt_driver2_id: v, opt_driver2_name: d ? driverName(d) : '' }) }}
-                          onClear={() => patchEdit({ opt_driver2_id: '', opt_driver2_name: '' })} />
+                        <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
                       )}
                     </div>
                     <div>
@@ -920,10 +903,7 @@ export default function TripCreationPage() {
                           onClear={() => patchEdit(clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))} />
                       </div>
                       {editForm.helper_name === OPTING && (
-                        <SearchableSelect className="mt-1.5" placeholder="Who is opting in?" options={plainHelperOptions}
-                          value={editForm.opt_helper_id}
-                          onChange={(v) => { const h = helpers.find((x: any) => String(x.id) === v); patchEdit({ opt_helper_id: v, opt_helper_name: h ? helperName(h) : '' }) }}
-                          onClear={() => patchEdit({ opt_helper_id: '', opt_helper_name: '' })} />
+                        <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
                       )}
                     </div>
                     <div>

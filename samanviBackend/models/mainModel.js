@@ -433,14 +433,31 @@ var moment = require("moment");
           });
       });
   });
-  ['Drivers', 'Staff', 'Helpers'].forEach(function (label) {
+  // "Opting" is a fourth container with a single ledger of the same name in
+  // it: the payee for a trip seat covered by someone who isn't on the driver /
+  // helper register (Trip Creation's "Opting" option). Such a person has no
+  // ledger of their own, so Trip Expenses credits this one instead. Ensured
+  // right after its container, in the same callback, so a fresh database gets
+  // both on the first boot rather than the ledger only on the second.
+  ['Drivers', 'Staff', 'Helpers', 'Opting'].forEach(function (label) {
     sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
-      if (!err && rows && rows.length === 0) {
-        sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, ?, 'Payables', 4, 0, 1, 0, 0)`, [label], function (err) {
-          if (err) console.log('[DB] ' + label + ' container seed:', err.message);
-          else console.log('[DB] ' + label + ' ledger container seeded');
+      if (err) return;
+      var ensureOptingLedger = function () {
+        if (label !== 'Opting') return;
+        sqldb.query(`SELECT id FROM mainmasterssubchildtwo WHERE LOWER(temple_name) = 'opting' AND d_in = 0 LIMIT 1`, function (err, ledRows) {
+          if (err || (ledRows && ledRows.length)) return;
+          module.exports.ensurePersonLedger('Opting', 'Opting', null, 'system', function (err) {
+            if (err) console.log('[DB] Opting ledger seed:', err.message);
+            else console.log('[DB] Opting payables ledger seeded');
+          });
         });
-      }
+      };
+      if (rows && rows.length) return ensureOptingLedger();
+      sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, ?, 'Payables', 4, 0, 1, 0, 0)`, [label], function (err) {
+        if (err) return console.log('[DB] ' + label + ' container seed:', err.message);
+        console.log('[DB] ' + label + ' ledger container seeded');
+        ensureOptingLedger();
+      });
     });
   });
   // Trip reference on a voucher, so a trip-sourced voucher can show which trip
