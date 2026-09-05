@@ -686,9 +686,6 @@ export default function TripCreationPage() {
                                   onChange={(v) => updateRow(r.id, personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)}
                                   onClear={() => updateRow(r.id, clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)} />
                               </div>
-                              {row.driver1_name === OPTING && (
-                                <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
-                              )}
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
@@ -697,9 +694,6 @@ export default function TripCreationPage() {
                                   onChange={(v) => updateRow(r.id, personPatch(v, drivers, driverName, 'driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)}
                                   onClear={() => updateRow(r.id, clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)} />
                               </div>
-                              {row.driver2_name === OPTING && (
-                                <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
-                              )}
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
@@ -708,9 +702,6 @@ export default function TripCreationPage() {
                                   onChange={(v) => updateRow(r.id, personPatch(v, helpers, helperName, 'helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)}
                                   onClear={() => updateRow(r.id, clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)} />
                               </div>
-                              {row.helper_name === OPTING && (
-                                <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
-                              )}
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
@@ -878,9 +869,6 @@ export default function TripCreationPage() {
                           onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))}
                           onClear={() => patchEdit(clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))} />
                       </div>
-                      {editForm.driver1_name === OPTING && (
-                        <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
-                      )}
                     </div>
                     <div>
                       <Label>Driver 2</Label>
@@ -890,9 +878,6 @@ export default function TripCreationPage() {
                           onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))}
                           onClear={() => patchEdit(clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))} />
                       </div>
-                      {editForm.driver2_name === OPTING && (
-                        <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
-                      )}
                     </div>
                     <div>
                       <Label>Helper</Label>
@@ -902,9 +887,6 @@ export default function TripCreationPage() {
                           onChange={(v) => patchEdit(personPatch(v, helpers, helperName, 'helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))}
                           onClear={() => patchEdit(clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))} />
                       </div>
-                      {editForm.helper_name === OPTING && (
-                        <p className="text-[11px] text-amber-600 mt-1">Unlisted person — note the name in Remarks</p>
-                      )}
                     </div>
                     <div>
                       <Label>Conductor</Label>

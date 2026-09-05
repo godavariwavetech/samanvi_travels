@@ -1157,7 +1157,7 @@ export default function TripExpensesPage() {
                         setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '', opt_driver1_id: '', opt_driver1_name: '' }))
                       }}>
                         <option value="">— Select —</option>
-                        <option value={OPTING_VALUE}>Opting (unlisted person)</option>
+                        <option value={OPTING_VALUE}>Opting</option>
                         {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                       </Select>
                     </div>
@@ -1169,7 +1169,7 @@ export default function TripExpensesPage() {
                         setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '', opt_driver2_id: '', opt_driver2_name: '' }))
                       }}>
                         <option value="">— Select —</option>
-                        <option value={OPTING_VALUE}>Opting (unlisted person)</option>
+                        <option value={OPTING_VALUE}>Opting</option>
                         {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                       </Select>
                     </div>
@@ -1181,7 +1181,7 @@ export default function TripExpensesPage() {
                         setForm((f) => ({ ...f, helper_id: e.target.value, helper_name: h?.helper_name ?? h?.nickname ?? '', opt_helper_id: '', opt_helper_name: '' }))
                       }}>
                         <option value="">— Select —</option>
-                        <option value={OPTING_VALUE}>Opting (unlisted person)</option>
+                        <option value={OPTING_VALUE}>Opting</option>
                         {helpers.map((h: any) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
                       </Select>
                     </div>
@@ -1239,7 +1239,6 @@ export default function TripExpensesPage() {
                       {isOptingRole('driver1') ? (
                         <>
                           <p className="text-xs font-semibold text-slate-600">Driver1: <span className="text-amber-600">Opting</span></p>
-                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Beta + salary go to the Opting ledger below.</p>
                         </>
                       ) : form.driver1_name && (
                         <div>
@@ -1265,7 +1264,6 @@ export default function TripExpensesPage() {
                       {isOptingRole('driver2') ? (
                         <>
                           <p className="text-xs font-semibold text-slate-600">Driver2: <span className="text-amber-600">Opting</span></p>
-                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Beta + salary go to the Opting ledger below.</p>
                         </>
                       ) : form.driver2_name && (
                         <div>
@@ -1291,7 +1289,6 @@ export default function TripExpensesPage() {
                       {isOptingRole('helper') ? (
                         <>
                           <p className="text-xs font-semibold text-slate-600">Helper: <span className="text-amber-600">Opting</span></p>
-                          <p className="text-[11px] text-slate-400">Unlisted person — see Remarks. Beta + salary go to the Opting ledger below.</p>
                         </>
                       ) : form.helper_name && (
                         <div>
@@ -1333,9 +1330,6 @@ export default function TripExpensesPage() {
                           Pay Opting
                         </label>
                         <p className="text-[11px] font-bold text-slate-500 pl-6">₹{personAmount('opting').toLocaleString('en-IN')}</p>
-                        <p className="text-[11px] text-slate-400">
-                          Beta + salary of the opting seat{OPTING_SEATS.filter(isOptingRole).length > 1 ? 's, together' : ''} — credits the <span className="font-semibold">Opting</span> ledger under Payables. Unticked, it falls to Paid To like anyone else.
-                        </p>
                       </div>
                     )}
                     {Number(form.parking_amt) > 0 && (
@@ -1588,7 +1582,7 @@ export default function TripExpensesPage() {
                       <>
                         <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 pt-1">
                           <input type="checkbox" readOnly checked={viewPersonPaid('opting', '')} className="w-3.5 h-3.5 rounded accent-amber-600 pointer-events-none" />
-                          Opting (unlisted — see Remarks)
+                          Opting
                         </label>
                         {viewPersonPaid('opting', '') && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('opting', '').toLocaleString('en-IN')}</p>}
                       </>
