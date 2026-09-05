@@ -285,6 +285,39 @@ export default function TripExpensesPage() {
   const findOptingLedger = () =>
     ledgerRef.current.find((l: any) => isPayablesLedger(l) && normLedgerName(l.temple_name) === 'opting')
       ?? ledgerRef.current.find((l: any) => normLedgerName(l.temple_name) === 'opting')
+  // The server seeds the Opting ledger at boot, but the modal doesn't depend on
+  // that having happened: the first time it is needed and missing, it is
+  // created here through the same addLedgerData call the "+ New Ledger" popover
+  // uses — under the Payables "Opting" container if the seed made one, else
+  // under Payables > Drivers — and the ledger list is reloaded so the new row
+  // resolves immediately. Returns the ledger, or null if it couldn't be made.
+  const ensureOptingLedger = async (): Promise<any | null> => {
+    await ensureLedgers()
+    const existing = findOptingLedger()
+    if (existing) return existing
+    let containers: any[] = ledgerParents
+    if (!containers.length) {
+      const r = await accountingService.getMainMastersSubchild()
+      containers = (r?.data ?? []).filter((c: any) => Number(c.level_depth) === 4 && Number(c.d_in) === 0)
+    }
+    const underPayables = containers.filter((c: any) => String(c.child ?? '') === 'Payables')
+    const parent = underPayables.find((c: any) => normLedgerName(c.temple_name) === 'opting')
+      ?? underPayables.find((c: any) => normLedgerName(c.temple_name) === 'drivers')
+    if (!parent) return null
+    const res: any = await accountingService.addLedgerData({
+      temple_name: 'Opting', amount: 0, parent_level: 4,
+      parent_subgroup_id: parent.village_id, parent_subchild_id: parent.id,
+      district_id: parent.district_id, staticname: parent.staticentry,
+      mandal_id: parent.mandal_id, mandal_name: parent.mandal_name,
+      village_id: parent.village_id, child: parent.child,
+      subchildtwo: parent.temple_name,
+      user_id: localStorage.getItem('user_id'), entry_by: localStorage.getItem('usr_nm'),
+    })
+    if (res?.status !== 200) return null
+    const reloaded = await reloadLedgers()
+    ledgerRef.current = reloaded.data?.data ?? []
+    return findOptingLedger() ?? null
+  }
   // Generic so the read-only View modal can resolve a person's ledger from
   // its own row data (driverX_id etc.) without going through `form` at all.
   const ledgerIdForPerson = (key: PersonKey, id: string): string => {
@@ -453,15 +486,20 @@ export default function TripExpensesPage() {
       })
       return
     }
-    const missingMsg = key === 'opting'
-      ? 'No "Opting" ledger found under Payables — it is seeded when the server starts; restart it or add the ledger by hand'
-      : `No ledger found for ${personName(key)} — they may not have an auto-created ledger yet`
-    if (!ledgerId) { toast.error(missingMsg); return }
-    const ledger = findLedger(ledgerId)
-    if (!ledger) { toast.error(missingMsg); return }
-    setCreditRows((rows) => {
+    const addRow = (ledger: any) => setCreditRows((rows) => {
       const cleaned = rows.filter((r) => (r.ledger || r.amount) && r.personKey !== 'paidTo')
       return recomputePaidToRow([...cleaned, { ledger: toLedgerObj(ledger), amount: String(personAmount(key)), personKey: key }])
+    })
+    const ledger = ledgerId ? findLedger(ledgerId) : null
+    if (ledger) { addRow(ledger); return }
+    if (key !== 'opting') {
+      toast.error(`No ledger found for ${personName(key)} — they may not have an auto-created ledger yet`)
+      return
+    }
+    ensureOptingLedger().then((made) => {
+      if (!made) { toast.error('Could not find or create the "Opting" ledger under Payables — add a ledger named Opting there by hand'); return }
+      toast.success('Created the "Opting" ledger under Payables')
+      addRow(made)
     })
   }
 
@@ -616,7 +654,7 @@ export default function TripExpensesPage() {
         || (d2Opting && Number(row.driver2_paid_direct ?? 0) === 1)
         || (hOpting && Number(row.helper_paid_direct ?? 0) === 1)
       if (optingPreTicked && optingAmt > 0) {
-        const ledger = findOptingLedger()
+        const ledger = findOptingLedger() ?? await ensureOptingLedger()
         if (!ledger) unresolved.push('Opting')
         else { personRows.push({ ledger: toLedgerObj(ledger), amount: String(optingAmt), personKey: 'opting' }); claimed += optingAmt }
       }
@@ -701,6 +739,11 @@ export default function TripExpensesPage() {
     // would treat every crew member as unpaid and pile their whole share onto
     // Paid To again on the next toggle, and the live re-price above would have
     // nothing to update.
+    if (t && (seatIsOpting(t.driver1_id, t.driver1_name, t.opt_driver1_id)
+      || seatIsOpting(t.driver2_id, t.driver2_name, t.opt_driver2_id)
+      || seatIsOpting(t.helper_id, t.helper_name, t.opt_helper_id))) {
+      await ensureOptingLedger()
+    }
     const savedLedgerIds: Partial<Record<PersonKey, string>> = t ? {
       driver1: t.driver1_ledger_id ? String(t.driver1_ledger_id) : ledgerIdForPerson('driver1', String(t.driver1_id ?? '')),
       driver2: t.driver2_ledger_id ? String(t.driver2_ledger_id) : ledgerIdForPerson('driver2', String(t.driver2_id ?? '')),
