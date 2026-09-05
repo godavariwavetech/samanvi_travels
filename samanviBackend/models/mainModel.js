@@ -243,6 +243,18 @@ var moment = require("moment");
       });
     }
   });
+  // Halt Beta - what each assigned crew member is paid when a service is marked
+  // Halt on Trip Creation instead of running. Lives on the service number beside
+  // its running betas (the "Halt" tab on that form) and is what Trip Expenses
+  // charges for a halted trip.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driverone' AND COLUMN_NAME = 'halt_beta'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE driverone ADD COLUMN halt_beta VARCHAR(50) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] driverone.halt_beta migration:', err.message);
+        else console.log('[DB] driverone.halt_beta column added');
+      });
+    }
+  });
   sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driver_register' AND COLUMN_NAME = 'driver_type'`, function (err, rows) {
     if (!err && rows && rows.length === 0) {
       sqldb.query(`ALTER TABLE driver_register ADD COLUMN driver_type VARCHAR(30) DEFAULT NULL`, function (err) {
@@ -1174,6 +1186,7 @@ exports.driverone = function (data, callback) {
     bus_operator_name: data.bus_operator_name || null,
     trip_type: data.trip_type || null,
     up_down: data.up_down || null,
+    halt_beta: data.halt_beta || null,
   };
   //console.log()dta, 400);
   // var QRY_TO_EXEC = `insert into  driverone (name,mobile_number,cts) VALUES('${data.drive_one}','${data.mobile_number}','${date}')  `;
@@ -9933,7 +9946,7 @@ exports.updateservicenumber = function (data, callback) {
 exports.updateservicenoMdl = function (data, callback) {
   // console.log(data)
   var cntxtDtls = "in updateservicenoMdl";
-  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}',up_down='${data.up_down || ''}' WHERE  id = '${data.id}'`;
+  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}',up_down='${data.up_down || ''}',halt_beta='${data.halt_beta || ''}' WHERE  id = '${data.id}'`;
   //console.log()QRY_TO_EXEC, 10136)
   if (callback && typeof callback == "function")
     dbutil.execQuery(
@@ -14713,10 +14726,10 @@ exports.bulkUploadServiceRoutesMdl = function (rows, userId, usrNm, callback) {
         r.remarks || null, userId, usrNm, date, r.service_for_id || null,
         r.line_code || null, r.route_id || null,
         r.start_boarding_point || null, r.start_boarding_time || null,
-        r.end_boarding_point || null, r.end_boarding_time || null,
+        r.end_boarding_point || null, r.end_boarding_time || null, r.halt_beta || null,
       ];
     });
-    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, optDriverSalary, optHelperSalary, remarks, user_id, usr_nm, i_ts, service_for_id, line_code, route_id, start_boarding_point, start_boarding_time, end_boarding_point, end_boarding_time) VALUES ?';
+    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, optDriverSalary, optHelperSalary, remarks, user_id, usr_nm, i_ts, service_for_id, line_code, route_id, start_boarding_point, start_boarding_time, end_boarding_point, end_boarding_time, halt_beta) VALUES ?';
     dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
       if (err) return callback(err, null);
       callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });

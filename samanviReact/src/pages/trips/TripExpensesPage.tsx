@@ -270,6 +270,16 @@ export default function TripExpensesPage() {
         : seatIsOpting(form.helper_id, form.helper_name, form.opt_helper_id)
   )
   const anyoneOpting = OPTING_SEATS.some(isOptingRole)
+  // A halted service still has its crew assigned, but they are paid the service
+  // number's Halt Beta instead of their running betas. The seat beta fields are
+  // seeded with that amount when the modal opens (see openAdd), so every total,
+  // credit row and ledger split below works unchanged — this flag only drives
+  // what the screen calls the amounts, and relaxes the "every beta is required"
+  // rule for a seat nobody was assigned to.
+  const isHalt = String(modal.row?.trip_run_status ?? '') === 'Halt'
+  const seatHasPerson = (seat: OptingSeat | 'conductor'): boolean => !!String(
+    seat === 'driver1' ? form.driver1_id : seat === 'driver2' ? form.driver2_id
+      : seat === 'helper' ? form.helper_id : form.conductor_id)
   // Legacy parity (expenses.component.ts:313-339 in D:\samanvi). Every seat earns
   // its per-trip BETA — calculateTotalBeta() sums all four unconditionally, so an
   // opting seat is charged its beta too. SALARY is the opting premium only: the
@@ -599,32 +609,42 @@ export default function TripExpensesPage() {
       const d1Opting = seatIsOpting(row.driver1_id, row.driver1_name, row.opt_driver1_id)
       const d2Opting = seatIsOpting(row.driver2_id, row.driver2_name, row.opt_driver2_id)
       const hOpting = seatIsOpting(row.helper_id, row.helper_name, row.opt_helper_id)
+      // Halted service: every assigned seat is paid the one Halt Beta off the
+      // service number rather than its own running beta, and a seat nobody was
+      // assigned to is charged nothing. Opting salary does not apply — the
+      // service did not run, so there was no seat for anyone to cover.
+      const halted = String(row.trip_run_status ?? '') === 'Halt'
+      const haltRate = num(rate.halt_beta)
+      const seatRate = (assignedId: any, running: any) =>
+        halted ? (String(assignedId ?? '') ? String(haltRate || '') : '') : String(running ?? '')
       setForm((f) => ({
         ...f,
-        driveronesalary: String(rate.driverOneBeta ?? ''),
-        drivertwosalary: String(rate.driverTwoBeta ?? ''),
-        helpersalary: String(rate.helperBeta ?? ''),
-        conductorsalary: String(rate.conductorBeta ?? ''),
+        driveronesalary: seatRate(row.driver1_id, rate.driverOneBeta),
+        drivertwosalary: seatRate(row.driver2_id, rate.driverTwoBeta),
+        helpersalary: seatRate(row.helper_id, rate.helperBeta),
+        conductorsalary: seatRate(row.conductor_id, rate.conductorBeta),
         // Per-seat salary — the service number's OPT-Driver / OPT-Helper Salary,
         // earned on every trip by whoever holds the seat (see personAmount).
-        driveronesudsalary: String(optDriverRate || ''),
-        drivertwosudsalary: String(optDriverRate || ''),
-        helpersudsalary: String(optHelperRate || ''),
+        driveronesudsalary: halted ? '' : String(optDriverRate || ''),
+        drivertwosudsalary: halted ? '' : String(optDriverRate || ''),
+        helpersudsalary: halted ? '' : String(optHelperRate || ''),
         parking_amt: String(rate.parkingAmount ?? ''),
       }))
 
       // Same arithmetic as personAmount, off the freshly fetched rate: a regular
       // seat is paid its beta, an opting seat its beta plus the opting premium.
-      const d1Beta = num(rate.driverOneBeta)
-      const d2Beta = num(rate.driverTwoBeta)
-      const hBeta = num(rate.helperBeta)
+      const d1Beta = num(seatRate(row.driver1_id, rate.driverOneBeta))
+      const d2Beta = num(seatRate(row.driver2_id, rate.driverTwoBeta))
+      const hBeta = num(seatRate(row.helper_id, rate.helperBeta))
       const driver1Amt = d1Opting ? 0 : d1Beta
       const driver2Amt = d2Opting ? 0 : d2Beta
       const helperAmt = hOpting ? 0 : hBeta
-      const conductorAmt = num(rate.conductorBeta)
-      const optingAmt = (d1Opting ? d1Beta + optDriverRate : 0)
-        + (d2Opting ? d2Beta + optDriverRate : 0)
-        + (hOpting ? hBeta + optHelperRate : 0)
+      const conductorAmt = num(seatRate(row.conductor_id, rate.conductorBeta))
+      const optDrv = halted ? 0 : optDriverRate
+      const optHlp = halted ? 0 : optHelperRate
+      const optingAmt = (d1Opting ? d1Beta + optDrv : 0)
+        + (d2Opting ? d2Beta + optDrv : 0)
+        + (hOpting ? hBeta + optHlp : 0)
       const parkingAmt = num(rate.parkingAmount)
       const total = driver1Amt + driver2Amt + helperAmt + conductorAmt + optingAmt + parkingAmt
       const amountFor: Record<PersonKey, number> = {
@@ -682,7 +702,7 @@ export default function TripExpensesPage() {
       setDebitRows(buildExpenseRows([], {
         amounts: {
           beta: d1Beta + d2Beta + hBeta + conductorAmt,
-          salary: (d1Opting ? optDriverRate : 0) + (d2Opting ? optDriverRate : 0) + (hOpting ? optHelperRate : 0),
+          salary: (d1Opting ? optDrv : 0) + (d2Opting ? optDrv : 0) + (hOpting ? optHlp : 0),
           parking: parkingAmt,
         },
       }))
@@ -908,8 +928,12 @@ export default function TripExpensesPage() {
 
   const validate = () => {
     if (!form.bus_no) { toast.error('Bus Number is required'); return false }
-    if (!form.driveronesalary || !form.drivertwosalary || !form.helpersalary || !form.conductorsalary) {
-      toast.error('Please fill all beta amount fields'); return false
+    const betaMissing = isHalt
+      ? (['driver1', 'driver2', 'helper', 'conductor'] as const).some((seat) => seatHasPerson(seat) && seatBeta(seat) <= 0)
+      : !form.driveronesalary || !form.drivertwosalary || !form.helpersalary || !form.conductorsalary
+    if (betaMissing) {
+      toast.error(isHalt ? 'Enter the halt beta for each assigned crew member' : 'Please fill all beta amount fields')
+      return false
     }
     if (OPTING_SEATS.some((seat) => isOptingRole(seat) && seatSalary(seat) <= 0)) {
       toast.error('Enter the opting salary for each seat marked Opting'); return false
@@ -1238,6 +1262,14 @@ export default function TripExpensesPage() {
                     </div>
                   </div>
 
+                  {isHalt && (
+                    <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-2.5">
+                      <p className="text-xs font-bold text-red-700">Service Halted</p>
+                      <p className="text-[11px] text-slate-500">
+                        Each assigned crew member is paid the service number's Halt Beta instead of their running beta.
+                      </p>
+                    </div>
+                  )}
                   {/* Salary / Beta breakdown — checking a person drops their own
                       ledger + auto-filled amount straight into Credit Accounts below. */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
@@ -1255,7 +1287,7 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver1').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Driver1 Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Label>Driver1 {isHalt ? 'Halt ' : ''}Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.driveronesalary} onChange={(e) => setForm((f) => ({ ...f, driveronesalary: e.target.value }))} />
                       {/* Legacy shows the Salary box only for an opting seat
                           (expenses.component.html *ngIf="...=== 'opting'"). */}
@@ -1280,7 +1312,7 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('driver2').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Driver2 Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Label>Driver2 {isHalt ? 'Halt ' : ''}Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.drivertwosalary} onChange={(e) => setForm((f) => ({ ...f, drivertwosalary: e.target.value }))} />
                       {/* Legacy shows the Salary box only for an opting seat
                           (expenses.component.html *ngIf="...=== 'opting'"). */}
@@ -1305,7 +1337,7 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('helper').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Helper Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Label>Helper {isHalt ? 'Halt ' : ''}Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.helpersalary} onChange={(e) => setForm((f) => ({ ...f, helpersalary: e.target.value }))} />
                       {/* Legacy shows the Salary box only for an opting seat
                           (expenses.component.html *ngIf="...=== 'opting'"). */}
@@ -1326,7 +1358,7 @@ export default function TripExpensesPage() {
                           <p className="text-[11px] font-bold text-slate-400 pl-6">₹{personAmount('conductor').toLocaleString('en-IN')}</p>
                         </div>
                       )}
-                      <Label>Conductor Beta (₹) <span className="text-red-500">*</span></Label>
+                      <Label>Conductor {isHalt ? 'Halt ' : ''}Beta (₹) <span className="text-red-500">*</span></Label>
                       <Input type="number" value={form.conductorsalary} onChange={(e) => setForm((f) => ({ ...f, conductorsalary: e.target.value }))} />
                     </div>
                     {anyoneOpting && (
@@ -1368,7 +1400,7 @@ export default function TripExpensesPage() {
                       <p className="text-xs font-bold text-slate-500 uppercase">Total Beta</p>
                       <p className="text-lg font-extrabold text-slate-800">₹{totalBeta.toLocaleString('en-IN')}</p>
                       <p className="text-[11px] text-slate-400">
-                        Driver1 + Driver2 + Helper + Conductor beta{num(form.parking_amt) > 0 ? ` + parking ₹${num(form.parking_amt).toLocaleString('en-IN')}` : ''}
+                        {isHalt ? 'Halt beta per assigned crew member' : 'Driver1 + Driver2 + Helper + Conductor beta'}{num(form.parking_amt) > 0 ? ` + parking ₹${num(form.parking_amt).toLocaleString('en-IN')}` : ''}
                       </p>
                     </div>
                   </div>

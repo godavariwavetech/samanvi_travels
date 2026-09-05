@@ -18,7 +18,7 @@ const EMPTY: Record<string, string> = {
   line_code: '', route_id: '', start_boarding_point: '', start_boarding_time: '',
   end_boarding_point: '', end_boarding_time: '',
   vehicle_type: 'bus', bus_operator_id: '', bus_operator_name: '', trip_type: '',
-  up_down: '',
+  up_down: '', halt_beta: '',
 }
 
 const amt = (v: any) => <span className="font-medium text-slate-800">{v != null && v !== '' ? `₹${v}` : '—'}</span>
@@ -84,6 +84,7 @@ const cols: Column[] = [
   { label: 'Driver 2 Beta', key: 'driverTwoBeta', render: amt },
   { label: 'Helper Beta', key: 'helperBeta', render: amt },
   { label: 'Conductor Beta', key: 'conductorBeta', render: amt },
+  { label: 'Halt Beta', key: 'halt_beta', render: amt },
   { label: 'Distance', key: 'distance', render: (v) => <span className="font-medium">{v != null && v !== '' ? `${v} km` : '—'}</span> },
   { label: 'OPT Driver', key: 'optDriver', render: (v) => <span className="text-sm">{v != null && v !== '' ? String(v) : '—'}</span> },
   { label: 'OPT Helper', key: 'optHelper', render: (v) => <span className="text-sm">{v != null && v !== '' ? String(v) : '—'}</span> },
@@ -98,7 +99,7 @@ const SERVICE_TEMPLATE_HEADERS = [
   'Conductor Beta', 'Distance (km)', 'OPT Driver', 'OPT Helper',
   'OPT Driver Salary', 'OPT Helper Salary', 'Remarks',
   'Line Code', 'Route ID', 'Start Boarding Point', 'Start Boarding Time (HH:MM)',
-  'End Boarding Point', 'End Boarding Time (HH:MM)',
+  'End Boarding Point', 'End Boarding Time (HH:MM)', 'Halt Beta',
 ]
 
 function downloadExcel(data: any[][], filename: string) {
@@ -117,6 +118,7 @@ function downloadExcel(data: any[][], filename: string) {
 export default function ServiceNoPage() {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [formTab, setFormTab] = useState<'Bus' | 'Van' | 'Halt'>('Bus')
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState({ ...EMPTY })
@@ -140,6 +142,10 @@ export default function ServiceNoPage() {
   const operatorList: any[] = busOperators?.data ?? []
   const serviceForOptions = [...new Set(routeList.map((r) => r.serviceFor).filter(Boolean))]
 
+  // Bus and Van set vehicle_type; Halt is a third view of the SAME service
+  // number (its halt settings), so selecting it must not touch vehicle_type or
+  // reset the form the way switching Bus<->Van deliberately does.
+  const formTabFor = (f: Record<string, string>) => (f.vehicle_type === 'van' ? 'Van' : 'Bus')
   const switchVehicleType = (t: 'bus' | 'van') => {
     setForm((f) => ({
       ...EMPTY,
@@ -179,7 +185,8 @@ export default function ServiceNoPage() {
   })
 
   const handleEdit = (row: any) => {
-    setForm(Object.fromEntries(Object.keys(EMPTY).map((k) => [k, row[k] ?? ''])))
+    const next = Object.fromEntries(Object.keys(EMPTY).map((k) => [k, row[k] ?? '']))
+    setForm(next); setFormTab(formTabFor(next))
     setIsEdit(true); setEditId(row.id); setShowForm(true)
     scrollContentToTop()
   }
@@ -193,7 +200,7 @@ export default function ServiceNoPage() {
     onError: () => toast.error('Server error'),
   })
 
-  const openAdd = () => { setForm({ ...EMPTY }); setIsEdit(false); setEditId(null); setShowForm(true) }
+  const openAdd = () => { setForm({ ...EMPTY }); setFormTab('Bus'); setIsEdit(false); setEditId(null); setShowForm(true) }
   const closeForm = () => { setShowForm(false); setForm({ ...EMPTY }); setIsEdit(false); setEditId(null) }
 
   const canSave = form.vehicle_type === 'van'
@@ -205,7 +212,7 @@ export default function ServiceNoPage() {
     downloadExcel([
       SERVICE_TEMPLATE_HEADERS,
       ['Samanvi', 'ST-11', 'Hyderabad', 'Vijayawada', 'Guntur', '50', '800', '700', '500', '400', '250', '600', '400', '300', '200', 'Remarks here',
-        'LN-01', 'RT-101', 'Ameerpet', '18:30', 'MG Bus Stand', '06:00'],
+        'LN-01', 'RT-101', 'Ameerpet', '18:30', 'MG Bus Stand', '06:00', '200'],
     ], `ServiceRoute_Upload_Template_${Date.now()}.xlsx`)
   }
 
@@ -217,7 +224,7 @@ export default function ServiceNoPage() {
       r.conductorBeta ?? '', r.distance ?? '', r.optDriver ?? '', r.optHelper ?? '',
       r.optDriverSalary ?? '', r.optHelperSalary ?? '', r.remarks ?? '',
       r.line_code ?? '', r.route_id ?? '', r.start_boarding_point ?? '', r.start_boarding_time ?? '',
-      r.end_boarding_point ?? '', r.end_boarding_time ?? '',
+      r.end_boarding_point ?? '', r.end_boarding_time ?? '', r.halt_beta ?? '',
     ])
     downloadExcel([SERVICE_TEMPLATE_HEADERS, ...rows], `ServiceRoutes_${Date.now()}.xlsx`)
     toast.success(`Exported ${rows.length} routes`)
@@ -269,12 +276,13 @@ export default function ServiceNoPage() {
             start_boarding_time: parseExcelTime(r[19]),
             end_boarding_point: String(r[20] ?? '').trim() || null,
             end_boarding_time: parseExcelTime(r[21]),
+            halt_beta: String(r[22] ?? '').trim() || '0',
           }
           const values = [payload.serviceFor, payload.serviceNo, payload.fromCity, payload.toCity, payload.viaPlaces,
             payload.parkingAmount, payload.driverOneBeta, payload.driverTwoBeta, payload.helperBeta, payload.conductorBeta,
             payload.distance, payload.optDriver, payload.optHelper, payload.optDriverSalary, payload.optHelperSalary, payload.remarks,
             payload.line_code, payload.route_id, payload.start_boarding_point, payload.start_boarding_time,
-            payload.end_boarding_point, payload.end_boarding_time]
+            payload.end_boarding_point, payload.end_boarding_time, payload.halt_beta]
           return { payload, preview: { values: values.map(v => v ?? ''), isDuplicate: existingNos.has(serviceNo.toLowerCase()) } }
         })
       if (rows.length === 0) { toast.error('No valid rows found (Service For and Service No are required)'); return }
@@ -335,12 +343,35 @@ export default function ServiceNoPage() {
               </div>
 
               <TopNavTabs
-                tabs={['Bus', 'Van']}
-                activeTab={form.vehicle_type === 'van' ? 'Van' : 'Bus'}
-                onChange={(t) => switchVehicleType(t.toLowerCase() as 'bus' | 'van')}
+                tabs={['Bus', 'Van', 'Halt']}
+                activeTab={formTab}
+                onChange={(t) => {
+                  if (t === 'Halt') { setFormTab('Halt'); return }
+                  setFormTab(t as 'Bus' | 'Van')
+                  switchVehicleType(t.toLowerCase() as 'bus' | 'van')
+                }}
               />
 
-              {form.vehicle_type === 'van' ? (
+              {formTab === 'Halt' ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                  <div>
+                    <Label>Halt Beta (₹)</Label>
+                    <Input type="number" placeholder="Enter halt beta" value={form.halt_beta} onChange={set('halt_beta')} />
+                    <p className="text-[11px] text-slate-400 mt-1.5">
+                      Paid to each assigned crew member when this service is marked
+                      <span className="font-semibold text-slate-500"> Halt </span>
+                      on Trip Creation, in place of their running beta.
+                    </p>
+                  </div>
+                  <div className="md:col-span-2 self-end">
+                    <p className="text-[11px] text-slate-400">
+                      This applies to the service number itself — it stays a
+                      <span className="font-semibold text-slate-500"> {form.vehicle_type === 'van' ? 'Van' : 'Bus'} </span>
+                      route; only the amount charged on a halted day changes.
+                    </p>
+                  </div>
+                </div>
+              ) : form.vehicle_type === 'van' ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                   <div>
                     <Label>Service For <span className="text-red-500">*</span></Label>
