@@ -2225,9 +2225,13 @@ exports.addexpensesdetails = function (req, res) {
     req.body,
     function (err, results) {
       if (err || !results || !results.insertId) {
+        // The cause used to be swallowed entirely, so a failed filing gave the
+        // user (and the log) nothing but "Failed to add...". Surface it.
+        console.error('[addexpensesdetails] tripexpenses_data insert failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
         return res.status(500).send({
           status: 500,
           message: "Failed to add diagnostic patient details.",
+          detail: err && (err.sqlMessage || err.message) || 'no insertId returned',
         });
       }
       appmdl.adddiagnoptntTstdtsmmdl(
@@ -2237,9 +2241,11 @@ exports.addexpensesdetails = function (req, res) {
         req.body,
         function (err, testDetails) {
           if (err || !testDetails) {
+            console.error('[addexpensesdetails] debit rows failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
             return res.status(500).send({
               status: 500,
               message: "Failed to add diagnostic test details.",
+              detail: err && (err.sqlMessage || err.message) || 'no result returned',
             });
           }
           appmdl.adddingcreditmmdl(
@@ -2249,9 +2255,11 @@ exports.addexpensesdetails = function (req, res) {
             req.body,
             function (err, testDetails) {
               if (err || !testDetails) {
+                console.error('[addexpensesdetails] credit rows failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
                 return res.status(500).send({
                   status: 500,
                   message: "Failed to add diagnostic test details.",
+                  detail: err && (err.sqlMessage || err.message) || 'no result returned',
                 });
               }
               appmdl.updatefunction(
@@ -2260,11 +2268,13 @@ exports.addexpensesdetails = function (req, res) {
                 req.body,
                 function (err, updateResult) {
                   if (err || !updateResult) {
+                    console.error('[addexpensesdetails] trip_created update failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
                     return res
                       .status(500)
                       .send({
                         status: 500,
                         message: "Failed to update function.",
+                        detail: err && (err.sqlMessage || err.message) || 'no result returned',
                       });
                   }
                   var finish = function () {
