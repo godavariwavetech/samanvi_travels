@@ -56,6 +56,15 @@ const today = new Date().toISOString().split('T')[0]
 const firstOfMonth = today.slice(0, 8) + '01'
 
 const num = (v: any) => Number(v) || 0
+// Per-trip opting rate off the Service No master. The amount is edited there as
+// optDriverSalary / optHelperSalary; the older optDriver / optHelper columns
+// carry the same figure only on rows the legacy Angular master wrote (it had no
+// separate *Salary field) and come back '' or '0' on everything the React
+// master has saved since. Reading only the legacy pair made Total Salary — and
+// with it the auto-added "Salaries" debit row — always ₹0. Current column
+// first, legacy as the fallback.
+const optRate = (rate: any, role: 'Driver' | 'Helper'): number =>
+  num(rate?.['opt' + role + 'Salary']) || num(rate?.['opt' + role])
 const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor', 'optDriver1', 'optDriver2', 'optHelper']
 const EXPENSE_KEYS: ExpenseKey[] = ['beta', 'salary', 'parking']
 // Resolved by NAME, not id: these ledgers are seeded per database (see the trip
@@ -515,6 +524,8 @@ export default function TripExpensesPage() {
     const res = await tripsService.getBeta({ serviceNo: row.service_no })
     const rate = res?.data?.[0]
     if (rate) {
+      const optDriverRate = optRate(rate, 'Driver')
+      const optHelperRate = optRate(rate, 'Helper')
       setForm((f) => ({
         ...f,
         driveronesalary: String(rate.driverOneBeta ?? ''),
@@ -524,9 +535,9 @@ export default function TripExpensesPage() {
         // Opting-rate amounts always come along from the route now — whether
         // they actually count toward a total is gated on an opt person being
         // assigned (see personAmount), not on this being fetched.
-        driveronesudsalary: String(rate.optDriver ?? ''),
-        drivertwosudsalary: String(rate.optDriver ?? ''),
-        helpersudsalary: String(rate.optHelper ?? ''),
+        driveronesudsalary: String(optDriverRate || ''),
+        drivertwosudsalary: String(optDriverRate || ''),
+        helpersudsalary: String(optHelperRate || ''),
         parking_amt: String(rate.parkingAmount ?? ''),
       }))
 
@@ -537,9 +548,9 @@ export default function TripExpensesPage() {
       // Same "vacant seat" rule as isOptingRole — an opting hand only bills when
       // the role's own slot is empty, so a legacy row carrying an opt_* person
       // beside a real driver doesn't seed a phantom opting salary.
-      const optDriver1Amt = optingActive(row.driver1_id, row.opt_driver1_id) ? num(rate.optDriver) : 0
-      const optDriver2Amt = optingActive(row.driver2_id, row.opt_driver2_id) ? num(rate.optDriver) : 0
-      const optHelperAmt = optingActive(row.helper_id, row.opt_helper_id) ? num(rate.optHelper) : 0
+      const optDriver1Amt = optingActive(row.driver1_id, row.opt_driver1_id) ? optDriverRate : 0
+      const optDriver2Amt = optingActive(row.driver2_id, row.opt_driver2_id) ? optDriverRate : 0
+      const optHelperAmt = optingActive(row.helper_id, row.opt_helper_id) ? optHelperRate : 0
       const parkingAmt = num(rate.parkingAmount)
       const total = driver1Amt + driver2Amt + helperAmt + conductorAmt + optDriver1Amt + optDriver2Amt + optHelperAmt + parkingAmt
       const amountFor: Record<PersonKey, number> = {
