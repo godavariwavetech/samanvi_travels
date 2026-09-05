@@ -3,10 +3,11 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Bus, Save, Plus, X, Edit2, Upload, Download, FileSpreadsheet, History, Clock, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
+import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
 import { excelCellToISODate } from '@/lib/utils'
 import * as XLSX from 'xlsx'
@@ -67,7 +68,11 @@ const EMPTY_NORMAL = {
 }
 
 const EMPTY_SPARE = { bus_no: '', ownername: '' }
-const EMPTY_HIRE = { bus_no: '' }
+const EMPTY_HIRE = { bus_no: '', owner_ledger_id: '', ownername: '' }
+// The hire-bus group: owner ledgers live under EQUITIES AND LIABILITIES >
+// 3) CURRENT LIABILITIES > Payables > Hire Vehicles, which already holds the
+// real owners on the live chart of accounts.
+const HIRE_GROUP = 'Hire Vehicles'
 
 function fmtDate(d: any) {
   if (!d) return '—'
@@ -220,6 +225,44 @@ export default function BusNoPage() {
     setNormalForm((f) => ({ ...f, [k]: e.target.value }))
 
   const { data, isLoading } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
+  // Owner ledgers for the Hire Bus form, plus the container to create new ones under.
+  const { data: ledgerData, refetch: reloadLedgers } = useQuery({
+    queryKey: ['expense-trip-ledgers'], queryFn: () => accountingService.getExpenseTripLedger(),
+  })
+  const { data: subchildData } = useQuery({
+    queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild(),
+  })
+  const hireLedgers: any[] = (ledgerData?.data ?? []).filter((l: any) => String(l.subchildtwo ?? '') === HIRE_GROUP)
+  const hireLedgerOptions = hireLedgers.map((l: any) => ({ value: String(l.ledger_id), label: String(l.temple_name ?? '') }))
+  const hireContainer = (subchildData?.data ?? []).find(
+    (c: any) => String(c.temple_name ?? '') === HIRE_GROUP && String(c.child ?? '') === 'Payables')
+  const [newOwner, setNewOwner] = useState('')
+  const [addingOwner, setAddingOwner] = useState(false)
+  // Create an owner ledger straight from the form rather than sending the user
+  // to the Ledger master and back; it is selected into the row on success.
+  const createOwnerLedger = async () => {
+    const name = newOwner.trim()
+    if (!name) return
+    if (!hireContainer) { toast.error(`No "${HIRE_GROUP}" group found under Payables — it is seeded on server start`); return }
+    setAddingOwner(true)
+    try {
+      const res: any = await accountingService.addLedgerData({
+        temple_name: name, amount: 0, parent_level: 4,
+        parent_subgroup_id: hireContainer.village_id, parent_subchild_id: hireContainer.id,
+        district_id: hireContainer.district_id, staticname: hireContainer.staticentry,
+        mandal_id: hireContainer.mandal_id, mandal_name: hireContainer.mandal_name,
+        village_id: hireContainer.village_id, child: hireContainer.child,
+        subchildtwo: hireContainer.temple_name,
+        user_id: localStorage.getItem('user_id'), entry_by: localStorage.getItem('usr_nm'),
+      })
+      if (res?.status !== 200) { toast.error(res?.message ?? 'Failed to create ledger'); return }
+      const fresh = await reloadLedgers()
+      const made = (fresh.data?.data ?? []).find((l: any) => String(l.temple_name ?? '') === name)
+      setHireForm((f) => ({ ...f, owner_ledger_id: made ? String(made.ledger_id) : '', ownername: name }))
+      setNewOwner('')
+      toast.success(`Ledger "${name}" created under ${HIRE_GROUP}`)
+    } finally { setAddingOwner(false) }
+  }
 
   const busList: any[] = useMemo(() =>
     (data?.data ?? []).map((b: any) => ({
@@ -265,7 +308,8 @@ export default function BusNoPage() {
     const uid = localStorage.getItem('user_id') ?? ''
     const unm = localStorage.getItem('usr_nm') ?? ''
     return {
-      busno: hireForm.bus_no, busnumber: hireForm.bus_no, ownername: '',
+      busno: hireForm.bus_no, busnumber: hireForm.bus_no, ownername: hireForm.ownername,
+      owner_ledger_id: hireForm.owner_ledger_id,
       issparetank: 0, buscategory: 'hire', engineno: '', chassisno: '', vehicletype: '', company: '',
       dateofpurchase: '', odometer: '', insurancevalidity: '', pollutionvalidity: '', fcvalidity: '',
       basepointvalidity: '', hometaxvalidity: '', atpvalidity: '', atpauthenticationvalidity: '',
@@ -295,7 +339,7 @@ export default function BusNoPage() {
       setSpareForm({ bus_no: row.bus_no ?? '', ownername: row.ownername ?? '' })
     } else if (row.bus_category === 'hire') {
       setBusType('hire')
-      setHireForm({ bus_no: row.bus_no ?? '' })
+      setHireForm({ bus_no: row.bus_no ?? '', owner_ledger_id: String(row.owner_ledger_id ?? ''), ownername: row.ownername ?? '' })
     } else {
       setBusType('normal')
       setNormalForm({
@@ -507,6 +551,28 @@ export default function BusNoPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div><Label>Registration Number <span className="text-red-500">*</span></Label>
                     <Input placeholder="Enter Registration Number" value={hireForm.bus_no} onChange={(e) => setHireForm((f) => ({ ...f, bus_no: e.target.value }))} /></div>
+                  <div>
+                    <Label>Owner Ledger <span className="text-red-500">*</span></Label>
+                    <SearchableSelect
+                      placeholder="Select owner" options={hireLedgerOptions} value={hireForm.owner_ledger_id}
+                      onChange={(v) => {
+                        const l = hireLedgers.find((x: any) => String(x.ledger_id) === v)
+                        setHireForm((f) => ({ ...f, owner_ledger_id: v, ownername: String(l?.temple_name ?? '') }))
+                      }}
+                      onClear={() => setHireForm((f) => ({ ...f, owner_ledger_id: '', ownername: '' }))} />
+                    <p className="text-[11px] text-slate-400 mt-1.5">
+                      Payables › {HIRE_GROUP} — who we pay for this vehicle.
+                    </p>
+                  </div>
+                  <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                    <Label>Owner not listed? Create the ledger</Label>
+                    <div className="flex gap-2">
+                      <Input placeholder="New owner name" value={newOwner} onChange={(e) => setNewOwner(e.target.value)} />
+                      <Button variant="ghost" onClick={() => createOwnerLedger()} disabled={addingOwner || !newOwner.trim()}>
+                        <Plus className="w-4 h-4" /> {addingOwner ? 'Creating…' : 'Create'}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )}
 

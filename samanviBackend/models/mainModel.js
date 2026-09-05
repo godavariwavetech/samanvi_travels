@@ -243,6 +243,18 @@ var moment = require("moment");
       });
     }
   });
+  // The hire-bus owner's ledger, chosen on the Bus Masters "Hire Bus" form.
+  // VARCHAR rather than INT on purpose: updatebusnumber quotes every value into
+  // its SET clause, so an unset id arrives as '' and a strict server rejects
+  // that for an integer column - the same trap that broke expense filing.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'busses' AND COLUMN_NAME = 'owner_ledger_id'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE busses ADD COLUMN owner_ledger_id VARCHAR(20) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] busses.owner_ledger_id migration:', err.message);
+        else console.log('[DB] busses.owner_ledger_id column added');
+      });
+    }
+  });
   // Halt Beta - what each assigned crew member is paid when a service is marked
   // Halt on Trip Creation instead of running. Lives on the service number beside
   // its running betas (the "Halt" tab on that form) and is what Trip Expenses
@@ -528,7 +540,10 @@ var moment = require("moment");
   // ledger of their own, so Trip Expenses credits this one instead. Ensured
   // right after its container, in the same callback, so a fresh database gets
   // both on the first boot rather than the ledger only on the second.
-  ['Drivers', 'Staff', 'Helpers', 'Opting'].forEach(function (label) {
+  // 'Hire Vehicles' is the hire-bus group: the owners we hire vehicles from, and
+  // therefore owe. It predates this app on the live database (it already holds
+  // real owner ledgers), so it is guarded rather than assumed.
+  ['Drivers', 'Staff', 'Helpers', 'Opting', 'Hire Vehicles'].forEach(function (label) {
     sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
       if (err) return;
       var ensureOptingLedger = function () {
@@ -1065,7 +1080,8 @@ exports.addNewbusnumMdl = function (data, callback) {
     body_made: data.bodymade || null,
     chassis_model: data.chassismodel || null,
     mfg_year: data.mfgyear || null,
-    reg_date: data.regdate || null
+    reg_date: data.regdate || null,
+    owner_ledger_id: data.owner_ledger_id || null
   };
   //console.log()dta, 334);
 
@@ -9811,7 +9827,7 @@ var BUS_FIELD_LABELS = {
   pollution_validity: 'PUCC Validity', base_point_validity: 'Permit Validity', date_of_purchase: 'Purchase Date',
   atp_validity: 'AITP Validity', fc_validity: 'Fitness Validity', atp_authentication_validity: 'Authorization Validity',
   home_tax_validity: 'Home Tax Validity', service_out_date: 'Service Out Date', remarks: 'Remarks',
-  bus_category: 'Category', luxury_type: 'Luxury Type', seating_capacity: 'Seating Capacity',
+  bus_category: 'Category', owner_ledger_id: 'Owner Ledger', luxury_type: 'Luxury Type', seating_capacity: 'Seating Capacity',
   chassis_make: 'Chassis Make', body_made: 'Body Made', chassis_model: 'Chassis Model',
   mfg_year: 'Mfg Year', reg_date: 'Registration Date',
 };
@@ -9829,7 +9845,8 @@ exports.updatebusnumber = function (data, callback) {
     date_of_purchase: data.dateofpurchase, atp_validity: data.atpvalidity, fc_validity: data.fcvalidity,
     atp_authentication_validity: data.atpauthenticationvalidity, home_tax_validity: data.hometaxvalidity,
     service_out_date: data.serviceoutdate, remarks: data.remarks,
-    bus_category: data.buscategory || 'normal', luxury_type: data.luxurytype, seating_capacity: data.seatingcapacity,
+    bus_category: data.buscategory || 'normal', owner_ledger_id: data.owner_ledger_id || '',
+    luxury_type: data.luxurytype, seating_capacity: data.seatingcapacity,
     chassis_make: data.chassismake, body_made: data.bodymade, chassis_model: data.chassismodel,
     mfg_year: data.mfgyear, reg_date: data.regdate || '',
   };
