@@ -73,6 +73,9 @@ const optRate = (rate: any, role: 'Driver' | 'Helper'): number =>
 const PERSON_KEYS: PersonKey[] = ['driver1', 'driver2', 'helper', 'conductor', 'opting']
 type OptingSeat = 'driver1' | 'driver2' | 'helper'
 const OPTING_SEATS: OptingSeat[] = ['driver1', 'driver2', 'helper']
+// <option> value standing in for "Opting" in the modal's crew selects — a
+// registered person's id is always numeric, so this can never collide.
+const OPTING_VALUE = '__opting__'
 // A seat is opting when it has no registered person behind it and was set to
 // "Opting" on Trip Creation (stored as the role's name with an empty id). The
 // legacy opt_*_id columns are honoured too, so a trip written while the old
@@ -1145,31 +1148,37 @@ export default function TripExpensesPage() {
                     </div>
                     <div>
                       <Label>Driver1 Name</Label>
-                      <Select value={form.driver1_id} onChange={(e) => {
+                      <Select value={isOptingRole('driver1') ? OPTING_VALUE : form.driver1_id} onChange={(e) => {
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver1_id: '', driver1_name: 'Opting', opt_driver1_id: '', opt_driver1_name: '' })); return }
                         const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
-                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '' }))
+                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '', opt_driver1_id: '', opt_driver1_name: '' }))
                       }}>
                         <option value="">— Select —</option>
+                        <option value={OPTING_VALUE}>Opting (unlisted person)</option>
                         {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                       </Select>
                     </div>
                     <div>
                       <Label>Driver2 Name</Label>
-                      <Select value={form.driver2_id} onChange={(e) => {
+                      <Select value={isOptingRole('driver2') ? OPTING_VALUE : form.driver2_id} onChange={(e) => {
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver2_id: '', driver2_name: 'Opting', opt_driver2_id: '', opt_driver2_name: '' })); return }
                         const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
-                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '' }))
+                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '', opt_driver2_id: '', opt_driver2_name: '' }))
                       }}>
                         <option value="">— Select —</option>
+                        <option value={OPTING_VALUE}>Opting (unlisted person)</option>
                         {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                       </Select>
                     </div>
                     <div>
                       <Label>Helper Name</Label>
-                      <Select value={form.helper_id} onChange={(e) => {
+                      <Select value={isOptingRole('helper') ? OPTING_VALUE : form.helper_id} onChange={(e) => {
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, helper_id: '', helper_name: 'Opting', opt_helper_id: '', opt_helper_name: '' })); return }
                         const h = helpers.find((x: any) => String(x.id) === e.target.value)
-                        setForm((f) => ({ ...f, helper_id: e.target.value, helper_name: h?.helper_name ?? h?.nickname ?? '' }))
+                        setForm((f) => ({ ...f, helper_id: e.target.value, helper_name: h?.helper_name ?? h?.nickname ?? '', opt_helper_id: '', opt_helper_name: '' }))
                       }}>
                         <option value="">— Select —</option>
+                        <option value={OPTING_VALUE}>Opting (unlisted person)</option>
                         {helpers.map((h: any) => <option key={h.id} value={h.id}>{h.helper_name ?? h.nickname}</option>)}
                       </Select>
                     </div>
