@@ -3646,6 +3646,28 @@ exports.getbetaCtrl = function (req, res) {
   });
 };
 
+// Halt Beta is one company-wide amount (app_settings.halt_beta), applied to
+// every crew member on any service marked Halt.
+exports.gethaltbetaCtrl = function (req, res) {
+  appmdl.gethaltbetaMdl(req.body, function (err, results) {
+    if (err) {
+      res.send({ status: 500, msg: "Server Error" });
+      return;
+    }
+    res.send({ status: 200, data: { halt_beta: (results && results[0] && results[0].setting_value) || "" } });
+  });
+};
+
+exports.savehaltbetaCtrl = function (req, res) {
+  appmdl.savehaltbetaMdl(req.body, function (err) {
+    if (err) {
+      res.send({ status: 500, msg: err.message || "Server Error" });
+      return;
+    }
+    res.send({ status: 200, msg: "Halt beta saved" });
+  });
+};
+
 exports.getmodaldataCtrl = function (req, res) {
   var data = req.body;
   appmdl.getmodaldataMdl(data, function (err, results) {

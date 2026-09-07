@@ -78,6 +78,10 @@ export const mastersService = {
   updateServiceRoute: (data: unknown) => api.post('/updateserviceno', data).then((r) => r.data),  // plain JSON — controller reads req.body directly
   deleteServiceRoute: (data: unknown) => api.post('/deletedriverone', securePayload(data)).then((r) => r.data),
 
+  // ── Halt Beta (one company-wide amount, app_settings) ────
+  getHaltBeta: () => api.post('/gethaltbeta', {}).then((r) => r.data),
+  saveHaltBeta: (data: unknown) => api.post('/savehaltbeta', data).then((r) => r.data),  // plain JSON — controller reads req.body directly
+
   // ── Service Numbers ──────────────────────────────────────
   getServiceNumbers: () => api.post('/getservicenumberdata', {}).then((r) => r.data),
   addServiceNumber: (data: unknown) => api.post('/addservicenumner', securePayload(data)).then((r) => r.data),

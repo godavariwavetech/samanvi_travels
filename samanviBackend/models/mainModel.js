@@ -255,10 +255,9 @@ var moment = require("moment");
       });
     }
   });
-  // Halt Beta - what each assigned crew member is paid when a service is marked
-  // Halt on Trip Creation instead of running. Lives on the service number beside
-  // its running betas (the "Halt" tab on that form) and is what Trip Expenses
-  // charges for a halted trip.
+  // Legacy: Halt Beta started as a per-service-number rate on driverone. It is now
+  // one company-wide amount in app_settings (see below) and nothing reads or
+  // writes this column any more; the migration stays so older rows keep loading.
   sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driverone' AND COLUMN_NAME = 'halt_beta'`, function (err, rows) {
     if (!err && rows && rows.length === 0) {
       sqldb.query(`ALTER TABLE driverone ADD COLUMN halt_beta VARCHAR(50) DEFAULT NULL`, function (err) {
@@ -266,6 +265,18 @@ var moment = require("moment");
         else console.log('[DB] driverone.halt_beta column added');
       });
     }
+  });
+  // Halt Beta is a single company-wide amount, not a per-service-number rate, so
+  // it lives in app_settings under the key 'halt_beta' rather than on driverone.
+  // Generic key/value table so later one-off settings need no new migration.
+  sqldb.query(`CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key VARCHAR(100) NOT NULL PRIMARY KEY,
+    setting_value VARCHAR(255) DEFAULT NULL,
+    updated_by VARCHAR(100) DEFAULT NULL,
+    updated_userid VARCHAR(20) DEFAULT NULL,
+    u_ts DATETIME DEFAULT NULL
+  )`, function (err) {
+    if (err) console.log('[DB] app_settings migration:', err.message);
   });
   sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'driver_register' AND COLUMN_NAME = 'driver_type'`, function (err, rows) {
     if (!err && rows && rows.length === 0) {
@@ -534,12 +545,18 @@ var moment = require("moment");
           });
       });
   });
-  // "Opting" is a fourth container with a single ledger of the same name in
-  // it: the payee for a trip seat covered by someone who isn't on the driver /
-  // helper register (Trip Creation's "Opting" option). Such a person has no
-  // ledger of their own, so Trip Expenses credits this one instead. Ensured
-  // right after its container, in the same callback, so a fresh database gets
-  // both on the first boot rather than the ledger only on the second.
+  // "Opting" is a fourth container, holding one ledger per crew role: the payee
+  // for a trip seat covered by someone who isn't on the driver / helper / staff
+  // register (Trip Creation's "Opting Driver" / "Opting Helper" / "Opting
+  // Conductor" options). Such a person has no ledger of their own, so Trip
+  // Expenses credits the one for their role instead — split per role so driver
+  // and helper opting spend stay separately visible. Ensured right after the
+  // container, in the same callback, so a fresh database gets both on the first
+  // boot rather than the ledgers only on the second.
+  //
+  // An "Opting" ledger from before the split is left exactly where it is: it
+  // still carries the journal entries already posted against it, and renaming it
+  // would silently retag that history as one role's.
   // 'Hire Vehicles' is the hire-bus group: the owners we hire vehicles from, and
   // therefore owe. It predates this app on the live database (it already holds
   // real owner ledgers), so it is guarded rather than assumed.
@@ -548,12 +565,15 @@ var moment = require("moment");
       if (err) return;
       var ensureOptingLedger = function () {
         if (label !== 'Opting') return;
-        sqldb.query(`SELECT id FROM mainmasterssubchildtwo WHERE LOWER(temple_name) = 'opting' AND d_in = 0 LIMIT 1`, function (err, ledRows) {
-          if (err || (ledRows && ledRows.length)) return;
-          module.exports.ensurePersonLedger('Opting', 'Opting', null, 'system', function (err) {
-            if (err) console.log('[DB] Opting ledger seed:', err.message);
-            else console.log('[DB] Opting payables ledger seeded');
-          });
+        ['Opting Driver', 'Opting Helper', 'Opting Conductor'].forEach(function (ledgerName) {
+          sqldb.query(`SELECT id FROM mainmasterssubchildtwo WHERE LOWER(temple_name) = ? AND d_in = 0 LIMIT 1`,
+            [ledgerName.toLowerCase()], function (err, ledRows) {
+              if (err || (ledRows && ledRows.length)) return;
+              module.exports.ensurePersonLedger('Opting', ledgerName, null, 'system', function (err) {
+                if (err) console.log('[DB] ' + ledgerName + ' ledger seed:', err.message);
+                else console.log('[DB] ' + ledgerName + ' payables ledger seeded');
+              });
+            });
         });
       };
       if (rows && rows.length) return ensureOptingLedger();
@@ -563,6 +583,31 @@ var moment = require("moment");
         ensureOptingLedger();
       });
     });
+  });
+  // Opting seats used to be stored as the bare name "Opting" on every role. Each
+  // role now has its own name and its own ledger, and Trip Expenses resolves that
+  // ledger from the stored name, so rename the old rows to their role's name.
+  // Guarded on an empty person id: that is what makes a seat opting rather than a
+  // real crew member who happens to be called Opting. Runs every boot but matches
+  // nothing once done.
+  [
+    { tbl: 'trip_created', col: 'driver1_name', id: 'driver1_id', to: 'Opting Driver' },
+    { tbl: 'trip_created', col: 'driver2_name', id: 'driver2_id', to: 'Opting Driver' },
+    { tbl: 'trip_created', col: 'helper_name', id: 'helper_id', to: 'Opting Helper' },
+    { tbl: 'trip_created', col: 'conductor_name', id: 'conductor_id', to: 'Opting Conductor' },
+    { tbl: 'tripexpenses_data', col: 'driver1_name', id: 'driver1_id', to: 'Opting Driver' },
+    { tbl: 'tripexpenses_data', col: 'driver2_name', id: 'driver2_id', to: 'Opting Driver' },
+    { tbl: 'tripexpenses_data', col: 'helper_name', id: 'helper_id', to: 'Opting Helper' },
+    { tbl: 'tripexpenses_data', col: 'conductor_name', id: 'conductor_id', to: 'Opting Conductor' },
+  ].forEach(function (m) {
+    sqldb.query(
+      'UPDATE `' + m.tbl + '` SET `' + m.col + '` = ? WHERE TRIM(LOWER(`' + m.col + '`)) = \'opting\' ' +
+      'AND (`' + m.id + '` IS NULL OR `' + m.id + '` = 0 OR `' + m.id + '` = \'\')',
+      [m.to],
+      function (err, res) {
+        if (err) return console.log('[DB] ' + m.tbl + '.' + m.col + ' opting rename:', err.message);
+        if (res && res.affectedRows) console.log('[DB] ' + m.tbl + '.' + m.col + ': renamed ' + res.affectedRows + ' row(s) to ' + m.to);
+      });
   });
   // Trip reference on a voucher, so a trip-sourced voucher can show which trip
   // it came from the same way job_card_number/battery_code/tyre_code already do
@@ -1202,7 +1247,6 @@ exports.driverone = function (data, callback) {
     bus_operator_name: data.bus_operator_name || null,
     trip_type: data.trip_type || null,
     up_down: data.up_down || null,
-    halt_beta: data.halt_beta || null,
   };
   //console.log()dta, 400);
   // var QRY_TO_EXEC = `insert into  driverone (name,mobile_number,cts) VALUES('${data.drive_one}','${data.mobile_number}','${date}')  `;
@@ -6026,6 +6070,30 @@ exports.getbetaMdl = function (data, callback) {
   } else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
+// ── Halt Beta ───────────────────────────────────────────────────────────────
+// One amount for the whole company: what each assigned crew member is paid when
+// a service is marked Halt on Trip Creation, in place of their running beta.
+exports.gethaltbetaMdl = function (data, callback) {
+  var cntxtDtls = "in gethaltbetaMdl";
+  var QRY_TO_EXEC = `SELECT setting_value FROM app_settings WHERE setting_key = 'halt_beta'`;
+  return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
+    if (callback && typeof callback == "function") callback(err, results);
+  });
+};
+
+exports.savehaltbetaMdl = function (data, callback) {
+  var cntxtDtls = "in savehaltbetaMdl";
+  var date = moment().format("YYYY-MM-DD HH:mm:ss");
+  var QRY_TO_EXEC = `INSERT INTO app_settings (setting_key, setting_value, updated_by, updated_userid, u_ts)
+    VALUES ('halt_beta', ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by),
+      updated_userid = VALUES(updated_userid), u_ts = VALUES(u_ts)`;
+  var params = [String(data.halt_beta == null ? '' : data.halt_beta), data.usrnm || null, data.userid || null, date];
+  return dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, params, cntxtDtls, function (err, results) {
+    if (callback && typeof callback == "function") callback(err, results);
+  });
+};
+
 exports.getmodaldataMdl = function (data, callback) {
   var cntxtDtls = "in getbetaMdl";
   //console.log()data, 5242);
@@ -9963,7 +10031,7 @@ exports.updateservicenumber = function (data, callback) {
 exports.updateservicenoMdl = function (data, callback) {
   // console.log(data)
   var cntxtDtls = "in updateservicenoMdl";
-  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}',up_down='${data.up_down || ''}',halt_beta='${data.halt_beta || ''}' WHERE  id = '${data.id}'`;
+  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}',up_down='${data.up_down || ''}' WHERE  id = '${data.id}'`;
   //console.log()QRY_TO_EXEC, 10136)
   if (callback && typeof callback == "function")
     dbutil.execQuery(
@@ -14743,10 +14811,13 @@ exports.bulkUploadServiceRoutesMdl = function (rows, userId, usrNm, callback) {
         r.remarks || null, userId, usrNm, date, r.service_for_id || null,
         r.line_code || null, r.route_id || null,
         r.start_boarding_point || null, r.start_boarding_time || null,
-        r.end_boarding_point || null, r.end_boarding_time || null, r.halt_beta || null,
+        r.end_boarding_point || null, r.end_boarding_time || null,
+        // Van sheets carry these instead of the cities/betas above; a Bus sheet
+        // leaves them null and the row keeps defaulting to vehicle_type 'bus'.
+        r.vehicle_type || 'bus', r.bus_operator_id || null, r.bus_operator_name || null, r.trip_type || null,
       ];
     });
-    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, optDriverSalary, optHelperSalary, remarks, user_id, usr_nm, i_ts, service_for_id, line_code, route_id, start_boarding_point, start_boarding_time, end_boarding_point, end_boarding_time, halt_beta) VALUES ?';
+    var QRY = 'INSERT INTO driverone (serviceFor, serviceNo, fromCity, toCity, viaPlaces, parkingAmount, driverOneBeta, driverTwoBeta, helperBeta, conductorBeta, distance, optDriver, optHelper, optDriverSalary, optHelperSalary, remarks, user_id, usr_nm, i_ts, service_for_id, line_code, route_id, start_boarding_point, start_boarding_time, end_boarding_point, end_boarding_time, vehicle_type, bus_operator_id, bus_operator_name, trip_type) VALUES ?';
     dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
       if (err) return callback(err, null);
       callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length });

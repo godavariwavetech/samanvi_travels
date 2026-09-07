@@ -37,18 +37,31 @@ type GridRow = {
 // each one is an ad-hoc charter booking for a customer, not a driver/staff.
 type VanRow = {
   status: TripRunStatus
+  service_no: string; service_no_id: string
   line_code: string
   bus_no: string
   driver_id: string; driver_name: string
   hirer_name: string; phone_number: string
+  // Charged only when the vehicle is a hired one — an own van costs nothing to
+  // hire, so the field is inactive there rather than silently accepting a number.
+  amount: string
   remarks: string
 }
 
-const columns: Column[] = [
+// Built per render rather than fixed, so a created trip can be coloured by
+// whether its vehicle was hired — that fact lives in Bus Masters, not on the
+// trip row, so the set of hired vehicle numbers has to be handed in.
+const makeColumns = (hireBusNos: Set<string>): Column[] => [
   {
     label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
     filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
-    render: (v) => <Badge variant={v === 'van' ? 'purple' : 'info'}>{v === 'van' ? 'Van' : 'Bus'}</Badge>,
+    render: (v, r: any) => {
+      const hired = hireBusNos.has(String(r.bus_no ?? ''))
+      if (v === 'van') {
+        return <Badge variant={hired ? 'warning' : 'purple'}>{hired ? 'Van · Hire' : 'Van'}</Badge>
+      }
+      return <Badge variant={hired ? 'warning' : 'info'}>{hired ? 'Bus · Hire' : 'Bus'}</Badge>
+    },
   },
   {
     label: 'Trip ID / Date', key: 'c_number', filterable: true,
@@ -68,7 +81,7 @@ const columns: Column[] = [
     label: 'Bus / Service', key: 'bus_no', filterable: true,
     render: (v, r: any) => (
       <div>
-        <div className="font-semibold">{String(v ?? '—')}</div>
+        <div className={`font-semibold ${hireBusNos.has(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</div>
         <div className="text-xs text-slate-500">{r.vehicle_type === 'van' ? r.line_code : `${r.service_no ?? ''} · ${r.trip_for ?? ''}`}</div>
       </div>
     ),
@@ -214,7 +227,15 @@ export default function TripCreationPage() {
 
   // Option lists for the searchable dropdowns — built once per render and shared
   // by every grid row, rather than re-mapping the same master list per <td>.
-  const busOptions = buses.map((b: any) => ({ value: String(b.bus_no), label: String(b.bus_no) }))
+  // A bus trip can only be run by a bus and a van trip only by a van, so each
+  // grid gets its own vehicle list rather than sharing one of everything.
+  // busses.vehicle_type holds 'BUS'/'VAN'; anything not marked VAN is treated as
+  // a bus, so vehicles seeded before that column was filled in still show up on
+  // the Bus tab rather than vanishing from both.
+  const isVanVehicle = (b: any) => String(b.vehicle_type ?? '').trim().toUpperCase() === 'VAN'
+  const toVehicleOptions = (list: any[]) => list.map((b: any) => ({ value: String(b.bus_no), label: String(b.bus_no) }))
+  const busOptions = toVehicleOptions(buses.filter((b: any) => !isVanVehicle(b)))
+  const vanOptions = toVehicleOptions(buses.filter(isVanVehicle))
   // One dropdown per role, listing everyone — the separate "Opting" selects that
   // used to sit beside each of these drew from these very same lists, so folding
   // them away costs no one their place in the list. Driver type and staff
@@ -224,41 +245,54 @@ export default function TripCreationPage() {
   // "NA" is a real entry rather than just a placeholder, so an unfilled slot
   // reads NA on screen and can be set back to NA after a wrong pick without
   // hunting for the × — SearchableSelect matches it because its value is ''.
-  // Both dropdowns carry two fixed entries above the people: "NA" for an unfilled
-  // slot and "Opting" for a seat covered by someone who is NOT on the driver /
-  // helper register — their name goes in Remarks, and Trip Expenses pays that
-  // seat through the shared "Opting" ledger at the service number's OPT rate.
-  // They are plain options rather than a suffix on every name, so the list
-  // stays one entry per person.
+  // Every crew dropdown carries two fixed entries above the people: "NA" for an
+  // unfilled slot, and an Opting entry for a seat covered by someone who is NOT
+  // on the driver / helper / staff register — their name goes in Remarks, and
+  // Trip Expenses pays that seat through the shared Payables ledger for its role
+  // at the service number's OPT rate. The Opting entry is named per role
+  // ("Opting Driver", "Opting Helper", "Opting Conductor") because each role has
+  // its own ledger, and Trip Expenses resolves that ledger from this very name.
+  // They are plain options rather than a suffix on every name, so the list stays
+  // one entry per person.
   const NA_OPTION = { value: '', label: 'NA' }
-  const OPTING = 'Opting'
-  const OPTING_OPTION = { value: OPTING, label: OPTING }
+  const OPTING_DRIVER = 'Opting Driver'
+  const OPTING_HELPER = 'Opting Helper'
+  const OPTING_CONDUCTOR = 'Opting Conductor'
+  const optingOption = (label: string) => ({ value: label, label })
   const driverName = (d: any) => String(d.nickname ?? d.driver_name ?? '')
   const helperName = (h: any) => String(h.helper_name ?? h.nickname ?? '')
-  const withOpting = (list: any[], name: (x: any) => string, suffix?: (x: any) => string | undefined) => [
+  const withOpting = (opting: string, list: any[], name: (x: any) => string, suffix?: (x: any) => string | undefined) => [
     NA_OPTION,
-    OPTING_OPTION,
+    optingOption(opting),
     ...list.map((x: any) => ({ value: String(x.id), label: withSuffix(name(x), suffix?.(x)) })),
   ]
+  // Any of the three Opting entries, recognised by prefix so a row saved before
+  // the roles were split (name "Opting") still reads as opting rather than as a
+  // stray person who has since been deleted.
+  const isOptingName = (v: any) => /^opting/i.test(String(v ?? '').trim())
 
-  // "Opting" is stored in the role's name with no id behind it, so it shows up
-  // as-is in the grid, the records table and the edit modal without needing a
-  // person to point at.
+  // An Opting entry is stored in the role's name with no id behind it, so it
+  // shows up as-is in the grid, the records table and the edit modal without
+  // needing a person to point at.
   const personPatch = (v: string, list: any[], nameOf: (x: any) => string,
     idKey: string, nameKey: string, optIdKey: string, optNameKey: string) => {
-    if (v === OPTING) {
-      return ({ [idKey]: '', [nameKey]: OPTING, [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
+    if (isOptingName(v)) {
+      return ({ [idKey]: '', [nameKey]: v, [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
     }
     const person = list.find((x: any) => String(x.id) === v)
     return ({ [idKey]: v, [nameKey]: person ? nameOf(person) : '', [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
   }
-  const personValue = (id: string, name: string) => (id ? id : name === OPTING ? OPTING : '')
+  // A stored name of "Opting" from before the split has no option of its own any
+  // more, so it resolves to its role's entry and re-saves under the new name.
+  const optingValueFor = (name: string, role: string) => (String(name).trim().length > 6 ? String(name).trim() : role)
+  const personValue = (id: string, name: string, role: string) =>
+    (id ? id : isOptingName(name) ? optingValueFor(name, role) : '')
   const clearPerson = (idKey: string, nameKey: string, optIdKey: string, optNameKey: string) =>
     ({ [idKey]: '', [nameKey]: '', [optIdKey]: '', [optNameKey]: '' }) as Record<string, string>
 
-  const driverOptions = withOpting(drivers, driverName, (d) => d.driver_type)
-  const helperOptions = withOpting(helpers, helperName)
-  const conductorOptions = [NA_OPTION, ...conductors.map((c: any) => ({
+  const driverOptions = withOpting(OPTING_DRIVER, drivers, driverName, (d) => d.driver_type)
+  const helperOptions = withOpting(OPTING_HELPER, helpers, helperName)
+  const conductorOptions = [NA_OPTION, optingOption(OPTING_CONDUCTOR), ...conductors.map((c: any) => ({
     value: String(c.id),
     label: withSuffix(String(c.nickName ?? c.fullName ?? ''), c.designation),
   }))]
@@ -279,9 +313,10 @@ export default function TripCreationPage() {
     remarks: '',
   })
   const makeEmptyVanRow = (): VanRow => ({
-    status: 'Running', line_code: '', bus_no: '',
+    status: 'Running', service_no: '', service_no_id: '', line_code: '', bus_no: '',
     driver_id: '', driver_name: '',
     hirer_name: '', phone_number: '',
+    amount: '',
     remarks: '',
   })
 
@@ -290,6 +325,19 @@ export default function TripCreationPage() {
   // Bus grid only shows Bus-type routes (any Van-type routes added via Service
   // Numbers are irrelevant here — Van trips are ad-hoc rows, not roster-driven).
   const serviceForOptions = [...new Set(allRoutes.map((r) => r.serviceFor).filter(Boolean))]
+  // Van rows are driven by the Van service numbers, which carry the trip type
+  // (pickup/drop) and the first boarding point shown read-only beside them.
+  const vanRoutes = allRoutes.filter((r) => r.vehicle_type === 'van')
+  const vanRouteOptions = vanRoutes.map((r) => ({ value: String(r.id), label: String(r.serviceNo ?? '') }))
+  const vanRouteById = (id: string) => vanRoutes.find((r) => String(r.id) === String(id))
+  // A hired vehicle is one added to Bus Masters through the Hire Bus form. It
+  // changes what the row means: the owner is paid an Amount and no driver of
+  // ours is on it, so the Driver cell goes inactive and Amount becomes required.
+  const hireBusNos = useMemo(
+    () => new Set(buses.filter((b: any) => String(b.bus_category ?? '') === 'hire').map((b: any) => String(b.bus_no))),
+    [buses])
+  const isHireBus = (busNo: string) => hireBusNos.has(String(busNo))
+  const columns = useMemo(() => makeColumns(hireBusNos), [hireBusNos])
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
     .filter((r) => !serviceForFilter || r.serviceFor === serviceForFilter)
@@ -370,16 +418,26 @@ export default function TripCreationPage() {
   const updateVanRow = (i: number, patch: Partial<VanRow>) =>
     setVanRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
 
+  // A hired van has no driver of ours to name but must carry its Amount; an own
+  // van is the other way round. Both still need a bus and a hirer.
+  const vanRowReady = (row: VanRow) => {
+    // Svc No is what gives the row its Pick/Drop and From, so a row without one
+    // is not a van trip yet, however complete the rest of it looks.
+    if (row.status === 'Halt' || !row.service_no_id || !row.bus_no || !row.hirer_name) return false
+    return isHireBus(row.bus_no) ? Number(row.amount) > 0 : !!row.driver_name
+  }
   const readyVanRows = vanRows
     .map((row, i) => ({ row, i }))
-    .filter(({ row }) => row.status !== 'Halt' && row.bus_no && row.driver_name && row.hirer_name)
+    .filter(({ row }) => vanRowReady(row))
 
   const { mutate: submitVanRows, isPending: submittingVan } = useMutation({
     mutationFn: () => {
       const rows = readyVanRows.map(({ row }) => ({
         vehicle_type: 'van', line_code: row.line_code, bus_no: row.bus_no,
+        service_no: row.service_no, service_no_id: row.service_no_id,
         driver1_id: row.driver_id, driver1_name: row.driver_name,
         hirer_name: row.hirer_name, phone_number: row.phone_number,
+        booking_amount: isHireBus(row.bus_no) ? row.amount : '',
         remarks: row.remarks, trip_run_status: row.status,
       }))
       return tripsService.bulkCreateTrips({
@@ -527,26 +585,57 @@ export default function TripCreationPage() {
                       <thead>
                         <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
                           <th className="py-2.5 px-3 w-12">Sl.No</th>
+                          <th className="py-2.5 px-3 w-40">Svc No</th>
                           <th className="py-2.5 px-3 w-44">Line Code</th>
+                          <th className="py-2.5 px-3 w-28">Pick/Drop</th>
+                          <th className="py-2.5 px-3 w-40">From</th>
                           <th className="py-2.5 px-3 w-32">Status</th>
-                          <th className="py-2.5 px-3 w-52">Bus No</th>
+                          <th className="py-2.5 px-3 w-52">Van No</th>
                           <th className="py-2.5 px-3 w-56">Driver</th>
                           <th className="py-2.5 px-3 w-40">Hirer Name</th>
                           <th className="py-2.5 px-3 w-32">Mobile</th>
+                          <th className="py-2.5 px-3 w-32">Amount</th>
                           <th className="py-2.5 px-3 w-80">Remarks</th>
                           <th className="py-2.5 px-3 w-10" />
                         </tr>
                       </thead>
                       <tbody>
                         {vanRows.length === 0 ? (
-                          <tr><td colSpan={9} className="py-6 text-center text-sm text-slate-400">No rows yet — click "+ Add Row" to start a van trip entry.</td></tr>
+                          <tr><td colSpan={13} className="py-6 text-center text-sm text-slate-400">No rows yet — click "+ Add Row" to start a van trip entry.</td></tr>
                         ) : vanRows.map((row, i) => {
+                          const svcRoute = vanRouteById(row.service_no_id)
+                          const hired = isHireBus(row.bus_no)
                           return (
-                            <tr key={i} className="border-b border-slate-100 align-top">
+                            // A hired van is tinted so a sheet of mixed rows shows at
+                            // a glance which trips are bought in rather than run by us.
+                            <tr key={i} className={`border-b border-slate-100 align-top ${hired ? 'bg-amber-50/60' : ''}`}>
                               <td className="py-2 px-3 text-slate-500">{i + 1}</td>
+                              <td className="py-2 px-3">
+                                <SearchableSelect className="min-w-[9rem]" placeholder="Select" options={vanRouteOptions}
+                                  value={row.service_no_id}
+                                  onChange={(v) => {
+                                    const r = vanRouteById(v)
+                                    updateVanRow(i, {
+                                      service_no_id: v,
+                                      service_no: String(r?.serviceNo ?? ''),
+                                      // The route's own line code wins unless the row already carries one.
+                                      line_code: row.line_code || String(r?.line_code ?? ''),
+                                    })
+                                  }}
+                                  onClear={() => updateVanRow(i, { service_no_id: '', service_no: '' })} />
+                              </td>
                               <td className="py-2 px-3">
                                 <MasterListPicker panelId={`van-line-code-panel-${i}`} queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
                                   valueKey="line_code" value={row.line_code} onChange={(v) => updateVanRow(i, { line_code: v })} placeholder="Select" />
+                              </td>
+                              {/* Pick/Drop and From are the service number's own trip
+                                  type and first boarding point — shown, not re-entered,
+                                  so a row can never disagree with its service master. */}
+                              <td className="py-2 px-3 text-sm text-slate-600 capitalize">
+                                {svcRoute?.trip_type || <span className="text-slate-300">—</span>}
+                              </td>
+                              <td className="py-2 px-3 text-sm text-slate-600">
+                                {svcRoute?.start_boarding_point || svcRoute?.fromCity || <span className="text-slate-300">—</span>}
                               </td>
                               <td className="py-2 px-3">
                                 <select
@@ -560,13 +649,30 @@ export default function TripCreationPage() {
                                 </select>
                               </td>
                               <td className="py-2 px-3">
-                                <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptions}
-                                  value={row.bus_no} onChange={(v) => updateVanRow(i, { bus_no: v })} onClear={() => updateVanRow(i, { bus_no: '' })} />
+                                <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={vanOptions}
+                                  value={row.bus_no}
+                                  onChange={(v) => updateVanRow(i, isHireBus(v)
+                                    // Switching to a hired vehicle drops the driver: no
+                                    // driver of ours is on it, so leaving a stale name
+                                    // behind would file a trip against the wrong person.
+                                    ? { bus_no: v, driver_id: '', driver_name: '' }
+                                    : { bus_no: v, amount: '' })}
+                                  onClear={() => updateVanRow(i, { bus_no: '' })} />
+                                {hired && <p className="text-[10px] font-bold text-amber-700 mt-1">Hired vehicle</p>}
                               </td>
                               <td className="py-2 px-3">
-                                <SearchableSelect className="min-w-[14rem]" placeholder="Select" options={driverOptions} value={row.driver_id}
-                                  onChange={(v) => { const d = drivers.find((dr) => String(dr.id) === v); updateVanRow(i, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' }) }}
-                                  onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })} />
+                                {hired ? (
+                                  <p className="text-xs text-slate-400 h-11 flex items-center">Not applicable</p>
+                                ) : (
+                                  <SearchableSelect className="min-w-[14rem]" placeholder="Select" options={driverOptions}
+                                    value={personValue(row.driver_id, row.driver_name, OPTING_DRIVER)}
+                                    onChange={(v) => {
+                                      if (isOptingName(v)) { updateVanRow(i, { driver_id: '', driver_name: v }); return }
+                                      const d = drivers.find((dr) => String(dr.id) === v)
+                                      updateVanRow(i, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' })
+                                    }}
+                                    onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })} />
+                                )}
                               </td>
                               <td className="py-2 px-3">
                                 <Input value={row.hirer_name} onChange={(e) => updateVanRow(i, { hirer_name: e.target.value })}
@@ -576,6 +682,11 @@ export default function TripCreationPage() {
                                 <Input inputMode="numeric" maxLength={10} value={row.phone_number}
                                   onChange={(e) => updateVanRow(i, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                                   placeholder="Mobile" className="h-11 text-sm" />
+                              </td>
+                              <td className="py-2 px-3">
+                                <Input type="number" value={hired ? row.amount : ''} disabled={!hired}
+                                  onChange={(e) => updateVanRow(i, { amount: e.target.value })}
+                                  placeholder={hired ? 'Amount' : '—'} className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
                                 <Input value={row.remarks} onChange={(e) => updateVanRow(i, { remarks: e.target.value })}
@@ -682,7 +793,7 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 1" checked={row.driver1_checked} onChange={(v) => updateRow(r.id, { driver1_checked: v })} />
-                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={personValue(row.driver1_id, row.driver1_name)}
+                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={personValue(row.driver1_id, row.driver1_name, OPTING_DRIVER)}
                                   onChange={(v) => updateRow(r.id, personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)}
                                   onClear={() => updateRow(r.id, clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name') as Partial<GridRow>)} />
                               </div>
@@ -690,7 +801,7 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Driver 2" checked={row.driver2_checked} onChange={(v) => updateRow(r.id, { driver2_checked: v })} />
-                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={personValue(row.driver2_id, row.driver2_name)}
+                                <SearchableSelect className="min-w-[14rem] flex-1" placeholder="Select" options={driverOptions} value={personValue(row.driver2_id, row.driver2_name, OPTING_DRIVER)}
                                   onChange={(v) => updateRow(r.id, personPatch(v, drivers, driverName, 'driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)}
                                   onClear={() => updateRow(r.id, clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name') as Partial<GridRow>)} />
                               </div>
@@ -698,7 +809,7 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Helper" checked={row.helper_checked} onChange={(v) => updateRow(r.id, { helper_checked: v })} />
-                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={helperOptions} value={personValue(row.helper_id, row.helper_name)}
+                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={helperOptions} value={personValue(row.helper_id, row.helper_name, OPTING_HELPER)}
                                   onChange={(v) => updateRow(r.id, personPatch(v, helpers, helperName, 'helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)}
                                   onClear={() => updateRow(r.id, clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name') as Partial<GridRow>)} />
                               </div>
@@ -706,8 +817,13 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">
                                 <PersonToggle label="Conductor" checked={row.conductor_checked} onChange={(v) => updateRow(r.id, { conductor_checked: v })} />
-                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={conductorOptions} value={row.conductor_id}
-                                  onChange={(v) => { const c = conductors.find((x) => String(x.id) === v); updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
+                                <SearchableSelect className="min-w-[13rem] flex-1" placeholder="Select" options={conductorOptions}
+                                  value={personValue(row.conductor_id, row.conductor_name, OPTING_CONDUCTOR)}
+                                  onChange={(v) => {
+                                    if (isOptingName(v)) { updateRow(r.id, { conductor_id: '', conductor_name: v }); return }
+                                    const c = conductors.find((x) => String(x.id) === v)
+                                    updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' })
+                                  }}
                                   onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })} />
                               </div>
                             </td>
@@ -834,7 +950,8 @@ export default function TripCreationPage() {
                 </div>
                 <div>
                   <Label>Bus No <span className="text-red-500">*</span></Label>
-                  <SearchableSelect placeholder="Select" options={busOptions} value={editForm.bus_no}
+                  <SearchableSelect placeholder="Select" options={editRow.vehicle_type === 'van' ? vanOptions : busOptions}
+                    value={editForm.bus_no}
                     onChange={(v) => patchEdit({ bus_no: v })} onClear={() => patchEdit({ bus_no: '' })} />
                 </div>
 
@@ -842,7 +959,7 @@ export default function TripCreationPage() {
                   <>
                     <div>
                       <Label>Driver <span className="text-red-500">*</span></Label>
-                      <SearchableSelect placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name)}
+                      <SearchableSelect placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name, OPTING_DRIVER)}
                         onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))}
                         onClear={() => patchEdit(clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))} />
                     </div>
@@ -865,7 +982,7 @@ export default function TripCreationPage() {
                       <Label>Driver 1 <span className="text-red-500">*</span></Label>
                       <div className="flex items-center gap-2">
                         <PersonToggle label="Driver 1" checked={editForm.driver1_checked === '1'} onChange={(v) => patchEdit({ driver1_checked: v ? '1' : '' })} />
-                        <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name)}
+                        <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name, OPTING_DRIVER)}
                           onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))}
                           onClear={() => patchEdit(clearPerson('driver1_id', 'driver1_name', 'opt_driver1_id', 'opt_driver1_name'))} />
                       </div>
@@ -874,7 +991,7 @@ export default function TripCreationPage() {
                       <Label>Driver 2</Label>
                       <div className="flex items-center gap-2">
                         <PersonToggle label="Driver 2" checked={editForm.driver2_checked === '1'} onChange={(v) => patchEdit({ driver2_checked: v ? '1' : '' })} />
-                        <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver2_id, editForm.driver2_name)}
+                        <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver2_id, editForm.driver2_name, OPTING_DRIVER)}
                           onChange={(v) => patchEdit(personPatch(v, drivers, driverName, 'driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))}
                           onClear={() => patchEdit(clearPerson('driver2_id', 'driver2_name', 'opt_driver2_id', 'opt_driver2_name'))} />
                       </div>
@@ -883,7 +1000,7 @@ export default function TripCreationPage() {
                       <Label>Helper</Label>
                       <div className="flex items-center gap-2">
                         <PersonToggle label="Helper" checked={editForm.helper_checked === '1'} onChange={(v) => patchEdit({ helper_checked: v ? '1' : '' })} />
-                        <SearchableSelect className="flex-1" placeholder="Select" options={helperOptions} value={personValue(editForm.helper_id, editForm.helper_name)}
+                        <SearchableSelect className="flex-1" placeholder="Select" options={helperOptions} value={personValue(editForm.helper_id, editForm.helper_name, OPTING_HELPER)}
                           onChange={(v) => patchEdit(personPatch(v, helpers, helperName, 'helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))}
                           onClear={() => patchEdit(clearPerson('helper_id', 'helper_name', 'opt_helper_id', 'opt_helper_name'))} />
                       </div>
@@ -892,8 +1009,13 @@ export default function TripCreationPage() {
                       <Label>Conductor</Label>
                       <div className="flex items-center gap-2">
                         <PersonToggle label="Conductor" checked={editForm.conductor_checked === '1'} onChange={(v) => patchEdit({ conductor_checked: v ? '1' : '' })} />
-                        <SearchableSelect className="flex-1" placeholder="Select" options={conductorOptions} value={editForm.conductor_id}
-                          onChange={(v) => { const c = conductors.find((x: any) => String(x.id) === v); patchEdit({ conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' }) }}
+                        <SearchableSelect className="flex-1" placeholder="Select" options={conductorOptions}
+                          value={personValue(editForm.conductor_id, editForm.conductor_name, OPTING_CONDUCTOR)}
+                          onChange={(v) => {
+                            if (isOptingName(v)) { patchEdit({ conductor_id: '', conductor_name: v }); return }
+                            const c = conductors.find((x: any) => String(x.id) === v)
+                            patchEdit({ conductor_id: v, conductor_name: c?.nickName ?? c?.fullName ?? '' })
+                          }}
                           onClear={() => patchEdit({ conductor_id: '', conductor_name: '' })} />
                       </div>
                     </div>

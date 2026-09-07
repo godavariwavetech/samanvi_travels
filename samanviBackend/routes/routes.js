@@ -247,6 +247,8 @@ router.post("/updatefueladminstatus",verifyToken,routcontroller.updatefueladmins
 router.post("/updatelaundryadminstatus",verifyToken,routcontroller.updatelaundryadminstatusCtrl);
 router.post("/deletelaundrybill",verifyToken,routcontroller.deletelaundrybillCtrl);
 router.post("/getbeta",verifyToken,routcontroller.getbetaCtrl);
+router.post("/gethaltbeta", verifyToken, routcontroller.gethaltbetaCtrl);
+router.post("/savehaltbeta", verifyToken, routcontroller.savehaltbetaCtrl);
 router.post("/getmodaldata",verifyToken,routcontroller.getmodaldataCtrl);
 router.post("/gettripdeletedmodaldata",verifyToken,routcontroller.gettripdeletedmodaldataCtrl);
 router.post("/submitlaundrytypemainmasters",verifyToken,routcontroller.submitlaundrytypemainmastersCtrl);
