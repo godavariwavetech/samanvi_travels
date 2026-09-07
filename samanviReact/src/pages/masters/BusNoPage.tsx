@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { excelCellToISODate } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 // ── Sold Out / Service Out modal ───────────────────────────────────────────
@@ -166,6 +166,19 @@ const BUS_TEMPLATE_HEADERS = [
   'Permit Validity (YYYY-MM-DD)', 'AITP Validity (YYYY-MM-DD)',
   'Authorization Validity (YYYY-MM-DD)', 'Service Out Date (YYYY-MM-DD)',
   'Owner Name', 'Remarks', 'Is Spare Tank (0=Normal,1=Spare)',
+  // Without these two an imported vehicle was always a plain own one: there was
+  // no way to bring in a hired bus or van, or say whose ledger it is paid to.
+  'Category (normal/hire)', 'Owner Ledger (hire only)',
+]
+
+// Vehicle Type* is what separates a bus from a van across the app, so the Van
+// sheet fixes it to VAN rather than leaving it to be typed, and drops the
+// bus-shaped body columns nobody fills in for a van.
+const VAN_TEMPLATE_HEADERS = [
+  'Vehicle Type*', 'Seating Capacity', 'Engine No', 'Chassis No',
+  'Purchase Date (YYYY-MM-DD)', 'Van No*', 'Odometer (km)', 'Registration Date (YYYY-MM-DD)',
+  'Fitness Validity (YYYY-MM-DD)', 'Insurance Validity (YYYY-MM-DD)', 'Pollution Validity (YYYY-MM-DD)',
+  'Owner Name', 'Remarks', 'Category (normal/hire)', 'Owner Ledger (hire only)',
 ]
 
 function downloadExcel(data: any[][], filename: string) {
@@ -397,13 +410,35 @@ export default function BusNoPage() {
 
   const downloadTemplate = () => {
     downloadExcel(
-      [BUS_TEMPLATE_HEADERS, ['Sleeper', '', '', '', '', '', '', 'ENG123', 'CH456', '2022-01-15', 'NL02B3154', '150000', '', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '', '', '', 'Owner Name', 'Remarks', '0']],
-      `Bus_Upload_Template_${Date.now()}.xlsx`
+      sheetType === 'Van'
+        ? [VAN_TEMPLATE_HEADERS, ['VAN', '12', 'ENG777', 'CH888', '2023-04-10', 'TS09UA1234', '40000', '2023-04-20', '2026-12-31', '2026-12-31', '2026-12-31', 'Owner Name', 'Remarks', 'hire', 'Sri Sai Travels(Venkateswararao)']]
+        : [BUS_TEMPLATE_HEADERS, ['BUS', 'Sleeper', '', '', '', '', '', 'ENG123', 'CH456', '2022-01-15', 'NL02B3154', '150000', '', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '2026-12-31', '', '', '', 'Owner Name', 'Remarks', '0', 'normal', '']],
+      `${sheetType}_Upload_Template_${Date.now()}.xlsx`
     )
   }
 
+  const isVanVehicle = (b: any) => String(b.vehicle_type ?? '').trim().toUpperCase() === 'VAN'
+  // The vehicle row carries only the ledger id, so the export resolves the name
+  // back out of the Hire Vehicles ledgers — that is what the import reads.
+  const hireLedgerName = (id: any) => {
+    if (!String(id ?? '')) return ''
+    const led = hireLedgers.find((l: any) => String(l.ledger_id) === String(id))
+    return led ? String(led.temple_name ?? '') : ''
+  }
   const downloadData = () => {
-    const all: any[] = data?.data ?? []
+    const everything: any[] = data?.data ?? []
+    const all = everything.filter(b => (sheetType === 'Van' ? isVanVehicle(b) : !isVanVehicle(b)))
+    if (sheetType === 'Van') {
+      const vanRows = all.map(b => [
+        b.vehicle_type ?? '', b.seating_capacity ?? '', b.engine_no ?? '', b.chassis_no ?? '',
+        b.date_of_purchase ?? '', b.bus_no ?? '', b.odometer ?? '', b.reg_date ?? '',
+        b.fc_validity ?? '', b.insurance_validity ?? '', b.pollution_validity ?? '',
+        b.ownername ?? '', b.remarks ?? '', b.bus_category ?? 'normal', hireLedgerName(b.owner_ledger_id),
+      ])
+      downloadExcel([VAN_TEMPLATE_HEADERS, ...vanRows], `Vans_${Date.now()}.xlsx`)
+      toast.success(`Exported ${vanRows.length} vans`)
+      return
+    }
     const rows = all.map(b => [
       b.vehicle_type ?? '', b.luxury_type ?? '', b.seating_capacity ?? '', b.chassis_make ?? '',
       b.chassis_model ?? '', b.body_made ?? '', b.mfg_year ?? '', b.engine_no ?? '', b.chassis_no ?? '',
@@ -416,6 +451,10 @@ export default function BusNoPage() {
     toast.success(`Exported ${rows.length} buses`)
   }
 
+  // Buses and vans are imported and exported on their own sheets, the same way
+  // Bus and Van service numbers are — a van sheet has no luxury/chassis columns
+  // and always carries VAN as its vehicle type.
+  const [sheetType, setSheetType] = useState<'Bus' | 'Van'>('Bus')
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewRows, setPreviewRows] = useState<{ payload: Record<string, any>; preview: ExcelPreviewRow }[]>([])
 
@@ -429,8 +468,62 @@ export default function BusNoPage() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found in the file'); return }
+      // Guard the positional mapping below: a sheet from another screen has
+      // completely different columns but parses perfectly well, and every value
+      // would land under the wrong field without a word of warning.
+      const mismatch = headerRowMismatch(raw[0] ?? [], sheetType === 'Van' ? VAN_TEMPLATE_HEADERS : BUS_TEMPLATE_HEADERS)
+      if (mismatch) {
+        toast.error(`This does not look like the ${sheetType}} sheet. ${mismatch}. Download the template and fill that in.`)
+        return
+      }
       const [, ...dataRows] = raw
       const existingNos = new Set((data?.data ?? []).map((b: any) => String(b.bus_no ?? '').toLowerCase().trim()))
+      // "hire" in the Category column is what makes an imported vehicle a hired
+      // one; the Owner Ledger column names an existing ledger under Payables >
+      // Hire Vehicles, resolved here so the sheet can carry a name rather than an
+      // id. An unmatched name imports the vehicle without a ledger rather than
+      // failing the row - it can be set on the Hire Bus form afterwards.
+      const hireCategory = (v: any) => (String(v ?? '').trim().toLowerCase() === 'hire' ? 'hire' : 'normal')
+      const ledgerIdByName = (v: any) => {
+        const name = String(v ?? '').trim().toLowerCase()
+        if (!name) return null
+        const led = hireLedgers.find((l: any) => String(l.temple_name ?? '').trim().toLowerCase() === name)
+        return led ? String(led.ledger_id) : null
+      }
+      if (sheetType === 'Van') {
+        const vanRows = dataRows
+          .filter(r => r && String(r[5] ?? '').trim())
+          .map(r => {
+            const payload = {
+              // Fixed rather than read: this is the Van sheet, and the value is
+              // what puts the vehicle on the Van tab everywhere else.
+              vehicle_type: 'VAN',
+              seating_capacity: String(r[1] ?? '').trim() || null,
+              engine_no: String(r[2] ?? '').trim() || null,
+              chassis_no: String(r[3] ?? '').trim() || null,
+              date_of_purchase: excelCellToISODate(r[4]) || null,
+              bus_no: String(r[5] ?? '').trim(),
+              odometer: String(r[6] ?? '').trim() || null,
+              reg_date: excelCellToISODate(r[7]) || null,
+              fc_validity: excelCellToISODate(r[8]) || null,
+              insurance_validity: excelCellToISODate(r[9]) || null,
+              pollution_validity: excelCellToISODate(r[10]) || null,
+              ownername: String(r[11] ?? '').trim() || null,
+              remarks: String(r[12] ?? '').trim() || null,
+              issparetank: 0,
+              bus_category: hireCategory(r[13]),
+              owner_ledger_id: ledgerIdByName(r[14]),
+            }
+            return { payload, isDuplicate: existingNos.has(payload.bus_no.toLowerCase()) }
+          })
+        if (vanRows.length === 0) { toast.error('No valid rows found (Van No column is required)'); return }
+        setPreviewRows(vanRows.map(r => ({
+          payload: r.payload,
+          preview: { values: Object.values(r.payload).map(v => v ?? ''), isDuplicate: r.isDuplicate },
+        })))
+        setPreviewOpen(true)
+        return
+      }
       const rows = dataRows
         .filter(r => r && String(r[10] ?? '').trim())
         .map(r => {
@@ -459,6 +552,8 @@ export default function BusNoPage() {
             ownername: String(r[21] ?? '').trim() || null,
             remarks: String(r[22] ?? '').trim() || null,
             issparetank: Number(r[23] ?? 0) === 1 ? 1 : 0,
+            bus_category: Number(r[23] ?? 0) === 1 ? 'spare' : hireCategory(r[24]),
+            owner_ledger_id: ledgerIdByName(r[25]),
           }
           const isDuplicate = existingNos.has(payload.bus_no.toLowerCase())
           return { payload, isDuplicate }
@@ -660,6 +755,16 @@ export default function BusNoPage() {
         <div className="flex items-center gap-3 flex-wrap">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Excel Actions</span>
           <div className="h-5 w-px bg-slate-200" />
+          {/* Buses and vans use different sheets, so Template, Export and Import
+              all follow this one choice rather than guessing from the file. */}
+          <div className="inline-flex rounded-xl border border-slate-200 bg-white overflow-hidden">
+            {(['Bus', 'Van'] as const).map((t) => (
+              <button key={t} onClick={() => setSheetType(t)}
+                className={`px-3 py-2 text-xs font-semibold transition-colors ${sheetType === t ? 'bg-slate-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+                {t}s
+              </button>
+            ))}
+          </div>
           <button
             onClick={downloadTemplate}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
@@ -686,8 +791,8 @@ export default function BusNoPage() {
 
       <ExcelImportPreviewModal
         open={previewOpen}
-        title="Confirm Bus Import"
-        headers={BUS_TEMPLATE_HEADERS}
+        title={sheetType === 'Van' ? 'Confirm Van Import' : 'Confirm Bus Import'}
+        headers={sheetType === 'Van' ? VAN_TEMPLATE_HEADERS : BUS_TEMPLATE_HEADERS}
         rows={previewRows.map(r => r.preview)}
         submitting={uploading}
         onCancel={() => setPreviewOpen(false)}

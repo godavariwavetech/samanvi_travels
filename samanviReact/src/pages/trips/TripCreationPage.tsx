@@ -37,7 +37,6 @@ type GridRow = {
 // each one is an ad-hoc charter booking for a customer, not a driver/staff.
 type VanRow = {
   status: TripRunStatus
-  service_no: string; service_no_id: string
   line_code: string
   bus_no: string
   driver_id: string; driver_name: string
@@ -195,7 +194,9 @@ export default function TripCreationPage() {
   const [gridRows, setGridRows] = useState<Record<number, GridRow>>({})
   const [vehicleType, setVehicleType] = useState<'Bus' | 'Van'>('Bus')
   const [serviceForFilter, setServiceForFilter] = useState('')
-  const [vanRows, setVanRows] = useState<VanRow[]>([])
+  // Keyed by van service-number id, exactly like the bus roster's gridRows: the
+  // Van tab lists every van service for the date rather than starting empty.
+  const [vanRows, setVanRows] = useState<Record<number, VanRow>>({})
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   // Edit a trip that has already been created. Bus and Van rows share this one
@@ -313,7 +314,7 @@ export default function TripCreationPage() {
     remarks: '',
   })
   const makeEmptyVanRow = (): VanRow => ({
-    status: 'Running', service_no: '', service_no_id: '', line_code: '', bus_no: '',
+    status: 'Running', line_code: '', bus_no: '',
     driver_id: '', driver_name: '',
     hirer_name: '', phone_number: '',
     amount: '',
@@ -354,7 +355,7 @@ export default function TripCreationPage() {
   }, [allTrips, tripDate])
 
   // Picking a new date starts a fresh roster — already-created rows come from existingByRoute instead
-  useEffect(() => { setGridRows({}) }, [tripDate])
+  useEffect(() => { setGridRows({}); setVanRows({}) }, [tripDate])
 
   const updateRow = (routeId: number, patch: Partial<GridRow>) =>
     setGridRows((g) => ({ ...g, [routeId]: { ...(g[routeId] ?? makeEmptyGridRow()), ...patch } }))
@@ -413,28 +414,27 @@ export default function TripCreationPage() {
     onError: () => toast.error('Server error'),
   })
 
-  const addVanRow = () => setVanRows((rows) => [...rows, makeEmptyVanRow()])
-  const removeVanRow = (i: number) => setVanRows((rows) => rows.filter((_, idx) => idx !== i))
-  const updateVanRow = (i: number, patch: Partial<VanRow>) =>
-    setVanRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  const updateVanRow = (routeId: number, patch: Partial<VanRow>) =>
+    setVanRows((rows) => ({ ...rows, [routeId]: { ...(rows[routeId] ?? makeEmptyVanRow()), ...patch } }))
 
   // A hired van has no driver of ours to name but must carry its Amount; an own
-  // van is the other way round. Both still need a bus and a hirer.
-  const vanRowReady = (row: VanRow) => {
-    // Svc No is what gives the row its Pick/Drop and From, so a row without one
-    // is not a van trip yet, however complete the rest of it looks.
-    if (row.status === 'Halt' || !row.service_no_id || !row.bus_no || !row.hirer_name) return false
+  // van is the other way round. Both still need a van and a hirer.
+  const vanRowReady = (row: VanRow | undefined) => {
+    if (!row || row.status === 'Halt' || !row.bus_no || !row.hirer_name) return false
     return isHireBus(row.bus_no) ? Number(row.amount) > 0 : !!row.driver_name
   }
-  const readyVanRows = vanRows
-    .map((row, i) => ({ row, i }))
-    .filter(({ row }) => vanRowReady(row))
+  // Only services that have no trip for this date yet, so the same van service
+  // cannot be booked twice on one day - the rule the bus roster already applies.
+  const readyVanRows = vanRoutes
+    .filter((r) => !existingByRoute[String(r.id)] && vanRowReady(vanRows[r.id]))
+    .map((r) => ({ route: r, row: vanRows[r.id] as VanRow }))
 
   const { mutate: submitVanRows, isPending: submittingVan } = useMutation({
     mutationFn: () => {
-      const rows = readyVanRows.map(({ row }) => ({
+      const rows = readyVanRows.map(({ route, row }) => ({
         vehicle_type: 'van', line_code: row.line_code, bus_no: row.bus_no,
-        service_no: row.service_no, service_no_id: row.service_no_id,
+        service_no: route.serviceNo, service_no_id: String(route.id),
+        trip_for: route.serviceFor, trip_for_id: route.service_for_id,
         driver1_id: row.driver_id, driver1_name: row.driver_name,
         hirer_name: row.hirer_name, phone_number: row.phone_number,
         booking_amount: isHireBus(row.bus_no) ? row.amount : '',
@@ -450,7 +450,7 @@ export default function TripCreationPage() {
       if (res.status === 200) {
         toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
-        setVanRows([])
+        setVanRows({})
       } else toast.error('Failed to create trips')
     },
     onError: () => toast.error('Server error'),
@@ -600,47 +600,67 @@ export default function TripCreationPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {vanRows.length === 0 ? (
-                          <tr><td colSpan={13} className="py-6 text-center text-sm text-slate-400">No rows yet — click "+ Add Row" to start a van trip entry.</td></tr>
-                        ) : vanRows.map((row, i) => {
-                          const svcRoute = vanRouteById(row.service_no_id)
+                        {vanRoutes.length === 0 ? (
+                          <tr><td colSpan={13} className="py-6 text-center text-sm text-slate-400">
+                            No Van service routes found — add one under Masters → Service Routes (Van tab) first.
+                          </td></tr>
+                        ) : vanRoutes.map((r, i) => {
+                          const existing = existingByRoute[String(r.id)]
+                          const pickDrop = r.trip_type || '—'
+                          const from = r.start_boarding_point || r.fromCity || '—'
+                          if (existing) {
+                            const wasHired = isHireBus(existing.bus_no)
+                            return (
+                              <tr key={r.id} className="border-b border-slate-100 bg-emerald-50/40">
+                                <td className="py-2 px-3 text-slate-500">{i + 1}</td>
+                                <td className="py-2 px-3 font-semibold text-slate-700">{r.serviceNo}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs">{existing.line_code || r.line_code || '—'}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs capitalize">{pickDrop}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs">{from}</td>
+                                <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
+                                <td className={`py-2 px-3 font-medium ${wasHired ? 'text-amber-700' : ''}`}>{existing.bus_no || '—'}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs">{existing.driver1_name || (wasHired ? 'Hired' : '—')}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs">{existing.hirer_name || '—'}</td>
+                                <td className="py-2 px-3 text-slate-500 text-xs">{existing.phone_number || '—'}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs">{existing.booking_amount ? `₹${Number(existing.booking_amount).toLocaleString('en-IN')}` : '—'}</td>
+                                <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
+                                <td className="py-2 px-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEdit(existing)}
+                                    title="Edit this trip"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" /> Edit
+                                  </button>
+                                </td>
+                              </tr>
+                            )
+                          }
+                          const row = vanRows[r.id] ?? makeEmptyVanRow()
                           const hired = isHireBus(row.bus_no)
                           return (
                             // A hired van is tinted so a sheet of mixed rows shows at
                             // a glance which trips are bought in rather than run by us.
-                            <tr key={i} className={`border-b border-slate-100 align-top ${hired ? 'bg-amber-50/60' : ''}`}>
+                            <tr key={r.id} className={`border-b border-slate-100 align-top ${hired ? 'bg-amber-50/60' : ''}`}>
                               <td className="py-2 px-3 text-slate-500">{i + 1}</td>
                               <td className="py-2 px-3">
-                                <SearchableSelect className="min-w-[9rem]" placeholder="Select" options={vanRouteOptions}
-                                  value={row.service_no_id}
-                                  onChange={(v) => {
-                                    const r = vanRouteById(v)
-                                    updateVanRow(i, {
-                                      service_no_id: v,
-                                      service_no: String(r?.serviceNo ?? ''),
-                                      // The route's own line code wins unless the row already carries one.
-                                      line_code: row.line_code || String(r?.line_code ?? ''),
-                                    })
-                                  }}
-                                  onClear={() => updateVanRow(i, { service_no_id: '', service_no: '' })} />
+                                <div className="font-semibold text-slate-700">{r.serviceNo}</div>
+                                <div className="text-xs text-slate-400">{r.serviceFor}</div>
                               </td>
                               <td className="py-2 px-3">
-                                <MasterListPicker panelId={`van-line-code-panel-${i}`} queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
-                                  valueKey="line_code" value={row.line_code} onChange={(v) => updateVanRow(i, { line_code: v })} placeholder="Select" />
+                                <MasterListPicker panelId={`van-line-code-panel-${r.id}`} queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
+                                  valueKey="line_code" value={row.line_code || r.line_code || ''} onChange={(v) => updateVanRow(r.id, { line_code: v })} placeholder="Select" />
                               </td>
                               {/* Pick/Drop and From are the service number's own trip
                                   type and first boarding point — shown, not re-entered,
                                   so a row can never disagree with its service master. */}
-                              <td className="py-2 px-3 text-sm text-slate-600 capitalize">
-                                {svcRoute?.trip_type || <span className="text-slate-300">—</span>}
-                              </td>
-                              <td className="py-2 px-3 text-sm text-slate-600">
-                                {svcRoute?.start_boarding_point || svcRoute?.fromCity || <span className="text-slate-300">—</span>}
-                              </td>
+                              <td className="py-2 px-3 text-sm text-slate-600 capitalize">{pickDrop}</td>
+                              <td className="py-2 px-3 text-sm text-slate-600">{from}</td>
                               <td className="py-2 px-3">
                                 <select
                                   value={row.status}
-                                  onChange={(e) => updateVanRow(i, { status: e.target.value as TripRunStatus })}
+                                  onChange={(e) => updateVanRow(r.id, { status: e.target.value as TripRunStatus })}
                                   className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm px-3 shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
                                 >
                                   <option value="Running">Running</option>
@@ -651,13 +671,13 @@ export default function TripCreationPage() {
                               <td className="py-2 px-3">
                                 <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={vanOptions}
                                   value={row.bus_no}
-                                  onChange={(v) => updateVanRow(i, isHireBus(v)
+                                  onChange={(v) => updateVanRow(r.id, isHireBus(v)
                                     // Switching to a hired vehicle drops the driver: no
                                     // driver of ours is on it, so leaving a stale name
                                     // behind would file a trip against the wrong person.
                                     ? { bus_no: v, driver_id: '', driver_name: '' }
                                     : { bus_no: v, amount: '' })}
-                                  onClear={() => updateVanRow(i, { bus_no: '' })} />
+                                  onClear={() => updateVanRow(r.id, { bus_no: '' })} />
                                 {hired && <p className="text-[10px] font-bold text-amber-700 mt-1">Hired vehicle</p>}
                               </td>
                               <td className="py-2 px-3">
@@ -667,36 +687,32 @@ export default function TripCreationPage() {
                                   <SearchableSelect className="min-w-[14rem]" placeholder="Select" options={driverOptions}
                                     value={personValue(row.driver_id, row.driver_name, OPTING_DRIVER)}
                                     onChange={(v) => {
-                                      if (isOptingName(v)) { updateVanRow(i, { driver_id: '', driver_name: v }); return }
+                                      if (isOptingName(v)) { updateVanRow(r.id, { driver_id: '', driver_name: v }); return }
                                       const d = drivers.find((dr) => String(dr.id) === v)
-                                      updateVanRow(i, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' })
+                                      updateVanRow(r.id, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' })
                                     }}
-                                    onClear={() => updateVanRow(i, { driver_id: '', driver_name: '' })} />
+                                    onClear={() => updateVanRow(r.id, { driver_id: '', driver_name: '' })} />
                                 )}
                               </td>
                               <td className="py-2 px-3">
-                                <Input value={row.hirer_name} onChange={(e) => updateVanRow(i, { hirer_name: e.target.value })}
+                                <Input value={row.hirer_name} onChange={(e) => updateVanRow(r.id, { hirer_name: e.target.value })}
                                   placeholder="Name" className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
                                 <Input inputMode="numeric" maxLength={10} value={row.phone_number}
-                                  onChange={(e) => updateVanRow(i, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                                  onChange={(e) => updateVanRow(r.id, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                                   placeholder="Mobile" className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
                                 <Input type="number" value={hired ? row.amount : ''} disabled={!hired}
-                                  onChange={(e) => updateVanRow(i, { amount: e.target.value })}
+                                  onChange={(e) => updateVanRow(r.id, { amount: e.target.value })}
                                   placeholder={hired ? 'Amount' : '—'} className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
-                                <Input value={row.remarks} onChange={(e) => updateVanRow(i, { remarks: e.target.value })}
+                                <Input value={row.remarks} onChange={(e) => updateVanRow(r.id, { remarks: e.target.value })}
                                   placeholder="Remarks" className="h-11 text-sm" />
                               </td>
-                              <td className="py-2 px-3">
-                                <button onClick={() => removeVanRow(i)} className="text-slate-300 hover:text-red-500 transition-colors">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </td>
+                              <td className="py-2 px-3" />
                             </tr>
                           )
                         })}
@@ -704,10 +720,9 @@ export default function TripCreationPage() {
                     </table>
                   </DualScrollTable>
 
+                  {/* No "Add Row": the Van tab is a roster of every van service for
+                      the date, the same as the Bus tab, so rows are not added by hand. */}
                   <div className="flex items-center justify-center gap-3 mt-3">
-                    <Button variant="ghost" onClick={addVanRow}>
-                      <Plus className="w-4 h-4" /> Add Row
-                    </Button>
                     <Button
                       onClick={() => submitVanRows()}
                       disabled={submittingVan || readyVanRows.length === 0}

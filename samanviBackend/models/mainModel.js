@@ -609,6 +609,20 @@ var moment = require("moment");
         if (res && res.affectedRows) console.log('[DB] ' + m.tbl + '.' + m.col + ': renamed ' + res.affectedRows + ' row(s) to ' + m.to);
       });
   });
+  // busses.vehicle_type is what separates a bus from a van everywhere in the app
+  // (Trip Creation lists only vans on the Van tab, only buses on the Bus tab), and
+  // the Bus Masters form picks that value out of the vehicle_types master. If that
+  // master holds only body styles - Sleeper, Volvo, Mini Bus - there is no way to
+  // register a van at all, so make sure both kinds are always offered.
+  ['BUS', 'VAN'].forEach(function (kind) {
+    sqldb.query(`SELECT id FROM vehicle_types WHERE d_in = 0 AND UPPER(type_name) = ? LIMIT 1`, [kind], function (err, rows) {
+      if (err || (rows && rows.length)) return;
+      sqldb.query(`INSERT INTO vehicle_types (type_name, d_in, i_ts) VALUES (?, 0, NOW())`, [kind], function (err2) {
+        if (err2) console.log('[DB] vehicle_types ' + kind + ' seed:', err2.message);
+        else console.log('[DB] vehicle_types ' + kind + ' seeded');
+      });
+    });
+  });
   // Trip reference on a voucher, so a trip-sourced voucher can show which trip
   // it came from the same way job_card_number/battery_code/tyre_code already do
   // for their modules — rather than being buried in the description text.
@@ -14751,11 +14765,12 @@ exports.bulkUploadBusesMdl = function (rows, userId, usrNm, callback) {
           r.service_out_date || null, r.remarks || null,
           userId, usrNm, date, r.odometer || null, r.ownername || null,
           r.vehicle_type || null, r.issparetank || 0,
+          r.bus_category || 'normal', r.owner_ledger_id || null,
           r.luxury_type || null, r.seating_capacity || null, r.chassis_make || null,
           r.chassis_model || null, r.body_made || null, r.mfg_year || null, r.reg_date || null
         ];
       });
-      var QRY = 'INSERT INTO busses (bus_no, engine_no, chassis_no, insurance_validity, pollution_validity, base_point_validity, date_of_purchase, atp_validity, atp_authentication_validity, fc_validity, home_tax_validity, service_out_date, remarks, user_id, usr_nm, i_ts, odometer, ownername, vehicle_type, issparetank, luxury_type, seating_capacity, chassis_make, chassis_model, body_made, mfg_year, reg_date) VALUES ?';
+      var QRY = 'INSERT INTO busses (bus_no, engine_no, chassis_no, insurance_validity, pollution_validity, base_point_validity, date_of_purchase, atp_validity, atp_authentication_validity, fc_validity, home_tax_validity, service_out_date, remarks, user_id, usr_nm, i_ts, odometer, ownername, vehicle_type, issparetank, bus_category, owner_ledger_id, luxury_type, seating_capacity, chassis_make, chassis_model, body_made, mfg_year, reg_date) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         callback(null, { inserted: toInsert.length, replaced: toUpdate.length, total: rows.length });
@@ -14775,6 +14790,7 @@ exports.bulkUploadBusesMdl = function (rows, userId, usrNm, callback) {
         service_out_date: r.service_out_date || null, remarks: r.remarks || null,
         updated_by: usrNm, updated_userid: userId, odometer: r.odometer || null, ownername: r.ownername || null,
         vehicle_type: r.vehicle_type || null, issparetank: r.issparetank || 0,
+        bus_category: r.bus_category || 'normal', owner_ledger_id: r.owner_ledger_id || null,
         luxury_type: r.luxury_type || null, seating_capacity: r.seating_capacity || null, chassis_make: r.chassis_make || null,
         chassis_model: r.chassis_model || null, body_made: r.body_made || null, mfg_year: r.mfg_year || null, reg_date: r.reg_date || null,
       };

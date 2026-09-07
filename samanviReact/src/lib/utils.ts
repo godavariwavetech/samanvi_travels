@@ -61,3 +61,27 @@ export function excelCellToISODate(v: unknown): string {
 export const scrollContentToTop = () => {
   document.getElementById('app-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' })
 }
+
+// Excel importers map columns by POSITION, so a sheet from a different screen
+// (or an older template) is read as though its columns were the expected ones
+// and silently produces nonsense - engine numbers under "Bus Operator" and so
+// on. Compare the sheet's header row against the template before mapping
+// anything. Names are normalised so cosmetic edits - case, spacing, a lost "*",
+// a renamed "(YYYY-MM-DD)" hint - do not reject an otherwise correct sheet;
+// what must match is the identity and order of the columns.
+export function normaliseHeader(v: unknown): string {
+  return String(v ?? '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]/g, '')
+}
+
+export function headerRowMismatch(actual: unknown[], expected: string[]): string | null {
+  const got = (actual ?? []).map(normaliseHeader).filter(Boolean)
+  const want = expected.map(normaliseHeader)
+  // Extra trailing columns are tolerated; missing or reordered ones are not.
+  for (let i = 0; i < want.length; i++) {
+    if (got[i] !== want[i]) {
+      const found = got[i] ? String(actual[i] ?? '') : '(nothing)'
+      return `Column ${i + 1} should be "${expected[i]}" but this file has ${found === '(nothing)' ? found : `"${found}"`}`
+    }
+  }
+  return null
+}

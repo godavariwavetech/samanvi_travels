@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, 
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { scrollContentToTop } from '@/lib/utils'
+import { scrollContentToTop, headerRowMismatch } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 const EMPTY: Record<string, string> = {
@@ -306,6 +306,14 @@ export default function ServiceNoPage() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found in the file'); return }
+      // Guard the positional mapping below: a sheet from another screen has
+      // completely different columns but parses perfectly well, and every value
+      // would land under the wrong field without a word of warning.
+      const mismatch = headerRowMismatch(raw[0] ?? [], listType === 'Van' ? VAN_TEMPLATE_HEADERS : SERVICE_TEMPLATE_HEADERS)
+      if (mismatch) {
+        toast.error(`This does not look like the ${listType} Service Route} sheet. ${mismatch}. Download the template and fill that in.`)
+        return
+      }
       const [, ...dataRows] = raw
       const existingNos = new Set(routeList.map((r: any) => String(r.serviceNo ?? '').toLowerCase().trim()))
       const rows = dataRows
