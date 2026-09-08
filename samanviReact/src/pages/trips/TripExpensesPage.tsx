@@ -251,6 +251,10 @@ export default function TripExpensesPage() {
   // though they exist. The ref always points at the newest list; ensureLedgers()
   // covers the case where the query genuinely hasn't returned yet.
   const ledgerRef = useRef<any[]>([])
+  // The rate the modal opened with - the service number's per-seat betas, or the
+  // one Halt Beta on a halted trip - kept so a seat filled after opening can be
+  // priced the same way the seats filled at opening were.
+  const rateRef = useRef<{ halted: boolean; haltRate: number; rate: any } | null>(null)
   ledgerRef.current = ledgerList
   const ensureLedgers = async () => {
     if (ledgerRef.current.length) return
@@ -312,6 +316,9 @@ export default function TripExpensesPage() {
   const seatHasPerson = (seat: OptingSeat | 'conductor'): boolean => !!String(
     seat === 'driver1' ? form.driver1_id : seat === 'driver2' ? form.driver2_id
       : seat === 'helper' ? form.helper_id : form.conductor_id)
+  // A seat is charged only when someone holds it - a registered person or an
+  // opting cover. A trip with no conductor aboard carries no Conductor Beta.
+  const seatFilled = (seat: OptingSeat): boolean => seatHasPerson(seat) || isOptingRole(seat)
   // Legacy parity (expenses.component.ts:313-339 in D:\samanvi). Every seat earns
   // its per-trip BETA — calculateTotalBeta() sums all four unconditionally, so an
   // opting seat is charged its beta too. SALARY is the opting premium only: the
@@ -615,13 +622,30 @@ export default function TripExpensesPage() {
     helper: { label: 'Helper', beta: 'helpersalary', salary: 'helpersudsalary' },
     conductor: { label: 'Conductor', beta: 'conductorsalary' },
   }
+  // Picking someone for a seat that had nobody seeds its beta off the rate the
+  // modal opened with, and emptying a seat clears it, so the beta follows the
+  // name rather than lingering from whoever held the seat before. A beta already
+  // typed for a held seat is left alone.
+  const seatBetaPatch = (seat: OptingSeat, filled: boolean): Record<string, string> => {
+    const key = SEAT_FIELDS[seat].beta
+    if (!filled) return { [key]: '' }
+    if (String(form[key] ?? '')) return {}
+    const r = rateRef.current
+    if (!r) return {}
+    const running = seat === 'driver1' ? r.rate?.driverOneBeta : seat === 'driver2' ? r.rate?.driverTwoBeta
+      : seat === 'helper' ? r.rate?.helperBeta : r.rate?.conductorBeta
+    return { [key]: r.halted ? String(r.haltRate || '') : String(running ?? '') }
+  }
   const seatFields = (seat: OptingSeat) => {
     const f = SEAT_FIELDS[seat]
+    const filled = seatFilled(seat)
     return (
       <>
         <div className="mt-2">
-          <Label>{isHalt ? 'Halt ' : ''}Beta (₹) <span className="text-red-500">*</span></Label>
-          <Input type="number" value={String(form[f.beta] ?? '')}
+          <Label>{isHalt ? 'Halt ' : ''}Beta (₹) {filled && <span className="text-red-500">*</span>}</Label>
+          {/* No name, no beta: the box is shut until someone is picked for the seat. */}
+          <Input type="number" value={filled ? String(form[f.beta] ?? '') : ''} disabled={!filled}
+            placeholder={filled ? '' : '—'}
             onChange={(e) => setForm((prev) => ({ ...prev, [f.beta]: e.target.value }))} />
         </div>
         {/* Legacy shows the Salary box only for an opting seat
@@ -687,7 +711,7 @@ export default function TripExpensesPage() {
   }
 
   // ── Modal open/close ─────────────────────────────────────────────────────
-  const closeModal = () => { setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}); setPaidToOptedOut(false) }
+  const closeModal = () => { rateRef.current = null; setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}); setPaidToOptedOut(false) }
 
   const openAdd = async (row: any) => {
     setModal({ mode: 'add', row })
@@ -729,20 +753,26 @@ export default function TripExpensesPage() {
       const d2Opting = seatIsOpting(row.driver2_id, row.driver2_name, row.opt_driver2_id)
       const hOpting = seatIsOpting(row.helper_id, row.helper_name, row.opt_helper_id)
       const cOpting = seatIsOpting(row.conductor_id, row.conductor_name, '')
-      // Halted service: every assigned seat is paid the one Halt Beta off the
-      // service number rather than its own running beta, and a seat nobody was
-      // assigned to is charged nothing. Opting salary does not apply — the
-      // service did not run, so there was no seat for anyone to cover.
+      // A seat is charged its beta only when someone holds it - a registered
+      // person or an opting cover. A seat nobody was assigned to (a trip with no
+      // conductor, say) is charged nothing, rather than the rate off the service
+      // number landing on every trip whether or not anyone sat there.
+      // Halted service: every held seat is paid the one Halt Beta rather than
+      // its own running beta. Opting salary does not apply — the service did not
+      // run, so there was no seat for anyone to cover.
       const halted = String(row.trip_run_status ?? '') === 'Halt'
       const haltRate = num(haltRes?.data?.halt_beta)
-      const seatRate = (assignedId: any, running: any) =>
-        halted ? (String(assignedId ?? '') ? String(haltRate || '') : '') : String(running ?? '')
+      rateRef.current = { halted, haltRate, rate }
+      const seatRate = (assignedId: any, opting: boolean, running: any) => {
+        if (!String(assignedId ?? '') && !opting) return ''
+        return halted ? String(haltRate || '') : String(running ?? '')
+      }
       setForm((f) => ({
         ...f,
-        driveronesalary: seatRate(row.driver1_id, rate.driverOneBeta),
-        drivertwosalary: seatRate(row.driver2_id, rate.driverTwoBeta),
-        helpersalary: seatRate(row.helper_id, rate.helperBeta),
-        conductorsalary: seatRate(row.conductor_id, rate.conductorBeta),
+        driveronesalary: seatRate(row.driver1_id, d1Opting, rate.driverOneBeta),
+        drivertwosalary: seatRate(row.driver2_id, d2Opting, rate.driverTwoBeta),
+        helpersalary: seatRate(row.helper_id, hOpting, rate.helperBeta),
+        conductorsalary: seatRate(row.conductor_id, cOpting, rate.conductorBeta),
         // Per-seat salary — the service number's OPT-Driver / OPT-Helper Salary,
         // earned on every trip by whoever holds the seat (see personAmount).
         driveronesudsalary: halted ? '' : String(optDriverRate || ''),
@@ -753,13 +783,13 @@ export default function TripExpensesPage() {
 
       // Same arithmetic as personAmount, off the freshly fetched rate: a regular
       // seat is paid its beta, an opting seat its beta plus the opting premium.
-      const d1Beta = num(seatRate(row.driver1_id, rate.driverOneBeta))
-      const d2Beta = num(seatRate(row.driver2_id, rate.driverTwoBeta))
-      const hBeta = num(seatRate(row.helper_id, rate.helperBeta))
+      const d1Beta = num(seatRate(row.driver1_id, d1Opting, rate.driverOneBeta))
+      const d2Beta = num(seatRate(row.driver2_id, d2Opting, rate.driverTwoBeta))
+      const hBeta = num(seatRate(row.helper_id, hOpting, rate.helperBeta))
       const driver1Amt = d1Opting ? 0 : d1Beta
       const driver2Amt = d2Opting ? 0 : d2Beta
       const helperAmt = hOpting ? 0 : hBeta
-      const cBeta = num(seatRate(row.conductor_id, rate.conductorBeta))
+      const cBeta = num(seatRate(row.conductor_id, cOpting, rate.conductorBeta))
       const conductorAmt = cOpting ? 0 : cBeta
       const optDrv = halted ? 0 : optDriverRate
       const optHlp = halted ? 0 : optHelperRate
@@ -862,6 +892,19 @@ export default function TripExpensesPage() {
     const ledgerRows: any[] = res?.data?.[0] ?? []
     const tripRows: any[] = res?.data?.[1] ?? []
     const t = tripRows[0]
+    // The saved betas are loaded as they were filed; the rate is fetched only so
+    // a seat filled during this edit can be seeded (see seatBetaPatch).
+    rateRef.current = null
+    Promise.all([
+      tripsService.getBeta({ serviceNo: t?.service_no ?? row.service_no }),
+      mastersService.getHaltBeta(),
+    ]).then(([rateRes, haltRes]) => {
+      rateRef.current = {
+        halted: String(row.trip_run_status ?? '') === 'Halt',
+        haltRate: num(haltRes?.data?.halt_beta),
+        rate: rateRes?.data?.[0] ?? null,
+      }
+    }).catch(() => { rateRef.current = null })
 
     if (t) {
       setForm((f) => ({
@@ -1069,11 +1112,10 @@ export default function TripExpensesPage() {
 
   const validate = () => {
     if (!form.bus_no) { toast.error('Bus Number is required'); return false }
-    const betaMissing = isHalt
-      ? (['driver1', 'driver2', 'helper', 'conductor'] as const).some((seat) => seatHasPerson(seat) && seatBeta(seat) <= 0)
-      : !form.driveronesalary || !form.drivertwosalary || !form.helpersalary || !form.conductorsalary
-    if (betaMissing) {
-      toast.error(isHalt ? 'Enter the halt beta for each assigned crew member' : 'Please fill all beta amount fields')
+    // Only a held seat is charged, so only a held seat needs its beta - on a
+    // running trip and a halted one alike. An empty seat is not an error.
+    if (OPTING_SEATS.some((seat) => seatFilled(seat) && seatBeta(seat) <= 0)) {
+      toast.error(isHalt ? 'Enter the halt beta for each assigned crew member' : 'Enter the beta for each crew member on the trip')
       return false
     }
     // The conductor is left out: no OPT-Conductor Salary exists to enter.
@@ -1326,9 +1368,9 @@ export default function TripExpensesPage() {
                     <div>
                       <Label>Driver1 Name</Label>
                       <Select value={isOptingRole('driver1') ? OPTING_VALUE : form.driver1_id} onChange={(e) => {
-                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver1_id: '', driver1_name: optingNameForSeat('driver1'), opt_driver1_id: '', opt_driver1_name: '' })); return }
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver1_id: '', driver1_name: optingNameForSeat('driver1'), opt_driver1_id: '', opt_driver1_name: '', ...seatBetaPatch('driver1', true) })); return }
                         const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
-                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '', opt_driver1_id: '', opt_driver1_name: '' }))
+                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '', opt_driver1_id: '', opt_driver1_name: '', ...seatBetaPatch('driver1', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('driver1')}</option>
@@ -1339,9 +1381,9 @@ export default function TripExpensesPage() {
                     <div>
                       <Label>Driver2 Name</Label>
                       <Select value={isOptingRole('driver2') ? OPTING_VALUE : form.driver2_id} onChange={(e) => {
-                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver2_id: '', driver2_name: optingNameForSeat('driver2'), opt_driver2_id: '', opt_driver2_name: '' })); return }
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver2_id: '', driver2_name: optingNameForSeat('driver2'), opt_driver2_id: '', opt_driver2_name: '', ...seatBetaPatch('driver2', true) })); return }
                         const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
-                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '', opt_driver2_id: '', opt_driver2_name: '' }))
+                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '', opt_driver2_id: '', opt_driver2_name: '', ...seatBetaPatch('driver2', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('driver1')}</option>
@@ -1352,9 +1394,9 @@ export default function TripExpensesPage() {
                     <div>
                       <Label>Helper Name</Label>
                       <Select value={isOptingRole('helper') ? OPTING_VALUE : form.helper_id} onChange={(e) => {
-                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, helper_id: '', helper_name: optingNameForSeat('helper'), opt_helper_id: '', opt_helper_name: '' })); return }
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, helper_id: '', helper_name: optingNameForSeat('helper'), opt_helper_id: '', opt_helper_name: '', ...seatBetaPatch('helper', true) })); return }
                         const h = helpers.find((x: any) => String(x.id) === e.target.value)
-                        setForm((f) => ({ ...f, helper_id: e.target.value, helper_name: h?.helper_name ?? h?.nickname ?? '', opt_helper_id: '', opt_helper_name: '' }))
+                        setForm((f) => ({ ...f, helper_id: e.target.value, helper_name: h?.helper_name ?? h?.nickname ?? '', opt_helper_id: '', opt_helper_name: '', ...seatBetaPatch('helper', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('helper')}</option>
@@ -1365,9 +1407,9 @@ export default function TripExpensesPage() {
                     <div>
                       <Label>Conductor Name</Label>
                       <Select value={isOptingRole('conductor') ? OPTING_VALUE : form.conductor_id} onChange={(e) => {
-                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, conductor_id: '', conductor_name: optingNameForSeat('conductor') })); return }
+                        if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, conductor_id: '', conductor_name: optingNameForSeat('conductor'), ...seatBetaPatch('conductor', true) })); return }
                         const c = conductors.find((x: any) => String(x.id) === e.target.value)
-                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.nickName ?? c?.fullName ?? '' }))
+                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.nickName ?? c?.fullName ?? '', ...seatBetaPatch('conductor', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('conductor')}</option>
