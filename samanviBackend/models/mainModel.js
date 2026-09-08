@@ -3011,6 +3011,13 @@ exports.adddiagnoptntTstdtsmmdl = function (
     data.expensedetails.paid_to_type,
     data.expensedetails.trip_creation_id,
   ]);
+  // Nothing to file: an expense saved without a voucher (nobody paid through
+  // the books) carries no ledger rows, and `VALUES ?` with an empty list is a
+  // syntax error rather than a no-op.
+  if (!values.length) {
+    if (callback && typeof callback == "function") return callback(null, { affectedRows: 0 });
+    return;
+  }
   if (callback && typeof callback == "function")
     dbutil.sqlinjection(
       sqldb,
@@ -3072,6 +3079,13 @@ exports.updateadddiagnoptntTstdtsmmdl = function (
     data.paid_to_type,
     data.trip_creation_id,
   ]);
+  // Nothing to file: an expense saved without a voucher (nobody paid through
+  // the books) carries no ledger rows, and `VALUES ?` with an empty list is a
+  // syntax error rather than a no-op.
+  if (!values.length) {
+    if (callback && typeof callback == "function") return callback(null, { affectedRows: 0 });
+    return;
+  }
   if (callback && typeof callback == "function")
     dbutil.sqlinjection(
       sqldb,
@@ -3128,6 +3142,13 @@ exports.adddingcreditmmdl = function (c_id, c_number, lastid, data, callback) {
   ]);
   //console.log()QRY_TO_EXEC, 1619);
 
+  // Nothing to file: an expense saved without a voucher (nobody paid through
+  // the books) carries no ledger rows, and `VALUES ?` with an empty list is a
+  // syntax error rather than a no-op.
+  if (!values.length) {
+    if (callback && typeof callback == "function") return callback(null, { affectedRows: 0 });
+    return;
+  }
   if (callback && typeof callback == "function")
     dbutil.sqlinjection(
       sqldb,
@@ -3190,6 +3211,13 @@ exports.updateadddingcreditmmdl = function (
   ]);
   //console.log()QRY_TO_EXEC, 1619);
 
+  // Nothing to file: an expense saved without a voucher (nobody paid through
+  // the books) carries no ledger rows, and `VALUES ?` with an empty list is a
+  // syntax error rather than a no-op.
+  if (!values.length) {
+    if (callback && typeof callback == "function") return callback(null, { affectedRows: 0 });
+    return;
+  }
   if (callback && typeof callback == "function")
     dbutil.sqlinjection(
       sqldb,
@@ -5036,7 +5064,31 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
   var toInsert = (rows || []).filter(function (r) {
     return r && (r.bus_no || r.trip_run_status === 'Halt');
   });
-  if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, voucherCandidates: [] });
+  if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: 0, voucherCandidates: [] });
+
+  // One trip per service number per day. The grids already hide a service
+  // that has a trip for the date, but a double submit or a stale screen could
+  // still send it again, so rows whose service already has a live trip on
+  // this date are dropped here and counted back as skipped.
+  var skipped = 0;
+  var serviceIds = toInsert.map(function (r) { return r.service_no_id; }).filter(function (v) { return v != null && v !== ''; });
+  var dedupe = function (next) {
+    if (!serviceIds.length) return next();
+    sqldb.query('SELECT service_no_id FROM trip_created WHERE d_in = 0 AND trip_date = ? AND service_no_id IN (?)', [trip_date, serviceIds], function (err, rows) {
+      if (err || !rows) return next();
+      var taken = {};
+      rows.forEach(function (x) { taken[String(x.service_no_id)] = true; });
+      toInsert = toInsert.filter(function (r) {
+        if (r.service_no_id != null && r.service_no_id !== '' && taken[String(r.service_no_id)]) { skipped++; return false; }
+        return true;
+      });
+      next();
+    });
+  };
+  dedupe(function () {
+    if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: skipped, voucherCandidates: [] });
+    resolveNext();
+  });
 
   // Resolve a Receivables ledger for every Van row that didn't get an explicit
   // debit_ledger_id, one at a time (ensureHirerLedger does its own dedupe-by-phone
@@ -5056,7 +5108,6 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
       vi++; resolveNext();
     }
   };
-  resolveNext();
 
   function proceedWithInsert() {
     exports.maintripexpenseuniquenoMdl(function (err, cresults1) {
@@ -5109,7 +5160,7 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
       var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        callback(null, { inserted: toInsert.length, total: (rows || []).length, voucherCandidates: voucherCandidates });
+        callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, voucherCandidates: voucherCandidates });
       });
     });
   }
@@ -14318,6 +14369,21 @@ exports.getTripVoucherNumberMdl = function (tripCNumber, callback) {
 // updateBatteryVoucherMdl) — used when re-filing/editing a Trip Expense that
 // already posted a voucher on an earlier filing, so re-filing doesn't pile up
 // a fresh voucher every time.
+// Retires a trip's voucher when the expense is re-filed with nobody paid
+// through the books: its lines and header are soft-deleted and the trip forgets
+// the number, so a later re-filing that does post ledgers gets a fresh voucher.
+exports.voidTripVoucherMdl = function (voucherNumber, tripCNumber, callback) {
+  dbutil.execupdateQuery(sqldb, `UPDATE mainvoucher_subt SET d_in = 1 WHERE c_number = ? AND d_in = 0`, [voucherNumber], 'voidTripVoucherSub', function (err) {
+    if (err) return callback(err);
+    dbutil.execupdateQuery(sqldb, `UPDATE mainvoucher_t SET d_in = 1 WHERE c_number = ? AND d_in = 0`, [voucherNumber], 'voidTripVoucherMain', function (err) {
+      if (err) return callback(err);
+      dbutil.execupdateQuery(sqldb, `UPDATE trip_created SET voucher_number = NULL WHERE c_number = ? AND d_in = 0`, [tripCNumber], 'voidTripVoucherLink', function (err) {
+        callback(err);
+      });
+    });
+  });
+};
+
 exports.updateTripVoucherMdl = function (data, callback) {
   var moment  = require('moment');
   var curDate = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');

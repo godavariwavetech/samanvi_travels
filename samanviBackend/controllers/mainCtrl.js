@@ -2389,6 +2389,17 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
                     var ledgers = buildTripVoucherLedgers(req.body);
                     appmdl.getTripVoucherNumberMdl(tripCNumber, function (vErr, vRows) {
                       var existingVoucher = (!vErr && vRows && vRows[0] && vRows[0].voucher_number) || null;
+                      // Re-filed with nobody paid through the books: the
+                      // expense is saved above and no voucher is posted. One
+                      // from an earlier filing is retired rather than left
+                      // standing with no lines.
+                      if (ledgers.debit_ledgers.length === 0 && ledgers.credit_ledgers.length === 0) {
+                        if (!existingVoucher) return finish();
+                        return appmdl.voidTripVoucherMdl(existingVoucher, tripCNumber, function (vdErr) {
+                          if (vdErr) console.error('[voidTripVoucherMdl] failed for trip ' + tripCNumber + ':', vdErr.message);
+                          finish();
+                        });
+                      }
                       if (existingVoucher) {
                         appmdl.updateTripVoucherMdl({
                           voucher_number: existingVoucher, trip_c_number: tripCNumber,

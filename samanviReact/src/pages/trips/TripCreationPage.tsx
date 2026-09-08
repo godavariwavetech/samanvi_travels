@@ -415,7 +415,7 @@ export default function TripCreationPage() {
     },
     onSuccess: (res: any) => {
       if (res.status === 200) {
-        toast.success(`${res.data?.inserted ?? 0} trip(s) created for ${tripDate}`)
+        toast.success(`${res.data?.inserted ?? 0} trip(s) created for ${tripDate}${res.data?.skipped ? ` (${res.data.skipped} already booked for this date, skipped)` : ''}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
         qc.invalidateQueries({ queryKey: ['trip-expenses'] })
         setGridRows({})
@@ -461,7 +461,7 @@ export default function TripCreationPage() {
     },
     onSuccess: (res: any) => {
       if (res.status === 200) {
-        toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}`)
+        toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}${res.data?.skipped ? ` (${res.data.skipped} already booked for this date, skipped)` : ''}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
         qc.invalidateQueries({ queryKey: ['trip-expenses'] })
         setVanRows({})

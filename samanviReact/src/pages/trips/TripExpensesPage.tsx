@@ -500,6 +500,12 @@ export default function TripExpensesPage() {
   // same ledger appearing twice on one side, so merge those into one row —
   // keeping whichever tag is a specific person over the generic 'paidTo',
   // so isPersonChecked keeps recognizing it as that person's own line.
+  // Folds rows on the same ledger into one - used when the voucher is posted,
+  // not while the modal is open. A crew member who is also the Paid To has two
+  // rows here (their own share, and the leftover), and both have to stay
+  // separate for the two ticks to read right: folding them as they were made
+  // left one row tagged as the person, so the Paid To tick never showed and a
+  // later tick rebuilt the leftover on top of the folded amount.
   const mergeSameLedgerRows = (rows: LedgerRow[]): LedgerRow[] => {
     const merged: LedgerRow[] = []
     for (const r of rows) {
@@ -542,8 +548,10 @@ export default function TripExpensesPage() {
     }
     // Drop the blank placeholder left behind while Paid To was off, so re-ticking
     // doesn't leave an empty "Select Ledger" row sitting beside the restored one.
+    // The Paid To row stays its own row even when it lands on a ticked person's
+    // ledger; the two are folded together only when posted (see creditForPost).
     const kept = withoutPaidTo.filter((r) => r.ledger || r.amount)
-    return mergeSameLedgerRows([...kept, { ledger: toLedgerObj(ledger), amount: String(remainder), personKey: 'paidTo' }])
+    return [...kept, { ledger: toLedgerObj(ledger), amount: String(remainder), personKey: 'paidTo' }]
   }
 
   const togglePerson = (key: PersonKey) => {
@@ -912,7 +920,7 @@ export default function TripExpensesPage() {
       if (remainder > 0 && paidToLedger) {
         seeded.push({ ledger: toLedgerObj(paidToLedger), amount: String(remainder), personKey: 'paidTo' })
       }
-      if (seeded.length) setCreditRows(mergeSameLedgerRows(seeded))
+      if (seeded.length) setCreditRows(seeded)
       setDebitRows(buildExpenseRows([], {
         amounts: {
           beta: d1Beta + d2Beta + hBeta + conductorAmt,
@@ -1021,11 +1029,30 @@ export default function TripExpensesPage() {
       const rec = list.find((r: any) => String(r.id) === String(t.paid_to_id))
       return rec?.ledger_id ? String(rec.ledger_id) : ''
     })()
-    // A person who is also the Paid To shares one ledger — tag it as the person
-    // (same preference mergeSameLedgerRows applies) so their checkbox still works.
+    // A ledger matching a crew member is tagged as that person; the Paid To
+    // ledger, when it is nobody on the crew, as Paid To.
     const tagFor = (ledgerId: string): RowTag | undefined =>
       PERSON_KEYS.find((k) => savedLedgerIds[k] && savedLedgerIds[k] === ledgerId)
       ?? (savedPaidToLedgerId && savedPaidToLedgerId === ledgerId ? 'paidTo' : undefined)
+    // A crew member who was also the Paid To was posted as one row on their
+    // ledger: their own share plus the leftover. It is split back into the two
+    // rows the modal works with - the person's share, and the rest as Paid To -
+    // so both ticks read as they were saved. The share is the beta saved for
+    // that seat; a row no bigger than the share is the person's alone.
+    const savedShare: Partial<Record<PersonKey, number>> = t ? {
+      driver1: num(t.driver1Beta), driver2: num(t.driver2Beta), helper: num(t.helpersudBeta), conductor: num(t.ConductorsudBeta),
+    } : {}
+    const splitPersonAndPaidTo = (row: LedgerRow, ledgerId: string): LedgerRow[] => {
+      const tag = row.personKey
+      if (!tag || tag === 'paidTo' || !(PERSON_KEYS as string[]).includes(tag)) return [row]
+      if (!savedPaidToLedgerId || savedPaidToLedgerId !== ledgerId) return [row]
+      const share = savedShare[tag as PersonKey] ?? 0
+      if (share <= 0 || num(row.amount) <= share) return [row]
+      return [
+        { ...row, amount: String(share) },
+        { ...row, amount: String(num(row.amount) - share), personKey: 'paidTo' },
+      ]
+    }
 
     // Same reason the credit rows get tagged: without a tag a saved expense row
     // is indistinguishable from one the user typed, so editing an amount later
@@ -1036,9 +1063,10 @@ export default function TripExpensesPage() {
     const debit = ledgerRows.filter((r) => r.amount_type === 'Debit Account').map((r) => ({
       ledger: toLedgerObj(r), amount: String(r.amount ?? ''), personKey: expenseTagFor(String(r.ledger_id ?? '')),
     }))
-    const credit = ledgerRows.filter((r) => r.amount_type === 'Credit Account').map((r) => ({
-      ledger: toLedgerObj(r), amount: String(r.amount ?? ''), personKey: tagFor(String(r.ledger_id ?? '')),
-    }))
+    const credit = ledgerRows.filter((r) => r.amount_type === 'Credit Account').flatMap((r) => {
+      const ledgerId = String(r.ledger_id ?? '')
+      return splitPersonAndPaidTo({ ledger: toLedgerObj(r), amount: String(r.amount ?? ''), personKey: tagFor(ledgerId) }, ledgerId)
+    })
     setDebitRows(debit.length ? debit : [emptyLedgerRow()])
     setCreditRows(credit.length ? credit : [emptyLedgerRow()])
     setLoadingModal(false)
@@ -1073,6 +1101,12 @@ export default function TripExpensesPage() {
   // exactly the way the Paid To picker does on the Trip Creation grid.
   const paidToRowAmount = num(creditRows.find((r) => r.personKey === 'paidTo')?.amount)
   const paidToActive = paidToRowAmount > 0
+  // Nobody paid through the books - no crew tick and Paid To off - means there
+  // is nothing to post: Submit saves the expense (betas, remarks, status) on its
+  // own and no voucher is created, the way a garage job can be quick-completed
+  // without one. A credit row the user typed by hand still counts as posting.
+  const anyoneTicked = PERSON_KEYS.some((k) => isPersonChecked(k))
+  const noVoucher = !anyoneTicked && !paidToActive && !creditRows.some((r) => r.ledger && num(r.amount) > 0)
   // Unticking hands the leftover back to the user to place manually; reticking
   // re-derives it. Mirrors how each crew checkbox adds/removes its own row.
   const togglePaidTo = () => {
@@ -1089,16 +1123,25 @@ export default function TripExpensesPage() {
   const totalBeta = expenseAmount('beta') + num(form.parking_amt)
   const validDebit = debitRows.filter((r) => r.ledger && num(r.amount) > 0)
   const validCredit = creditRows.filter((r) => r.ledger && num(r.amount) > 0)
+  // What is actually posted: a crew member who is also the Paid To has two rows
+  // in the modal but one credit on the voucher, so their rows are folded here.
+  // The same fold is what the duplicate check looks at, so the pair does not
+  // read as a duplicate while two rows the user typed on one ledger still do.
+  const creditForPost = mergeSameLedgerRows(validCredit)
   const debitTotal = validDebit.reduce((s, r) => s + num(r.amount), 0)
-  const creditTotal = validCredit.reduce((s, r) => s + num(r.amount), 0)
+  const creditTotal = creditForPost.reduce((s, r) => s + num(r.amount), 0)
   const balanced = debitTotal > 0 && Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
+  // What the trip cost: the balanced debit total when a voucher is posted, and
+  // the crew pay plus parking when nothing is posted, so Trip Reports still
+  // shows the expense either way.
+  const expenseTotal = noVoucher ? totalSalary + totalBeta : debitTotal
 
   const buildExpenseDetails = () => ({
     driveronebeta: form.driveronebeta, driveronesalary: form.driveronesalary, driveronesudsalary: form.driveronesudsalary, driverone_payment: '',
     drivertwobeta: form.drivertwobeta, drivertwosalary: form.drivertwosalary, drivertwosudsalary: form.drivertwosudsalary, drivertwo_payment: '',
     helperbeta: form.helperbeta, helpersalary: form.helpersalary, helpersudsalary: form.helpersudsalary, helper_payment: '',
     conductorsalary: form.conductorsalary,
-    grandtotal: debitTotal, bus_no: form.bus_no, service_no: form.service_no,
+    grandtotal: expenseTotal, bus_no: form.bus_no, service_no: form.service_no,
     driver1_name: form.driver1_name, driver2_name: form.driver2_name, helper_name: form.helper_name,
     user_id: localStorage.getItem('user_id'), named: localStorage.getItem('usr_nm'),
     id: form.id,
@@ -1118,22 +1161,24 @@ export default function TripExpensesPage() {
   const buildAddPayload = () => ({
     c_number: origMeta.c_number, c_id: origMeta.c_id,
     expensedetails: buildExpenseDetails(),
-    patientsTstdts: validDebit.map((r) => ({ d_test_name: r.ledger, d_test_amount: num(r.amount), account_name: 'Debit Account' })),
-    credit: validCredit.map((r) => ({ credit_name: r.ledger, credit_amount: num(r.amount), account_name: 'Credit Account' })),
+    // No ledger rows when nothing is posted (see noVoucher): the server then
+    // files the expense and skips the voucher.
+    patientsTstdts: noVoucher ? [] : validDebit.map((r) => ({ d_test_name: r.ledger, d_test_amount: num(r.amount), account_name: 'Debit Account' })),
+    credit: noVoucher ? [] : creditForPost.map((r) => ({ credit_name: r.ledger, credit_amount: num(r.amount), account_name: 'Credit Account' })),
     // total_amount is what Trip Reports shows as "Total Exp" and Admin
     // Approvals as "Total Amount", so it is the actual balanced debit total —
     // not the legacy salary + beta + debit sum, which counted the crew pay twice.
     total_salary: totalSalary, total_beta: totalBeta,
-    total_salary_beta: totalSalary + totalBeta, total_amount: debitTotal,
+    total_salary_beta: totalSalary + totalBeta, total_amount: expenseTotal,
     trip_for_id: form.trip_for_id, service_no_id: form.service_no_id, remarks: form.remarks,
   })
 
   const buildEditPayload = () => ({
     expensedetails: buildExpenseDetails(),
-    patientsTstdts: validDebit.map((r) => ({ d_test_name: r.ledger, d_test_amount: num(r.amount), account_name: 'Debit Account' })),
-    credit: validCredit.map((r) => ({ credit_name: r.ledger, credit_amount: num(r.amount), account_name: 'Credit Account' })),
+    patientsTstdts: noVoucher ? [] : validDebit.map((r) => ({ d_test_name: r.ledger, d_test_amount: num(r.amount), account_name: 'Debit Account' })),
+    credit: noVoucher ? [] : creditForPost.map((r) => ({ credit_name: r.ledger, credit_amount: num(r.amount), account_name: 'Credit Account' })),
     total_salary: totalSalary, total_beta: totalBeta,
-    total_salary_beta: totalSalary + totalBeta, total_amount: debitTotal,
+    total_salary_beta: totalSalary + totalBeta, total_amount: expenseTotal,
     service_no_id: form.service_no_id, trip_for_id: form.trip_for_id, remarks: form.remarks,
     paid_to_id: form.paid_to_id, paid_to_name: form.paid_to_name, paid_to_type: form.paid_to_type,
     trip_creation_id: form.trip_creation_id,
@@ -1171,10 +1216,13 @@ export default function TripExpensesPage() {
     if (OPTING_SEATS.some((seat) => seat !== 'conductor' && isOptingRole(seat) && seatSalary(seat) <= 0)) {
       toast.error('Enter the opting salary for each seat marked Opting'); return false
     }
+    // Nothing is posted when nobody is paid through the books, so the ledger
+    // checks do not apply - there are no rows to balance.
+    if (noVoucher) return true
     if (validDebit.length === 0) { toast.error('Add at least one debit ledger entry'); return false }
     if (validCredit.length === 0) { toast.error('Add at least one credit ledger entry'); return false }
     const debitIds = validDebit.map((r) => String(r.ledger!.ledger_id))
-    const creditIds = validCredit.map((r) => String(r.ledger!.ledger_id))
+    const creditIds = creditForPost.map((r) => String(r.ledger!.ledger_id))
     if (new Set(debitIds).size !== debitIds.length) { toast.error('Duplicate ledger in Debit entries'); return false }
     if (new Set(creditIds).size !== creditIds.length) { toast.error('Duplicate ledger in Credit entries'); return false }
     if (debitIds.some((id) => creditIds.includes(id))) { toast.error('Same ledger cannot be used in both Debit and Credit'); return false }
@@ -1285,6 +1333,7 @@ export default function TripExpensesPage() {
   }
 
   // ── Table columns ────────────────────────────────────────────────────────
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const columns: Column[] = [
     { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
     { label: 'Trip Date', key: 'trip_date', render: (v) => String(v ?? '').split('T')[0] },
@@ -1300,9 +1349,17 @@ export default function TripExpensesPage() {
         </button>
       ),
     },
-    { label: 'Trip For', key: 'trip_for' },
-    { label: 'Bus No', key: 'bus_no' },
-    { label: 'Service No', key: 'service_no' },
+    { label: 'Trip For', key: 'trip_for', filterable: true },
+    { label: 'Bus No', key: 'bus_no', filterable: true },
+    { label: 'Service No', key: 'service_no', filterable: true },
+    {
+      // The run status set on Trip Creation. A halted trip is priced on the
+      // Halt Beta rather than the running betas, so it is worth seeing before
+      // the expense is opened. Rows from before the column existed ran.
+      label: 'Status', key: 'trip_run_status', filterable: true,
+      filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Full Trip', value: 'Full Trip' }, { label: 'Halt', value: 'Halt' }],
+      render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v || 'Running')}</Badge>,
+    },
     { label: 'Driver 1', key: 'driver1_name' },
     { label: 'Driver 2', key: 'driver2_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
     { label: 'Helper', key: 'helper_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
@@ -1370,6 +1427,8 @@ export default function TripExpensesPage() {
         onAction={handleAction}
         actions={['edit', 'view', 'delete']}
         icon={<Receipt className="w-5 h-5 text-red-500" />}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
 
       {/* ── Add / Edit modal ── */}
@@ -1495,7 +1554,7 @@ export default function TripExpensesPage() {
                             {paidToActive
                               ? `₹${paidToRowAmount.toLocaleString('en-IN')}`
                               : paidToOptedOut
-                                ? 'Off — assign the leftover yourself in Credit Accounts'
+                                ? (noVoucher ? 'Off — nobody is paid through the books, so Submit saves without a voucher' : 'Off — assign the leftover yourself in Credit Accounts')
                                 : 'Everyone ticked — nothing left over'}
                           </p>
                         </div>
@@ -1548,6 +1607,22 @@ export default function TripExpensesPage() {
                     </div>
                   </div>
 
+                  {noVoucher ? (
+                    /* Nothing to post: the ledger sections come away and Submit
+                       saves the expense on its own. */
+                    <div className="rounded-xl border-2 border-amber-200 bg-amber-50/60 p-4 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-amber-800">No voucher</span>
+                        <span className="text-xs text-amber-600 bg-amber-100 rounded-full px-2 py-0.5 font-medium">Nobody paid through the books</span>
+                      </div>
+                      <p className="text-xs text-slate-600">
+                        No crew member is ticked and Paid To is off, so Submit saves the betas and remarks without posting any ledger entry.
+                        Tick a person, or turn Paid To on, to post a voucher instead.
+                        {modal.mode === 'edit' && modal.row?.voucher_number ? ` The voucher posted earlier for this trip (${modal.row.voucher_number}) will be removed.` : ''}
+                      </p>
+                    </div>
+                  ) : (
+                  <>
                   {/* Debit / Credit ledgers. Debit is shown first; the crew's own
                       ledgers auto-fill on the Credit side (see isPersonChecked). */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
@@ -1603,6 +1678,13 @@ export default function TripExpensesPage() {
                                 onChange={(v) => pickLedger('credit', i, v)}
                                 options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers}
                               />
+                              {/* A person who is also the Paid To has two rows on one
+                                  ledger; the tag says which is which. */}
+                              {row.personKey === 'paidTo' ? (
+                                <p className="text-[10px] font-semibold text-slate-400 pl-1 mt-0.5">Paid To · leftover</p>
+                              ) : row.personKey && (PERSON_KEYS as string[]).includes(row.personKey) ? (
+                                <p className="text-[10px] font-semibold text-slate-400 pl-1 mt-0.5">Pay {personName(row.personKey as PersonKey)}</p>
+                              ) : null}
                             </div>
                             <div className="flex-[2] min-w-0">
                               <Input type="number" placeholder="Amount" value={row.amount} onChange={(e) => setCreditRows((rs) => rs.map((r, idx) => idx === i ? { ...r, amount: e.target.value } : r))} />
@@ -1629,6 +1711,8 @@ export default function TripExpensesPage() {
                     <p className="text-xs font-semibold text-amber-600 text-center">
                       Debit (₹{debitTotal.toLocaleString('en-IN')}) and Credit (₹{creditTotal.toLocaleString('en-IN')}) totals must match before submitting.
                     </p>
+                  )}
+                  </>
                   )}
 
                   <div className="flex justify-center gap-3 pt-2">
