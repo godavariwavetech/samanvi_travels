@@ -344,7 +344,7 @@ export default function BusNoPage() {
         toast.success(isEdit ? 'Bus updated!' : 'Bus added!')
         qc.invalidateQueries({ queryKey: ['buses'] })
         closeForm()
-      } else toast.error('Failed to save')
+      } else toast.error(res.message ?? 'Failed to save')
     },
     onError: () => toast.error('Server error'),
   })

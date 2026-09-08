@@ -675,6 +675,32 @@ function tripRowsWithoutVoucher(alias) {
         if (res && res.affectedRows) console.log('[DB] ' + m.tbl + '.' + m.col + ': renamed ' + res.affectedRows + ' row(s) to ' + m.to);
       });
   });
+  // A vehicle registered twice - the hire form let a number be added again -
+  // shows twice in every dropdown and list. Of the live rows sharing a number
+  // the one to keep is the one with a vehicle type (the later, corrected
+  // entry), else the newest; the rest are retired. Adding a number that is
+  // already live is refused now, so this matches nothing once it has run.
+  sqldb.query(`SELECT id, bus_no, vehicle_type FROM busses WHERE d_in = 0 AND bus_no IS NOT NULL AND bus_no <> '' ORDER BY id`, function (err, rows) {
+    if (err || !rows) return;
+    var groups = {};
+    rows.forEach(function (r) {
+      var key = String(r.bus_no).replace(/\s+/g, '').toUpperCase();
+      (groups[key] = groups[key] || []).push(r);
+    });
+    var retire = [];
+    Object.keys(groups).forEach(function (key) {
+      var list = groups[key];
+      if (list.length < 2) return;
+      var typed = list.filter(function (r) { return String(r.vehicle_type || '').trim(); });
+      var keep = (typed.length ? typed : list).reduce(function (a, b) { return b.id > a.id ? b : a; });
+      list.forEach(function (r) { if (r.id !== keep.id) retire.push(r.id); });
+    });
+    if (!retire.length) return;
+    sqldb.query(`UPDATE busses SET d_in = 1 WHERE id IN (?)`, [retire], function (err2, res) {
+      if (err2) return console.log('[DB] duplicate vehicle retire:', err2.message);
+      console.log('[DB] retired ' + ((res && res.affectedRows) || 0) + ' duplicate vehicle row(s): ids ' + retire.join(', '));
+    });
+  });
   // busses.vehicle_type is what separates a bus from a van everywhere in the app
   // (Trip Creation lists only vans on the Van tab, only buses on the Bus tab), and
   // the Bus Masters form picks that value out of the vehicle_types master. If that
@@ -1175,6 +1201,18 @@ exports.getdepartmentDataMdl = function (callback) {
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
+// The live vehicle already registered under this number, if any. Compared
+// with spaces removed and case ignored, so "TS 07 UH 5238" and "ts07uh5238"
+// are the same vehicle.
+exports.findLiveBusByNumberMdl = function (busno, callback) {
+  var key = String(busno || '').replace(/\s+/g, '').toUpperCase();
+  if (!key) return callback(null, null);
+  sqldb.query(`SELECT id, bus_no, bus_category, vehicle_type FROM busses WHERE d_in = 0 AND UPPER(REPLACE(bus_no, ' ', '')) = ? LIMIT 1`, [key], function (err, rows) {
+    if (err) return callback(err, null);
+    callback(null, rows && rows.length ? rows[0] : null);
+  });
+};
+
 exports.addNewbusnumMdl = function (data, callback) {
   console.log(data, 316);
   var cntxtDtls = "in addNewbusnumMdl";

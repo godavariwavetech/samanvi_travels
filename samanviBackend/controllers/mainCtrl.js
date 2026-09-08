@@ -654,13 +654,20 @@ exports.addNewbusnumCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const payload = decryptPayload(encryptedPayload);
   var reqdata = payload;
-  // //console.log()reqdata,497)
-  appmdl.addNewbusnumMdl(reqdata, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
+  // A vehicle number is registered once. Adding it again - which the hire
+  // form used to allow, leaving the vehicle twice in every list - is refused
+  // and points at the existing entry; changes go through Edit.
+  appmdl.findLiveBusByNumberMdl(reqdata.busno, function (dupErr, existing) {
+    if (!dupErr && existing) {
+      return res.send({ status: 422, message: 'Vehicle ' + existing.bus_no + ' is already registered' + (existing.bus_category === 'hire' ? ' as a hire vehicle' : '') + ' - edit it from the list instead' });
     }
-    res.send({ status: 200, data: results });
+    appmdl.addNewbusnumMdl(reqdata, function (err, results) {
+      if (err) {
+        res.send({ status: 500, data: results });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
   });
 };
 exports.getbussesdataCtrl = function (req, res) {
