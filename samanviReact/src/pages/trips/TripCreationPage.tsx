@@ -212,7 +212,10 @@ export default function TripCreationPage() {
   const [editForm, setEditForm] = useState<Record<string, string>>({})
 
   // Data queries
-  const { data: tripData, isLoading } = useQuery({ queryKey: ['trips'], queryFn: () => tripsService.getTrips1() })
+  // Always fresh: the sheet hides a service and a bus already used on the
+  // date, and a trip created in another tab or by someone else must count too,
+  // so the list is refetched on arrival and whenever this tab regains focus.
+  const { data: tripData, isLoading } = useQuery({ queryKey: ['trips'], queryFn: () => tripsService.getTrips1(), staleTime: 0, refetchOnWindowFocus: true })
   const { data: busData } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
   const { data: routeData } = useQuery({ queryKey: ['routes'], queryFn: () => mastersService.getServiceRoutes() })
   const { data: driverData } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers() })
