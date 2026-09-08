@@ -2,6 +2,21 @@ var sqldb = require("../config/dbconnect");
 var dbutil = require(appRoot + "/utils/assets_dbutils");
 var moment = require("moment");
 
+// A trip expense is written twice: its own rows in expensive_details, which
+// the trip screens work from, and a Journal voucher in mainvoucher_subt, which
+// the books work from. Reports and Payables read both tables, so a trip that
+// has its voucher used to show, and count, twice - once under the trip number
+// and once under the voucher number. Trip rows belong in the books only for a
+// trip with no voucher (filed before vouchers were posted for trips, or filed
+// with nobody paid through the books), which is what this clause selects.
+// `alias` is the expensive_details alias in the query, or '' for a bare SELECT.
+function tripRowsWithoutVoucher(alias) {
+  // Always qualified: a bare c_number inside the subquery would resolve to
+  // trip_created's own column and match every row.
+  var col = (alias || 'expensive_details') + '.c_number';
+  return "NOT EXISTS (SELECT 1 FROM trip_created tc WHERE tc.c_number = " + col + " AND tc.d_in = 0 AND tc.voucher_number IS NOT NULL AND tc.voucher_number <> '')";
+}
+
 // Garage approval workflow schema migration (runs once on startup)
 (function initGarageWorkflow() {
   sqldb.query(`CREATE TABLE IF NOT EXISTS job_approval_stages (
@@ -5860,38 +5875,29 @@ exports.SelectdatagetfinaltranscationsreportMdl = function (data, callback) {
   // const typeFilter = `(mm.district_id = "3" OR mm.district_id = "4")`;
   const typeFilter = ``;
 
+  // The range is applied on each entry's accounting date - the trip date of a
+  // trip expense, the voucher date of a voucher or fuel entry - falling back
+  // to the entry timestamp only where that date is missing. Filtering on the
+  // entry timestamp put a trip expense keyed in on the 5th for a trip on the
+  // 1st into the wrong period, and disagreed with Payables, which already
+  // works on these dates. The optional ledger match is bracketed: written as
+  // a bare OR it overrode the date range.
   if (data.fromdate && data.todate) {
-    const dateFilter = `DATE(ed.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'`;
+    const between = (dateCol, tsCol) => `COALESCE(DATE(${dateCol}), DATE(${tsCol})) BETWEEN '${data.fromdate}' AND '${data.todate}'`;
+    const ledgerMatch = (nameCol, idCol) => (data.ledger_name || data.ledger_id)
+      ? ` AND (${nameCol} = '${String(data.ledger_name || '').replace(/'/g, "''")}' OR ${idCol} = '${data.ledger_id}')`
+      : '';
 
-    expenseCondition += ` AND ${dateFilter}`;
-
-    if (data.ledger_name || data.ledger_id) {
-      expenseCondition += ` AND ed.temple_name = '${data.ledger_name}' or led.ledger_id = '${data.ledger_id}'`;
-    }
-
-    const dateVoucherFilter = `DATE(mv.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'`;
-    voucherCondition += ` AND ${dateVoucherFilter}`;
-    if (data.ledger_name || data.ledger_id) {
-      voucherCondition += ` AND mv.expensives = '${data.ledger_name}' or led.ledger_id = '${data.ledger_id}'`;
-    }
-
-    const dateFuelFilter = `DATE(f.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'`;
-    fuelCondition += ` AND ${dateFuelFilter}`;
-    if (data.ledger_name || data.ledger_id) {
-      fuelCondition += ` AND f.expensives = '${data.ledger_name}' or led.ledger_id = '${data.ledger_id}'`;
-    }
-
-    const dateLaundryFilter = `DATE(l.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'`;
-    laundryCondition += ` AND ${dateLaundryFilter}`;
-    if (data.ledger_name || data.ledger_id) {
-      laundryCondition += ` AND l.expensives = '${data.ledger_name}' or led.ledger_id = '${data.ledger_id}'`;
-    }
+    expenseCondition += ` AND ${between('ed.trip_date', 'ed.i_ts')}` + ledgerMatch('ed.temple_name', 'ed.ledger_id');
+    voucherCondition += ` AND ${between('mv.voucherdate', 'mv.i_ts')}` + ledgerMatch('mv.expensives', 'mv.ledger_id');
+    fuelCondition += ` AND ${between('f.voucherdate', 'f.i_ts')}` + ledgerMatch('f.expensives', 'f.ledger_id');
+    laundryCondition += ` AND DATE(l.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'` + ledgerMatch('l.expensives', 'l.ledger_id');
   }
 
   const QRY_TO_EXEC = `
         SELECT ed.*, mm.district_id FROM expensive_details AS ed
         JOIN mainmasterssubchildtwo AS mm ON mm.id = ed.ledger_id
-        WHERE mm.d_in = '0' AND ${expenseCondition};
+        WHERE mm.d_in = '0' AND ${tripRowsWithoutVoucher('ed')} AND ${expenseCondition};
 
         SELECT mv.*, mm.district_id FROM mainvoucher_subt AS mv
         JOIN mainmasterssubchildtwo AS mm ON mm.id = mv.ledger_id
@@ -7184,7 +7190,7 @@ exports.Selectdatagetfinaltranscationsreport1Mdl = function (data, callback) {
   }
 
   const QRY_TO_EXEC = `
-        SELECT * FROM expensive_details WHERE ${expenseCondition};
+        SELECT * FROM expensive_details WHERE ${tripRowsWithoutVoucher('')} AND ${expenseCondition};
         SELECT * FROM mainvoucher_subt WHERE ${voucherCondition};
         SELECT * FROM fuelentry_subt WHERE ${fuelCondition};
         SELECT * FROM  laundrybill_subt WHERE ${laundryCondition};
@@ -8382,7 +8388,7 @@ exports.getsearchdataMdl = function (data, callback) {
     SELECT
       (
         COALESCE((SELECT SUM(ed.amount) FROM expensive_details ed
-          WHERE ed.d_in='0' AND ed.admin_status='1'
+          WHERE ed.d_in='0' AND ed.admin_status='1' AND ${tripRowsWithoutVoucher('ed')}
           AND ed.amount_type='Credit Account'
           ${openingExp} ${ledgerExp}), 0)
         +
@@ -8404,7 +8410,7 @@ exports.getsearchdataMdl = function (data, callback) {
 
       (
         COALESCE((SELECT SUM(ed.amount) FROM expensive_details ed
-          WHERE ed.d_in='0' AND ed.admin_status='1'
+          WHERE ed.d_in='0' AND ed.admin_status='1' AND ${tripRowsWithoutVoucher('ed')}
           AND ed.amount_type='Debit Account'
           ${openingExp} ${ledgerExp}), 0)
         +
@@ -8436,7 +8442,7 @@ exports.getsearchdataMdl = function (data, callback) {
     LEFT JOIN expensive_details ed2
       ON ed.c_number = ed2.c_number AND ed2.d_in='0' AND ed2.ledger_id != ed.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON ed2.ledger_id = mm.id
-    WHERE ed.d_in='0' AND ed.admin_status='1'
+    WHERE ed.d_in='0' AND ed.admin_status='1' AND ${tripRowsWithoutVoucher('ed')}
     ${transExp} ${ledgerExp}
     GROUP BY ed.id;
 
@@ -9117,7 +9123,7 @@ exports.getdaybookreportsMdl = function (data, callback) {
   const cntxtDtls = "in getdaybookreportsMdl";
   //console.log()data, 5242);
 
-  const query1 = `SELECT * FROM expensive_details WHERE d_in = 0 AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
+  const query1 = `SELECT * FROM expensive_details WHERE d_in = 0 AND ${tripRowsWithoutVoucher('')} AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
   const query2 = `SELECT * FROM mainvoucher_subt WHERE d_in = 0 AND voucherdate BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
   const query3 = `SELECT * FROM fuelentry_subt WHERE d_in = 0 AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
   const query4 = `SELECT * FROM laundrybill_subt WHERE d_in = 0 AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
@@ -9175,7 +9181,7 @@ exports.getdaybookreportsMdl = function (data, callback) {
 exports.gettrialbalancereportsMdl = function (data, callback) {
   const cntxtDtls = "in gettrialbalancereportsMdl";
   //console.log()data, 5242);
-  const query1 = `SELECT * FROM expensive_details WHERE d_in = 0 and admin_status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
+  const query1 = `SELECT * FROM expensive_details WHERE d_in = 0 and admin_status='1' AND ${tripRowsWithoutVoucher('')} AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
   const query2 = `SELECT * FROM mainvoucher_subt WHERE d_in = 0 and status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
   const query3 = `SELECT * FROM fuelentry_subt WHERE d_in = 0 and admin_status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
   const query4 = `SELECT * FROM laundrybill_subt WHERE d_in = 0 and admin_status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC ;`;

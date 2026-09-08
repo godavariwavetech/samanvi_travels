@@ -3117,7 +3117,21 @@ exports.getexpensetripledgerdataCtrl = function (req, res) {
   });
 };
 exports.SelectdatagetfinaltranscationsreportCtrl = function (req, res) {
+  // The app sends this report's filter encrypted (securePayload). The wrapper
+  // used to be handed to the model as-is, so fromdate / todate were never
+  // seen and every caller - Balance Sheet, Group Wise, Profit & Loss - got
+  // all-time totals whatever range it asked for. Decrypt when the wrapper is
+  // present; a plain body is accepted as before.
   var data = req.body;
+  if (data && data.encryptedPayload) {
+    try {
+      validateSignature(data.encryptedPayload, data.signature);
+      data = decryptPayload(data.encryptedPayload);
+    } catch (e) {
+      console.error('[transactions report] bad payload:', e.message);
+      return res.send({ status: 400, msg: 'Invalid request payload' });
+    }
+  }
   appmdl.SelectdatagetfinaltranscationsreportMdl(data, function (err, results) {
     if (err) {
       console.log(err);
