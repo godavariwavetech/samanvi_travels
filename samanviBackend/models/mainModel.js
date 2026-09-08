@@ -2850,7 +2850,12 @@ exports.getexpensesMdl = function (data, callback) {
     WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
     WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
     ELSE t.paid_to_name
-  END AS paid_to_name
+  END AS paid_to_name,
+  te.driver1Beta AS exp_driver1_beta, te.driveronesalary AS exp_driver1_opt,
+  te.driver2Beta AS exp_driver2_beta, te.drivertwosalary AS exp_driver2_opt,
+  te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
+  te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
+  te.id AS exp_row_id
 FROM
   trip_created t
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
@@ -2860,6 +2865,7 @@ LEFT JOIN staff_register s ON t.conductor_id = s.id
 LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
 LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
+LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
 WHERE
   t.d_in = '0' AND t.admin_status != '1'
   order by trip_date DESC;
@@ -3292,7 +3298,37 @@ exports.getexpensesfiltere = function (data, callback) {
   var cntxtDtls = "in getexpensesfiltere";
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD ");
 
-  var QRY_TO_EXEC = `SELECT * FROM trip_created WHERE d_in = 0  AND trip_date BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC `;
+  // Same shape as the unfiltered list (display names off the registers, the
+  // filed amounts off the expense row) so the page renders both alike.
+  var QRY_TO_EXEC = `SELECT
+  t.*,
+  t.id AS trip_creation_id,
+  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(h.helper_name, t.helper_name) AS helper_name,
+  COALESCE(s.fullName, t.conductor_name) AS conductor_name,
+  CASE
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
+    ELSE t.paid_to_name
+  END AS paid_to_name,
+  te.driver1Beta AS exp_driver1_beta, te.driveronesalary AS exp_driver1_opt,
+  te.driver2Beta AS exp_driver2_beta, te.drivertwosalary AS exp_driver2_opt,
+  te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
+  te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
+  te.id AS exp_row_id
+FROM trip_created t
+LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
+LEFT JOIN driver_register d2 ON t.driver2_id = d2.id
+LEFT JOIN helper_register h ON t.helper_id = h.id
+LEFT JOIN staff_register s ON t.conductor_id = s.id
+LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
+LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
+LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
+LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
+WHERE t.d_in = 0 AND t.trip_date BETWEEN '${data.fromdate}' AND '${data.todate}'
+ORDER BY t.id DESC`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(
       sqldb,

@@ -1334,6 +1334,24 @@ export default function TripExpensesPage() {
 
   // ── Table columns ────────────────────────────────────────────────────────
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
+  // A crew member's name with, once the expense is filed, what it pays them:
+  // beta, and the opting salary on top for an opting seat.
+  const personCell = (name: any, beta: any, opt: any, opting: boolean, filed: boolean, muted = false) => {
+    const label = String(name ?? '').trim()
+    if (!label) return <span className="text-slate-300">—</span>
+    const b = num(beta), o = opting ? num(opt) : 0
+    return (
+      <div>
+        <div className={muted ? 'text-slate-500 text-sm' : 'font-medium'}>{label}</div>
+        {filed && (b > 0 || o > 0) && (
+          <div className="text-xs font-semibold text-slate-600">
+            ₹{(b + o).toLocaleString('en-IN')}
+            {o > 0 && <span className="text-slate-400 font-normal"> ({b.toLocaleString('en-IN')} + {o.toLocaleString('en-IN')} opting)</span>}
+          </div>
+        )}
+      </div>
+    )
+  }
   const columns: Column[] = [
     { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
     { label: 'Trip Date', key: 'trip_date', render: (v) => String(v ?? '').split('T')[0] },
@@ -1360,9 +1378,45 @@ export default function TripExpensesPage() {
       filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Full Trip', value: 'Full Trip' }, { label: 'Halt', value: 'Halt' }],
       render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v || 'Running')}</Badge>,
     },
-    { label: 'Driver 1', key: 'driver1_name' },
-    { label: 'Driver 2', key: 'driver2_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
-    { label: 'Helper', key: 'helper_name', render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
+    // Each person with what the filed expense pays them beneath the name: the
+    // beta, plus the opting salary for an opting seat. Nothing beneath until an
+    // expense is filed. Others holds the conductor, the Paid To person when they
+    // are not already one of the crew, and parking, which has no seat of its own.
+    { label: 'Driver 1', key: 'driver1_name', render: (v, r: any) => personCell(v, r.exp_driver1_beta, r.exp_driver1_opt, seatIsOpting(r.driver1_id, r.driver1_name, r.opt_driver1_id), !!r.exp_row_id) },
+    { label: 'Driver 2', key: 'driver2_name', render: (v, r: any) => personCell(v, r.exp_driver2_beta, r.exp_driver2_opt, seatIsOpting(r.driver2_id, r.driver2_name, r.opt_driver2_id), !!r.exp_row_id, true) },
+    { label: 'Helper', key: 'helper_name', render: (v, r: any) => personCell(v, r.exp_helper_beta, r.exp_helper_opt, seatIsOpting(r.helper_id, r.helper_name, r.opt_helper_id), !!r.exp_row_id, true) },
+    {
+      label: 'Others', key: 'conductor_name',
+      render: (v, r: any) => {
+        const crew = [r.driver1_name, r.driver2_name, r.helper_name, v].map((n) => String(n ?? '').trim()).filter(Boolean)
+        const paidTo = String(r.paid_to_name ?? '').trim()
+        const showPaidTo = paidTo && !crew.includes(paidTo)
+        const parking = num(r.exp_parking)
+        if (!String(v ?? '').trim() && !showPaidTo && !parking) return <span className="text-slate-300">—</span>
+        return (
+          <div className="space-y-1">
+            {String(v ?? '').trim() && (
+              <div>
+                <div className="text-[10px] font-bold uppercase text-slate-400">Conductor</div>
+                {personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true)}
+              </div>
+            )}
+            {showPaidTo && (
+              <div>
+                <div className="text-[10px] font-bold uppercase text-slate-400">Paid To</div>
+                <div className="text-slate-500 text-sm">{paidTo}</div>
+              </div>
+            )}
+            {parking > 0 && (
+              <div>
+                <div className="text-[10px] font-bold uppercase text-slate-400">Parking</div>
+                <div className="text-xs font-semibold text-slate-600">₹{parking.toLocaleString('en-IN')}</div>
+              </div>
+            )}
+          </div>
+        )
+      },
+    },
     {
       // trip_created.grantotal is a text column and comes back as the STRING
       // "0" on every trip that has no expense filed yet — truthy, so a plain
