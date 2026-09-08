@@ -417,6 +417,7 @@ export default function TripCreationPage() {
       if (res.status === 200) {
         toast.success(`${res.data?.inserted ?? 0} trip(s) created for ${tripDate}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
+        qc.invalidateQueries({ queryKey: ['trip-expenses'] })
         setGridRows({})
       } else toast.error('Failed to create trips')
     },
@@ -462,6 +463,7 @@ export default function TripCreationPage() {
       if (res.status === 200) {
         toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
+        qc.invalidateQueries({ queryKey: ['trip-expenses'] })
         setVanRows({})
       } else toast.error('Failed to create trips')
     },
@@ -536,6 +538,7 @@ export default function TripCreationPage() {
       if (res?.status === 200 || res?.status === undefined) {
         toast.success('Trip updated')
         qc.invalidateQueries({ queryKey: ['trips'] })
+        qc.invalidateQueries({ queryKey: ['trip-expenses'] })
         setEditRow(null)
       } else toast.error(res?.msg ?? 'Failed to update trip')
     },

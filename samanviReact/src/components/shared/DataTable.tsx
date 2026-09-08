@@ -138,7 +138,11 @@ export function DataTable<T extends Record<string, unknown>>({
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Selection is held by row identity, not position: rows that leave the list
+  // (vouchers just approved, say) drop out of the selection instead of handing
+  // their tick to whichever rows slide into their places, and a search or
+  // filter that reorders the list leaves the ticked rows ticked.
+  const [selected, setSelected] = useState<Set<T>>(new Set())
   const [page, setPage] = useState(1)
 
   const scrollTopRef = useRef<HTMLDivElement>(null)
@@ -222,27 +226,38 @@ export function DataTable<T extends Record<string, unknown>>({
     scrollTopRef.current.scrollLeft = scrollBodyRef.current.scrollLeft
   }
 
-  const allSelected = filtered.length > 0 && filtered.every((_, i) => selected.has(i))
+  // Rows no longer in the data (refetched after an action) leave the selection,
+  // and the owner hears about it so its own copy agrees with the checkboxes.
+  useEffect(() => {
+    if (!selected.size) return
+    const kept = [...selected].filter((r) => data.includes(r))
+    if (kept.length === selected.size) return
+    setSelected(new Set(kept))
+    onSelectionChange?.(kept)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  const allSelected = filtered.length > 0 && filtered.every((r) => selected.has(r))
   const someSelected = selected.size > 0
 
   const toggleAll = () => {
-    const next = allSelected ? new Set<number>() : new Set(filtered.map((_, i) => i))
+    const next = allSelected ? new Set<T>() : new Set<T>(filtered)
     setSelected(next)
     onSelectionChange?.(allSelected ? [] : [...filtered])
   }
 
-  const toggleRow = (i: number) => {
+  const toggleRow = (row: T) => {
     setSelected(prev => {
       const next = new Set(prev)
-      next.has(i) ? next.delete(i) : next.add(i)
-      onSelectionChange?.(filtered.filter((_, idx) => next.has(idx)))
+      next.has(row) ? next.delete(row) : next.add(row)
+      onSelectionChange?.(filtered.filter((r) => next.has(r)))
       return next
     })
   }
 
   const selectedSum = sumKey
-    ? Array.from(selected).reduce((acc, i) => {
-        const val = Number((filtered[i] as any)?.[sumKey] ?? 0)
+    ? Array.from(selected).reduce((acc, r) => {
+        const val = Number((r as any)?.[sumKey] ?? 0)
         return acc + (isNaN(val) ? 0 : val)
       }, 0)
     : 0
@@ -431,14 +446,14 @@ export function DataTable<T extends Record<string, unknown>>({
                 return (
                 <tr
                   key={i}
-                  className={`hover:bg-blue-50/30 transition-colors ${selected.has(i) ? 'bg-blue-50/50' : ''}`}
+                  className={`hover:bg-blue-50/30 transition-colors ${selected.has(row) ? 'bg-blue-50/50' : ''}`}
                 >
                   {selectable && (
                     <td className="pl-5 pr-2 py-4 align-middle">
                       <input
                         type="checkbox"
-                        checked={selected.has(i)}
-                        onChange={() => toggleRow(i)}
+                        checked={selected.has(row)}
+                        onChange={() => toggleRow(row)}
                         className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
                       />
                     </td>

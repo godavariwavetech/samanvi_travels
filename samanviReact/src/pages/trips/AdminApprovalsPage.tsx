@@ -122,6 +122,7 @@ export default function AdminApprovalsPage() {
       if (res?.status === 200) {
         toast.success('Status updated!')
         qc.invalidateQueries({ queryKey: ['trips'] })
+        qc.invalidateQueries({ queryKey: ['trip-expenses'] })
       } else {
         toast.error('Failed to update status')
       }

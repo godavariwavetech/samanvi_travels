@@ -216,6 +216,10 @@ export default function TripExpensesPage() {
   const { data: listData, isLoading, refetch } = useQuery({
     queryKey: ['trip-expenses', applied],
     queryFn: () => applied ? tripsService.getExpensesFilter({ fromdate: applied.from, todate: applied.to }) : tripsService.getExpenses({}),
+    // Always refetched on arrival: a trip's status (Halt, say) and crew are set
+    // on Trip Creation, and this page opening a trip on a copy cached minutes
+    // ago would price it as it was, not as it is.
+    staleTime: 0,
   })
   const { data: ledgerData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({
     queryKey: ['expense-trip-ledgers'],
@@ -608,6 +612,51 @@ export default function TripExpensesPage() {
     setCreditRows((rows) => recomputePaidToRow(rows, true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paidToSig, modal.mode, loadingModal])
+  // Changing who holds a seat repoints that seat's ledger row: the "Pay X" tick
+  // was made for the person picked at the time, so when Driver1 goes from A to
+  // B the row credits B's ledger, priced for B, rather than still crediting A
+  // under B's name. A seat emptied, or switched to opting, drops its person row;
+  // a shared opting row is re-priced from whichever seats still pay through it,
+  // and dropped when none do. A ledger id resolved off the saved expense is
+  // forgotten for a seat that changed - it belonged to the previous person.
+  // Same first-pass guard as above.
+  const crewSig = [
+    form.driver1_id, form.driver1_name, form.driver2_id, form.driver2_name,
+    form.helper_id, form.helper_name, form.conductor_id, form.conductor_name,
+  ].join('|')
+  const lastCrewSig = useRef<string | null>(null)
+  useEffect(() => {
+    if (!modal.mode || loadingModal) { lastCrewSig.current = null; return }
+    if (lastCrewSig.current === null || lastCrewSig.current === crewSig) { lastCrewSig.current = crewSig; return }
+    const prevParts = lastCrewSig.current.split('|')
+    const parts = crewSig.split('|')
+    lastCrewSig.current = crewSig
+    const changed = OPTING_SEATS.filter((_, i) => parts[2 * i] !== prevParts[2 * i] || parts[2 * i + 1] !== prevParts[2 * i + 1])
+    if (!changed.length) return
+    setResolvedLedgerIds((prev) => {
+      const next = { ...prev }
+      changed.forEach((seat) => { next[seat] = undefined })
+      return next
+    })
+    setCreditRows((rows) => {
+      if (!rows.some((r) => r.personKey && r.personKey !== 'paidTo')) return rows
+      const next: LedgerRow[] = []
+      for (const r of rows) {
+        if (!r.personKey || r.personKey === 'paidTo') { next.push(r); continue }
+        const key = r.personKey as PersonKey
+        const amount = personAmount(key)
+        if (amount <= 0) continue
+        if (isOptingKey(key)) { next.push({ ...r, amount: String(amount) }); continue }
+        if (isOptingRole(key)) continue
+        const ledgerId = changed.includes(key) ? ledgerIdForPerson(key, personId(key)) : personLedgerId(key)
+        const ledger = ledgerId ? findLedger(ledgerId) : null
+        if (!ledger) continue
+        next.push({ ...r, ledger: toLedgerObj(ledger), amount: String(amount) })
+      }
+      return recomputePaidToRow(next, true)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crewSig, modal.mode, loadingModal])
   // Read-only View modal: was this person's own ledger among the saved rows?
   // (expensive_details.ledger_id, selected straight through by `SELECT *`.)
   // Credit is where person rows land now; debit is still searched as a fallback
