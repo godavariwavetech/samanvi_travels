@@ -68,7 +68,10 @@ const EMPTY_NORMAL = {
 }
 
 const EMPTY_SPARE = { bus_no: '', ownername: '' }
-const EMPTY_HIRE = { bus_no: '', owner_ledger_id: '', ownername: '' }
+// A hired vehicle is a bus or a van like any other: Trip Creation's Van tab
+// lists only vehicles marked VAN, so the Hire form has to say which it is or a
+// hired van never appears there.
+const EMPTY_HIRE = { bus_no: '', owner_ledger_id: '', ownername: '', vehicle_type: 'BUS' }
 // The hire-bus group: owner ledgers live under EQUITIES AND LIABILITIES >
 // 3) CURRENT LIABILITIES > Payables > Hire Vehicles, which already holds the
 // real owners on the live chart of accounts.
@@ -323,7 +326,7 @@ export default function BusNoPage() {
     return {
       busno: hireForm.bus_no, busnumber: hireForm.bus_no, ownername: hireForm.ownername,
       owner_ledger_id: hireForm.owner_ledger_id,
-      issparetank: 0, buscategory: 'hire', engineno: '', chassisno: '', vehicletype: '', company: '',
+      issparetank: 0, buscategory: 'hire', engineno: '', chassisno: '', vehicletype: hireForm.vehicle_type, company: '',
       dateofpurchase: '', odometer: '', insurancevalidity: '', pollutionvalidity: '', fcvalidity: '',
       basepointvalidity: '', hometaxvalidity: '', atpvalidity: '', atpauthenticationvalidity: '',
       luxurytype: '', seatingcapacity: '', chassismake: '', bodymade: '', chassismodel: '', mfgyear: '', regdate: '',
@@ -352,7 +355,8 @@ export default function BusNoPage() {
       setSpareForm({ bus_no: row.bus_no ?? '', ownername: row.ownername ?? '' })
     } else if (row.bus_category === 'hire') {
       setBusType('hire')
-      setHireForm({ bus_no: row.bus_no ?? '', owner_ledger_id: String(row.owner_ledger_id ?? ''), ownername: row.ownername ?? '' })
+      setHireForm({ bus_no: row.bus_no ?? '', owner_ledger_id: String(row.owner_ledger_id ?? ''), ownername: row.ownername ?? '',
+        vehicle_type: String(row.vehicle_type ?? '').trim() || 'BUS' })
     } else {
       setBusType('normal')
       setNormalForm({
@@ -405,7 +409,7 @@ export default function BusNoPage() {
   const canSave = busType === 'spare'
     ? !!spareForm.bus_no && !!spareForm.ownername
     : busType === 'hire'
-    ? !!hireForm.bus_no
+    ? !!hireForm.bus_no && !!hireForm.vehicle_type
     : !!normalForm.vehicle_type && !!normalForm.bus_no
 
   const downloadTemplate = () => {
@@ -644,6 +648,10 @@ export default function BusNoPage() {
 
               {busType === 'hire' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div><Label>Vehicle Type <span className="text-red-500">*</span></Label>
+                    <MasterListPicker panelId="hire-vt-panel" queryKey="vehicle-types" queryFn={() => mastersService.getVehicleTypes()}
+                      valueKey="type_name" value={hireForm.vehicle_type} onChange={(v) => setHireForm((f) => ({ ...f, vehicle_type: v }))}
+                      placeholder="Select Vehicle Type" /></div>
                   <div><Label>Registration Number <span className="text-red-500">*</span></Label>
                     <Input placeholder="Enter Registration Number" value={hireForm.bus_no} onChange={(e) => setHireForm((f) => ({ ...f, bus_no: e.target.value }))} /></div>
                   <div>

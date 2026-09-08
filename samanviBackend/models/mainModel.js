@@ -4978,7 +4978,7 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
       'opt_driver1_id', 'opt_driver1_name', 'opt_driver2_id', 'opt_driver2_name', 'opt_helper_id', 'opt_helper_name',
       'trip_date', 'trip_for', 'trip_for_id', 'trip_run_status',
       'paid_to_type', 'paid_to_name', 'paid_to_id',
-      'hirer_name', 'phone_number', 'line_code', 'remarks',
+      'hirer_name', 'phone_number', 'line_code', 'booking_amount', 'remarks',
       'driver1_paid_direct', 'driver2_paid_direct', 'helper_paid_direct', 'conductor_paid_direct',
       'updatedby_id', 'updatedby_name', 'updated_date'];
     var sets = EDITABLE

@@ -41,8 +41,10 @@ type VanRow = {
   bus_no: string
   driver_id: string; driver_name: string
   hirer_name: string; phone_number: string
-  // Charged only when the vehicle is a hired one — an own van costs nothing to
-  // hire, so the field is inactive there rather than silently accepting a number.
+  // What the trip costs us beyond our own payroll: the hire charge on a hired
+  // van, or the opting driver's pay when the seat is covered by someone off the
+  // register. An own van with a registered driver has neither, so the field is
+  // inactive there rather than silently accepting a number.
   amount: string
   remarks: string
 }
@@ -50,15 +52,73 @@ type VanRow = {
 // Built per render rather than fixed, so a created trip can be coloured by
 // whether its vehicle was hired — that fact lives in Bus Masters, not on the
 // trip row, so the set of hired vehicle numbers has to be handed in.
-const makeColumns = (hireBusNos: Set<string>): Column[] => [
+// The Trip Records table follows the Bus / Van tab above it, and the two kinds
+// of trip carry different facts: a bus trip has a crew of four and a paid-to
+// person, a van trip has one driver, a hirer and a booking amount. Each tab
+// gets the columns that mean something for its rows rather than one wide grid
+// that is half dashes whichever tab is open.
+const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => (kind === 'Van' ? [
   {
     label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
     filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
-    render: (v, r: any) => {
+    render: (_v, r: any) => {
       const hired = hireBusNos.has(String(r.bus_no ?? ''))
-      if (v === 'van') {
-        return <Badge variant={hired ? 'warning' : 'purple'}>{hired ? 'Van · Hire' : 'Van'}</Badge>
-      }
+      return <Badge variant={hired ? 'warning' : 'purple'}>{hired ? 'Van · Hire' : 'Van'}</Badge>
+    },
+  },
+  {
+    label: 'Trip ID / Date', key: 'c_number', filterable: true,
+    render: (v, r: any) => (
+      <div>
+        <div className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</div>
+        <div className="text-xs text-slate-400">{String(r.trip_date ?? '').split('T')[0]}</div>
+      </div>
+    ),
+  },
+  {
+    label: 'Status', key: 'trip_run_status', filterable: true,
+    filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Full Trip', value: 'Full Trip' }, { label: 'Halt', value: 'Halt' }],
+    render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v ?? 'Running')}</Badge>,
+  },
+  {
+    label: 'Van / Service', key: 'bus_no', filterable: true,
+    render: (v, r: any) => (
+      <div>
+        <div className={`font-semibold ${hireBusNos.has(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</div>
+        <div className="text-xs text-slate-500">{[r.service_no, r.line_code].filter(Boolean).join(' · ') || '—'}</div>
+      </div>
+    ),
+  },
+  {
+    label: 'Driver', key: 'driver1_name', filterable: true,
+    render: (v, r: any) => <span className="font-medium">{String(v || (hireBusNos.has(String(r.bus_no ?? '')) ? 'Hired' : '—'))}</span>,
+  },
+  {
+    label: 'Hirer', key: 'hirer_name', filterable: true,
+    render: (v, r: any) => (
+      <div>
+        <div className="text-sm">{String(v ?? '—')}</div>
+        {r.phone_number && <div className="text-xs text-slate-400">{r.phone_number}</div>}
+      </div>
+    ),
+  },
+  {
+    label: 'Amount', key: 'booking_amount',
+    render: (v) => v ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>,
+  },
+  {
+    label: 'Voucher', key: 'voucher_number', filterable: true,
+    render: (v) => v
+      ? <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{String(v)}</span>
+      : <span className="text-slate-300 text-xs">—</span>,
+  },
+  { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
+] : [
+  {
+    label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
+    filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
+    render: (_v, r: any) => {
+      const hired = hireBusNos.has(String(r.bus_no ?? ''))
       return <Badge variant={hired ? 'warning' : 'info'}>{hired ? 'Bus · Hire' : 'Bus'}</Badge>
     },
   },
@@ -81,7 +141,7 @@ const makeColumns = (hireBusNos: Set<string>): Column[] => [
     render: (v, r: any) => (
       <div>
         <div className={`font-semibold ${hireBusNos.has(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</div>
-        <div className="text-xs text-slate-500">{r.vehicle_type === 'van' ? r.line_code : `${r.service_no ?? ''} · ${r.trip_for ?? ''}`}</div>
+        <div className="text-xs text-slate-500">{`${r.service_no ?? ''} · ${r.trip_for ?? ''}`}</div>
       </div>
     ),
   },
@@ -89,15 +149,7 @@ const makeColumns = (hireBusNos: Set<string>): Column[] => [
   { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
   { label: 'Helper', key: 'helper_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
   { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
-  {
-    label: 'Paid To / Hirer', key: 'paid_to_name', filterable: true,
-    render: (v, r: any) => (
-      <div>
-        <div className="text-sm">{String(v ?? r.hirer_name ?? '—')}</div>
-        {r.vehicle_type === 'van' && r.phone_number && <div className="text-xs text-slate-400">{r.phone_number}</div>}
-      </div>
-    ),
-  },
+  { label: 'Paid To', key: 'paid_to_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
   {
     label: 'Amount', key: 'booking_amount',
     render: (v) => v ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>,
@@ -111,7 +163,7 @@ const makeColumns = (hireBusNos: Set<string>): Column[] => [
       : <span className="text-slate-300 text-xs">—</span>,
   },
   { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
-]
+])
 
 // Shows a Paid-To person's all-time Dr/Cr ledger balance beneath their select,
 // once resolved from getallstfdrivhelp (which now returns ledger_id per person).
@@ -291,7 +343,11 @@ export default function TripCreationPage() {
     () => new Set(buses.filter((b: any) => String(b.bus_category ?? '') === 'hire').map((b: any) => String(b.bus_no))),
     [buses])
   const isHireBus = (busNo: string) => hireBusNos.has(String(busNo))
-  const columns = useMemo(() => makeColumns(hireBusNos), [hireBusNos])
+  const columns = useMemo(() => makeColumns(hireBusNos, vehicleType), [hireBusNos, vehicleType])
+  // The records table shows the trips of the kind the tab above is on: bus
+  // trips under Bus, van trips under Van. A row's kind is its stored
+  // vehicle_type; rows from before that column existed are bus trips.
+  const shownTrips = allTrips.filter((t) => (String(t.vehicle_type ?? '') === 'van') === (vehicleType === 'Van'))
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
     .filter((r) => !serviceForFilter || r.serviceFor === serviceForFilter)
@@ -370,11 +426,14 @@ export default function TripCreationPage() {
   const updateVanRow = (routeId: number, patch: Partial<VanRow>) =>
     setVanRows((rows) => ({ ...rows, [routeId]: { ...(rows[routeId] ?? makeEmptyVanRow()), ...patch } }))
 
-  // A hired van has no driver of ours to name but must carry its Amount; an own
-  // van is the other way round. Both still need a van and a hirer.
+  // The Amount is live when there is someone to pay it to: the owner of a hired
+  // van, or an opting driver covering the seat. Either way it must be filled;
+  // an own van with a registered driver needs the driver instead. Every row
+  // still needs a van and a hirer.
+  const vanAmountActive = (row: VanRow) => isHireBus(row.bus_no) || isOptingName(row.driver_name)
   const vanRowReady = (row: VanRow | undefined) => {
     if (!row || row.status === 'Halt' || !row.bus_no || !row.hirer_name) return false
-    return isHireBus(row.bus_no) ? Number(row.amount) > 0 : !!row.driver_name
+    return vanAmountActive(row) ? Number(row.amount) > 0 : !!row.driver_name
   }
   // Only services that have no trip for this date yet, so the same van service
   // cannot be booked twice on one day - the rule the bus roster already applies.
@@ -390,7 +449,7 @@ export default function TripCreationPage() {
         trip_for: route.serviceFor, trip_for_id: route.service_for_id,
         driver1_id: row.driver_id, driver1_name: row.driver_name,
         hirer_name: row.hirer_name, phone_number: row.phone_number,
-        booking_amount: isHireBus(row.bus_no) ? row.amount : '',
+        booking_amount: vanAmountActive(row) ? row.amount : '',
         remarks: row.remarks, trip_run_status: row.status,
       }))
       return tripsService.bulkCreateTrips({
@@ -433,9 +492,13 @@ export default function TripCreationPage() {
       paid_to_skip: '',
       hirer_name: String(row.hirer_name ?? ''), phone_number: String(row.phone_number ?? ''),
       line_code: String(row.line_code ?? ''),
+      booking_amount: row.booking_amount ? String(row.booking_amount) : '',
       remarks: String(row.remarks ?? ''),
     })
   }
+  // Same rule as the Van grid: the amount is live for a hired van or an opting
+  // driver, and cleared for an own van with a registered driver.
+  const editAmountActive = isHireBus(editForm.bus_no) || isOptingName(editForm.driver1_name)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
@@ -455,7 +518,8 @@ export default function TripCreationPage() {
         updated_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
       }
       return tripsService.updateTrip(isVan
-        ? { ...common, hirer_name: editForm.hirer_name, phone_number: editForm.phone_number, line_code: editForm.line_code }
+        ? { ...common, hirer_name: editForm.hirer_name, phone_number: editForm.phone_number, line_code: editForm.line_code,
+            booking_amount: editAmountActive ? editForm.booking_amount : '' }
         : { ...common,
             driver2_id: editForm.driver2_id, driver2_name: editForm.driver2_name,
             opt_driver2_id: editForm.opt_driver2_id, opt_driver2_name: editForm.opt_driver2_name,
@@ -510,7 +574,10 @@ export default function TripCreationPage() {
                 </button>
               </div>
 
-              <TopNavTabs tabs={['Bus', 'Van']} activeTab={vehicleType} onChange={(t) => setVehicleType(t as 'Bus' | 'Van')} />
+              {/* The records table below switches with this tab, and its
+                  column filters belong to the columns of one kind, so they are
+                  dropped rather than carried over to columns that don't exist. */}
+              <TopNavTabs tabs={['Bus', 'Van']} activeTab={vehicleType} onChange={(t) => { setVehicleType(t as 'Bus' | 'Van'); setColumnFilters({}) }} />
 
               <div className="mb-5 flex items-end gap-4 flex-wrap">
                 <div className="max-w-xs">
@@ -592,6 +659,7 @@ export default function TripCreationPage() {
                           }
                           const row = vanRows[r.id] ?? makeEmptyVanRow()
                           const hired = isHireBus(row.bus_no)
+                          const amountActive = vanAmountActive(row)
                           return (
                             // A hired van is tinted so a sheet of mixed rows shows at
                             // a glance which trips are bought in rather than run by us.
@@ -641,10 +709,12 @@ export default function TripCreationPage() {
                                     value={personValue(row.driver_id, row.driver_name, OPTING_DRIVER)}
                                     onChange={(v) => {
                                       if (isOptingName(v)) { updateVanRow(r.id, { driver_id: '', driver_name: v }); return }
+                                      // A registered driver is paid through payroll, so an
+                                      // amount typed for an opting pick is dropped with it.
                                       const d = drivers.find((dr) => String(dr.id) === v)
-                                      updateVanRow(r.id, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '' })
+                                      updateVanRow(r.id, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '', amount: '' })
                                     }}
-                                    onClear={() => updateVanRow(r.id, { driver_id: '', driver_name: '' })} />
+                                    onClear={() => updateVanRow(r.id, { driver_id: '', driver_name: '', amount: '' })} />
                                 )}
                               </td>
                               <td className="py-2 px-3">
@@ -657,9 +727,9 @@ export default function TripCreationPage() {
                                   placeholder="Mobile" className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
-                                <Input type="number" value={hired ? row.amount : ''} disabled={!hired}
+                                <Input type="number" value={amountActive ? row.amount : ''} disabled={!amountActive}
                                   onChange={(e) => updateVanRow(r.id, { amount: e.target.value })}
-                                  placeholder={hired ? 'Amount' : '—'} className="h-11 text-sm" />
+                                  placeholder={amountActive ? 'Amount' : '—'} className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
                                 <Input value={row.remarks} onChange={(e) => updateVanRow(r.id, { remarks: e.target.value })}
@@ -862,9 +932,9 @@ export default function TripCreationPage() {
 
       {/* ── Trip Records Table ── */}
       <DataTable
-        title={`Trip Records (${allTrips.length})`}
+        title={`${vehicleType} Trip Records (${shownTrips.length})`}
         columns={columns}
-        data={allTrips}
+        data={shownTrips}
         loading={isLoading}
         onAction={(action, row) => { if (action === 'edit') openEdit(row) }}
         actions={['edit']}
@@ -942,6 +1012,12 @@ export default function TripCreationPage() {
                     <div>
                       <Label>Phone Number</Label>
                       <Input value={editForm.phone_number} onChange={(e) => patchEdit({ phone_number: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>Amount {editAmountActive && <span className="text-red-500">*</span>}</Label>
+                      <Input type="number" value={editAmountActive ? editForm.booking_amount : ''} disabled={!editAmountActive}
+                        onChange={(e) => patchEdit({ booking_amount: e.target.value })}
+                        placeholder={editAmountActive ? 'Amount' : '—'} />
                     </div>
                   </>
                 ) : (
@@ -1023,8 +1099,10 @@ export default function TripCreationPage() {
                 <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
                 <Button
                   onClick={() => saveEdit()}
-                  disabled={savingEdit || !editForm.bus_no || (!editForm.driver1_name && !editForm.opt_driver1_name) ||
-                    (editRow.vehicle_type === 'van' && !editForm.hirer_name)}
+                  disabled={savingEdit || !editForm.bus_no ||
+                    (editRow.vehicle_type === 'van'
+                      ? (!editForm.hirer_name || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name))
+                      : (!editForm.driver1_name && !editForm.opt_driver1_name))}
                 >
                   <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}
                 </Button>
