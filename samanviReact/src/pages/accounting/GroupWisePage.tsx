@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
+import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
@@ -498,14 +499,9 @@ export default function GroupWisePage() {
     navigate('/accounting/ledger-wise', { state: { ledgerId: row.id } })
   }
 
-  const handlePayables = (row: TableRow) => {
-    localStorage.setItem('reportViewData', JSON.stringify({
-      groupName: row.name,
-      entries: [{ id: row.id, name: row.name, temple_name: row.name }],
-    }))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    window.open('/accounting/payables-view', '_blank')
-  }
+  // Payables opens as a popup over this report rather than in another tab.
+  const [payablesFor, setPayablesFor] = useState<{ id: number; name: string } | null>(null)
+  const handlePayables = (row: TableRow) => setPayablesFor({ id: row.id, name: row.name })
 
   const jumpToNode = useCallback((item: SearchItem) => {
     setSearchQuery('')
@@ -1093,6 +1089,7 @@ export default function GroupWisePage() {
           </DualScrollTable>
         </GlassCard>
       )}
+      {payablesFor && <PayablesPopup ledger={payablesFor} onClose={() => setPayablesFor(null)} />}
     </motion.div>
   )
 }

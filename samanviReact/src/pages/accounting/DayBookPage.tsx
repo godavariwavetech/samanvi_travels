@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
+import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -266,14 +267,11 @@ export default function DayBookPage() {
     navigate('/accounting/ledger-wise', { state: { ledgerId: row.ledger_id } })
   }
 
+  // Payables opens as a popup over this report rather than in another tab.
+  const [payablesFor, setPayablesFor] = useState<{ id: number; name: string } | null>(null)
   const handlePayables = (row: { ledger_id: number | null; expensives: string }) => {
     if (!row.ledger_id) return
-    localStorage.setItem('reportViewData', JSON.stringify({
-      groupName: row.expensives,
-      entries: [{ id: row.ledger_id, name: row.expensives, temple_name: row.expensives }],
-    }))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    window.open('/accounting/payables-view', '_blank')
+    setPayablesFor({ id: row.ledger_id, name: row.expensives })
   }
 
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
@@ -510,6 +508,7 @@ export default function DayBookPage() {
           </DualScrollTable>
         </GlassCard>
       )}
+      {payablesFor && <PayablesPopup ledger={payablesFor} onClose={() => setPayablesFor(null)} />}
     </motion.div>
   )
 }

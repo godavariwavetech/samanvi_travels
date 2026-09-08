@@ -814,24 +814,31 @@ interface CreditEntry {
 const today = new Date().toISOString().split('T')[0]
 const currentFY = getCurrentFY()
 
-export default function PayablesViewPage() {
+// The Payables view for one ledger. Opened as a popup over the report the
+// user is on (Group Wise, Day Book, Balance Sheet, Voucher Approvals) through
+// PayablesPopup, which passes the ledger - and, for an edit, the voucher - in
+// as `initialData` and gives it `onClose`. The route page below still exists
+// for a direct link and reads the same shape off localStorage instead.
+export function PayablesView({ initialData, onClose }: { initialData?: any; onClose?: () => void }) {
   const qc = useQueryClient()
   const userId = localStorage.getItem('user_id') ?? ''
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
-  const isFromBalanceSheet = localStorage.getItem('bs_ledger_name') === 'balacesheeet'
 
   const [ledgerData] = useState(() => {
+    if (initialData) return initialData
     try { return JSON.parse(localStorage.getItem('reportViewData') || 'null') } catch { return null }
   })
 
-  const ledgerId: number = isFromBalanceSheet
-    ? (ledgerData?.entries?.[0]?.id ?? null)
-    : (ledgerData?.entries?.id ?? null)
-  const ledgerName: string = isFromBalanceSheet
-    ? (ledgerData?.entries?.[0]?.name ?? ledgerData?.entries?.[0]?.temple_name ?? '')
-    : (ledgerData?.entries?.name ?? ledgerData?.entries?.temple_name ?? '')
+  // entries arrives as a one-element list from the reports and as a single
+  // object from older callers; either way it is the one ledger to show.
+  const entry = Array.isArray(ledgerData?.entries) ? ledgerData.entries[0] : ledgerData?.entries
+  const ledgerId: number = entry?.id ?? null
+  const ledgerName: string = entry?.name ?? entry?.temple_name ?? ''
+  // Leaving: back to the report underneath when opened as a popup, otherwise
+  // this is its own tab and closes it.
+  const leave = () => { if (onClose) onClose(); else window.close() }
 
   // Set when arriving via "Edit in Payables" from an existing voucher in
   // Voucher Approvals — pre-fills the form below with that voucher's own
@@ -1447,8 +1454,8 @@ export default function PayablesViewPage() {
         qc.invalidateQueries({ queryKey: ['payables-voucher-audit', editVoucher?.c_number] })
         setEditReason('')
         if (editSource.current === 'external') {
-          // Opened in a new tab via VoucherApprovals — close tab to return user there.
-          setTimeout(() => window.close(), 900)
+          // Opened from Voucher Approvals for this one edit - go back there.
+          if (onClose) onClose(); else setTimeout(() => window.close(), 900)
         } else {
           // Triggered in-page via Pencil button — just clear edit mode.
           setEditVoucher(null)
@@ -1656,7 +1663,7 @@ export default function PayablesViewPage() {
       {/* Header */}
       <div className="flex items-center gap-4 flex-wrap">
         <button
-          onClick={() => window.close()}
+          onClick={leave}
           className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Close
@@ -2240,4 +2247,10 @@ export default function PayablesViewPage() {
       )}
     </motion.div>
   )
+}
+
+// The /accounting/payables-view route: the same view, fed from localStorage
+// the way a direct link or an older caller hands the ledger over.
+export default function PayablesViewPage() {
+  return <PayablesView />
 }

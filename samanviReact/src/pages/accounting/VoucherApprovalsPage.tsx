@@ -586,6 +586,7 @@ const today = new Date().toISOString().split('T')[0]
 const currentFY = getCurrentFY()
 
 import ActivityHistory from '@/components/shared/ActivityHistory'
+import { PayablesPopup } from './PayablesPopup'
 
 export default function VoucherApprovalsPage() {
   const navigate = useNavigate()
@@ -872,18 +873,16 @@ export default function VoucherApprovalsPage() {
     }
   }, [modalData, ledgerList])
 
-  // Reload when returning from "Edit in Payables" tab
-  useEffect(() => {
-    const handleFocus = () => {
-      const payableReturn = localStorage.getItem('payables_edit_return')
-      if (payableReturn) {
-        localStorage.removeItem('payables_edit_return')
-        window.location.reload()
-      }
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [])
+  // "Edit in Payables" opens the Payables view as a popup over this page with
+  // the voucher pre-filled; closing it refreshes the lists here.
+  const [payablesEdit, setPayablesEdit] = useState<{ ledger: { id: number; name: string }; editVoucher: any } | null>(null)
+  const closePayablesEdit = () => {
+    setPayablesEdit(null)
+    qc.invalidateQueries({ queryKey: ['voucher-pending'] })
+    qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
+    qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
+    qc.invalidateQueries({ queryKey: ['voucher-search'] })
+  }
 
   // Sync viewModal header fields when modalData refetches (e.g. after editing via Payables tab)
   useEffect(() => {
@@ -1174,9 +1173,9 @@ export default function VoucherApprovalsPage() {
   const openInPayables = () => {
     const ledgerRow = debitRows[0]
     if (!ledgerRow?.ledger_id) { toast.error('Could not determine the ledger for this voucher'); return }
-    localStorage.setItem('reportViewData', JSON.stringify({
-      groupName: ledgerRow.expensives,
-      entries: [{ id: ledgerRow.ledger_id, name: ledgerRow.expensives, temple_name: ledgerRow.expensives }],
+    setViewModal(null)
+    setPayablesEdit({
+      ledger: { id: ledgerRow.ledger_id, name: ledgerRow.expensives },
       editVoucher: {
         c_number: viewModal.c_number,
         voucherdate: viewModal.voucherdate ? String(viewModal.voucherdate).split('T')[0] : '',
@@ -1193,10 +1192,7 @@ export default function VoucherApprovalsPage() {
         entry_by: viewModal.entry_by || '',
         i_ts: viewModal.i_ts || '',
       },
-    }))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    localStorage.setItem('payables_edit_return', viewModal?.c_number ?? '')
-    window.open('/accounting/payables-view', '_blank')
+    })
   }
 
   return (
@@ -1963,6 +1959,7 @@ export default function VoucherApprovalsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {payablesEdit && <PayablesPopup ledger={payablesEdit.ledger} editVoucher={payablesEdit.editVoucher} onClose={closePayablesEdit} />}
     </motion.div>
   )
 }

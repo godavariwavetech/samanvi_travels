@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
 import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
+import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -728,14 +729,9 @@ export default function BalanceSheetPage() {
     navigate('/accounting/ledger-wise', { state: { ledgerId: node.id } })
   }
 
-  const handlePayables = (node: HierarchyNode) => {
-    const data = { groupName: node.name, entries: [node] }
-    localStorage.setItem('reportViewData', JSON.stringify(data))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    localStorage.setItem('bs_fromdate', appliedDates.fromdate)
-    localStorage.setItem('bs_todate', appliedDates.todate)
-    window.open('/accounting/payables-view', '_blank')
-  }
+  // Payables opens as a popup over this report rather than in another tab.
+  const [payablesFor, setPayablesFor] = useState<{ id: number; name: string } | null>(null)
+  const handlePayables = (node: HierarchyNode) => setPayablesFor({ id: node.id, name: node.name })
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
@@ -1027,6 +1023,7 @@ export default function BalanceSheetPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {payablesFor && <PayablesPopup ledger={payablesFor} onClose={() => setPayablesFor(null)} />}
     </motion.div>
   )
 }
