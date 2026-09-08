@@ -365,6 +365,41 @@ export default function TripCreationPage() {
     return map
   }, [allTrips, tripDate])
 
+  // A bus runs one trip a day: once it is on a trip for the date it is not
+  // offered to any other service that day. Buses already saved for the date
+  // and buses picked on other rows of this sheet are both out; a row keeps
+  // its own pick so the dropdown never blanks what it shows. Vans are exempt -
+  // a van may run several services a day - so vanOptions is untouched.
+  const busesOnDate = useMemo(() => {
+    const set = new Set<string>()
+    allTrips.forEach((t) => {
+      const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
+      if (d === tripDate && String(t.vehicle_type ?? '') !== 'van' && t.bus_no) set.add(String(t.bus_no))
+    })
+    return set
+  }, [allTrips, tripDate])
+  const busOptionsForRoute = (routeId: number) => {
+    const own = gridRows[routeId]?.bus_no ?? ''
+    const pickedElsewhere = new Set(
+      Object.entries(gridRows)
+        .filter(([id, row]) => Number(id) !== routeId && !existingByRoute[id] && row.bus_no)
+        .map(([, row]) => String(row.bus_no)))
+    return busOptions.filter((o) => o.value === own || (!busesOnDate.has(o.value) && !pickedElsewhere.has(o.value)))
+  }
+  // Same rule when editing a bus trip: buses on any other bus trip that date
+  // are out, the trip's own bus stays.
+  const editBusOptions = useMemo(() => {
+    if (!editRow || editRow.vehicle_type === 'van') return busOptions
+    const date = String(editRow.trip_date ?? '').split('T')[0]
+    const taken = new Set<string>()
+    allTrips.forEach((t) => {
+      if (t.id === editRow.id) return
+      const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
+      if (d === date && String(t.vehicle_type ?? '') !== 'van' && t.bus_no) taken.add(String(t.bus_no))
+    })
+    return busOptions.filter((o) => o.value === String(editRow.bus_no ?? '') || !taken.has(o.value))
+  }, [editRow, allTrips, busOptions])
+
   // Picking a new date starts a fresh roster — already-created rows come from existingByRoute instead
   useEffect(() => { setGridRows({}); setVanRows({}) }, [tripDate])
 
@@ -417,7 +452,7 @@ export default function TripCreationPage() {
     },
     onSuccess: (res: any) => {
       if (res.status === 200) {
-        toast.success(`${res.data?.inserted ?? 0} trip(s) created for ${tripDate}${res.data?.skipped ? ` (${res.data.skipped} already booked for this date, skipped)` : ''}`)
+        toast.success(`${res.data?.inserted ?? 0} trip(s) created for ${tripDate}${res.data?.skipped ? ` (${res.data.skipped} already booked for this date, skipped)` : ''}${res.data?.skipped_bus ? ` (${res.data.skipped_bus} skipped: bus already on a trip that day)` : ''}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
         qc.invalidateQueries({ queryKey: ['trip-expenses'] })
         setGridRows({})
@@ -830,7 +865,7 @@ export default function TripCreationPage() {
                               </select>
                             </td>
                             <td className="py-2 px-3">
-                              <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptions}
+                              <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptionsForRoute(r.id)}
                                 value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })} />
                             </td>
                             <td className="py-2 px-3">
@@ -993,7 +1028,7 @@ export default function TripCreationPage() {
                 </div>
                 <div>
                   <Label>Bus No <span className="text-red-500">*</span></Label>
-                  <SearchableSelect placeholder="Select" options={editRow.vehicle_type === 'van' ? vanOptions : busOptions}
+                  <SearchableSelect placeholder="Select" options={editRow.vehicle_type === 'van' ? vanOptions : editBusOptions}
                     value={editForm.bus_no}
                     onChange={(v) => patchEdit({ bus_no: v })} onClear={() => patchEdit({ bus_no: '' })} />
                 </div>

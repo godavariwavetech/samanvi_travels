@@ -4992,9 +4992,23 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
   var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
   var trackedFields = { bus_no: data.bus_no, driver1_name: data.driver1_name, driver2_name: data.driver2_name, helper_name: data.helper_name, conductor_name: data.conductor_name, trip_run_status: data.trip_run_status, hirer_name: data.hirer_name };
 
-  sqldb.query(`SELECT bus_no, driver1_name, driver2_name, helper_name, conductor_name, trip_run_status, hirer_name FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
+  sqldb.query(`SELECT bus_no, driver1_name, driver2_name, helper_name, conductor_name, trip_run_status, hirer_name, trip_date, vehicle_type FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
     var before = (!selErr && rows && rows[0]) ? rows[0] : {};
 
+    // A bus runs one trip a day (a van may run several), so a bus moved onto
+    // this trip must not already be on another live bus trip the same date.
+    // Answered as a conflict rather than an error so the screen can say which
+    // trip has it.
+    var guardBus = function (next) {
+      var newBus = data.bus_no;
+      if (String(before.vehicle_type || '') === 'van' || newBus === undefined || !String(newBus || '') || String(newBus) === String(before.bus_no || '')) return next();
+      sqldb.query("SELECT c_number FROM trip_created WHERE d_in = 0 AND trip_date = ? AND bus_no = ? AND (vehicle_type IS NULL OR vehicle_type <> 'van') AND id <> ? LIMIT 1",
+        [before.trip_date, newBus, Number(data.id)], function (gErr, gRows) {
+          if (!gErr && gRows && gRows.length) return callback(null, { affectedRows: 0, conflict: 'Bus ' + newBus + ' is already on trip ' + gRows[0].c_number + ' that day' });
+          next();
+        });
+    };
+    guardBus(function () {
     // Only the fields actually supplied are written. A Bus edit has no
     // hirer_name and a Van edit has no service_no_id, so writing a fixed column
     // list would blank whichever the form didn't show. optreg/optreg1/optreg2
@@ -5038,6 +5052,7 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
         callback(null, results);
       });
     });
+    });
   });
 };
 
@@ -5073,23 +5088,45 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
   // that has a trip for the date, but a double submit or a stale screen could
   // still send it again, so rows whose service already has a live trip on
   // this date are dropped here and counted back as skipped.
-  var skipped = 0;
+  // And one trip per bus per day: a bus already out on a live bus trip that
+  // date, or picked twice within this batch, is dropped and counted back as
+  // skipped_bus. Vans are exempt - a van may run several services a day.
+  var skipped = 0, skippedBus = 0;
+  var isVanRow = function (r) { return String(r.vehicle_type || '') === 'van'; };
   var serviceIds = toInsert.map(function (r) { return r.service_no_id; }).filter(function (v) { return v != null && v !== ''; });
+  var busNos = toInsert.filter(function (r) { return !isVanRow(r) && r.bus_no; }).map(function (r) { return r.bus_no; });
   var dedupe = function (next) {
-    if (!serviceIds.length) return next();
-    sqldb.query('SELECT service_no_id FROM trip_created WHERE d_in = 0 AND trip_date = ? AND service_no_id IN (?)', [trip_date, serviceIds], function (err, rows) {
-      if (err || !rows) return next();
-      var taken = {};
-      rows.forEach(function (x) { taken[String(x.service_no_id)] = true; });
-      toInsert = toInsert.filter(function (r) {
-        if (r.service_no_id != null && r.service_no_id !== '' && taken[String(r.service_no_id)]) { skipped++; return false; }
-        return true;
+    var byService = function (then) {
+      if (!serviceIds.length) return then();
+      sqldb.query('SELECT service_no_id FROM trip_created WHERE d_in = 0 AND trip_date = ? AND service_no_id IN (?)', [trip_date, serviceIds], function (err, rows) {
+        if (err || !rows) return then();
+        var taken = {};
+        rows.forEach(function (x) { taken[String(x.service_no_id)] = true; });
+        toInsert = toInsert.filter(function (r) {
+          if (r.service_no_id != null && r.service_no_id !== '' && taken[String(r.service_no_id)]) { skipped++; return false; }
+          return true;
+        });
+        then();
       });
-      next();
-    });
+    };
+    var byBus = function (then) {
+      if (!busNos.length) return then();
+      sqldb.query("SELECT bus_no FROM trip_created WHERE d_in = 0 AND trip_date = ? AND (vehicle_type IS NULL OR vehicle_type <> 'van') AND bus_no IN (?)", [trip_date, busNos], function (err, rows) {
+        var out = {};
+        (rows || []).forEach(function (x) { out[String(x.bus_no)] = true; });
+        toInsert = toInsert.filter(function (r) {
+          if (isVanRow(r) || !r.bus_no) return true;
+          if (out[String(r.bus_no)]) { skippedBus++; return false; }
+          out[String(r.bus_no)] = true;
+          return true;
+        });
+        then();
+      });
+    };
+    byService(function () { byBus(next); });
   };
   dedupe(function () {
-    if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: skipped, voucherCandidates: [] });
+    if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, voucherCandidates: [] });
     resolveNext();
   });
 
@@ -5163,7 +5200,7 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
       var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, voucherCandidates: voucherCandidates });
+        callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, voucherCandidates: voucherCandidates });
       });
     });
   }

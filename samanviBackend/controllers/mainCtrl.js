@@ -3179,6 +3179,10 @@ exports.tripcreated = function (req, res) {
         res.send({ status: 500, data: results });
         return;
       }
+      // The model answers a bus already out that day as a conflict, not an
+      // error, and nothing was written, so the expense-row cascade below must
+      // not run either; the screen names the trip that has the bus.
+      if (results && results.conflict) { res.send({ status: 409, msg: results.conflict }); return; }
       if (data.type == "edit") {
         console.log("edited Stareted");
         appmdl.updatetripcreated(data, function (err, results) {
@@ -3187,7 +3191,6 @@ exports.tripcreated = function (req, res) {
             res.status(500).send(err);
             return;
           }
-          console.log("Edied");
           res.send({ status: 200, data: results });
         });
       } else {
