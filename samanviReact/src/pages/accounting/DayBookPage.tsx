@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -398,7 +398,7 @@ export default function DayBookPage() {
         </GlassCard>
       ) : (
         <GlassCard className="overflow-hidden">
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
@@ -507,7 +507,7 @@ export default function DayBookPage() {
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
       )}
     </motion.div>

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { BarChart3, X, Bus, Wrench, Recycle, ShoppingCart, Gauge } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { DataTable, Badge, PageHeader } from '@/components/shared'
+import { DataTable, Badge, PageHeader, DualScrollTable } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 
@@ -242,7 +242,7 @@ export default function TyreReportsPage() {
                     <p className="text-sm text-slate-400 italic">Never mounted on a bus yet.</p>
                   ) : (
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="overflow-auto max-h-64">
+                      <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-left text-sm">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -267,7 +267,7 @@ export default function TyreReportsPage() {
                           ))}
                         </tbody>
                       </table>
-                      </div>
+                      </DualScrollTable>
                     </div>
                   )}
                 </div>

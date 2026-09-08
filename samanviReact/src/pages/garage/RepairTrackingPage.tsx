@@ -11,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   GlassCard, Button, Input, Label, PageHeader,
-  DynamicRows, SearchableSelect, ColumnFilterDropdown,
+  DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -1022,7 +1022,7 @@ export default function RepairTrackingPage() {
             </span>
           )}
         </div>
-        <div className="overflow-auto max-h-[70vh]">
+        <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
@@ -1138,7 +1138,7 @@ export default function RepairTrackingPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </DualScrollTable>
       </GlassCard>
 
       {/* ── Job History Modal ─────────────────────────────────────────────────── */}
@@ -1274,7 +1274,7 @@ export default function RepairTrackingPage() {
                   <div>
                     <h4 className="text-sm font-bold text-slate-700 mb-3">Spare Parts Used</h4>
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="overflow-auto max-h-64">
+                      <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -1305,7 +1305,7 @@ export default function RepairTrackingPage() {
                           </tr>
                         </tfoot>
                       </table>
-                      </div>
+                      </DualScrollTable>
                     </div>
                   </div>
                 )}
@@ -1468,7 +1468,7 @@ export default function RepairTrackingPage() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-700 mb-3">Parts Used</h4>
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="overflow-auto max-h-64">
+                    <DualScrollTable tableClassName="overflow-auto max-h-64">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -1495,7 +1495,7 @@ export default function RepairTrackingPage() {
                         </tr>
                       </tbody>
                     </table>
-                    </div>
+                    </DualScrollTable>
                   </div>
                 </div>
               )}

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion } from 'motion/react'
 import { Bus, Users, AlertTriangle, CheckCircle, Clock } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, TopNavTabs, PageHeader, Badge } from '@/components/shared'
+import { GlassCard, TopNavTabs, PageHeader, Badge, DualScrollTable } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { fuelService } from '@/services/fuel.service'
 
@@ -145,7 +145,7 @@ export default function AnalysisPage() {
               <span className="text-sm font-normal text-slate-500">({filteredBuses.length} vehicles)</span>
             </h3>
           </div>
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-left min-w-[900px]">
               <thead>
                 <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
@@ -173,7 +173,7 @@ export default function AnalysisPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
       )}
 
@@ -186,7 +186,7 @@ export default function AnalysisPage() {
               <span className="text-sm font-normal text-slate-500">({filteredDrivers.length} drivers)</span>
             </h3>
           </div>
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-left min-w-[600px]">
               <thead>
                 <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
@@ -214,7 +214,7 @@ export default function AnalysisPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
       )}
     </motion.div>

@@ -5,7 +5,7 @@ import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditC
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
@@ -208,7 +208,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
               : <span className="ml-auto text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">⚠ Unbalanced</span>
             }
           </div>
-          <div className="overflow-auto max-h-64">
+          <DualScrollTable tableClassName="overflow-auto max-h-64">
           <table className="w-full text-sm">
             <thead>
               <tr className="sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
@@ -255,7 +255,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
               </tr>
             </tfoot>
           </table>
-          </div>
+          </DualScrollTable>
         </div>
 
         {/* Transaction detail cards */}
@@ -414,7 +414,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
       <div className="p-6 space-y-4">
         <div className="bg-sky-50 rounded-xl overflow-hidden">
           <div className="bg-sky-500 text-white px-4 py-2 text-sm font-bold">Vehicle Details</div>
-          <div className="overflow-auto max-h-64">
+          <DualScrollTable tableClassName="overflow-auto max-h-64">
             <table className="w-full text-sm">
               <thead>
                 <tr className="sticky top-0 z-10 bg-sky-100">
@@ -435,7 +435,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 </tr>
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -1138,7 +1138,7 @@ export default function LedgerWisePage() {
       ) : (
         <>
         <GlassCard className="overflow-hidden">
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
@@ -1256,7 +1256,7 @@ export default function LedgerWisePage() {
                 <GrandRow label="Grand Total" dr={grandDebit} cr={grandCredit} />
               </tfoot>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
 
         {/* Summary strip repeated below the table */}

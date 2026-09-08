@@ -13,6 +13,8 @@ export function ColumnFilterDropdown({ options, selected, onChange, variant = 'd
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<string[]>(selected)
   const [search, setSearch] = useState('')
+  // Arrow-key highlight into filteredOptions; Enter/Space toggles it.
+  const [hi, setHi] = useState(0)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const PANEL_MAX_H = 280
@@ -47,6 +49,16 @@ export function ColumnFilterDropdown({ options, selected, onChange, variant = 'd
   }
   const toggleOne = (o: string) => setPending(p => p.includes(o) ? p.filter(v => v !== o) : [...p, o])
   const apply = () => { onChange(pending); setOpen(false) }
+  // Same keys as every dropdown: arrows move the highlight (wrapping), Enter or
+  // Space ticks it, Ctrl+Enter applies, Escape closes without applying.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const n = filteredOptions.length
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (n) setHi(h => (h + 1) % n) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (n) setHi(h => (h - 1 + n) % n) }
+    else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); apply() }
+    else if (e.key === 'Enter' || (e.key === ' ' && !search)) { e.preventDefault(); if (n && filteredOptions[hi]) toggleOne(filteredOptions[hi]) }
+    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false) }
+  }
   const clear = () => { onChange([]); setOpen(false) }
 
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
@@ -71,8 +83,9 @@ export function ColumnFilterDropdown({ options, selected, onChange, variant = 'd
         <input
           autoFocus
           value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search…"
+          onChange={e => { setSearch(e.target.value); setHi(0) }}
+          onKeyDown={onKeyDown}
+          placeholder="Search… ↑↓ move, Enter tick, Ctrl+Enter apply"
           className="flex-1 text-xs outline-none placeholder:text-slate-400 bg-transparent"
         />
         {search && (
@@ -90,9 +103,11 @@ export function ColumnFilterDropdown({ options, selected, onChange, variant = 'd
       <ul className="overflow-y-auto flex-1 py-1">
         {filteredOptions.length === 0 ? (
           <li className="px-3 py-3 text-xs text-slate-400 text-center">No values</li>
-        ) : filteredOptions.map(opt => (
-          <li key={opt}>
-            <label className="flex items-center gap-2 px-3 py-1.5 text-xs text-slate-700 cursor-pointer hover:bg-slate-50">
+        ) : filteredOptions.map((opt, i) => (
+          <li key={opt} ref={i === hi ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined}>
+            <label
+              onMouseEnter={() => setHi(i)}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer ${i === hi ? 'bg-blue-600 text-white' : 'text-slate-700 hover:bg-slate-50'}`}>
               <input
                 type="checkbox"
                 checked={pending.includes(opt)}

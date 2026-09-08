@@ -1,7 +1,7 @@
 ﻿import { motion } from 'motion/react'
 import { Map, Bus, Fuel, Wrench, Users, FileText, Shirt, CheckCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Badge, PageHeader, DualScrollTable } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { tripsService } from '@/services/trips.service'
 import { fuelService } from '@/services/fuel.service'
@@ -102,7 +102,7 @@ export default function DashboardPage() {
         ) : recentTrips.length === 0 ? (
           <div className="p-8 text-center text-slate-400">No trip records yet. Start by creating a trip in Trip Management.</div>
         ) : (
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-left">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-50/60 border-b border-slate-100">
@@ -128,7 +128,7 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         )}
       </GlassCard>
 

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck, Pencil, Check, RefreshCw, History } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY, getFYList, type FinancialYear } from '@/lib/fy'
@@ -1245,7 +1245,7 @@ export default function VoucherEntryPage() {
             No vouchers entered yet.
           </div>
         ) : (
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="sticky top-0 z-10 bg-white text-xs font-semibold text-slate-400 border-b border-slate-100">
@@ -1288,7 +1288,7 @@ export default function VoucherEntryPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         )}
       </GlassCard>
 

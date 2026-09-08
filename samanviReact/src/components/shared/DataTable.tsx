@@ -132,7 +132,9 @@ export function DataTable<T extends Record<string, unknown>>({
   className,
   paginated = false,
   pageSize = 25,
-  topScrollbar = false,
+  // On by default: every list gets a scrollbar above its header, so a wide
+  // table can be swiped from the top instead of hunting for the bar under it.
+  topScrollbar = true,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)

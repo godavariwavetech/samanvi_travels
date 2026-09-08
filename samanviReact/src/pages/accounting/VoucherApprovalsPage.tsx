@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DualScrollTable } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -1489,7 +1489,7 @@ export default function VoucherApprovalsPage() {
                           : <span className="ml-auto text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">⚠ Unbalanced</span>
                         }
                       </div>
-                      <div className="overflow-auto max-h-64">
+                      <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
@@ -1540,7 +1540,7 @@ export default function VoucherApprovalsPage() {
                           </tr>
                         </tfoot>
                       </table>
-                      </div>
+                      </DualScrollTable>
                     </div>
 
                     {/* Transaction details — one card per ledger */}

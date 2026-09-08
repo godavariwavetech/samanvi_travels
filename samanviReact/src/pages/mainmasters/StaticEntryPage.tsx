@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Building2, Save, Pencil, Check, X, Trash2, Plus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 
 export default function StaticEntryPage() {
@@ -115,7 +115,7 @@ export default function StaticEntryPage() {
           </span>
         </div>
 
-        <div className="overflow-auto max-h-[70vh]">
+        <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left">
             <thead>
               <tr className="sticky top-0 z-10 bg-blue-600 text-white">
@@ -196,7 +196,7 @@ export default function StaticEntryPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </DualScrollTable>
       </GlassCard>
     </motion.div>
   )

@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -655,7 +655,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
       <div className="p-6 space-y-4">
         <div className="bg-sky-50 rounded-xl overflow-hidden">
           <div className="bg-sky-500 text-white px-4 py-2 text-sm font-bold">Vehicle Details</div>
-          <div className="overflow-auto max-h-64">
+          <DualScrollTable tableClassName="overflow-auto max-h-64">
             <table className="w-full text-sm">
               <thead><tr className="sticky top-0 z-10 bg-sky-100">{['Vehicle No', 'Blankets', 'Pillows', 'Whites', 'Covers', 'Curtains', 'Total'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-bold text-sky-700">{h}</th>)}</tr></thead>
               <tbody>
@@ -670,7 +670,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 </tr>
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="rounded-xl overflow-hidden shadow-sm">
@@ -1714,7 +1714,7 @@ export default function PayablesViewPage() {
             </GlassCard>
           ) : (
             <GlassCard className="overflow-hidden">
-              <div className="overflow-auto max-h-[70vh]">
+              <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr>
@@ -1894,7 +1894,7 @@ export default function PayablesViewPage() {
                     </tr>
                   </tfoot>
                 </table>
-              </div>
+              </DualScrollTable>
             </GlassCard>
           )}
 
@@ -1969,7 +1969,7 @@ export default function PayablesViewPage() {
                       Enter a payment amount and select a transaction row above to auto-populate debit entries.
                     </p>
                   ) : (
-                    <div className="overflow-auto max-h-64">
+                    <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-100">
@@ -1988,7 +1988,7 @@ export default function PayablesViewPage() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </DualScrollTable>
                   )}
                 </div>
 
@@ -2025,7 +2025,7 @@ export default function PayablesViewPage() {
                   {effectiveCreditEntries.length === 0 ? (
                     <p className="text-sm text-slate-400 italic py-2">No credit entries added yet.</p>
                   ) : (
-                    <div className="overflow-auto max-h-64">
+                    <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-100">
@@ -2135,7 +2135,7 @@ export default function PayablesViewPage() {
                           )}
                         </tbody>
                       </table>
-                    </div>
+                    </DualScrollTable>
                   )}
                 </div>
               </div>

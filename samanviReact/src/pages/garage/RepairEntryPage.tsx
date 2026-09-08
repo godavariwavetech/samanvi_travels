@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, FileSpreadsheet, FileText, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
@@ -466,7 +466,7 @@ export default function RepairEntryPage() {
                 )}
               </div>
             </div>
-            <div className="overflow-auto max-h-[70vh]">
+            <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr>
@@ -546,7 +546,7 @@ export default function RepairEntryPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </DualScrollTable>
           </GlassCard>
 
           {/* ── Finish Job Modal ───────────────────────────────────────────── */}

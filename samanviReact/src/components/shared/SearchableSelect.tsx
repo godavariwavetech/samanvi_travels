@@ -21,14 +21,31 @@ interface SearchableSelectProps {
   // Pass to get an inline clear (×) button once something is selected — lets a
   // wrongly picked row be emptied again without a dedicated "— none —" option.
   onClear?: () => void
+  // Class for the trigger button itself (height, padding) — the wrapper's
+  // className sizes the whole control, this styles just the visible box.
+  buttonClassName?: string
 }
 
-export function SearchableSelect({ value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading, className, disabled, onClear }: SearchableSelectProps) {
+// The one dropdown implementation every select in the app renders through:
+// Select (native-looking, option children) and MasterListPicker both delegate
+// here, so search, arrow-key highlighting and Enter-to-pick behave identically
+// everywhere rather than per component.
+//
+// Keyboard: on the closed trigger, ArrowDown / Enter / Space open it. Inside,
+// typing filters; ArrowUp / ArrowDown move the highlight (wrapping); Home / End
+// jump; Enter picks the highlighted row; Escape or Tab closes. Focus returns to
+// the trigger on close so tabbing carries on from where the user was.
+export function SearchableSelect({
+  value, onChange, options, placeholder = 'Select…', displayLabel, onReload, reloading,
+  className, disabled, onClear, buttonClassName,
+}: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const [hi, setHi] = useState(0)
   const btnRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
 
   const selected = options.find((o) => o.value === value)
   const filtered = search.trim()
@@ -40,7 +57,30 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
     setOpen(true)
     setSearch('')
+    // Start on the current value so Enter with no other key is a no-op pick,
+    // the way a native select behaves.
+    const idx = options.findIndex((o) => o.value === value)
+    setHi(idx >= 0 ? idx : 0)
   }
+  const closeDropdown = (refocus = true) => {
+    setOpen(false)
+    if (refocus) btnRef.current?.focus()
+  }
+  const pick = (v: string) => {
+    onChange(v)
+    closeDropdown()
+  }
+
+  // A new filter invalidates the highlight — it may now point past the end or
+  // at a row that no longer matches — so it goes back to the first match.
+  useEffect(() => { if (open) setHi(0) }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the highlighted row in view while arrowing through a long list.
+  useEffect(() => {
+    if (!open) return
+    const li = listRef.current?.children[hi] as HTMLElement | undefined
+    li?.scrollIntoView({ block: 'nearest' })
+  }, [hi, open])
 
   useEffect(() => {
     if (!open) return
@@ -58,6 +98,41 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
     return () => { document.removeEventListener('mousedown', close); window.removeEventListener('scroll', onScroll, true) }
   }, [open])
 
+  const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const n = filtered.length
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        if (n) setHi((h) => (h + 1) % n)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        if (n) setHi((h) => (h - 1 + n) % n)
+        break
+      case 'Home':
+        e.preventDefault(); setHi(0); break
+      case 'End':
+        e.preventDefault(); setHi(Math.max(0, n - 1)); break
+      case 'Enter':
+        e.preventDefault()
+        if (n && filtered[hi]) pick(filtered[hi].value)
+        break
+      case 'Escape':
+        e.preventDefault(); closeDropdown(); break
+      case 'Tab':
+        // Let focus move on naturally, but don't leave the panel behind.
+        closeDropdown(false); break
+    }
+  }
+
+  const onButtonKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (open) return
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      openDropdown()
+    }
+  }
+
   const canClear = !!onClear && !!value && !disabled
 
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
@@ -66,11 +141,12 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
   const panel = open && rect && createPortal(
     <div
       id="ss-panel"
+      role="listbox"
       style={{
         position: 'fixed',
         top: openUpward ? undefined : rect.bottom + 4,
         bottom: openUpward ? window.innerHeight - rect.top + 4 : undefined,
-        left: rect.left, width: rect.width, maxHeight: 320, zIndex: 99999,
+        left: rect.left, width: Math.max(rect.width, 160), maxHeight: 320, zIndex: 99999,
       }}
       className="rounded-xl border border-slate-200 bg-white shadow-2xl flex flex-col overflow-hidden"
     >
@@ -80,21 +156,27 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
           ref={searchRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search…"
+          onKeyDown={onSearchKeyDown}
+          placeholder="Type to search… ↑↓ to move, Enter to pick"
           className="w-full h-10 pl-9 pr-3 text-sm focus:outline-none"
         />
       </div>
-      <ul className="overflow-y-auto flex-1">
+      <ul ref={listRef} className="overflow-y-auto flex-1">
         {filtered.length === 0 && (
           <li className="px-4 py-2.5 text-sm text-slate-400">No matches</li>
         )}
-        {filtered.map((o) => (
+        {filtered.map((o, i) => (
           <li
-            key={o.value}
-            onMouseDown={() => { onChange(o.value); setOpen(false) }}
+            key={o.value === '' ? '__empty__' : o.value}
+            role="option"
+            aria-selected={value === o.value}
+            onMouseDown={() => pick(o.value)}
+            onMouseEnter={() => setHi(i)}
             className={cn(
               'px-4 py-2.5 text-sm cursor-pointer transition-colors',
-              value === o.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50',
+              i === hi
+                ? 'bg-blue-600 text-white'
+                : value === o.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800',
             )}
           >
             {o.label}
@@ -112,10 +194,14 @@ export function SearchableSelect({ value, onChange, options, placeholder = 'Sele
           ref={btnRef}
           type="button"
           onClick={openDropdown}
+          onKeyDown={onButtonKeyDown}
           disabled={disabled}
+          aria-haspopup="listbox"
+          aria-expanded={open}
           className={cn(
             'flex h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-white/50 py-2 pl-4 text-sm shadow-sm transition-all hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100 disabled:hover:border-slate-200',
             canClear ? 'pr-11' : 'pr-4',
+            buttonClassName,
           )}
         >
           <span className={cn('truncate', (selected || displayLabel) ? 'text-slate-900' : 'text-slate-400')}>

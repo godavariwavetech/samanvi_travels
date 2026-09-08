@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Save, X, Plus, Edit2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 
 export default function ServiceForPage() {
@@ -68,7 +68,7 @@ export default function ServiceForPage() {
           <h3 className="font-bold text-slate-900 text-lg">Service For List</h3>
           <span className="text-xs text-slate-500 font-medium">{isLoading ? 'Loading…' : `${list.length} record${list.length !== 1 ? 's' : ''}`}</span>
         </div>
-        <div className="overflow-auto max-h-[70vh]">
+        <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/60">
@@ -108,7 +108,7 @@ export default function ServiceForPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </DualScrollTable>
       </GlassCard>
 
       {/* Modal */}

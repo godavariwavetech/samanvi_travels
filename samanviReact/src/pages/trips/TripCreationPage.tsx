@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
+import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
@@ -137,53 +137,6 @@ function PersonToggle({ label, checked, onChange }: { label: string; checked: bo
       title={label} aria-label={label}
       className="w-4 h-4 shrink-0 rounded accent-blue-600 cursor-pointer"
     />
-  )
-}
-
-// Mirrors a scrollbar above a wide horizontally-scrolling table so it's reachable
-// without first scrolling down past max-h-[70vh] to reach the one at the bottom.
-function DualScrollTable({ children, tableClassName }: { children: React.ReactNode; tableClassName: string }) {
-  const topRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const [scrollWidth, setScrollWidth] = useState(0)
-  const syncing = useRef<'top' | 'bottom' | null>(null)
-
-  useEffect(() => {
-    const el = bottomRef.current
-    if (!el) return
-    const update = () => setScrollWidth(el.scrollWidth)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  return (
-    <div>
-      <div
-        ref={topRef} className="overflow-x-auto overflow-y-hidden"
-        style={{ height: 14 }}
-        onScroll={() => {
-          if (syncing.current === 'bottom') { syncing.current = null; return }
-          if (!topRef.current || !bottomRef.current) return
-          syncing.current = 'top'
-          bottomRef.current.scrollLeft = topRef.current.scrollLeft
-        }}
-      >
-        <div style={{ width: scrollWidth, height: 1 }} />
-      </div>
-      <div
-        ref={bottomRef} className={tableClassName}
-        onScroll={() => {
-          if (syncing.current === 'top') { syncing.current = null; return }
-          if (!topRef.current || !bottomRef.current) return
-          syncing.current = 'bottom'
-          topRef.current.scrollLeft = bottomRef.current.scrollLeft
-        }}
-      >
-        {children}
-      </div>
-    </div>
   )
 }
 

@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Users, Send, TrendingUp } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Select, Label, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
 import { formatCurrency } from '@/lib/utils'
 
@@ -114,7 +114,7 @@ export default function CollectionAgentPage() {
           <h3 className="font-bold text-slate-900 text-lg">Booking Records</h3>
           <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${bookingList.length} records`}</p>
         </div>
-        <div className="overflow-auto max-h-[70vh]">
+        <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left min-w-[900px]">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
@@ -164,7 +164,7 @@ export default function CollectionAgentPage() {
               </tfoot>
             )}
           </table>
-        </div>
+        </DualScrollTable>
       </GlassCard>
     </motion.div>
   )
