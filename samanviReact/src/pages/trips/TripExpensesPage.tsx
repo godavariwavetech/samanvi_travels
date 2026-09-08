@@ -101,10 +101,14 @@ const OPTING_VALUE = '__opting__'
 // reads as opting rather than as an empty seat.
 const seatIsOpting = (slotId: any, slotName: any, optId: any): boolean =>
   !String(slotId ?? '') && (/^opting/.test(normLedgerName(slotName)) || !!String(optId ?? ''))
-// The credit-side ledgers opting seats pay through. Seeded server-side at boot as
-// Payables > Opting > "Opting Driver" / "Opting Helper" / "Opting Conductor" (see
-// the container guard in mainModel.js); resolved by name so ids can differ per
+// The credit-side ledgers opting seats pay through. Seeded server-side at boot
+// under the Payables container of the register each role draws from - Drivers >
+// "Opting Driver", Helpers > "Opting Helper", Staff > "Opting Conductor" (see the
+// container guard in mainModel.js) - and resolved by name so ids can differ per
 // database.
+const OPTING_CONTAINER: Record<OptingKey, string> = {
+  optingDriver: 'drivers', optingHelper: 'helpers', optingConductor: 'staff',
+}
 const isPayablesLedger = (l: any) => String(l?.child ?? '') === 'Payables' || String(l?.staticname ?? '') === 'EQUITIES AND LIABILITIES'
 const EXPENSE_KEYS: ExpenseKey[] = ['beta', 'salary', 'parking']
 // Resolved by NAME, not id: these ledgers are seeded per database (see the trip
@@ -345,9 +349,9 @@ export default function TripExpensesPage() {
   // The server seeds the Opting ledger at boot, but the modal doesn't depend on
   // that having happened: the first time it is needed and missing, it is
   // created here through the same addLedgerData call the "+ New Ledger" popover
-  // uses — under the Payables "Opting" container if the seed made one, else
-  // under Payables > Drivers — and the ledger list is reloaded so the new row
-  // resolves immediately. Returns the ledger, or null if it couldn't be made.
+  // uses — under the Payables container for that role, the same one the seed
+  // targets — and the ledger list is reloaded so the new row resolves
+  // immediately. Returns the ledger, or null if it couldn't be made.
   const ensureOptingLedger = async (key: OptingKey): Promise<any | null> => {
     await ensureLedgers()
     const existing = findOptingLedger(key)
@@ -358,8 +362,7 @@ export default function TripExpensesPage() {
       containers = (r?.data ?? []).filter((c: any) => Number(c.level_depth) === 4 && Number(c.d_in) === 0)
     }
     const underPayables = containers.filter((c: any) => String(c.child ?? '') === 'Payables')
-    const parent = underPayables.find((c: any) => normLedgerName(c.temple_name) === 'opting')
-      ?? underPayables.find((c: any) => normLedgerName(c.temple_name) === 'drivers')
+    const parent = underPayables.find((c: any) => normLedgerName(c.temple_name) === OPTING_CONTAINER[key])
     if (!parent) return null
     const res: any = await accountingService.addLedgerData({
       temple_name: OPTING_LABEL[key], amount: 0, parent_level: 4,

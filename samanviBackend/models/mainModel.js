@@ -545,43 +545,94 @@ var moment = require("moment");
           });
       });
   });
-  // "Opting" is a fourth container, holding one ledger per crew role: the payee
-  // for a trip seat covered by someone who isn't on the driver / helper / staff
-  // register (Trip Creation's "Opting Driver" / "Opting Helper" / "Opting
-  // Conductor" options). Such a person has no ledger of their own, so Trip
-  // Expenses credits the one for their role instead — split per role so driver
-  // and helper opting spend stay separately visible. Ensured right after the
-  // container, in the same callback, so a fresh database gets both on the first
-  // boot rather than the ledgers only on the second.
-  //
-  // An "Opting" ledger from before the split is left exactly where it is: it
-  // still carries the journal entries already posted against it, and renaming it
-  // would silently retag that history as one role's.
+  // Opting ledgers: one per crew role, the payee for a trip seat covered by
+  // someone who isn't on the driver / helper / staff register (Trip Creation's
+  // "Opting Driver" / "Opting Helper" / "Opting Conductor" options). Such a
+  // person has no ledger of their own, so Trip Expenses credits the one for
+  // their role instead - split per role so driver and helper opting spend stay
+  // separately visible. Each files under the container of the register its role
+  // draws from - Opting Driver under Drivers, Opting Helper under Helpers, Opting
+  // Conductor under Staff - not under a container of its own, so a Payables
+  // report shows all driver spend together. Ensured right after the container,
+  // in the same callback, so a fresh database gets both on the first boot
+  // rather than the ledger only on the second.
+  var OPTING_LEDGERS = { Drivers: 'Opting Driver', Helpers: 'Opting Helper', Staff: 'Opting Conductor' };
+  var ensureOptingLedger = function (label) {
+    var ledgerName = OPTING_LEDGERS[label];
+    if (!ledgerName) return;
+    sqldb.query(`SELECT id FROM mainmasterssubchildtwo WHERE LOWER(temple_name) = ? AND d_in = 0 LIMIT 1`,
+      [ledgerName.toLowerCase()], function (err, ledRows) {
+        if (err || (ledRows && ledRows.length)) return;
+        module.exports.ensurePersonLedger(label, ledgerName, null, 'system', function (err) {
+          if (err) console.log('[DB] ' + ledgerName + ' ledger seed:', err.message);
+          else console.log('[DB] ' + ledgerName + ' payables ledger seeded under ' + label);
+        });
+      });
+  };
   // 'Hire Vehicles' is the hire-bus group: the owners we hire vehicles from, and
   // therefore owe. It predates this app on the live database (it already holds
   // real owner ledgers), so it is guarded rather than assumed.
-  ['Drivers', 'Staff', 'Helpers', 'Opting', 'Hire Vehicles'].forEach(function (label) {
+  ['Drivers', 'Staff', 'Helpers', 'Hire Vehicles'].forEach(function (label) {
     sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = ? AND d_in = 0 LIMIT 1`, [label], function (err, rows) {
       if (err) return;
-      var ensureOptingLedger = function () {
-        if (label !== 'Opting') return;
-        ['Opting Driver', 'Opting Helper', 'Opting Conductor'].forEach(function (ledgerName) {
-          sqldb.query(`SELECT id FROM mainmasterssubchildtwo WHERE LOWER(temple_name) = ? AND d_in = 0 LIMIT 1`,
-            [ledgerName.toLowerCase()], function (err, ledRows) {
-              if (err || (ledRows && ledRows.length)) return;
-              module.exports.ensurePersonLedger('Opting', ledgerName, null, 'system', function (err) {
-                if (err) console.log('[DB] ' + ledgerName + ' ledger seed:', err.message);
-                else console.log('[DB] ' + ledgerName + ' payables ledger seeded');
-              });
-            });
-        });
-      };
-      if (rows && rows.length) return ensureOptingLedger();
+      if (rows && rows.length) return ensureOptingLedger(label);
       sqldb.query(`INSERT INTO mainmasterssubchild (parent_subgroup_id, district_id, staticentry, mandal_id, mandal_name, village_id, temple_name, child, level_depth, has_ledgers, can_add_subgroups, is_grp_ledger, d_in) VALUES (5, '2', 'EQUITIES AND LIABILITIES', '5', '3) CURRENT LIABILITIES', 5, ?, 'Payables', 4, 0, 1, 0, 0)`, [label], function (err) {
         if (err) return console.log('[DB] ' + label + ' container seed:', err.message);
         console.log('[DB] ' + label + ' ledger container seeded');
-        ensureOptingLedger();
+        ensureOptingLedger(label);
       });
+    });
+  });
+  // The Opting ledgers were first seeded under a Payables container of their
+  // own, "Opting". They now file with the register their role draws from (see
+  // OPTING_LEDGERS above), so anything still under that container is moved out -
+  // the named ledgers to their role's container, then whatever is left (a bare
+  // "Opting" ledger from before the per-role split) to Drivers, never orphaned -
+  // and the empty container is retired. The ledgers keep their ids, so vouchers
+  // already posted against them are untouched; only the group they file under
+  // changes, and the group columns copied onto those voucher rows are brought in
+  // line so group-wise reports agree with the ledger master. Steps run one after
+  // another because the catch-all must see only what the named moves left
+  // behind. Idempotent: once the container is gone the lookup finds nothing.
+  sqldb.query(`SELECT id FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name = 'Opting' AND d_in = 0 LIMIT 1`, function (err, rows) {
+    if (err || !rows || rows.length === 0) return;
+    var optingId = rows[0].id;
+    sqldb.query(`SELECT id, temple_name FROM mainmasterssubchild WHERE parent_subgroup_id = 5 AND temple_name IN ('Drivers', 'Helpers', 'Staff') AND d_in = 0`, function (err, targetRows) {
+      if (err || !targetRows || targetRows.length < 3) return; // containers seeded above; retry next boot
+      var targetId = {};
+      targetRows.forEach(function (r) { targetId[r.temple_name] = r.id; });
+      var steps = Object.keys(OPTING_LEDGERS).map(function (label) {
+        return { label: label, extra: ' AND LOWER(temple_name) = ?', args: [OPTING_LEDGERS[label].toLowerCase()] };
+      }).concat([{ label: 'Drivers', extra: '', args: [] }]);
+      var moved = 0;
+      var next = function (i) {
+        if (i >= steps.length) {
+          return sqldb.query(`UPDATE mainmasterssubchild SET d_in = 1 WHERE id = ?`, [optingId], function (err) {
+            if (err) return console.log('[DB] Opting container retire:', err.message);
+            console.log('[DB] Opting ledger container retired' + (moved ? ' after moving ' + moved + ' ledger(s)' : ''));
+          });
+        }
+        var s = steps[i];
+        var toId = targetId[s.label];
+        sqldb.query('SELECT id FROM mainmasterssubchildtwo WHERE d_in = 0 AND (subchildtwo_id = ? OR parent_subchild_id = ?)' + s.extra,
+          [optingId, optingId].concat(s.args), function (err, ledRows) {
+            if (err) return console.log('[DB] Opting ledger lookup:', err.message);
+            if (!ledRows || !ledRows.length) return next(i + 1);
+            var ids = ledRows.map(function (r) { return r.id; });
+            sqldb.query('UPDATE mainmasterssubchildtwo SET subchildtwo = ?, subchildtwo_id = ?, parent_subchild_id = ? WHERE id IN (?)',
+              [s.label, toId, toId, ids], function (err, res) {
+                if (err) return console.log('[DB] Opting ledger move to ' + s.label + ':', err.message);
+                moved += (res && res.affectedRows) || 0;
+                console.log('[DB] moved ' + ids.length + ' ledger(s) from Opting to ' + s.label);
+                sqldb.query('UPDATE expensive_details SET subchildtwo = ?, subchildtwo_id = ?, parent_subchild_id = ? WHERE ledger_id IN (?)',
+                  [s.label, toId, toId, ids], function (err) {
+                    if (err) console.log('[DB] Opting voucher rows retag to ' + s.label + ':', err.message);
+                    next(i + 1);
+                  });
+              });
+          });
+      };
+      next(0);
     });
   });
   // Opting seats used to be stored as the bare name "Opting" on every role. Each
