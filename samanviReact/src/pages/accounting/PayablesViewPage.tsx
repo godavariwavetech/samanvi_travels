@@ -252,9 +252,38 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
   })
 
   // Net paid = settled amounts minus reversed amounts (reversed cancel out settled)
-  const totalPaid = safeData.reduce((s, e) => e.action === 'settled' ? s + e.payment : e.action === 'reversed' ? s - e.payment : s, 0)
+  const netPaid = (entries: PaymentHistoryEntry[]) =>
+    entries.reduce((s, e) => e.action === 'settled' ? s + e.payment : e.action === 'reversed' ? s - e.payment : s, 0)
+  const totalPaid = netPaid(safeData)
   const currentBalance = safeData.length > 0 ? safeData[safeData.length - 1].balance_after : Number(row.amount) || 0
-  const editCount = timeline.filter(t => t.kind === 'edited').length
+
+  // One payable can be settled through several vouchers, each with its own
+  // reference number, and their events interleave on the one timeline. Picking
+  // a reference - from the strip below or by clicking its badge on any event -
+  // shows that voucher's history on its own: its payments, edits and approvals,
+  // and what it paid. Nothing is picked when the modal opens, so it reads as
+  // the full timeline until a reference is chosen.
+  const [selectedRef, setSelectedRef] = useState<string | null>(null)
+  const itemRef = (item: PaymentTimelineItem): string =>
+    item.kind === 'edited' ? item.resettlement.c_number : 'entry' in item ? item.entry.c_number : item.c_number
+  const refNumbers = [...new Set(safeData.map(e => e.c_number).filter(Boolean))]
+  const shownTimeline = selectedRef ? timeline.filter(t => itemRef(t) === selectedRef) : timeline
+  const refPaid = selectedRef ? netPaid(safeData.filter(e => e.c_number === selectedRef)) : totalPaid
+  const editCount = shownTimeline.filter(t => t.kind === 'edited').length
+  const pickRef = (cn: string) => setSelectedRef(prev => (prev === cn ? null : cn))
+  // The reference badge on an event: click to see that reference alone, click
+  // again to go back to everything.
+  const refBadge = (cn: string) => (
+    <button
+      type="button" onClick={() => pickRef(cn)}
+      title={selectedRef === cn ? 'Show all references' : 'Show only ' + cn}
+      className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border transition-colors ${
+        selectedRef === cn ? 'bg-blue-600 text-white border-blue-600' : 'text-slate-500 bg-white border-slate-200 hover:border-blue-400 hover:text-blue-700'
+      }`}
+    >
+      {cn}
+    </button>
+  )
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -281,14 +310,44 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
             <p className="text-lg font-extrabold text-slate-800 tabular-nums">₹{fmtAmt(row.amount)}</p>
           </div>
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-1">Net Paid</p>
-            <p className="text-lg font-extrabold text-emerald-700 tabular-nums">₹{fmtAmt(totalPaid)}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-1">{selectedRef ? 'Paid via ' + selectedRef : 'Net Paid'}</p>
+            <p className="text-lg font-extrabold text-emerald-700 tabular-nums">₹{fmtAmt(refPaid)}</p>
+            {selectedRef && refPaid !== totalPaid && (
+              <p className="text-[10px] text-emerald-600/80 mt-0.5">of ₹{fmtAmt(totalPaid)} across all references</p>
+            )}
           </div>
           <div className={`rounded-xl border-2 p-3 text-center ${currentBalance > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
             <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${currentBalance > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>Balance Left</p>
             <p className={`text-lg font-extrabold tabular-nums ${currentBalance > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>₹{fmtAmt(currentBalance)}</p>
           </div>
         </div>
+
+        {refNumbers.length > 1 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-1">References</span>
+            <button
+              type="button" onClick={() => setSelectedRef(null)}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
+                selectedRef === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+            >
+              All ({timeline.length})
+            </button>
+            {refNumbers.map(cn => {
+              const count = timeline.filter(t => itemRef(t) === cn).length
+              return (
+                <button
+                  key={cn} type="button" onClick={() => pickRef(cn)}
+                  className={`text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                    selectedRef === cn ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-700'
+                  }`}
+                >
+                  {cn} <span className={selectedRef === cn ? 'text-white/70' : 'text-slate-400'}>({count})</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {editCount > 0 && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700">
@@ -314,11 +373,20 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
           </div>
         ) : (
           <>
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Payment Timeline</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+                Payment Timeline{selectedRef ? <span className="text-blue-600"> · {selectedRef}</span> : ''}
+              </p>
+              {selectedRef && (
+                <button type="button" onClick={() => setSelectedRef(null)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 underline underline-offset-2">
+                  Show all references
+                </button>
+              )}
+            </div>
             <div className="relative pl-10">
               <div className="absolute left-[14px] top-3 bottom-3 w-0.5 bg-gradient-to-b from-emerald-300 via-amber-200 to-slate-200 rounded-full" />
               <div className="space-y-4">
-                {timeline.map((item, idx) => {
+                {shownTimeline.map((item, idx) => {
 
                   /* ── EDITED entry ─────────────────────────────────────── */
                   if (item.kind === 'edited') {
@@ -340,9 +408,7 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
                               <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border bg-amber-100 text-amber-700 border-amber-300 flex-shrink-0">
                                 Edited
                               </span>
-                              <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                                {resettlement.c_number}
-                              </span>
+                              {refBadge(resettlement.c_number)}
                             </div>
                             {/* Before → After amounts */}
                             <div className="flex items-center gap-1.5 tabular-nums">
@@ -432,9 +498,7 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
                               }`}>
                                 {isApproved ? 'Approved' : 'Rejected'}
                               </span>
-                              <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                                {item.c_number}
-                              </span>
+                              {refBadge(item.c_number)}
                             </div>
                           </div>
                           <div className="px-4 py-3 bg-white grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -482,9 +546,7 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
                             }`}>
                               {isPaid ? 'Paid' : 'Reversed'}
                             </span>
-                            <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                              {entry.c_number}
-                            </span>
+                            {refBadge(entry.c_number)}
                           </div>
                           <span className={`text-xl font-extrabold tabular-nums ${isPaid ? 'text-emerald-700' : 'text-red-600'}`}>
                             {isPaid ? '+' : '−'}₹{fmtAmt(entry.payment)}
