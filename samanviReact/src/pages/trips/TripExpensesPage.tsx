@@ -118,10 +118,13 @@ const EXPENSE_KEYS: ExpenseKey[] = ['beta', 'salary', 'parking']
 // all resolve; the legacy id stays as a last-resort fallback.
 const normLedgerName = (v: any) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '')
 const isExpensesGroup = (l: any) => String(l?.district_id ?? '') === '4' || String(l?.staticname ?? '') === 'EXPENSES'
-const EXPENSE_LEDGERS: Record<ExpenseKey, { id: number; name: string; aliases: string[] }> = {
-  beta: { id: 62, name: 'Betas', aliases: ['betas', 'beta'] },
-  salary: { id: 61, name: 'Salaries', aliases: ['salaries', 'salarys', 'salary'] },
-  parking: { id: 84, name: 'Parking', aliases: ['parking'] },
+// `stem` is the last resort: an expense ledger whose name merely starts with
+// it ("Beta Expenses", "Parking Charges") still resolves rather than leaving
+// the debit side empty.
+const EXPENSE_LEDGERS: Record<ExpenseKey, { id: number; name: string; aliases: string[]; stem: string }> = {
+  beta: { id: 62, name: 'Betas', aliases: ['betas', 'beta'], stem: 'beta' },
+  salary: { id: 61, name: 'Salaries', aliases: ['salaries', 'salarys', 'salary'], stem: 'salar' },
+  parking: { id: 84, name: 'Parking', aliases: ['parking'], stem: 'parking' },
 }
 const nowStr = () => {
   const d = new Date()
@@ -414,9 +417,10 @@ export default function TripExpensesPage() {
   }
 
   const findExpenseLedger = (key: ExpenseKey) => {
-    const { id, aliases } = EXPENSE_LEDGERS[key]
+    const { id, aliases, stem } = EXPENSE_LEDGERS[key]
     return ledgerRef.current.find((l: any) => isExpensesGroup(l) && aliases.includes(normLedgerName(l.temple_name)))
       ?? ledgerRef.current.find((l: any) => Number(l.ledger_id) === id)
+      ?? ledgerRef.current.find((l: any) => isExpensesGroup(l) && normLedgerName(l.temple_name).startsWith(stem))
   }
 
   // The Debit-side split, which must stay disjoint so the debit total matches the
@@ -604,7 +608,12 @@ export default function TripExpensesPage() {
       const priced = rows.map((r) => (r.personKey && r.personKey !== 'paidTo' ? { ...r, amount: String(personAmount(r.personKey as PersonKey)) } : r))
       return recomputePaidToRow(priced, true)
     })
-    setDebitRows((rows) => (rows.some((r) => r.personKey) ? buildExpenseRows(rows, { silent: true }) : rows))
+    // Rebuilt when the rows are the derived ones, or when there is nothing
+    // there but the blank placeholder - a modal that opened with no rates has
+    // no derived rows yet, and the first beta typed must still produce them.
+    // Rows the user picked by hand are left alone.
+    setDebitRows((rows) => (rows.some((r) => r.personKey) || rows.every((r) => !r.ledger && !r.amount)
+      ? buildExpenseRows(rows, { silent: true }) : rows))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amountSig, modal.mode, loadingModal])
 
@@ -802,8 +811,18 @@ export default function TripExpensesPage() {
       tripsService.getBeta({ serviceNo: row.service_no }),
       mastersService.getHaltBeta(),
     ])
-    const rate = res?.data?.[0]
-    if (rate) {
+    // No rate row (the service number was renamed or removed after the trip
+    // was made) used to skip this whole block, so the modal opened bare: no
+    // betas on either side, no halt beta, no paid-direct ticks, no ledger rows,
+    // and nothing typed afterwards built a debit row either. The seats now
+    // seed with nothing, the user is told to type the betas, and everything
+    // else sets up as usual.
+    const rateRow = res?.data?.[0]
+    if (!rateRow && String(row.trip_run_status ?? '') !== 'Halt') {
+      toast.warning(`No rates found for service ${row.service_no ?? ''} — enter the betas by hand`)
+    }
+    const rate = rateRow ?? {}
+    {
       const optDriverRate = optRate(rate, 'Driver')
       const optHelperRate = optRate(rate, 'Helper')
       const d1Opting = seatIsOpting(row.driver1_id, row.driver1_name, row.opt_driver1_id)
@@ -923,7 +942,7 @@ export default function TripExpensesPage() {
       if (seeded.length) setCreditRows(seeded)
       setDebitRows(buildExpenseRows([], {
         amounts: {
-          beta: d1Beta + d2Beta + hBeta + conductorAmt,
+          beta: d1Beta + d2Beta + hBeta + cBeta,
           salary: (d1Opting ? optDrv : 0) + (d2Opting ? optDrv : 0) + (hOpting ? optHlp : 0),
           parking: parkingAmt,
         },
