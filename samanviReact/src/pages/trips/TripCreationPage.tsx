@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
+import { isVanVehicleType } from '@/lib/utils'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
@@ -235,10 +236,11 @@ export default function TripCreationPage() {
   // by every grid row, rather than re-mapping the same master list per <td>.
   // A bus trip can only be run by a bus and a van trip only by a van, so each
   // grid gets its own vehicle list rather than sharing one of everything.
-  // busses.vehicle_type holds 'BUS'/'VAN'; anything not marked VAN is treated as
-  // a bus, so vehicles seeded before that column was filled in still show up on
-  // the Bus tab rather than vanishing from both.
-  const isVanVehicle = (b: any) => String(b.vehicle_type ?? '').trim().toUpperCase() === 'VAN'
+  // busses.vehicle_type is a vehicle-type master value; any value naming a van
+  // ("VAN", "PICKUP VAN") is a van, and anything else is treated as a bus, so
+  // vehicles seeded before that column was filled in still show up on the Bus
+  // tab rather than vanishing from both.
+  const isVanVehicle = (b: any) => isVanVehicleType(b.vehicle_type)
   const toVehicleOptions = (list: any[]) => list.map((b: any) => ({ value: String(b.bus_no), label: String(b.bus_no) }))
   const busOptions = toVehicleOptions(buses.filter((b: any) => !isVanVehicle(b)))
   const vanOptions = toVehicleOptions(buses.filter(isVanVehicle))

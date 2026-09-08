@@ -665,8 +665,11 @@ var moment = require("moment");
   // the Bus Masters form picks that value out of the vehicle_types master. If that
   // master holds only body styles - Sleeper, Volvo, Mini Bus - there is no way to
   // register a van at all, so make sure both kinds are always offered.
+  // Matched on the word, not the exact name: a master that already offers
+  // "PICKUP VAN" has a van type, and adding a bare "VAN" beside it would only
+  // give the form two ways of saying the same thing.
   ['BUS', 'VAN'].forEach(function (kind) {
-    sqldb.query(`SELECT id FROM vehicle_types WHERE d_in = 0 AND UPPER(type_name) = ? LIMIT 1`, [kind], function (err, rows) {
+    sqldb.query(`SELECT id FROM vehicle_types WHERE d_in = 0 AND UPPER(type_name) REGEXP ? LIMIT 1`, ['\\b' + kind + '\\b'], function (err, rows) {
       if (err || (rows && rows.length)) return;
       sqldb.query(`INSERT INTO vehicle_types (type_name, d_in, i_ts) VALUES (?, 0, NOW())`, [kind], function (err2) {
         if (err2) console.log('[DB] vehicle_types ' + kind + ' seed:', err2.message);

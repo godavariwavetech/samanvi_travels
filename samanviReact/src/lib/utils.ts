@@ -58,6 +58,13 @@ export function excelCellToISODate(v: unknown): string {
 // The page body never scrolls — AppLayout's inner content pane (#app-scroll-container)
 // is the actual scrollable element, so `window.scrollTo` is a no-op there. Use this
 // after opening an edit form to bring it into view instead.
+// Whether a vehicle-type master value names a van. The master is free text
+// the customer maintains, and on the live data vans are typed "PICKUP VAN",
+// not "VAN", so the test is for the word van anywhere in the value rather
+// than an exact match. Anything else (or a blank) is a bus.
+export const isVanVehicleType = (vehicleType: unknown): boolean =>
+  /\bVAN\b/i.test(String(vehicleType ?? ''))
+
 export const scrollContentToTop = () => {
   document.getElementById('app-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' })
 }

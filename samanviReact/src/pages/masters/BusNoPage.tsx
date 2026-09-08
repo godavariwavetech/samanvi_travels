@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { excelCellToISODate, headerRowMismatch } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, isVanVehicleType } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 // ── Sold Out / Service Out modal ───────────────────────────────────────────
@@ -421,7 +421,7 @@ export default function BusNoPage() {
     )
   }
 
-  const isVanVehicle = (b: any) => String(b.vehicle_type ?? '').trim().toUpperCase() === 'VAN'
+  const isVanVehicle = (b: any) => isVanVehicleType(b.vehicle_type)
   // The vehicle row carries only the ledger id, so the export resolves the name
   // back out of the Hire Vehicles ledgers — that is what the import reads.
   const hireLedgerName = (id: any) => {
