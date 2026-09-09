@@ -416,6 +416,15 @@ export default function TripExpensesPage() {
     return creditRows.some((r) => r.personKey === key || (r.personKey !== 'paidTo' && ledgerId && r.ledger && String(r.ledger.ledger_id) === ledgerId))
   }
 
+  // The expense ledger a bought-in vehicle's charge is debited to, resolved by
+  // name first so a database that seeded it under another id still finds it —
+  // the same rule the Trip Creation grid uses for the hire it posts.
+  const HIRE_LEDGER_ID = 388
+  const findHireLedger = () =>
+    ledgerRef.current.find((l: any) => normLedgerName(l.temple_name) === 'hirevehiclecharges')
+      ?? ledgerRef.current.find((l: any) => Number(l.ledger_id) === HIRE_LEDGER_ID)
+      ?? ledgerRef.current.find((l: any) => normLedgerName(l.temple_name).startsWith('hirevehicle'))
+
   const findExpenseLedger = (key: ExpenseKey) => {
     const { id, aliases, stem } = EXPENSE_LEDGERS[key]
     return ledgerRef.current.find((l: any) => isExpensesGroup(l) && aliases.includes(normLedgerName(l.temple_name)))
@@ -940,13 +949,31 @@ export default function TripExpensesPage() {
         seeded.push({ ledger: toLedgerObj(paidToLedger), amount: String(remainder), personKey: 'paidTo' })
       }
       if (seeded.length) setCreditRows(seeded)
-      setDebitRows(buildExpenseRows([], {
+      const derivedDebit = buildExpenseRows([], {
         amounts: {
           beta: d1Beta + d2Beta + hBeta + cBeta,
           salary: (d1Opting ? optDrv : 0) + (d2Opting ? optDrv : 0) + (hOpting ? optHlp : 0),
           parking: parkingAmt,
         },
-      }))
+      })
+      // A van's hire charge is an expense of this trip like any beta, so it is
+      // seeded on the Debit side — but only when the trip did NOT already post
+      // it as a Journal at creation, which would make filing it here a second
+      // booking of the same money.
+      const hireAmt = num(row.booking_amount)
+      const hirePosted = !!row.voucher_number
+      if (hireAmt > 0 && !hirePosted) {
+        const hireLedger = findHireLedger()
+        if (hireLedger) {
+          const kept = derivedDebit.filter((r) => r.ledger || r.amount)
+          setDebitRows([...kept, { ledger: toLedgerObj(hireLedger), amount: String(hireAmt) }])
+        } else {
+          setDebitRows(derivedDebit)
+          toast.error('Ledger not found: Hire vehicle charges — pick the debit ledger for the hire by hand')
+        }
+      } else {
+        setDebitRows(derivedDebit)
+      }
       if (unresolved.length) {
         toast.error(`No ledger found for ${unresolved.join(', ')} — their share stayed with Paid To`)
       }
@@ -1120,10 +1147,45 @@ export default function TripExpensesPage() {
   // exactly the way the Paid To picker does on the Trip Creation grid.
   const paidToRowAmount = num(creditRows.find((r) => r.personKey === 'paidTo')?.amount)
   const paidToActive = paidToRowAmount > 0
+  // What ticking the box WOULD hand over, computed exactly as recomputePaidToRow
+  // does. Ticking when this is 0 - a trip whose service number carries no betas
+  // and no parking, which is every Van service today - added no row and left the
+  // box unticked with no explanation, so the two reasons a tick can't take are
+  // now stated on the line instead of failing silently.
+  const paidToRemainder = PERSON_KEYS
+    .filter((k) => !creditRows.some((r) => r.personKey === k))
+    .reduce((sum, k) => sum + personAmount(k), 0) + num(form.parking_amt)
+  const paidToLedgerMissing = !!form.paid_to_id && !paidToLedgerId()
+  // Nothing derived to hand over — a Van service, or a trip whose betas are all
+  // zero. The tick has nothing to add in that state, so the line offers to put
+  // the payee on the Credit side instead and let the amount be typed: a trip
+  // that carries no beta is still a trip somebody gets paid for.
+  const paidToNothingDerived = !paidToActive && paidToRemainder <= 0 && !paidToLedgerMissing
+  const paidToOnCredit = creditRows.some((r) => r.ledger && paidToLedgerId() && String(r.ledger.ledger_id) === paidToLedgerId())
+  const addPaidToCreditRow = () => {
+    const ledgerId = paidToLedgerId()
+    const ledger = ledgerId ? findLedger(ledgerId) : null
+    if (!ledger) { toast.error(`No ledger found for ${form.paid_to_name || 'Paid To'}`); return }
+    if (debitRows.some((r) => r.ledger && String(r.ledger.ledger_id) === ledgerId)) {
+      toast.error(`"${form.paid_to_name}" is already used in Debit Accounts — the same ledger can't be on both sides`)
+      return
+    }
+    // Untagged on purpose: a tagged 'paidTo' row is derived and the next
+    // recompute would drop it again, since the remainder is zero. Untagged it
+    // is the user's own row, kept and priced exactly as one added by hand.
+    setCreditRows((rows) => {
+      const kept = rows.filter((r) => r.ledger || r.amount)
+      return [...kept, { ledger: toLedgerObj(ledger), amount: '' }]
+    })
+    toast.success(`${form.paid_to_name} added to Credit Accounts — enter the amount`)
+  }
   // Nobody paid through the books - no crew tick and Paid To off - means there
   // is nothing to post: Submit saves the expense (betas, remarks, status) on its
   // own and no voucher is created, the way a garage job can be quick-completed
   // without one. A credit row the user typed by hand still counts as posting.
+  // The trip's own hire charge, read straight off the row the modal opened on.
+  const hireAmount = num(modal.row?.booking_amount)
+  const hirePosted = !!modal.row?.voucher_number
   const anyoneTicked = PERSON_KEYS.some((k) => isPersonChecked(k))
   const noVoucher = !anyoneTicked && !paidToActive && !creditRows.some((r) => r.ledger && num(r.amount) > 0)
   // Unticking hands the leftover back to the user to place manually; reticking
@@ -1131,7 +1193,9 @@ export default function TripExpensesPage() {
   const togglePaidTo = () => {
     const nextOptedOut = !paidToOptedOut
     setPaidToOptedOut(nextOptedOut)
-    setCreditRows((rows) => recomputePaidToRow(rows, true, nextOptedOut))
+    // Not silent when ticking ON: if the Paid To person has no ledger, that is
+    // the whole reason the tick doesn't take and the user needs to hear it.
+    setCreditRows((rows) => recomputePaidToRow(rows, nextOptedOut, nextOptedOut))
   }
 
   // ── Totals ───────────────────────────────────────────────────────────────
@@ -1615,25 +1679,72 @@ export default function TripExpensesPage() {
                         onClear={() => setForm((f) => ({ ...f, paid_to_id: '', paid_to_name: '', paid_to_type: '' }))} />
                       {form.paid_to_name && (
                         <div className="mt-2">
-                          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                            <input
-                              type="checkbox" checked={paidToActive} onChange={togglePaidTo}
-                              title="Receives every share left unticked below — untick to place that leftover on another ledger yourself"
-                              className="w-4 h-4 rounded accent-blue-600"
-                            />
-                            Pay {form.paid_to_name}
-                          </label>
-                          <p className="text-[11px] font-bold text-slate-400 pl-6">
-                            {paidToActive
-                              ? `₹${paidToRowAmount.toLocaleString('en-IN')}`
-                              : paidToOptedOut
-                                ? (noVoucher ? 'Off — nobody is paid through the books, so Submit saves without a voucher' : 'Off — assign the leftover yourself in Credit Accounts')
-                                : 'Everyone ticked — nothing left over'}
-                          </p>
+                          {/* Nothing derived to hand over: offer to put the payee on the
+                              Credit side and let the amount be typed, rather than a dead
+                              tick. A Van trip has no betas at all, so this is its only
+                              way through this screen. */}
+                          {paidToNothingDerived ? (
+                            <>
+                              <button
+                                type="button" onClick={addPaidToCreditRow} disabled={paidToOnCredit}
+                                className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-40 disabled:hover:bg-emerald-50"
+                              >
+                                <PlusCircle className="w-3.5 h-3.5" /> Pay {form.paid_to_name}
+                              </button>
+                              <p className="text-[11px] font-bold text-slate-400 pl-1 mt-1">
+                                {paidToOnCredit
+                                  ? `${form.paid_to_name} is on the Credit side — set the amount there`
+                                  : anyoneTicked
+                                    ? 'Every share is ticked — add them to Credit Accounts to pay anything more'
+                                    : 'This trip carries no beta or parking — add them to Credit Accounts and enter the amount'}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <label className={`flex items-center gap-2 text-xs font-semibold select-none ${paidToLedgerMissing ? 'text-slate-400 cursor-not-allowed' : 'text-slate-600 cursor-pointer'}`}>
+                                <input
+                                  type="checkbox" checked={paidToActive} onChange={togglePaidTo}
+                                  disabled={paidToLedgerMissing}
+                                  title={paidToLedgerMissing
+                                    ? `${form.paid_to_name} has no ledger, so nothing can be posted to them`
+                                    : 'Receives every share left unticked below — untick to place that leftover on another ledger yourself'}
+                                  className="w-4 h-4 rounded accent-blue-600 disabled:opacity-40"
+                                />
+                                Pay {form.paid_to_name}
+                              </label>
+                              <p className="text-[11px] font-bold text-slate-400 pl-6">
+                                {paidToActive
+                                  ? `₹${paidToRowAmount.toLocaleString('en-IN')}`
+                                  : paidToLedgerMissing
+                                    ? `No ledger for ${form.paid_to_name} — nothing can be posted to them`
+                                    : paidToOptedOut
+                                      ? (noVoucher ? 'Off — nobody is paid through the books, so Submit saves without a voucher' : 'Off — assign the leftover yourself in Credit Accounts')
+                                      : `₹${paidToRemainder.toLocaleString('en-IN')} available — tick to pay it to ${form.paid_to_name}`}
+                              </p>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
                   </div>
+
+                  {/* A hired van's charge: either already on the books from the
+                      trip's own Journal, or seeded onto the Debit side above for
+                      this entry to carry. Either way it is stated, so a trip with
+                      no betas never reads as a trip with nothing in it. */}
+                  {hireAmount > 0 && (
+                    <div className={`rounded-xl border px-4 py-2.5 ${hirePosted ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
+                      <p className={`text-xs font-bold ${hirePosted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        Hire charge ₹{hireAmount.toLocaleString('en-IN')}
+                        {hirePosted && <span className="font-mono font-semibold"> · {modal.row.voucher_number}</span>}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {hirePosted
+                          ? `Already posted when the trip was created: ${modal.row.hire_debit_ledger_name ?? 'Hire vehicle charges'} debited, ${modal.row.hire_credit_ledger_name ?? 'the ledger picked then'} credited — don't file it again here.`
+                          : 'Seeded on the Debit side as Hire vehicle charges — pick who it is owed to on the Credit side.'}
+                      </p>
+                    </div>
+                  )}
 
                   {isHalt && (
                     <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-2.5">

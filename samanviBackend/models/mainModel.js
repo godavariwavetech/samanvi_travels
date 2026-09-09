@@ -2893,7 +2893,11 @@ exports.getexpensesMdl = function (data, callback) {
   te.driver2Beta AS exp_driver2_beta, te.drivertwosalary AS exp_driver2_opt,
   te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
   te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
-  te.id AS exp_row_id
+  te.id AS exp_row_id,
+  -- The hire Journal a hired-van trip posts at creation, so the expense screen
+  -- can say the charge is already on the books instead of looking empty.
+  vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
+  vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name
 FROM
   trip_created t
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
@@ -2904,6 +2908,8 @@ LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
 LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
+LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
+LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
 WHERE
   t.d_in = '0' AND t.admin_status != '1'
   order by trip_date DESC;
@@ -3355,7 +3361,11 @@ exports.getexpensesfiltere = function (data, callback) {
   te.driver2Beta AS exp_driver2_beta, te.drivertwosalary AS exp_driver2_opt,
   te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
   te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
-  te.id AS exp_row_id
+  te.id AS exp_row_id,
+  -- The hire Journal a hired-van trip posts at creation, so the expense screen
+  -- can say the charge is already on the books instead of looking empty.
+  vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
+  vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name
 FROM trip_created t
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
 LEFT JOIN driver_register d2 ON t.driver2_id = d2.id
@@ -3365,6 +3375,8 @@ LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
 LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
+LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
+LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
 WHERE t.d_in = 0 AND t.trip_date BETWEEN '${data.fromdate}' AND '${data.todate}'
 ORDER BY t.id DESC`;
   if (callback && typeof callback == "function")
@@ -5227,7 +5239,10 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
   var resolveNext = function () {
     if (vi >= toInsert.length) return proceedWithInsert();
     var r = toInsert[vi];
-    if (r.vehicle_type === 'van' && !r.debit_ledger_id && r.hirer_name && r.phone_number && r.booking_amount) {
+    // Runs for every van booking with a hirer, not only those without an
+    // explicit debit ledger: a hired van now sends its own Hire vehicle charges
+    // debit, and the hirer still belongs on the books either way.
+    if (r.vehicle_type === 'van' && r.hirer_name && r.phone_number && r.booking_amount) {
       exports.ensureHirerLedger(r.hirer_name, r.phone_number, userId, function (err, ledgerId) {
         if (err) console.error('[ensureHirerLedger] failed for trip hirer ' + r.hirer_name + ':', err.message);
         else r.hirer_ledger_id = ledgerId;
@@ -5266,6 +5281,9 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
             c_number: c_number, amount: amount,
             debit_ledger_id: debitLedgerId, debit_ledger_name: debitLedgerName,
             credit_ledger_id: r.credit_ledger_id, credit_ledger_name: r.credit_ledger_name,
+            // Carried so the posted Journal names the vehicle and service it
+            // came from instead of landing blank in Voucher Approvals.
+            bus_no: r.bus_no || '', service_no: r.service_no || '',
           });
         }
 
@@ -8510,23 +8528,35 @@ exports.getsearchdataMdl = function (data, callback) {
   // -------------------------------
   const transactionQuery = `
     -- EXPENSIVE DETAILS
+    -- tc gives the trip's own run status; the trip date is already on ed.
     SELECT ed.*, 'expensive_details' AS source_table,
-      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
+      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers,
+      MAX(tc.trip_run_status) AS trip_status,
+      MAX(tc.c_number) AS trip_c_number
     FROM expensive_details ed
     LEFT JOIN expensive_details ed2
       ON ed.c_number = ed2.c_number AND ed2.d_in='0' AND ed2.ledger_id != ed.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON ed2.ledger_id = mm.id
+    LEFT JOIN trip_created tc ON tc.c_number = ed.c_number AND tc.d_in = 0
     WHERE ed.d_in='0' AND ed.admin_status='1' AND ${tripRowsWithoutVoucher('ed')}
     ${transExp} ${ledgerExp}
     GROUP BY ed.id;
 
     -- MAIN VOUCHER
+    -- A trip expense filed WITH a voucher is dropped from the block above and
+    -- surfaces here as the voucher instead, which knows only its voucher date.
+    -- trip_created.voucher_number points back at it, so the trip's date and run
+    -- status ride along and the row still reads as the trip it came from.
     SELECT mv.*, 'mainvoucher_subt' AS source_table,
-      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
+      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers,
+      MAX(tc.trip_date) AS trip_date,
+      MAX(tc.trip_run_status) AS trip_status,
+      MAX(tc.c_number) AS trip_c_number
     FROM mainvoucher_subt mv
     LEFT JOIN mainvoucher_subt mv2
       ON mv.c_number = mv2.c_number AND mv2.d_in='0' AND mv2.ledger_id != mv.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON mv2.ledger_id = mm.id
+    LEFT JOIN trip_created tc ON tc.voucher_number = mv.c_number AND tc.d_in = 0
     WHERE mv.d_in='0' AND mv.status='1'
     ${transVoucher} ${ledgerVoucher}
     GROUP BY mv.id;

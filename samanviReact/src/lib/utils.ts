@@ -65,8 +65,12 @@ export function excelCellToISODate(v: unknown): string {
 export const isVanVehicleType = (vehicleType: unknown): boolean =>
   /\bVAN\b/i.test(String(vehicleType ?? ''))
 
+// Inside a full-screen sheet (Payables opened as a popup) the page's own
+// scroller is not the one the user is looking at, so scroll that sheet when it
+// is up and the page container only otherwise.
 export const scrollContentToTop = () => {
-  document.getElementById('app-scroll-container')?.scrollTo({ top: 0, behavior: 'smooth' })
+  const el = document.getElementById('modal-scroll-container') ?? document.getElementById('app-scroll-container')
+  el?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 // Excel importers map columns by POSITION, so a sheet from a different screen

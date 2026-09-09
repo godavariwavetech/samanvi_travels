@@ -3249,6 +3249,8 @@ exports.bulkCreateTripsCtrl = function (req, res) {
         debit_ledgers: [{ ledger_id: cand.debit_ledger_id, ledger_name: cand.debit_ledger_name, amount: cand.amount }],
         credit_ledgers: [{ ledger_id: cand.credit_ledger_id, ledger_name: cand.credit_ledger_name, amount: cand.amount }],
         trip_c_number: cand.c_number, entry_by: data.usr_nm, user_id: data.user_id,
+        vehicle_number: cand.bus_no || '',
+        description: cand.service_no ? 'Service ' + cand.service_no : '',
       }, function (voucherErr, voucherNumber) {
         if (voucherErr) {
           console.error('[createTripVoucherMdl] failed for trip ' + cand.c_number + ':', voucherErr.message);
