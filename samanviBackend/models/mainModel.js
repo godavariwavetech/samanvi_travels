@@ -1,4 +1,14 @@
 var sqldb = require("../config/dbconnect");
+// config/dbconnect.js belongs to each server (deploys never overwrite it), so
+// the option that makes DATE columns (dob, dl_dob, reg_date, due_date, ...)
+// arrive as plain "YYYY-MM-DD" strings is enforced here, on the pool every
+// deploy ships. Without it mysql2 builds a JS Date at local midnight (IST),
+// which JSON-serialises as the previous day at 18:30Z, so a helper imported
+// with dob 1990-01-01 reached the UI as 1989-12-31. mysql2 reads the option
+// from the shared connection config at query time, and this file is loaded
+// (via the controllers) before app.js runs its first query, so it applies to
+// every connection. DATETIME/TIMESTAMP columns are left as Date objects.
+if (!sqldb.config.connectionConfig.dateStrings) sqldb.config.connectionConfig.dateStrings = ["DATE"];
 var dbutil = require(appRoot + "/utils/assets_dbutils");
 var moment = require("moment");
 
