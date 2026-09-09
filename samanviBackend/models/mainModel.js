@@ -1204,10 +1204,16 @@ exports.getdepartmentDataMdl = function (callback) {
 // The live vehicle already registered under this number, if any. Compared
 // with spaces removed and case ignored, so "TS 07 UH 5238" and "ts07uh5238"
 // are the same vehicle.
-exports.findLiveBusByNumberMdl = function (busno, callback) {
+exports.findLiveBusByNumberMdl = function (busno, callback, exceptId) {
   var key = String(busno || '').replace(/\s+/g, '').toUpperCase();
   if (!key) return callback(null, null);
-  sqldb.query(`SELECT id, bus_no, bus_category, vehicle_type FROM busses WHERE d_in = 0 AND UPPER(REPLACE(bus_no, ' ', '')) = ? LIMIT 1`, [key], function (err, rows) {
+  // `exceptId` is the row being edited - a vehicle keeping its own number is
+  // not a duplicate of itself. Without it an Edit that saved the number
+  // unchanged would be refused as already registered.
+  var sql = `SELECT id, bus_no, bus_category, vehicle_type FROM busses WHERE d_in = 0 AND UPPER(REPLACE(bus_no, ' ', '')) = ?`;
+  var params = [key];
+  if (exceptId != null && exceptId !== '') { sql += ' AND id <> ?'; params.push(exceptId); }
+  sqldb.query(sql + ' LIMIT 1', params, function (err, rows) {
     if (err) return callback(err, null);
     callback(null, rows && rows.length ? rows[0] : null);
   });
@@ -10171,19 +10177,32 @@ exports.updatebusnumber = function (data, callback) {
   var cntxtDtls = "in updatebusnumber";
   var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
 
-  var fieldValues = {
-    bus_no: data.busnumber, ownername: data.ownername, chassis_no: data.chassisno,
-    vehicle_type: data.vehicletype || '', company: data.company || '',
-    insurance_validity: data.insurancevalidity, odometer: data.odometer, engine_no: data.engineno,
-    pollution_validity: data.pollutionvalidity, base_point_validity: data.basepointvalidity,
-    date_of_purchase: data.dateofpurchase, atp_validity: data.atpvalidity, fc_validity: data.fcvalidity,
-    atp_authentication_validity: data.atpauthenticationvalidity, home_tax_validity: data.hometaxvalidity,
-    service_out_date: data.serviceoutdate, remarks: data.remarks,
-    bus_category: data.buscategory || 'normal', owner_ledger_id: data.owner_ledger_id || '',
-    luxury_type: data.luxurytype, seating_capacity: data.seatingcapacity,
-    chassis_make: data.chassismake, body_made: data.bodymade, chassis_model: data.chassismodel,
-    mfg_year: data.mfgyear, reg_date: data.regdate || '',
+  // Column -> the payload key that carries it. A key the payload does not carry
+  // is left alone rather than written blank: the Hire and Spare forms hold four
+  // fields between them, so writing every column on their save wiped the
+  // vehicle's seating capacity, engine and chassis numbers and validity dates -
+  // an edit of the owner quietly emptied the rest of the record.
+  var FIELD_KEYS = {
+    bus_no: 'busnumber', ownername: 'ownername', chassis_no: 'chassisno',
+    vehicle_type: 'vehicletype', company: 'company',
+    insurance_validity: 'insurancevalidity', odometer: 'odometer', engine_no: 'engineno',
+    pollution_validity: 'pollutionvalidity', base_point_validity: 'basepointvalidity',
+    date_of_purchase: 'dateofpurchase', atp_validity: 'atpvalidity', fc_validity: 'fcvalidity',
+    atp_authentication_validity: 'atpauthenticationvalidity', home_tax_validity: 'hometaxvalidity',
+    service_out_date: 'serviceoutdate', remarks: 'remarks',
+    bus_category: 'buscategory', owner_ledger_id: 'owner_ledger_id',
+    luxury_type: 'luxurytype', seating_capacity: 'seatingcapacity',
+    chassis_make: 'chassismake', body_made: 'bodymade', chassis_model: 'chassismodel',
+    mfg_year: 'mfgyear', reg_date: 'regdate',
   };
+  var fieldValues = {};
+  Object.keys(FIELD_KEYS).forEach(function (col) {
+    var v = data[FIELD_KEYS[col]];
+    if (v === undefined) return;
+    fieldValues[col] = v === null ? '' : v;
+  });
+  if (fieldValues.bus_category === '') fieldValues.bus_category = 'normal';
+  if (!Object.keys(fieldValues).length) return callback(null, { affectedRows: 0 });
 
   // reg_date is a native DATE column (every other field diffed below is varchar); re-select it
   // as a plain 'YYYY-MM-DD' string so it compares equal to fieldValues.reg_date when unchanged —

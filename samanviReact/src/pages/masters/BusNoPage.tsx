@@ -291,6 +291,8 @@ export default function BusNoPage() {
     const uid = localStorage.getItem('user_id') ?? ''
     const unm = localStorage.getItem('usr_nm') ?? ''
     return {
+      // `company` is deliberately absent: this form doesn't show it, and the
+      // update only writes the keys it receives.
       busno: normalForm.bus_no, busnumber: normalForm.bus_no,
       engineno: normalForm.engine_no, chassisno: normalForm.chassis_no,
       vehicletype: normalForm.vehicle_type, dateofpurchase: normalForm.date_of_purchase,
@@ -307,6 +309,9 @@ export default function BusNoPage() {
     }
   }
 
+  // The blank fields below are what a NEW spare tank starts with. On an edit
+  // they are dropped (see forUpdate): this form holds two fields, and sending
+  // the rest as empty strings wiped columns it never showed.
   const buildSparePayload = () => {
     const uid = localStorage.getItem('user_id') ?? ''
     const unm = localStorage.getItem('usr_nm') ?? ''
@@ -334,10 +339,26 @@ export default function BusNoPage() {
     }
   }
 
+  // Which columns each form actually owns. An update sends only these, so a
+  // column the open form never showed keeps whatever the vehicle already had -
+  // editing a hire vehicle's owner used to blank its seating capacity, engine
+  // and chassis numbers and every validity date.
+  const UPDATE_FIELDS: Record<'normal' | 'hire' | 'spare', string[] | null> = {
+    normal: null, // the full form - every column is on screen
+    hire: ['busno', 'busnumber', 'ownername', 'owner_ledger_id', 'vehicletype', 'buscategory', 'issparetank'],
+    spare: ['busno', 'busnumber', 'ownername', 'buscategory', 'issparetank'],
+  }
+  const forUpdate = (payload: Record<string, any>) => {
+    const own = UPDATE_FIELDS[busType]
+    if (!own) return payload
+    const keep = new Set([...own, 'userid', 'usrnm', 'user_id', 'id'])
+    return Object.fromEntries(Object.entries(payload).filter(([k]) => keep.has(k)))
+  }
+
   const { mutate: save, isPending } = useMutation({
     mutationFn: () => {
       const payload = busType === 'spare' ? buildSparePayload() : busType === 'hire' ? buildHirePayload() : buildNormalPayload()
-      return isEdit ? mastersService.updateBus(payload) : mastersService.addBus(payload)
+      return isEdit ? mastersService.updateBus(forUpdate(payload)) : mastersService.addBus(payload)
     },
     onSuccess: (res) => {
       if (res.status === 200) {

@@ -4683,13 +4683,22 @@ exports.updatebusnumber = function (req, res) {
     res.send({ status: 400, msg: "Invalid payload" });
     return;
   }
-  appmdl.updatebusnumber(data, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
+  // The same one-number-one-vehicle rule the Add form enforces: renaming a
+  // vehicle onto a number another live row already holds would put two of them
+  // in every list, and the boot migration would then retire one of the pair.
+  // The row's own id is excluded, so saving an unchanged number is fine.
+  appmdl.findLiveBusByNumberMdl(data.busnumber || data.busno, function (dupErr, existing) {
+    if (!dupErr && existing) {
+      return res.send({ status: 422, message: 'Vehicle ' + existing.bus_no + ' is already registered - use that entry instead' });
     }
-    res.send({ status: 200, data: results });
-  });
+    appmdl.updatebusnumber(data, function (err, results) {
+      if (err) {
+        res.send({ status: 500, data: results });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
+  }, data.id);
 };
 
 exports.updateBusValidityDateCtrl = function (req, res) {
