@@ -647,7 +647,7 @@ export default function StaffPage() {
     const sample = dataType === 'Driver'
       ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : dataType === 'Helper'
-      ? ['Ramesh', 'Ramesh Kumar', '123456789012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['Ramesh Kumar', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : ['Manager', 'Suresh', 'Suresh Kumar', '987654321012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
     downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
   }

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs } from '@/components/shared'
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
@@ -170,6 +170,7 @@ export default function TripExpensesPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [applied, setApplied] = useState<{ from: string; to: string } | null>(null)
+  const [vehicleTab, setVehicleTab] = useState('All')
 
   // Add/Edit modal
   const [modal, setModal] = useState<{ mode: 'add' | 'edit' | null; row: any }>({ mode: null, row: null })
@@ -250,6 +251,9 @@ export default function TripExpensesPage() {
   const { data: subchildData } = useQuery({ queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild() })
 
   const trips: any[] = listData?.data ?? []
+  const filteredTrips = vehicleTab === 'All' ? trips
+    : vehicleTab === 'Van' ? trips.filter((t) => String(t.vehicle_type ?? '').toLowerCase() === 'van')
+      : trips.filter((t) => String(t.vehicle_type ?? '').toLowerCase() !== 'van')
   const ledgerList: any[] = ledgerData?.data ?? []
   // openAdd/openEdit await getBeta before resolving ledgers, and a callback holds
   // the ledgerList from the render it was created in — so if the ledger query was
@@ -1556,10 +1560,12 @@ export default function TripExpensesPage() {
         </div>
       </GlassCard>
 
+      <TopNavTabs tabs={['All', 'Bus', 'Van']} activeTab={vehicleTab} onChange={setVehicleTab} />
+
       <DataTable
-        title={`Trip Expenses (${trips.length})`}
+        title={`Trip Expenses (${filteredTrips.length})`}
         columns={columns}
-        data={trips}
+        data={filteredTrips}
         loading={isLoading}
         onAction={handleAction}
         actions={['edit', 'view', 'delete']}
