@@ -14,7 +14,13 @@ var MySQLConPool = mysql.createPool({
     connectTimeout		: 20000,
     connectionLimit	    : 100,
     debug 		        : false,
-    multipleStatements  : true
+    multipleStatements  : true,
+    // DATE columns (dob, dl_dob, reg_date, due_date, ...) come back as plain
+    // 'YYYY-MM-DD' strings instead of JS Date objects. Without this, mysql2
+    // builds a Date at local midnight (IST), which JSON-serialises as the
+    // previous day at 18:30Z, so every `select *` shipped e.g. a helper's
+    // 1990-01-01 dob to the UI as 1989-12-31. DATETIME/TIMESTAMP are untouched.
+    dateStrings         : ['DATE']
 });
 
 
