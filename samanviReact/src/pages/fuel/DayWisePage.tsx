@@ -1,41 +1,50 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import { Search } from 'lucide-react'
+import { Search, Calendar } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter } from '@/components/shared'
-import type { Column, TotalsFooterItem } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 
 const today = new Date().toISOString().split('T')[0]
-const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
 
-export default function FuelStationWisePage() {
-  const [filter, setFilter] = useState({ fromdate: weekAgo, todate: today, ledger_name: '' })
-  const [applied, setApplied] = useState<typeof filter | null>(null)
+const weekday = (isoDate: string) => {
+  try { return new Date(isoDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) }
+  catch { return '' }
+}
 
-  const { data: stationsResp } = useQuery({
-    queryKey: ['fuel-stations'],
-    queryFn: () => fuelService.getFuelLedgerName(),
-  })
-  const stations = (stationsResp?.data ?? []) as { expensives: string }[]
+const formatDate = (isoDate: string) => {
+  try {
+    const d = new Date(isoDate + 'T00:00:00')
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  } catch { return isoDate }
+}
+
+export default function DayWisePage() {
+  const [fromdate, setFromdate] = useState(today)
+  const [applied, setApplied] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['fuel-station-wise', applied],
-    queryFn: () => fuelService.getStationWiseReports(applied),
+    queryKey: ['fuel-day-wise', applied],
+    queryFn: () => fuelService.getDayWiseReports({ fromdate: applied }),
     enabled: !!applied,
   })
+
   const rows = (data?.data ?? []) as Record<string, unknown>[]
 
   const totalQty = rows.reduce((s, r) => s + Number(r.quantity_filled || 0), 0)
   const totalAmount = rows.reduce((s, r) => s + Number(r.total_bill || 0), 0)
   const avgPrice = totalQty > 0 ? totalAmount / totalQty : 0
 
+  // Old Angular Day Wise table had Driver1 / Driver2 / Service / Target /
+  // Balance columns — all four dropped here to stay consistent with the Fuel
+  // Entry form changes. Target vs single-day quantity wouldn't compare
+  // meaningfully against a monthly per-bus target anyway.
   const cols: Column[] = useMemo(() => [
     { label: 'Ref #', key: 'c_number' },
-    { label: 'Date', key: 'date' },
     { label: 'Bus No', key: 'vehicle_number' },
     { label: 'Debit Ledger', key: 'debit_ledger', render: (v) => v ? String(v) : '—' },
-    { label: 'Credit Ledger', key: 'credit_ledger', render: (v) => v ? String(v) : '—' },
+    { label: 'Credit Ledger', key: 'fuel_station', render: (v) => v ? String(v) : '—' },
     { label: 'Qty (L)', key: 'quantity_filled', render: (v) => Number(v || 0).toFixed(2) },
     { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${Number(v).toFixed(2)}` : '—' },
     { label: 'Amount', key: 'total_bill', render: (v) => <span className="font-bold">₹{Number(v || 0).toFixed(2)}</span> },
@@ -51,35 +60,27 @@ export default function FuelStationWisePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <PageHeader title="Station Wise Fuel Report" subtitle="Fuel purchases grouped by fuel station over a date range" />
+      <PageHeader title="Day Wise Fuel Report" subtitle="All fuel entries for a single day, across the fleet" />
 
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-amber-400 to-orange-500">
         <div className="flex items-end gap-4 flex-wrap">
           <div>
-            <Label>From Date</Label>
-            <Input type="date" max={today} value={filter.fromdate}
-              onChange={(e) => setFilter({ ...filter, fromdate: e.target.value })} />
+            <Label>Date</Label>
+            <Input type="date" max={today} value={fromdate}
+              onChange={(e) => setFromdate(e.target.value)} />
           </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" max={today} value={filter.todate}
-              onChange={(e) => setFilter({ ...filter, todate: e.target.value })} />
-          </div>
-          <div className="min-w-[220px]">
-            <Label>Fuel Station</Label>
-            <Select value={filter.ledger_name}
-              onChange={(e) => setFilter({ ...filter, ledger_name: e.target.value })}>
-              <option value="">All stations</option>
-              {stations.map((s) => (
-                <option key={s.expensives} value={s.expensives}>{s.expensives}</option>
-              ))}
-            </Select>
-          </div>
-          <Button onClick={() => setApplied({ ...filter })}>
+          <Button onClick={() => setApplied(fromdate)} disabled={!fromdate}>
             <Search className="w-4 h-4" /> Search
           </Button>
         </div>
       </GlassCard>
+
+      {applied && (
+        <div className="flex items-center gap-3 text-sm text-slate-600">
+          <Calendar className="w-4 h-4" />
+          <span><b>{formatDate(applied)}</b> · {weekday(applied)}</span>
+        </div>
+      )}
 
       {applied && rows.length > 0 && (
         <div className="flex gap-4 flex-wrap text-sm">
@@ -99,23 +100,13 @@ export default function FuelStationWisePage() {
       )}
 
       <DataTable
-        title="Station Wise Entries"
+        title="Day Wise Entries"
         columns={cols}
         data={applied ? rows : []}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
       />
-
-      {applied && rows.length > 0 && (
-        <TotalsFooter
-          items={[
-            { label: 'Total Quantity', value: `${totalQty.toFixed(2)} L` },
-            { label: 'Avg Price/L', value: `₹${avgPrice.toFixed(2)}` },
-            { label: 'Total Amount', value: `₹${totalAmount.toFixed(2)}`, emphasis: 'positive' },
-          ] satisfies TotalsFooterItem[]}
-        />
-      )}
     </motion.div>
   )
 }

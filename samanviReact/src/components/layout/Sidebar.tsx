@@ -68,14 +68,14 @@ const NAV_ITEMS: NavItem[] = [
     id: 'fuel', label: 'Fuel', icon: Fuel,
     children: [
       { label: 'Fuel Entry',       path: '/fuel/entry' },
+      { label: 'Fuel Approved Reports', path: '/fuel/reports' },
       { label: 'Fuel Target',      path: '/fuel/target' },
-      { label: 'Fuel Reports',     path: '/fuel/reports' },
+      { label: 'Day Wise',         path: '/fuel/day-wise' },
       { label: 'Station Wise',     path: '/fuel/station-wise' },
       { label: 'Bus Wise',         path: '/fuel/bus-wise' },
       { label: 'Driver Wise',      path: '/fuel/driver-wise' },
       { label: 'Target Report',    path: '/fuel/target-report' },
       { label: 'Top Performers',   path: '/fuel/top-performers' },
-      { label: 'Approved Reports', path: '/fuel/approved' },
     ],
   },
   {

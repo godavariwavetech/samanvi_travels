@@ -1,7 +1,9 @@
 var express = require('express');
 router = express.Router();
 var routcontroller = require('../controllers/mainCtrl');
-const { apiRateLimiter } = require('../utils/apiratelimiter'); 
+var fuelcontroller = require('../controllers/fuelCtrl');
+var laundrycontroller = require('../controllers/laundryCtrl');
+const { apiRateLimiter } = require('../utils/apiratelimiter');
 const { verifyToken } = require('../utils/jwtoken');
 
 // Api start
@@ -159,7 +161,7 @@ router.post('/updateexpensesdetails', routcontroller.updateexpensesdetailsCtrl);
 router.post('/deleteexpense', routcontroller.deleteexpenseCtrl);
 router.post('/getexpensesfiltere', routcontroller.getexpensesfiltere);
 router.post('/getexpensesreportsfiltere', routcontroller.getexpensesreportsfiltereCtrl);
-router.post('/getfuelentrysearchdata', routcontroller.getfuelentrysearchdataCtrl);
+router.post('/getfuelentrysearchdata', verifyToken, fuelcontroller.getfuelentrysearchdataCtrl);
 
 router.post('/getbusseraching', routcontroller.getbusseraching);
 router.post('/getaccountantanalysisdatas', routcontroller.getaccountantanalysisdatas);
@@ -243,19 +245,20 @@ router.post("/deletevouchername",verifyToken,routcontroller.deletevouchernamectr
 router.post("/updatevoucherentrystatus",verifyToken,routcontroller.updatevoucherentrystatusCtrl);
 router.get("/getvoucheraudit/:c_number",verifyToken,routcontroller.getVoucherAuditCtrl);
 router.post("/updatetripadminstatus",verifyToken,routcontroller.updatetripadminstatusCtrl);
-router.post("/updatefueladminstatus",verifyToken,routcontroller.updatefueladminstatusCtrl);
-router.post("/updatelaundryadminstatus",verifyToken,routcontroller.updatelaundryadminstatusCtrl);
-router.post("/deletelaundrybill",verifyToken,routcontroller.deletelaundrybillCtrl);
+router.post('/updatefueladminstatus', verifyToken, fuelcontroller.updatefueladminstatusCtrl);
+router.post('/updatelaundryadminstatus', verifyToken, laundrycontroller.updatelaundryadminstatusCtrl);
+router.post('/deletelaundrybill', verifyToken, laundrycontroller.deletelaundrybillCtrl);
 router.post("/getbeta",verifyToken,routcontroller.getbetaCtrl);
 router.post("/gethaltbeta", verifyToken, routcontroller.gethaltbetaCtrl);
 router.post("/savehaltbeta", verifyToken, routcontroller.savehaltbetaCtrl);
 router.post("/getmodaldata",verifyToken,routcontroller.getmodaldataCtrl);
 router.post("/gettripdeletedmodaldata",verifyToken,routcontroller.gettripdeletedmodaldataCtrl);
 router.post("/submitlaundrytypemainmasters",verifyToken,routcontroller.submitlaundrytypemainmastersCtrl);
-router.post("/getlaundrytypemainmasters",verifyToken,routcontroller.getlaundrytypemainmastersCtrl);
-router.post('/submitlaundrydata',verifyToken, routcontroller.submitlaundrydataCtrl);
-router.post('/submitfuelentery',verifyToken, routcontroller.submitfuelentrydataCtrl);
-router.post('/updatefuelenterydata',verifyToken, routcontroller.updatefuelenterydataCtrl);
+router.post('/getlaundrytypemainmasters', verifyToken, laundrycontroller.getlaundrytypemainmastersCtrl);
+router.post('/submitlaundrydata', verifyToken, laundrycontroller.submitlaundrydataCtrl);
+router.post('/deletelaundryvendor', verifyToken, laundrycontroller.deletelaundryvendorCtrl);
+router.post('/submitfuelentery', verifyToken, fuelcontroller.submitfuelentrydataCtrl);
+router.post('/updatefuelenterydata', verifyToken, fuelcontroller.updatefuelenterydataCtrl);
 router.post(
   "/getVehicleDetails",
   verifyToken,
@@ -264,39 +267,40 @@ router.post(
 
 router.post('/getalldrivers', verifyToken, routcontroller.getalldrivers);
 
-router.post('/deletefueldata', verifyToken, routcontroller.deletefueldataCtrl1);
+router.post('/deletefueldata', verifyToken, fuelcontroller.deletefueldataCtrl1);
 router.post('/Selectdatagetfinaltranscationsreport1',verifyToken, routcontroller.Selectdatagetfinaltranscationsreport1Ctrl);
 router.post('/getledgername',verifyToken, routcontroller.getledgernameCtrl);
 router.post('/getmainmasterssubgroup',verifyToken, routcontroller.getmainmasterssubgroupCtrl);
 
 router.post('/getmainmasterssubchild',verifyToken, routcontroller.getmainmasterssubchildCtrl);
 
-router.get("/getlaundryreportdata", routcontroller.getlaundryreportdataCtrl);
-router.post('/getvendorlistlaundrydropdown',verifyToken, routcontroller.getvendorlistlaundrydropdownCtrl);
-router.post('/Selectedvendordropdownoption',verifyToken, routcontroller.SelectedvendordropdownoptionCtrl);
+router.get('/getlaundryreportdata', verifyToken, laundrycontroller.getlaundryreportdataCtrl);
+router.post('/getvendorlistlaundrydropdown', verifyToken, laundrycontroller.getvendorlistlaundryCtrl);
+router.post('/Selectedvendordropdownoption', verifyToken, laundrycontroller.SelectedvendordropdownoptionCtrl);
 
-router.post('/updateLaundryData',verifyToken, routcontroller.updateLaundryDataCtrl);
+router.post('/updateLaundryData', verifyToken, laundrycontroller.updateLaundryDataCtrl);
 
 
-router.post('/submitlaundryaddbill',verifyToken, routcontroller.submitlaundryaddbillCtrl);
-router.post('/updateLaundryBill',verifyToken, routcontroller.updatelaundrybillCtrl);
+router.post('/submitlaundryaddbill', verifyToken, laundrycontroller.submitlaundryaddbillCtrl);
+router.post('/updateLaundryBill', verifyToken, laundrycontroller.updateLaundryBillCtrl);
 
 ///////fuel api starts
 router.post('/getledgername',verifyToken, routcontroller.getledgernameCtrl);
-router.post('/getfuelledgername',verifyToken, routcontroller.getfuelledgernameCtrl);
+router.post('/getfuelledgername', verifyToken, fuelcontroller.getfuelledgernameCtrl);
 router.post('/getsearchdata',verifyToken, routcontroller.getsearchdataCtrl);
-router.post('/submittarget',verifyToken, routcontroller.submittargetCtrl);
-router.post('/gettargetdata',verifyToken, routcontroller.gettargetdataCtrl);
-router.post("/getdaywisereport",verifyToken,routcontroller.getdaywisereportCtrl);
-router.post("/getstationwisereport",verifyToken,routcontroller.getstationwisereportCtrl);
+router.post('/submittarget', verifyToken, fuelcontroller.submittargetCtrl);
+router.post('/gettargetdata', verifyToken, fuelcontroller.gettargetdataCtrl);
+router.post('/deletefueltarget', verifyToken, fuelcontroller.deletefueltargetCtrl);
+router.post('/getdaywisereport', verifyToken, fuelcontroller.getdaywisereportCtrl);
+router.post('/getstationwisereport', verifyToken, fuelcontroller.getstationwisereportCtrl);
 router.post('/getbusnumber',verifyToken, routcontroller.getbusnumberCtrl);
-router.post("/getbuswisewisereports",verifyToken,routcontroller.getbuswisewisereportsCtrl);
+router.post('/getbuswisewisereports', verifyToken, fuelcontroller.getbuswisewisereportsCtrl);
 router.post("/getbusperormancereports",verifyToken,routcontroller.getbusperormancereportsCtrl);
-router.post('/getdrivername',verifyToken, routcontroller.getdrivernameCtrl);
-router.post("/getdriverperormancereports",verifyToken,routcontroller.getdriverperormancereportsCtrl);
-router.post("/gettargetreports",verifyToken,routcontroller.gettargetreportsCtrl);
-router.post("/gettopperormancereports",verifyToken,routcontroller.gettopperormancereportsCtrl);
-router.post("/getfueltargetdata", verifyToken, routcontroller.getfueltargetdatactrl);
+router.post('/getdrivername', verifyToken, fuelcontroller.getdrivernameCtrl);
+router.post('/getdriverperormancereports', verifyToken, fuelcontroller.getdriverperormancereportsCtrl);
+router.post('/gettargetreports', verifyToken, fuelcontroller.gettargetreportsCtrl);
+router.post('/gettopperormancereports', verifyToken, fuelcontroller.gettopperormancereportsCtrl);
+router.post('/getfueltargetdata', verifyToken, fuelcontroller.gettargetdataCtrl);
 router.post("/getdaybookreports",verifyToken,routcontroller.getdaybookreportsCtrl);
 router.post("/gettrialbalancereports",verifyToken,routcontroller.gettrialbalancereportsCtrl);
 
@@ -308,12 +312,12 @@ router.post("/getadvance",verifyToken,routcontroller.getadvanceCtrl);
 router.post("/sud",verifyToken,routcontroller.sudCtrl);
 
 
-router.get("/getfuelentrydata", routcontroller.getfuelentrydataCtrl);
+router.get('/getfuelentrydata', verifyToken, fuelcontroller.getfuelentrydataCtrl);
 router.get("/getfuelentryapproveddata", routcontroller.getfuelentryapproveddataCtrl);
 
-router.post("/getfuelaccountsdata",verifyToken,routcontroller.getfuelaccountsdataCtrl);
-router.get("/getlaundrybilldata", routcontroller.getlaundrybilldataCtrl);
-router.post("/getlaundrybillsubdata",verifyToken,routcontroller.getlaundrybillsubdataCtrl);
+router.post('/getfuelaccountsdata', verifyToken, fuelcontroller.getfuelaccountsdataCtrl);
+router.get('/getlaundrybilldata', verifyToken, laundrycontroller.getlaundrybilldataCtrl);
+router.post('/getlaundrybillsubdata', verifyToken, laundrycontroller.getlaundrybillsubdataCtrl);
 router.post('/updatebusnumber',verifyToken,routcontroller.updatebusnumber);
 router.post('/updatebusvaliditydate',verifyToken,routcontroller.updateBusValidityDateCtrl);
 router.post('/updateservicenumber',verifyToken, routcontroller.updateservicenumber);
@@ -328,7 +332,7 @@ router.post('/equilitiessingleinbalancesheet', verifyToken,routcontroller.equili
 
 router.post('/Addledgersingleinprofitandloss', verifyToken,routcontroller.AddledgersingleinprofitandlossCtrl);
 router.post('/incomesingleinprofitandloss', verifyToken,routcontroller.incomesingleinprofitandlossCtrl);
-router.post('/editfueltarget', verifyToken,routcontroller.editfueltargetCtrl);
+router.post('/editfueltarget', verifyToken, fuelcontroller.editfueltargetCtrl);
 
 
 //sai routes

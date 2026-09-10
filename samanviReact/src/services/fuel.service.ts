@@ -15,12 +15,14 @@ export const fuelService = {
     api.post('/updatefueladminstatus', securePayload(data)).then((r) => r.data),
   getFuelSearchData: (data: unknown) => api.post('/getfuelentrysearchdata', data).then((r) => r.data),
 
-  // ── Fuel Target ──────────────────────────────────────────
-  getFuelTarget: (data: unknown) =>
-    api.post('/getfueltargetdata', securePayload(data)).then((r) => r.data),
-  submitTarget: (data: unknown) => api.post('/submittarget', data).then((r) => r.data),
+  // ── Fuel Target (per bus, monthly) ───────────────────────
+  listFuelTargets: () => api.post('/gettargetdata', {}).then((r) => r.data),
+  submitTarget: (data: unknown) =>
+    api.post('/submittarget', securePayload(data)).then((r) => r.data),
   editFuelTarget: (data: unknown) =>
     api.post('/editfueltarget', securePayload(data)).then((r) => r.data),
+  deleteFuelTarget: (data: unknown) =>
+    api.post('/deletefueltarget', securePayload(data)).then((r) => r.data),
 
   // ── Reports ──────────────────────────────────────────────
   getDayWiseReports: (data: unknown) => api.post('/getdaywisereport', data).then((r) => r.data),

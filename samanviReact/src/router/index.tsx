@@ -45,9 +45,9 @@ import AllExpensesPage from '@/pages/booking/AllExpensesPage'
 import FuelEntryPage from '@/pages/fuel/FuelEntryPage'
 import FuelTargetPage from '@/pages/fuel/FuelTargetPage'
 import FuelReportsPage from '@/pages/fuel/FuelReportsPage'
+import DayWisePage from '@/pages/fuel/DayWisePage'
 import BusWisePage from '@/pages/fuel/BusWisePage'
 import DriverWisePage from '@/pages/fuel/DriverWisePage'
-import ApprovedFuelPage from '@/pages/fuel/ApprovedFuelPage'
 import FuelStationWisePage from '@/pages/fuel/FuelStationWisePage'
 import TargetReportPage from '@/pages/fuel/TargetReportPage'
 import TopPerformersPage from '@/pages/fuel/TopPerformersPage'
@@ -162,9 +162,9 @@ export const router = createBrowserRouter([
       { path: 'fuel/entry', element: <FuelEntryPage /> },
       { path: 'fuel/target', element: <FuelTargetPage /> },
       { path: 'fuel/reports', element: <FuelReportsPage /> },
+      { path: 'fuel/day-wise', element: <DayWisePage /> },
       { path: 'fuel/bus-wise', element: <BusWisePage /> },
       { path: 'fuel/driver-wise', element: <DriverWisePage /> },
-      { path: 'fuel/approved', element: <ApprovedFuelPage /> },
       { path: 'fuel/station-wise', element: <FuelStationWisePage /> },
       { path: 'fuel/target-report', element: <TargetReportPage /> },
       { path: 'fuel/top-performers', element: <TopPerformersPage /> },
