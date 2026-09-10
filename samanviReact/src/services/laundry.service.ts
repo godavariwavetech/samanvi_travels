@@ -18,6 +18,8 @@ export const laundryService = {
     api.post('/submitlaundrydata', securePayload(data)).then((r) => r.data),
   updateLaundry: (data: unknown) =>
     api.post('/updateLaundryData', securePayload(data)).then((r) => r.data),
+  deleteLaundryVendor: (data: unknown) =>
+    api.post('/deletelaundryvendor', securePayload(data)).then((r) => r.data),
   updateLaundryAdminStatus: (data: unknown) =>
     api.post('/updatelaundryadminstatus', securePayload(data)).then((r) => r.data),
 

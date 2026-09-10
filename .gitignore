@@ -52,3 +52,7 @@ privatekey.pem
 cert.crt
 credentials.json
 token.json
+
+# Old Angular/legacy reference archives kept locally for porting
+samanviBackendold/
+samanviFrontendold/
