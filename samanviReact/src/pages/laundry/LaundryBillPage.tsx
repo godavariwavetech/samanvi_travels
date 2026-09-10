@@ -3,11 +3,14 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
-import type { Column } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines } from '@/components/shared'
+import type { Column, LedgerLine } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
+import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
+
+const Req = () => <span className="text-red-500">*</span>
 
 // ── Types ────────────────────────────────────────────────────────────────
 type Vendor = {
@@ -57,7 +60,7 @@ type VehicleRow = {
   service_no: string
   products: { product_name: string; qty: string; rate: string }[]
 }
-type LedgerRow = { ledger: Ledger | null; amount: string }
+type LedgerRow = LedgerLine<Ledger>
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -80,42 +83,7 @@ function ledgerLabel(l: Ledger) {
   return l.temple_name || l.subchildtwo || `Ledger #${l.id}`
 }
 function ledgerSum(rows: LedgerRow[]): number {
-  return rows.reduce((s, r) => s + Number(r.amount || 0), 0)
-}
-
-// ── Inline sub-forms ─────────────────────────────────────────────────────
-function LedgerAdder({
-  ledgers, draft, setDraft, onAdd,
-}: {
-  ledgers: Ledger[]
-  draft: { ledger: Ledger | null; amount: string }
-  setDraft: (d: { ledger: Ledger | null; amount: string }) => void
-  onAdd: () => void
-}) {
-  return (
-    <div className="grid grid-cols-12 gap-2 items-end">
-      <div className="col-span-6">
-        <Label>Ledger</Label>
-        <Select
-          value={draft.ledger ? String(draft.ledger.id) : ''}
-          onChange={(e) => {
-            const id = Number(e.target.value)
-            setDraft({ ...draft, ledger: ledgers.find((l) => l.id === id) || null })
-          }}
-        >
-          <option value="">Select Ledger</option>
-          {ledgers.map((l) => <option key={l.id} value={l.id}>{ledgerLabel(l)}</option>)}
-        </Select>
-      </div>
-      <div className="col-span-4">
-        <Label>Amount</Label>
-        <Input type="number" value={draft.amount} onChange={(e) => setDraft({ ...draft, amount: e.target.value })} placeholder="0.00" />
-      </div>
-      <div className="col-span-2">
-        <Button onClick={onAdd} className="w-full"><Plus className="w-4 h-4" /> Add</Button>
-      </div>
-    </div>
-  )
+  return ledgerLinesTotal(rows)
 }
 
 // ── Bill form (used both inline and inside edit modal) ───────────────────
@@ -138,15 +106,20 @@ function BillForm({
   credits: LedgerRow[]
   setCredits: (c: LedgerRow[]) => void
 }) {
-  const [debitDraft, setDebitDraft] = useState<{ ledger: Ledger | null; amount: string }>({ ledger: null, amount: '' })
-  const [creditDraft, setCreditDraft] = useState<{ ledger: Ledger | null; amount: string }>({ ledger: null, amount: '' })
-
   const total = billTotal(vehicleRows)
   const debitSum = ledgerSum(debits)
   const creditSum = ledgerSum(credits)
   const balanced = Math.abs(debitSum - creditSum) < 0.01 && Math.abs(debitSum - total) < 0.01
 
   const productCols = rates.map((r) => r.product_name)
+  // Quantity and amount billed per product across every vehicle row - shown
+  // as chips beside the Bill Total and as a totals line under the table, so
+  // what the blankets came to is visible without adding the rows up by hand.
+  const productTotals = productCols.map((name, pi) => vehicleRows.reduce((t, r) => {
+    const p = r.products[pi]
+    const qty = Number(p?.qty || 0), amt = qty * Number(p?.rate || 0)
+    return { name, qty: t.qty + qty, amount: t.amount + amt }
+  }, { name, qty: 0, amount: 0 }))
 
   const addVehicleRow = () => {
     if (rates.length === 0) return toast.error('Pick a vendor first to load their product rates')
@@ -179,20 +152,15 @@ function BillForm({
         <h4 className="text-sm font-bold text-slate-700 mb-3">Vendor Selection</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <Label>Vendor Name *</Label>
-            <Select
+            <Label>Vendor Name <Req /></Label>
+            <SearchableSelect placeholder="Select Vendor"
+              options={vendors.map((v) => ({ value: String(v.id), label: `${v.name} (${v.c_number})` }))}
               value={form.vendor ? String(form.vendor.id) : ''}
-              onChange={(e) => {
-                const id = Number(e.target.value)
-                setForm({ ...form, vendor: vendors.find((v) => v.id === id) || null })
-              }}
-            >
-              <option value="">Select Vendor</option>
-              {vendors.map((v) => <option key={v.id} value={v.id}>{v.name} ({v.c_number})</option>)}
-            </Select>
+              onChange={(v) => setForm({ ...form, vendor: vendors.find((x) => String(x.id) === v) || null })}
+              onClear={() => setForm({ ...form, vendor: null })} />
           </div>
           <div>
-            <Label>Bill Date *</Label>
+            <Label>Bill Date <Req /></Label>
             <Input type="date" max={today} value={form.voucherdate}
               onChange={(e) => setForm({ ...form, voucherdate: e.target.value })} />
           </div>
@@ -207,8 +175,13 @@ function BillForm({
       <section>
         <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-3">
           <h4 className="text-sm font-bold text-slate-700">Laundry Bill Details</h4>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-teal-700">Bill Total: ₹{total.toFixed(2)}</span>
+          <div className="flex items-center gap-3 flex-wrap justify-end">
+            {productTotals.filter((t) => t.amount > 0).map((t) => (
+              <span key={t.name} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-50 border border-teal-200 text-teal-700">
+                {t.name}: {t.qty} × → ₹{formatAmount(t.amount)}
+              </span>
+            ))}
+            <span className="text-sm font-bold text-teal-700">Bill Total: ₹{formatAmount(total)}</span>
             <Button size="sm" onClick={addVehicleRow}><Plus className="w-4 h-4" /> Add Row</Button>
           </div>
         </div>
@@ -241,10 +214,10 @@ function BillForm({
                   <tr key={ri} className="border-t border-slate-100">
                     <td className="p-2">{ri + 1}</td>
                     <td className="p-2">
-                      <Select value={row.vehicle_no} onChange={(e) => updateVehicleField(ri, { vehicle_no: e.target.value })}>
-                        <option value="">Select</option>
-                        {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-                      </Select>
+                      <SearchableSelect placeholder="Select" className="min-w-[10rem]"
+                        options={buses.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
+                        value={row.vehicle_no} onChange={(v) => updateVehicleField(ri, { vehicle_no: v })}
+                        onClear={() => updateVehicleField(ri, { vehicle_no: '' })} />
                     </td>
                     <td className="p-2">
                       <Input value={row.service_no} onChange={(e) => updateVehicleField(ri, { service_no: e.target.value })} placeholder="e.g. ST-11" />
@@ -254,10 +227,10 @@ function BillForm({
                         <td className="p-2">
                           <Input type="number" min="0" value={p.qty} onChange={(e) => updateProductQty(ri, pi, e.target.value)} className="text-right" placeholder="0" />
                         </td>
-                        <td className="p-2 text-slate-500 text-right text-xs">₹{p.rate}</td>
+                        <td className="p-2 text-slate-500 text-right text-xs">₹{formatAmount(p.rate)}</td>
                       </Fragment>
                     ))}
-                    <td className="p-2 text-right font-bold">₹{rowTotal(row).toFixed(2)}</td>
+                    <td className="p-2 text-right font-bold">₹{formatAmount(rowTotal(row))}</td>
                     <td className="p-2 text-right">
                       <button onClick={() => setVehicleRows(vehicleRows.filter((_, i) => i !== ri))} className="text-red-500 hover:text-red-700">
                         <Trash2 className="w-4 h-4" />
@@ -266,82 +239,50 @@ function BillForm({
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                <tr>
+                  <td className="p-2" />
+                  <td className="p-2 font-bold text-slate-700" colSpan={2}>Totals</td>
+                  {productTotals.map((t) => (
+                    <td key={t.name} className="p-2 text-right" colSpan={2}>
+                      <div className="text-[11px] text-slate-500">{t.qty} pcs</div>
+                      <div className="font-bold text-slate-800">₹{formatAmount(t.amount)}</div>
+                    </td>
+                  ))}
+                  <td className="p-2 text-right font-extrabold text-teal-700">₹{formatAmount(total)}</td>
+                  <td className="p-2" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
       </section>
 
       {/* Balance summary */}
-      {(debits.length > 0 || credits.length > 0) && (
+      {(debitSum > 0 || creditSum > 0) && (
         <div className={`rounded-xl p-4 border ${balanced ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
           <div className="flex flex-wrap gap-6 text-sm">
-            <span>Bill Total: <b>₹{total.toFixed(2)}</b></span>
-            <span>Debit: <b>₹{debitSum.toFixed(2)}</b></span>
-            <span>Credit: <b>₹{creditSum.toFixed(2)}</b></span>
+            <span>Bill Total: <b>₹{formatAmount(total)}</b></span>
+            <span>Debit: <b>₹{formatAmount(debitSum)}</b></span>
+            <span>Credit: <b>₹{formatAmount(creditSum)}</b></span>
             <span className={balanced ? 'text-emerald-700 font-bold' : 'text-red-700 font-bold'}>
-              {balanced ? '✓ Balanced' : `Diff ₹${Math.abs(debitSum - creditSum).toFixed(2)}`}
+              {balanced ? '✓ Balanced' : `Diff ₹${formatAmount(Math.abs(debitSum - creditSum))}`}
             </span>
           </div>
         </div>
       )}
 
-      {/* Debit + Credit */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-slate-200 p-4">
-          <div className="flex justify-between mb-3">
-            <h4 className="font-bold text-slate-700">Debit Account</h4>
-            <span className="font-bold text-blue-600">₹{debitSum.toFixed(2)}</span>
-          </div>
-          <LedgerAdder ledgers={ledgers} draft={debitDraft} setDraft={setDebitDraft}
-            onAdd={() => {
-              if (!debitDraft.ledger || !debitDraft.amount) return toast.error('Pick a ledger and amount')
-              setDebits([...debits, { ledger: debitDraft.ledger, amount: debitDraft.amount }])
-              setDebitDraft({ ledger: null, amount: '' })
-            }} />
-          <table className="w-full mt-3 text-sm">
-            <thead className="bg-slate-50"><tr><th className="p-2 text-left">Ledger</th><th className="p-2 text-right">Amount</th><th className="p-2"></th></tr></thead>
-            <tbody>
-              {debits.length === 0 && <tr><td colSpan={3} className="p-3 text-center text-slate-400">No debit entries yet</td></tr>}
-              {debits.map((r, i) => (
-                <tr key={i} className="border-t border-slate-100">
-                  <td className="p-2">{r.ledger ? ledgerLabel(r.ledger) : ''}</td>
-                  <td className="p-2 text-right">₹{Number(r.amount).toFixed(2)}</td>
-                  <td className="p-2 text-right">
-                    <button onClick={() => setDebits(debits.filter((_, idx) => idx !== i))} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="rounded-xl border border-slate-200 p-4">
-          <div className="flex justify-between mb-3">
-            <h4 className="font-bold text-slate-700">Credit Account</h4>
-            <span className="font-bold text-emerald-600">₹{creditSum.toFixed(2)}</span>
-          </div>
-          <LedgerAdder ledgers={ledgers} draft={creditDraft} setDraft={setCreditDraft}
-            onAdd={() => {
-              if (!creditDraft.ledger || !creditDraft.amount) return toast.error('Pick a ledger and amount')
-              setCredits([...credits, { ledger: creditDraft.ledger, amount: creditDraft.amount }])
-              setCreditDraft({ ledger: null, amount: '' })
-            }} />
-          <table className="w-full mt-3 text-sm">
-            <thead className="bg-slate-50"><tr><th className="p-2 text-left">Ledger</th><th className="p-2 text-right">Amount</th><th className="p-2"></th></tr></thead>
-            <tbody>
-              {credits.length === 0 && <tr><td colSpan={3} className="p-3 text-center text-slate-400">No credit entries yet</td></tr>}
-              {credits.map((r, i) => (
-                <tr key={i} className="border-t border-slate-100">
-                  <td className="p-2">{r.ledger ? ledgerLabel(r.ledger) : ''}</td>
-                  <td className="p-2 text-right">₹{Number(r.amount).toFixed(2)}</td>
-                  <td className="p-2 text-right">
-                    <button onClick={() => setCredits(credits.filter((_, idx) => idx !== i))} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Debit / Credit ledgers, laid out as on Trip Expenses and Voucher
+          Entry: inline rows, Add Row in the header, pick-time checks. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+        <LedgerLines side="debit" rows={debits} ledgers={ledgers} otherRows={credits} remaining={total - debitSum} onChange={setDebits} />
+        <LedgerLines side="credit" rows={credits} ledgers={ledgers} otherRows={debits} remaining={total - creditSum} onChange={setCredits} />
       </div>
+      {!balanced && (debitSum > 0 || creditSum > 0) && (
+        <p className="text-xs font-semibold text-amber-600 text-center">
+          Debit (₹{debitSum.toLocaleString('en-IN')}) and Credit (₹{creditSum.toLocaleString('en-IN')}) must both equal the bill total (₹{total.toLocaleString('en-IN')}) before saving.
+        </p>
+      )}
     </div>
   )
 }
@@ -352,10 +293,11 @@ export default function LaundryBillPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm())
   const [vehicleRows, setVehicleRows] = useState<VehicleRow[]>([])
-  const [debits, setDebits] = useState<LedgerRow[]>([])
-  const [credits, setCredits] = useState<LedgerRow[]>([])
+  const [debits, setDebits] = useState<LedgerRow[]>([emptyLedgerLine<Ledger>()])
+  const [credits, setCredits] = useState<LedgerRow[]>([emptyLedgerLine<Ledger>()])
   const [mode, setMode] = useState<'add' | 'edit'>('add')
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const named = localStorage.getItem('usr_nm') ?? ''
   const user_id = localStorage.getItem('user_id') ?? '0'
@@ -387,13 +329,22 @@ export default function LaundryBillPage() {
         vehicle_no: '', service_no: '',
         products: rates.map((r) => ({ product_name: r.product_name, qty: '', rate: String(r.amount || 0) })),
       }])
-      if (form.vendor.ledger_id && credits.length === 0) {
+      if (form.vendor.ledger_id && filledLedgerLines(credits).length === 0) {
         const l = ledgers.find((x) => x.id === Number(form.vendor?.ledger_id))
-        if (l) setCredits([{ ledger: l, amount: '0' }])
+        if (l) setCredits([{ ledger: l, amount: '', auto: true }])
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates, form.vendor])
+
+  // Ledger amounts the panels filled in - the vendor's seeded credit row, and
+  // any ledger picked before the quantities were typed - follow the bill total
+  // as it changes. An amount typed by hand is left alone.
+  const liveTotal = billTotal(vehicleRows)
+  useEffect(() => {
+    setDebits((ds) => syncAutoLedgerLines(ds, liveTotal))
+    setCredits((cs) => syncAutoLedgerLines(cs, liveTotal))
+  }, [liveTotal])
 
   const buildPayload = () => ({
     c_number: form.c_number,
@@ -413,13 +364,13 @@ export default function LaundryBillPage() {
         amount: (Number(p.qty || 0) * Number(p.rate || 0)).toFixed(2),
       })),
     })),
-    patientsTstdts: debits.map((d) => ({ ledger: d.ledger, amount: d.amount })),
-    creditaddrowdts: credits.map((c) => ({ ledger: c.ledger, amount: c.amount })),
+    patientsTstdts: filledLedgerLines(debits).map((d) => ({ ledger: d.ledger, amount: d.amount })),
+    creditaddrowdts: filledLedgerLines(credits).map((c) => ({ ledger: c.ledger, amount: c.amount })),
     named, user_id,
   })
 
   const resetForm = () => {
-    setForm(emptyForm()); setVehicleRows([]); setDebits([]); setCredits([]); setMode('add'); setShowForm(false)
+    setForm(emptyForm()); setVehicleRows([]); setDebits([emptyLedgerLine<Ledger>()]); setCredits([emptyLedgerLine<Ledger>()]); setMode('add'); setShowForm(false)
   }
 
   const { mutate: save, isPending: saving } = useMutation({
@@ -446,9 +397,24 @@ export default function LaundryBillPage() {
     onError: () => toast.error('Server error'),
   })
 
+  // The same checks the Fuel Entry form makes, so a bill is never filed with a
+  // vehicle missing, nothing billed, or ledgers that do not add up to it.
   const onSave = () => {
-    if (!form.vendor) return toast.error('Pick a vendor')
+    if (!form.vendor) return toast.error('Vendor Name is required')
+    if (!form.voucherdate) return toast.error('Bill Date is required')
     if (vehicleRows.length === 0) return toast.error('Add at least one vehicle row')
+    const noVehicle = vehicleRows.findIndex((r) => !r.vehicle_no)
+    if (noVehicle >= 0) return toast.error(`Pick the vehicle on row ${noVehicle + 1}`)
+    const nothingBilled = vehicleRows.findIndex((r) => rowTotal(r) <= 0)
+    if (nothingBilled >= 0) return toast.error(`Enter a quantity on row ${nothingBilled + 1} — it bills nothing`)
+    const total = billTotal(vehicleRows)
+    const debitSum = ledgerSum(debits)
+    const creditSum = ledgerSum(credits)
+    if (halfFilledLedgerLine(debits) || halfFilledLedgerLine(credits)) return toast.error('Every ledger row needs both a ledger and an amount')
+    if (filledLedgerLines(debits).length === 0) return toast.error('Add at least one debit ledger entry')
+    if (filledLedgerLines(credits).length === 0) return toast.error('Add at least one credit ledger entry')
+    if (Math.abs(debitSum - creditSum) > 0.01) return toast.error(`Debit ₹${formatAmount(debitSum)} ≠ Credit ₹${formatAmount(creditSum)}`)
+    if (Math.abs(debitSum - total) > 0.01) return toast.error(`Ledger total ₹${formatAmount(debitSum)} ≠ Bill ₹${formatAmount(total)}`)
     if (mode === 'edit') update()
     else save()
   }
@@ -498,7 +464,7 @@ export default function LaundryBillPage() {
     setVehicleRows(loadedRows)
     setDebits(accs.filter((a) => a.account_type === 'Debit Account').map((a) => ({
       ledger: {
-        id: Number(a.parent_subgroup_id) || 0,
+        id: Number(a.ledger_id) || Number(a.parent_subgroup_id) || 0,
         temple_name: String(a.expensives || ''),
         parent_subgroup_id: Number(a.parent_subgroup_id) || undefined,
         parent_subchild_id: Number(a.parent_subchild_id) || undefined,
@@ -510,7 +476,7 @@ export default function LaundryBillPage() {
     })))
     setCredits(accs.filter((a) => a.account_type === 'Credit Account').map((a) => ({
       ledger: {
-        id: Number(a.parent_subgroup_id) || 0,
+        id: Number(a.ledger_id) || Number(a.parent_subgroup_id) || 0,
         temple_name: String(a.expensives || ''),
         parent_subgroup_id: Number(a.parent_subgroup_id) || undefined,
         parent_subchild_id: Number(a.parent_subchild_id) || undefined,
@@ -540,20 +506,21 @@ export default function LaundryBillPage() {
   }
 
   const cols: Column[] = useMemo(() => [
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     {
-      label: 'Ref #', key: 'c_number',
+      label: 'Ref #', key: 'c_number', filterable: true,
       render: (v, r: Record<string, unknown>) => (
         <button onClick={() => onView(r)} className="text-blue-600 hover:underline font-medium">{String(v)}</button>
       ),
     },
-    { label: 'Vendor', key: 'vendor_name' },
-    { label: 'Date', key: 'voucherdate' },
-    { label: 'Vehicles', key: 'vehicle_count' },
-    { label: 'Total', key: 'total_amount', render: (v) => <span className="font-bold">₹{Number(v || 0).toFixed(2)}</span> },
+    { label: 'Vendor', key: 'vendor_name', filterable: true },
+    { label: 'Date', key: 'voucherdate', render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Vehicles', key: 'vehicle_count', align: 'center' },
+    { label: 'Total', key: 'total_amount', align: 'right', render: (v) => <span className="font-bold">₹{formatAmount(v)}</span> },
     {
-      label: 'Status', key: 'admin_status',
-      render: (v, r: Record<string, unknown>) => {
-        const status = Number(v)
+      label: 'Status', key: 'status_label', filterable: true,
+      render: (_v, r: Record<string, unknown>) => {
+        const status = Number(r.admin_status)
         if (status === 1) return <Badge variant="success">Approved</Badge>
         if (status === 2) return <Badge variant="danger">Rejected</Badge>
         return (
@@ -597,15 +564,9 @@ export default function LaundryBillPage() {
                   <Shirt className="w-5 h-5 text-teal-500" />
                   {mode === 'edit' ? `Editing ${form.c_number}` : 'New Laundry Bill'}
                 </h2>
-                <div className="flex gap-2">
-                  <Button onClick={onSave} disabled={saving || updating}>
-                    <Save className="w-4 h-4" />
-                    {(saving || updating) ? 'Saving…' : (mode === 'edit' ? 'Update Bill' : 'Save Bill')}
-                  </Button>
-                  <button onClick={resetForm} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
+                <button onClick={resetForm} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
               <BillForm
                 form={form} setForm={setForm}
@@ -613,6 +574,13 @@ export default function LaundryBillPage() {
                 vehicleRows={vehicleRows} setVehicleRows={setVehicleRows}
                 debits={debits} setDebits={setDebits} credits={credits} setCredits={setCredits}
               />
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                <Button variant="ghost" onClick={resetForm}>Cancel</Button>
+                <Button onClick={onSave} disabled={saving || updating}>
+                  <Save className="w-4 h-4" />
+                  {(saving || updating) ? 'Saving…' : (mode === 'edit' ? 'Update Bill' : 'Save Bill')}
+                </Button>
+              </div>
             </GlassCard>
           </motion.div>
         )}
@@ -621,10 +589,12 @@ export default function LaundryBillPage() {
       <DataTable
         title="Laundry Bills"
         columns={cols}
-        data={bills}
+        data={withStatusLabel(bills)}
         loading={isLoading}
         onAction={handleAction}
         actions={['view', 'edit', 'delete']}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
 
       {/* View modal */}
@@ -641,9 +611,9 @@ export default function LaundryBillPage() {
               <div className="p-6 space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                   <div><b>Vendor:</b> {String(viewRow.vendor_name || '—')}</div>
-                  <div><b>Date:</b> {String(viewRow.voucherdate || '—')}</div>
+                  <div><b>Date:</b> {viewRow.voucherdate ? formatDate(String(viewRow.voucherdate)) : '—'}</div>
                   <div><b>Vehicles:</b> {String(viewRow.vehicle_count || 0)}</div>
-                  <div><b>Total:</b> ₹{Number(viewRow.total_amount || 0).toFixed(2)}</div>
+                  <div><b>Total:</b> ₹{formatAmount(viewRow.total_amount)}</div>
                 </div>
                 {viewRow.remarks ? (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
@@ -670,15 +640,32 @@ export default function LaundryBillPage() {
                         <tr key={i} className="border-t">
                           <td className="p-2">{String(v.vehicle_no || '')}</td>
                           <td className="p-2">{String(v.service_no || '')}</td>
-                          <td className="p-2 text-right">{v.blanket_qty ? `${v.blanket_qty}×${v.blanket_rate} = ₹${v.blanket_amount}` : '—'}</td>
-                          <td className="p-2 text-right">{v.white_qty ? `${v.white_qty}×${v.white_rate} = ₹${v.white_amount}` : '—'}</td>
-                          <td className="p-2 text-right">{v.pillow_qty ? `${v.pillow_qty}×${v.pillow_rate} = ₹${v.pillow_amount}` : '—'}</td>
-                          <td className="p-2 text-right">{v.cover_qty ? `${v.cover_qty}×${v.cover_rate} = ₹${v.cover_amount}` : '—'}</td>
-                          <td className="p-2 text-right">{v.curtain_qty ? `${v.curtain_qty}×${v.curtain_rate} = ₹${v.curtain_amount}` : '—'}</td>
-                          <td className="p-2 text-right font-bold">₹{Number(v.totalamount || 0).toFixed(2)}</td>
+                          <td className="p-2 text-right">{v.blanket_qty ? `${v.blanket_qty}×${v.blanket_rate} = ₹${formatAmount(v.blanket_amount)}` : '—'}</td>
+                          <td className="p-2 text-right">{v.white_qty ? `${v.white_qty}×${v.white_rate} = ₹${formatAmount(v.white_amount)}` : '—'}</td>
+                          <td className="p-2 text-right">{v.pillow_qty ? `${v.pillow_qty}×${v.pillow_rate} = ₹${formatAmount(v.pillow_amount)}` : '—'}</td>
+                          <td className="p-2 text-right">{v.cover_qty ? `${v.cover_qty}×${v.cover_rate} = ₹${formatAmount(v.cover_amount)}` : '—'}</td>
+                          <td className="p-2 text-right">{v.curtain_qty ? `${v.curtain_qty}×${v.curtain_rate} = ₹${formatAmount(v.curtain_amount)}` : '—'}</td>
+                          <td className="p-2 text-right font-bold">₹{formatAmount(v.totalamount)}</td>
                         </tr>
                       ))}
                     </tbody>
+                    {(() => {
+                      const vs = ((viewRow._details as { vehicles: Array<Record<string, unknown>> })?.vehicles || [])
+                      const sum = (k: string) => vs.reduce((t, v) => t + Number(v[k] || 0), 0)
+                      const cell = (k: 'blanket' | 'white' | 'pillow' | 'cover' | 'curtain') => {
+                        const qty = sum(`${k}_qty`), amt = sum(`${k}_amount`)
+                        return <td key={k} className="p-2 text-right">{qty ? <><div className="text-[10px] text-slate-500">{qty} pcs</div><div className="font-bold">₹{formatAmount(amt)}</div></> : '—'}</td>
+                      }
+                      return (
+                        <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                          <tr>
+                            <td className="p-2 font-bold text-slate-700" colSpan={2}>Totals</td>
+                            {(['blanket', 'white', 'pillow', 'cover', 'curtain'] as const).map(cell)}
+                            <td className="p-2 text-right font-extrabold text-teal-700">₹{formatAmount(sum('totalamount'))}</td>
+                          </tr>
+                        </tfoot>
+                      )
+                    })()}
                   </table>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -687,7 +674,7 @@ export default function LaundryBillPage() {
                     <table className="w-full text-sm">
                       <tbody>
                         {((viewRow._details as { accounts: Array<Record<string, unknown>> })?.accounts || []).filter((a) => a.account_type === 'Debit Account').map((a, i) => (
-                          <tr key={i} className="border-t"><td className="p-2">{String(a.expensives || '')}</td><td className="p-2 text-right">₹{String(a.amount || 0)}</td></tr>
+                          <tr key={i} className="border-t"><td className="p-2">{String(a.expensives || '')}</td><td className="p-2 text-right">₹{formatAmount(a.amount || 0)}</td></tr>
                         ))}
                       </tbody>
                     </table>
@@ -697,7 +684,7 @@ export default function LaundryBillPage() {
                     <table className="w-full text-sm">
                       <tbody>
                         {((viewRow._details as { accounts: Array<Record<string, unknown>> })?.accounts || []).filter((a) => a.account_type === 'Credit Account').map((a, i) => (
-                          <tr key={i} className="border-t"><td className="p-2">{String(a.expensives || '')}</td><td className="p-2 text-right">₹{String(a.amount || 0)}</td></tr>
+                          <tr key={i} className="border-t"><td className="p-2">{String(a.expensives || '')}</td><td className="p-2 text-right">₹{formatAmount(a.amount || 0)}</td></tr>
                         ))}
                       </tbody>
                     </table>

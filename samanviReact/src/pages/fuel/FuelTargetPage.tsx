@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Target, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
+import { formatDate } from '@/lib/utils'
+
+const Req = () => <span className="text-red-500">*</span>
 
 // Only 'monthly' is meaningful today, but the schema keeps the column so we
 // can add other rhythms without a migration. The dropdown is shown so the user
@@ -27,6 +30,7 @@ export default function FuelTargetPage() {
   const [form, setForm] = useState<FormState>(emptyForm())
   const [editForm, setEditForm] = useState<FormState | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data: targetsResp, isLoading } = useQuery({
     queryKey: ['fuel-targets'],
@@ -106,12 +110,13 @@ export default function FuelTargetPage() {
   }
 
   const cols: Column[] = useMemo(() => [
-    { label: 'Bus No', key: 'bus_no', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Bus No', key: 'bus_no', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
     { label: 'Target (L)', key: 'target_liters', render: (v) => <span className="font-bold text-emerald-600">{String(v)} L</span> },
     { label: 'Period', key: 'period', render: (v) => <Badge variant="info">{String(v)}</Badge> },
-    { label: 'Set By', key: 'entry_by' },
-    { label: 'Created', key: 'i_ts' },
-    { label: 'Updated', key: 'updated_at', render: (v) => v ? String(v) : '—' },
+    { label: 'Set By', key: 'entry_by', filterable: true },
+    { label: 'Created', key: 'i_ts', render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Updated', key: 'updated_at', render: (v) => v ? formatDate(String(v)) : '—' },
   ], [])
 
   const handleAction = (action: string, row: Record<string, unknown>) => {
@@ -122,14 +127,13 @@ export default function FuelTargetPage() {
   const renderForm = (f: FormState, set: (f: FormState) => void) => (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
       <div>
-        <Label>Bus No *</Label>
-        <Select value={f.bus_no} onChange={(e) => set({ ...f, bus_no: e.target.value })}>
-          <option value="">Select Bus</option>
-          {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-        </Select>
+        <Label>Bus No <Req /></Label>
+        <SearchableSelect placeholder="Select Bus"
+          options={buses.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
+          value={f.bus_no} onChange={(v) => set({ ...f, bus_no: v })} onClear={() => set({ ...f, bus_no: '' })} />
       </div>
       <div>
-        <Label>Target (Litres) *</Label>
+        <Label>Target (Litres) <Req /></Label>
         <Input type="number" step="0.01" placeholder="e.g. 500"
           value={f.target_liters}
           onChange={(e) => set({ ...f, target_liters: e.target.value })} />
@@ -158,15 +162,16 @@ export default function FuelTargetPage() {
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <Target className="w-5 h-5 text-green-500" /> Set Fuel Target
                 </h2>
-                <div className="flex gap-2">
-                  <Button onClick={onSaveNew} disabled={isPending}>
-                    <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Target'}
-                  </Button>
-                  <button onClick={() => { setShowForm(false); setForm(emptyForm()) }} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl"><X className="w-5 h-5" /></button>
-                </div>
+                <button onClick={() => { setShowForm(false); setForm(emptyForm()) }} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl"><X className="w-5 h-5" /></button>
               </div>
               {renderForm(form, setForm)}
               <p className="text-xs text-slate-500 mt-3">Saving a target for a bus that already has one will replace the previous target.</p>
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                <Button variant="ghost" onClick={() => { setShowForm(false); setForm(emptyForm()) }}>Cancel</Button>
+                <Button onClick={onSaveNew} disabled={isPending}>
+                  <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Target'}
+                </Button>
+              </div>
             </GlassCard>
           </motion.div>
         )}
@@ -179,6 +184,8 @@ export default function FuelTargetPage() {
         loading={isLoading}
         onAction={handleAction}
         actions={['edit', 'delete']}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
 
       {/* Edit modal */}

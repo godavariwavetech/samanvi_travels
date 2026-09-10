@@ -5,11 +5,13 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter } from '@/components/shared'
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
+import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
 
 export default function FuelStationWisePage() {
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState({ fromdate: weekAgo, todate: today, ledger_name: '' })
   const [applied, setApplied] = useState<typeof filter | null>(null)
 
@@ -31,18 +33,19 @@ export default function FuelStationWisePage() {
   const avgPrice = totalQty > 0 ? totalAmount / totalQty : 0
 
   const cols: Column[] = useMemo(() => [
-    { label: 'Ref #', key: 'c_number' },
-    { label: 'Date', key: 'date' },
-    { label: 'Bus No', key: 'vehicle_number' },
-    { label: 'Debit Ledger', key: 'debit_ledger', render: (v) => v ? String(v) : '—' },
-    { label: 'Credit Ledger', key: 'credit_ledger', render: (v) => v ? String(v) : '—' },
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Ref #', key: 'c_number', filterable: true },
+    { label: 'Date', key: 'date', render: (v) => formatDate(v) },
+    { label: 'Bus No', key: 'vehicle_number', filterable: true },
+    { label: 'Debit Ledger', key: 'debit_ledger', filterable: true, render: (v) => v ? String(v) : '—' },
+    { label: 'Credit Ledger', key: 'credit_ledger', filterable: true, render: (v) => v ? String(v) : '—' },
     { label: 'Qty (L)', key: 'quantity_filled', render: (v) => Number(v || 0).toFixed(2) },
-    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${Number(v).toFixed(2)}` : '—' },
-    { label: 'Amount', key: 'total_bill', render: (v) => <span className="font-bold">₹{Number(v || 0).toFixed(2)}</span> },
+    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
+    { label: 'Amount', key: 'total_bill', render: (v) => <span className="font-bold">₹{formatAmount(v)}</span> },
     { label: 'Avg KMPL', key: 'avg_kmpl', render: (v) => v ? String(v) : '—' },
     { label: 'Remarks', key: 'remarks', render: (v) => v ? <span className="text-slate-600 text-xs">{String(v)}</span> : '—' },
-    { label: 'Status', key: 'admin_status', render: (v) => {
-        const s = Number(v)
+    { label: 'Status', key: 'status_label', filterable: true, render: (_v, r: Record<string, unknown>) => {
+        const s = Number(r.admin_status)
         if (s === 1) return <Badge variant="success">Approved</Badge>
         if (s === 2) return <Badge variant="danger">Rejected</Badge>
         return <Badge variant="warning">Pending</Badge>
@@ -90,18 +93,18 @@ export default function FuelStationWisePage() {
             <span className="text-slate-600">Total Litres:</span> <b>{totalQty.toFixed(2)} L</b>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Avg Price/L:</span> <b>₹{avgPrice.toFixed(2)}</b>
+            <span className="text-slate-600">Avg Price/L:</span> <b>₹{formatAmount(avgPrice)}</b>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Amount:</span> <b>₹{totalAmount.toFixed(2)}</b>
+            <span className="text-slate-600">Total Amount:</span> <b>₹{formatAmount(totalAmount)}</b>
           </div>
         </div>
       )}
 
       <DataTable
         title="Station Wise Entries"
-        columns={cols}
-        data={applied ? rows : []}
+        columns={cols} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        data={applied ? withStatusLabel(rows) : []}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
@@ -111,8 +114,8 @@ export default function FuelStationWisePage() {
         <TotalsFooter
           items={[
             { label: 'Total Quantity', value: `${totalQty.toFixed(2)} L` },
-            { label: 'Avg Price/L', value: `₹${avgPrice.toFixed(2)}` },
-            { label: 'Total Amount', value: `₹${totalAmount.toFixed(2)}`, emphasis: 'positive' },
+            { label: 'Avg Price/L', value: `₹${formatAmount(avgPrice)}` },
+            { label: 'Total Amount', value: `₹${formatAmount(totalAmount)}`, emphasis: 'positive' },
           ] satisfies TotalsFooterItem[]}
         />
       )}

@@ -1,13 +1,17 @@
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Fuel, Save, Plus, X, Trash2 } from 'lucide-react'
+import { Fuel, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
-import type { Column } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines } from '@/components/shared'
+import type { Column, LedgerLine } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
+import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
+
+// Required-field marker, the same red asterisk every other form uses.
+const Req = () => <span className="text-red-500">*</span>
 
 type Ledger = {
   id: number
@@ -20,10 +24,13 @@ type Ledger = {
   staticname?: string
 }
 
+// What the API takes for each side (unchanged); the form itself works in
+// LedgerLine rows and converts on submit.
 type DebitRow = { d_test_name: Ledger | ''; d_test_amount: string }
 type CreditRow = { creditledger: Ledger | ''; creditamount: string }
 
-const emptyForm = () => ({
+// Exported for the headless form test alongside FuelForm.
+export const emptyForm = () => ({
   id: 0 as number | 0,
   c_id: '' as string,
   c_number: '' as string,
@@ -37,8 +44,14 @@ const emptyForm = () => ({
   totalBill: '',
   averageKMPL: '',
   remarks: '',
-  patientsTstdts: [] as DebitRow[],
-  creditaddrowdts: [] as CreditRow[],
+  patientsTstdts: [emptyLedgerLine<Ledger>()] as LedgerLine<Ledger>[],
+  creditaddrowdts: [emptyLedgerLine<Ledger>()] as LedgerLine<Ledger>[],
+})
+
+// The API's row shape for each side, empty lines dropped.
+const toApiRows = (f: { patientsTstdts: LedgerLine<Ledger>[]; creditaddrowdts: LedgerLine<Ledger>[] }) => ({
+  patientsTstdts: filledLedgerLines(f.patientsTstdts).map((r): DebitRow => ({ d_test_name: r.ledger as Ledger, d_test_amount: r.amount })),
+  creditaddrowdts: filledLedgerLines(f.creditaddrowdts).map((r): CreditRow => ({ creditledger: r.ledger as Ledger, creditamount: r.amount })),
 })
 
 type FormState = ReturnType<typeof emptyForm>
@@ -57,65 +70,26 @@ function validateBalance(f: FormState): string | null {
   if (!f.vehicleNumber) return 'Vehicle Number is required'
   if (!f.qtyFilled || Number(f.qtyFilled) <= 0) return 'Quantity Filled must be greater than 0'
   if (!f.pricePerLitre || Number(f.pricePerLitre) <= 0) return 'Price Per Litre must be greater than 0'
-  if (f.patientsTstdts.length === 0) return 'Add at least one debit ledger'
-  if (f.creditaddrowdts.length === 0) return 'Add at least one credit ledger'
-  const debitSum = f.patientsTstdts.reduce((s, r) => s + Number(r.d_test_amount || 0), 0)
-  const creditSum = f.creditaddrowdts.reduce((s, r) => s + Number(r.creditamount || 0), 0)
+  // Same rules Trip Expenses applies to its ledger rows: every started row
+  // is finished, each side has a ledger, and the two sides balance to the bill.
+  if (halfFilledLedgerLine(f.patientsTstdts) || halfFilledLedgerLine(f.creditaddrowdts)) return 'Every ledger row needs both a ledger and an amount'
+  if (filledLedgerLines(f.patientsTstdts).length === 0) return 'Add at least one debit ledger entry'
+  if (filledLedgerLines(f.creditaddrowdts).length === 0) return 'Add at least one credit ledger entry'
+  const debitSum = ledgerLinesTotal(f.patientsTstdts)
+  const creditSum = ledgerLinesTotal(f.creditaddrowdts)
   const bill = Number(f.totalBill || 0)
-  if (Math.abs(debitSum - creditSum) > 0.01) return `Debit ₹${debitSum.toFixed(2)} ≠ Credit ₹${creditSum.toFixed(2)}`
-  if (Math.abs(debitSum - bill) > 0.01) return `Ledger total ₹${debitSum.toFixed(2)} ≠ Bill ₹${bill.toFixed(2)}`
+  if (Math.abs(debitSum - creditSum) > 0.01) return `Debit ₹${formatAmount(debitSum)} ≠ Credit ₹${formatAmount(creditSum)}`
+  if (Math.abs(debitSum - bill) > 0.01) return `Ledger total ₹${formatAmount(debitSum)} ≠ Bill ₹${formatAmount(bill)}`
   return null
 }
 
-// ─── Add-debit / add-credit inline forms ────────────────────────────────────
-function LedgerRowAdder({
-  ledgers, ledger, amount, onLedgerChange, onAmountChange, onAdd,
-}: {
-  ledgers: Ledger[]
-  ledger: Ledger | ''
-  amount: string
-  onLedgerChange: (v: Ledger | '') => void
-  onAmountChange: (v: string) => void
-  onAdd: () => void
-}) {
-  return (
-    <div className="grid grid-cols-12 gap-2 items-end">
-      <div className="col-span-6">
-        <Label>Ledger</Label>
-        <Select
-          value={ledger ? String(ledger.id) : ''}
-          onChange={(e) => {
-            const id = Number(e.target.value)
-            onLedgerChange(ledgers.find((l) => l.id === id) || '')
-          }}
-        >
-          <option value="">Select Ledger</option>
-          {ledgers.map((l) => (
-            <option key={l.id} value={l.id}>{ledgerLabel(l)}</option>
-          ))}
-        </Select>
-      </div>
-      <div className="col-span-4">
-        <Label>Amount</Label>
-        <Input type="number" value={amount} onChange={(e) => onAmountChange(e.target.value)} placeholder="0.00" />
-      </div>
-      <div className="col-span-2">
-        <Button onClick={onAdd} className="w-full"><Plus className="w-4 h-4" /> Add</Button>
-      </div>
-    </div>
-  )
-}
-
 // ─── The reusable form body (same markup for create + edit modal) ───────────
-function FuelForm({ form, setForm, buses, ledgers }: {
+export function FuelForm({ form, setForm, buses, ledgers }: {
   form: FormState
   setForm: (f: FormState) => void
   buses: { id: number; bus_no: string; odometer?: string }[]
   ledgers: Ledger[]
 }) {
-  const [debitDraft, setDebitDraft] = useState<{ ledger: Ledger | ''; amount: string }>({ ledger: '', amount: '' })
-  const [creditDraft, setCreditDraft] = useState<{ ledger: Ledger | ''; amount: string }>({ ledger: '', amount: '' })
-
   // Auto-fill previous odometer from the selected bus. Editable — some entries
   // correct a wrong reading and we don't want to fight the user.
   const onVehicleChange = (bus_no: string) => {
@@ -133,11 +107,15 @@ function FuelForm({ form, setForm, buses, ledgers }: {
     const bill = Number(next.qtyFilled || 0) * Number(next.pricePerLitre || 0)
     next.totalBill = bill ? bill.toFixed(2) : '0'
     next.averageKMPL = Number(next.qtyFilled) > 0 && kms > 0 ? (kms / Number(next.qtyFilled)).toFixed(2) : '0'
+    // Ledger amounts the panels filled in follow the bill as it changes, so the
+    // ledger can be picked before the quantity and price are typed.
+    next.patientsTstdts = syncAutoLedgerLines(next.patientsTstdts, bill)
+    next.creditaddrowdts = syncAutoLedgerLines(next.creditaddrowdts, bill)
     setForm(next)
   }
 
-  const debitSum = form.patientsTstdts.reduce((s, r) => s + Number(r.d_test_amount || 0), 0)
-  const creditSum = form.creditaddrowdts.reduce((s, r) => s + Number(r.creditamount || 0), 0)
+  const debitSum = ledgerLinesTotal(form.patientsTstdts)
+  const creditSum = ledgerLinesTotal(form.creditaddrowdts)
   const bill = Number(form.totalBill || 0)
   const balanced = Math.abs(debitSum - creditSum) < 0.01 && Math.abs(debitSum - bill) < 0.01
 
@@ -147,16 +125,16 @@ function FuelForm({ form, setForm, buses, ledgers }: {
       <section>
         <h4 className="text-sm font-bold text-slate-700 mb-3">Vehicle & Odometer</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div><Label>Date *</Label>
+          <div><Label>Date <Req /></Label>
             <Input type="date" max={today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
-          <div><Label>Vehicle Number *</Label>
-            <Select value={form.vehicleNumber} onChange={(e) => onVehicleChange(e.target.value)}>
-              <option value="">Select Vehicle</option>
-              {buses.map((b) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
-            </Select></div>
+          <div><Label>Vehicle Number <Req /></Label>
+            <SearchableSelect placeholder="Select Vehicle"
+              options={buses.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
+              value={form.vehicleNumber} onChange={onVehicleChange}
+              onClear={() => setForm({ ...form, vehicleNumber: '' })} /></div>
           <div><Label>Previous Odometer</Label>
             <Input type="number" value={form.previousOdometer} onChange={(e) => recompute({ previousOdometer: e.target.value })} /></div>
-          <div><Label>Present Odometer *</Label>
+          <div><Label>Present Odometer <Req /></Label>
             <Input type="number" value={form.presentOdometer} onChange={(e) => recompute({ presentOdometer: e.target.value })} /></div>
           <div><Label>Kilometers (auto)</Label>
             <Input value={form.kilometers} readOnly className="bg-slate-50" /></div>
@@ -167,12 +145,12 @@ function FuelForm({ form, setForm, buses, ledgers }: {
       <section>
         <h4 className="text-sm font-bold text-slate-700 mb-3">Fuel Information</h4>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div><Label>Quantity Filled (L) *</Label>
+          <div><Label>Quantity Filled (L) <Req /></Label>
             <Input type="number" value={form.qtyFilled} onChange={(e) => recompute({ qtyFilled: e.target.value })} /></div>
-          <div><Label>Price / Litre (₹) *</Label>
+          <div><Label>Price / Litre (₹) <Req /></Label>
             <Input type="number" value={form.pricePerLitre} onChange={(e) => recompute({ pricePerLitre: e.target.value })} /></div>
           <div><Label>Total Bill (auto)</Label>
-            <Input value={form.totalBill} readOnly className="bg-slate-50" /></div>
+            <Input value={formatAmount(form.totalBill)} readOnly className="bg-slate-50" /></div>
           <div><Label>Avg KMPL (auto)</Label>
             <Input value={form.averageKMPL} readOnly className="bg-slate-50" /></div>
         </div>
@@ -188,97 +166,32 @@ function FuelForm({ form, setForm, buses, ledgers }: {
       </section>
 
       {/* Balance summary */}
-      {(form.patientsTstdts.length > 0 || form.creditaddrowdts.length > 0) && (
+      {(debitSum > 0 || creditSum > 0) && (
         <div className={`rounded-xl p-4 border ${balanced ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
           <div className="flex flex-wrap gap-6 text-sm">
-            <span>Total Debit: <b>₹{debitSum.toFixed(2)}</b></span>
-            <span>Total Credit: <b>₹{creditSum.toFixed(2)}</b></span>
-            <span>Bill: <b>₹{bill.toFixed(2)}</b></span>
+            <span>Total Debit: <b>₹{formatAmount(debitSum)}</b></span>
+            <span>Total Credit: <b>₹{formatAmount(creditSum)}</b></span>
+            <span>Bill: <b>₹{formatAmount(bill)}</b></span>
             <span className={balanced ? 'text-emerald-700 font-bold' : 'text-red-700 font-bold'}>
-              {balanced ? '✓ Balanced' : `Diff ₹${Math.abs(debitSum - creditSum).toFixed(2)}`}
+              {balanced ? '✓ Balanced' : `Diff ₹${formatAmount(Math.abs(debitSum - creditSum))}`}
             </span>
           </div>
         </div>
       )}
 
-      {/* Debit + Credit ledger sections */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border border-slate-200 p-4">
-          <div className="flex justify-between mb-3">
-            <h4 className="font-bold text-slate-700">Debit Account</h4>
-            <span className="font-bold text-blue-600">₹{debitSum.toFixed(2)}</span>
-          </div>
-          <LedgerRowAdder
-            ledgers={ledgers}
-            ledger={debitDraft.ledger}
-            amount={debitDraft.amount}
-            onLedgerChange={(v) => setDebitDraft({ ...debitDraft, ledger: v })}
-            onAmountChange={(v) => setDebitDraft({ ...debitDraft, amount: v })}
-            onAdd={() => {
-              if (!debitDraft.ledger || !debitDraft.amount) return toast.error('Pick a ledger and amount')
-              setForm({ ...form, patientsTstdts: [...form.patientsTstdts, { d_test_name: debitDraft.ledger, d_test_amount: debitDraft.amount }] })
-              setDebitDraft({ ledger: '', amount: '' })
-            }}
-          />
-          <table className="w-full mt-3 text-sm">
-            <thead className="bg-slate-50"><tr>
-              <th className="p-2 text-left">Ledger</th><th className="p-2 text-right">Amount</th><th className="p-2"></th>
-            </tr></thead>
-            <tbody>
-              {form.patientsTstdts.length === 0 && (
-                <tr><td colSpan={3} className="p-3 text-center text-slate-400">No debit entries yet</td></tr>
-              )}
-              {form.patientsTstdts.map((r, i) => (
-                <tr key={i} className="border-t border-slate-100">
-                  <td className="p-2">{typeof r.d_test_name === 'object' ? ledgerLabel(r.d_test_name) : ''}</td>
-                  <td className="p-2 text-right">₹{Number(r.d_test_amount).toFixed(2)}</td>
-                  <td className="p-2 text-right">
-                    <button onClick={() => setForm({ ...form, patientsTstdts: form.patientsTstdts.filter((_, idx) => idx !== i) })} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="rounded-xl border border-slate-200 p-4">
-          <div className="flex justify-between mb-3">
-            <h4 className="font-bold text-slate-700">Credit Account</h4>
-            <span className="font-bold text-emerald-600">₹{creditSum.toFixed(2)}</span>
-          </div>
-          <LedgerRowAdder
-            ledgers={ledgers}
-            ledger={creditDraft.ledger}
-            amount={creditDraft.amount}
-            onLedgerChange={(v) => setCreditDraft({ ...creditDraft, ledger: v })}
-            onAmountChange={(v) => setCreditDraft({ ...creditDraft, amount: v })}
-            onAdd={() => {
-              if (!creditDraft.ledger || !creditDraft.amount) return toast.error('Pick a ledger and amount')
-              setForm({ ...form, creditaddrowdts: [...form.creditaddrowdts, { creditledger: creditDraft.ledger, creditamount: creditDraft.amount }] })
-              setCreditDraft({ ledger: '', amount: '' })
-            }}
-          />
-          <table className="w-full mt-3 text-sm">
-            <thead className="bg-slate-50"><tr>
-              <th className="p-2 text-left">Ledger</th><th className="p-2 text-right">Amount</th><th className="p-2"></th>
-            </tr></thead>
-            <tbody>
-              {form.creditaddrowdts.length === 0 && (
-                <tr><td colSpan={3} className="p-3 text-center text-slate-400">No credit entries yet</td></tr>
-              )}
-              {form.creditaddrowdts.map((r, i) => (
-                <tr key={i} className="border-t border-slate-100">
-                  <td className="p-2">{typeof r.creditledger === 'object' ? ledgerLabel(r.creditledger) : ''}</td>
-                  <td className="p-2 text-right">₹{Number(r.creditamount).toFixed(2)}</td>
-                  <td className="p-2 text-right">
-                    <button onClick={() => setForm({ ...form, creditaddrowdts: form.creditaddrowdts.filter((_, idx) => idx !== i) })} className="text-red-500 hover:text-red-700"><Trash2 className="w-4 h-4" /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Debit / Credit ledgers, laid out as on Trip Expenses and Voucher
+          Entry: inline rows, Add Row in the header, pick-time checks. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+        <LedgerLines side="debit" rows={form.patientsTstdts} ledgers={ledgers} otherRows={form.creditaddrowdts}
+          remaining={bill - debitSum} onChange={(rows) => setForm({ ...form, patientsTstdts: rows })} />
+        <LedgerLines side="credit" rows={form.creditaddrowdts} ledgers={ledgers} otherRows={form.patientsTstdts}
+          remaining={bill - creditSum} onChange={(rows) => setForm({ ...form, creditaddrowdts: rows })} />
       </div>
+      {!balanced && (debitSum > 0 || creditSum > 0) && (
+        <p className="text-xs font-semibold text-amber-600 text-center">
+          Debit (₹{debitSum.toLocaleString('en-IN')}) and Credit (₹{creditSum.toLocaleString('en-IN')}) must both equal the bill (₹{bill.toLocaleString('en-IN')}) before saving.
+        </p>
+      )}
     </div>
   )
 }
@@ -289,6 +202,7 @@ export default function FuelEntryPage() {
   const [form, setForm] = useState<FormState>(emptyForm())
   const [editForm, setEditForm] = useState<FormState | null>(null)
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data: entries, isLoading } = useQuery({
     queryKey: ['fuel-entries'],
@@ -311,7 +225,7 @@ export default function FuelEntryPage() {
   const user_id = localStorage.getItem('user_id') ?? '0'
 
   const { mutate: submit, isPending } = useMutation({
-    mutationFn: () => fuelService.submitFuelEntry({ ...form, named, user_id }),
+    mutationFn: () => fuelService.submitFuelEntry({ ...form, ...toApiRows(form), named, user_id }),
     onSuccess: (res) => {
       if (res?.status === 200) {
         toast.success(`Fuel entry saved (${res.data?.c_number || ''})`)
@@ -324,7 +238,7 @@ export default function FuelEntryPage() {
   })
 
   const { mutate: update, isPending: updating } = useMutation({
-    mutationFn: () => fuelService.updateFuelEntry({ ...(editForm as FormState), named, user_id }),
+    mutationFn: () => fuelService.updateFuelEntry({ ...(editForm as FormState), ...toApiRows(editForm as FormState), named, user_id }),
     onSuccess: (res) => {
       if (res?.status === 200) {
         toast.success('Fuel entry updated')
@@ -359,14 +273,12 @@ export default function FuelEntryPage() {
   const onEdit = async (row: Record<string, unknown>) => {
     const accRes = await fuelService.getFuelAccounts({ id: row.id })
     const rows = (accRes?.data ?? []) as Array<Record<string, unknown>>
-    const debits = rows.filter((r) => r.account_type === 'Debit Account').map((r) => ({
-      d_test_name: { id: Number(r.ledger_id), temple_name: String(r.expensives || '') } as Ledger,
-      d_test_amount: String(r.amount || 0),
-    }))
-    const credits = rows.filter((r) => r.account_type === 'Credit Account').map((r) => ({
-      creditledger: { id: Number(r.ledger_id), temple_name: String(r.expensives || '') } as Ledger,
-      creditamount: String(r.amount || 0),
-    }))
+    const toLine = (r: Record<string, unknown>): LedgerLine<Ledger> => ({
+      ledger: { id: Number(r.ledger_id), temple_name: String(r.expensives || '') } as Ledger,
+      amount: String(r.amount || 0),
+    })
+    const debits = rows.filter((r) => r.account_type === 'Debit Account').map(toLine)
+    const credits = rows.filter((r) => r.account_type === 'Credit Account').map(toLine)
     setEditForm({
       id: Number(row.id),
       c_id: String(row.c_id || ''),
@@ -381,8 +293,8 @@ export default function FuelEntryPage() {
       totalBill: String(row.total_bill || 0),
       averageKMPL: String(row.avg_kmpl || 0),
       remarks: String(row.remarks || ''),
-      patientsTstdts: debits,
-      creditaddrowdts: credits,
+      patientsTstdts: debits.length ? debits : [emptyLedgerLine<Ledger>()],
+      creditaddrowdts: credits.length ? credits : [emptyLedgerLine<Ledger>()],
     })
   }
 
@@ -402,23 +314,24 @@ export default function FuelEntryPage() {
 
   // Columns kept in same order as old Angular table minus Target / Driver 1 / Driver 2.
   const entryColumns: Column[] = useMemo(() => [
-    { label: 'Ref #', key: 'c_number' },
-    { label: 'Date', key: 'date' },
-    { label: 'Bus No', key: 'vehicle_number' },
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Ref #', key: 'c_number', filterable: true },
+    { label: 'Date', key: 'date', render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Vehicle No', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
-    { label: 'Dr Ledger', key: 'debit_ledger_id' },
-    { label: 'Cr Ledger', key: 'credit_ledger_id' },
+    { label: 'Debit Ledger', key: 'debit_ledger_id', filterable: true, render: (v) => v ? String(v) : '—' },
+    { label: 'Credit Ledger', key: 'credit_ledger_id', filterable: true, render: (v) => v ? String(v) : '—' },
     { label: 'KMs', key: 'kilometers' },
     { label: 'Qty (L)', key: 'quantity_filled' },
-    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${v}` : '—' },
-    { label: 'Bill', key: 'total_bill', render: (v) => v ? <span className="font-bold">₹{v}</span> : '—' },
+    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
+    { label: 'Bill', key: 'total_bill', render: (v) => v ? <span className="font-bold">₹{formatAmount(v)}</span> : '—' },
     { label: 'Avg KMPL', key: 'avg_kmpl' },
     { label: 'Remarks', key: 'remarks', render: (v) => v ? <span className="text-slate-600 text-xs">{String(v)}</span> : '—' },
     {
-      label: 'Status', key: 'admin_status',
-      render: (v, r: Record<string, unknown>) => {
-        const status = Number(v)
+      label: 'Status', key: 'status_label', filterable: true,
+      render: (_v, r: Record<string, unknown>) => {
+        const status = Number(r.admin_status)
         if (status === 1) return <Badge variant="success">Approved</Badge>
         if (status === 2) return <Badge variant="danger">Rejected</Badge>
         return (
@@ -467,15 +380,16 @@ export default function FuelEntryPage() {
                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                       <Fuel className="w-5 h-5 text-amber-500" /> Log Fuel Fill
                     </h2>
-                    <div className="flex gap-2">
-                      <Button onClick={onSaveNew} disabled={isPending}>
-                        <Save className="w-4 h-4" />
-                        {isPending ? 'Saving…' : 'Save Entry'}
-                      </Button>
-                      <button onClick={() => { setShowForm(false); setForm(emptyForm()) }} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl"><X className="w-5 h-5" /></button>
-                    </div>
+                    <button onClick={() => { setShowForm(false); setForm(emptyForm()) }} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl"><X className="w-5 h-5" /></button>
                   </div>
                   <FuelForm form={form} setForm={setForm} buses={buses} ledgers={ledgers} />
+                  <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                    <Button variant="ghost" onClick={() => { setShowForm(false); setForm(emptyForm()) }}>Cancel</Button>
+                    <Button onClick={onSaveNew} disabled={isPending}>
+                      <Save className="w-4 h-4" />
+                      {isPending ? 'Saving…' : 'Save Entry'}
+                    </Button>
+                  </div>
                 </GlassCard>
               </motion.div>
             )}
@@ -484,9 +398,11 @@ export default function FuelEntryPage() {
       <DataTable
         title="Fuel Entry Records"
         columns={entryColumns}
-        data={entryList}
+        data={withStatusLabel(entryList)}
         loading={isLoading}
         onAction={handleAction}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
 
       {/* View modal */}
@@ -502,11 +418,11 @@ export default function FuelEntryPage() {
               </div>
               <div className="p-6 space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                  <div><b>Date:</b> {String(viewRow.date)}</div>
+                  <div><b>Date:</b> {formatDate(String(viewRow.date ?? ''))}</div>
                   <div><b>Vehicle:</b> {String(viewRow.vehicle_number)}</div>
                   <div><b>Qty:</b> {String(viewRow.quantity_filled)} L</div>
-                  <div><b>Price/L:</b> ₹{String(viewRow.price_per_liter)}</div>
-                  <div><b>Bill:</b> ₹{String(viewRow.total_bill)}</div>
+                  <div><b>Price/L:</b> ₹{formatAmount(viewRow.price_per_liter)}</div>
+                  <div><b>Bill:</b> ₹{formatAmount(viewRow.total_bill)}</div>
                   <div><b>Avg KMPL:</b> {String(viewRow.avg_kmpl)}</div>
                   <div><b>Prev Odo:</b> {String(viewRow.previous_odometer || viewRow.prev_odometer)}</div>
                   <div><b>Present Odo:</b> {String(viewRow.present_odometer)}</div>
@@ -525,7 +441,7 @@ export default function FuelEntryPage() {
                         {((viewRow._accounts as Array<Record<string, unknown>>) || [])
                           .filter((a) => a.account_type === 'Debit Account')
                           .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{String(a.amount)}</td></tr>
+                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{formatAmount(a.amount)}</td></tr>
                           ))}
                       </tbody>
                     </table>
@@ -537,7 +453,7 @@ export default function FuelEntryPage() {
                         {((viewRow._accounts as Array<Record<string, unknown>>) || [])
                           .filter((a) => a.account_type === 'Credit Account')
                           .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{String(a.amount)}</td></tr>
+                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{formatAmount(a.amount)}</td></tr>
                           ))}
                       </tbody>
                     </table>

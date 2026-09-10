@@ -186,7 +186,24 @@ exports.createFuelEntryMdl = function (data, callback) {
   });
 };
 
+// An approved or rejected entry is on the books (its ledger rows feed Ledger
+// Wise once approved): editing or deleting it would re-insert those rows as
+// pending and make the entry vanish from every ledger report while its header
+// still read approved. The pages already hide Edit / Delete for such rows; the
+// API refuses too, so nothing else can do it by accident.
+var lockedError = function () { var e = new Error('Approved / rejected entries cannot be edited or deleted'); e.code = 'LOCKED'; return e; };
+function whenFuelEntryOpen(id, callback, run) {
+  sqldb.query('SELECT admin_status FROM fuel_entry WHERE id = ? AND d_in = 0', [Number(id)], function (err, rows) {
+    if (err) return callback(err);
+    if (rows.length && Number(rows[0].admin_status) !== 0) return callback(lockedError());
+    run();
+  });
+}
+
 exports.updateFuelEntryMdl = function (data, callback) {
+  whenFuelEntryOpen(data.id, callback, function () { updateFuelEntryOpen(data, callback); });
+};
+function updateFuelEntryOpen(data, callback) {
   sqldb.getConnection(function (err, connection) {
     if (err) return callback(err);
     connection.beginTransaction(function (err) {
@@ -246,13 +263,15 @@ exports.updateFuelEntryMdl = function (data, callback) {
 };
 
 exports.deleteFuelEntryMdl = function (data, callback) {
-  var now = moment().format('YYYY-MM-DD HH:mm:ss');
-  sqldb.query(
-    `UPDATE fuel_entry SET d_in=1, deletedby_id=?, deletedby_name=?, deletedby_date=? WHERE id=?;
-     UPDATE fuelentry_subt SET d_in=1 WHERE lastinsert_id=?`,
-    [String(data.user_id || 0), data.named || '', now, Number(data.id), String(data.id)],
-    callback
-  );
+  whenFuelEntryOpen(data.id, callback, function () {
+    var now = moment().format('YYYY-MM-DD HH:mm:ss');
+    sqldb.query(
+      `UPDATE fuel_entry SET d_in=1, deletedby_id=?, deletedby_name=?, deletedby_date=? WHERE id=?;
+       UPDATE fuelentry_subt SET d_in=1 WHERE lastinsert_id=?`,
+      [String(data.user_id || 0), data.named || '', now, Number(data.id), String(data.id)],
+      callback
+    );
+  });
 };
 
 exports.listFuelEntriesMdl = function (callback) {

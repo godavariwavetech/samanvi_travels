@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, PageHeader, TotalsFooter } from '@/components/shared'
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
+import { formatDate, formatAmount } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -24,6 +25,7 @@ function RankCell({ rank }: { rank: number }) {
 }
 
 export default function TopPerformersPage() {
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState(monthBounds())
   const [applied, setApplied] = useState<typeof filter | null>(null)
 
@@ -41,9 +43,10 @@ export default function TopPerformersPage() {
   const overallKmpl = totalLitres > 0 ? totalKms / totalLitres : 0
 
   const cols: Column[] = useMemo(() => [
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     { label: 'Rank', key: 'rank', render: (v) => <RankCell rank={Number(v)} /> },
-    { label: 'Date', key: 'date' },
-    { label: 'Bus No', key: 'bus_no', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
+    { label: 'Date', key: 'date', render: (v) => formatDate(v) },
+    { label: 'Bus No', key: 'bus_no', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
     { label: 'Paired Driver', key: 'driver1', render: (_v, r: Record<string, unknown>) => {
         const d1 = r.driver1 ? String(r.driver1) : ''
         const d2 = r.driver2 ? String(r.driver2) : ''
@@ -53,8 +56,8 @@ export default function TopPerformersPage() {
     { label: 'Kms Run', key: 'kilometers', render: (v) => Number(v || 0).toFixed(2) },
     { label: 'Quantity', key: 'quantity_filled', render: (v) => `${Number(v || 0).toFixed(2)} L` },
     { label: 'Avg KMPL', key: 'avg_kmpl', render: (v) => <span className="font-bold text-emerald-600">{Number(v || 0).toFixed(2)}</span> },
-    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${Number(v).toFixed(2)}` : '—' },
-    { label: 'Amount', key: 'total_bill', render: (v) => `₹${Number(v || 0).toFixed(2)}` },
+    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
+    { label: 'Amount', key: 'total_bill', render: (v) => `₹${formatAmount(v || 0)}` },
   ], [])
 
   return (
@@ -97,14 +100,14 @@ export default function TopPerformersPage() {
             <span className="text-slate-600">Overall KMPL:</span> <b>{overallKmpl.toFixed(2)}</b>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Bill:</span> <b>₹{totalBill.toFixed(2)}</b>
+            <span className="text-slate-600">Total Bill:</span> <b>₹{formatAmount(totalBill)}</b>
           </div>
         </div>
       )}
 
       <DataTable
         title="Ranked Fuel Entries"
-        columns={cols}
+        columns={cols} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
         data={applied ? ranked : []}
         loading={isLoading}
         onAction={() => {}}
@@ -117,7 +120,7 @@ export default function TopPerformersPage() {
             { label: 'Kms Run', value: totalKms.toFixed(2) },
             { label: 'Quantity', value: `${totalLitres.toFixed(2)} L` },
             { label: 'Avg KMPL', value: overallKmpl.toFixed(2), emphasis: 'positive' },
-            { label: 'Total Amount', value: `₹${totalBill.toFixed(2)}` },
+            { label: 'Total Amount', value: `₹${formatAmount(totalBill)}` },
           ] satisfies TotalsFooterItem[]}
         />
       )}

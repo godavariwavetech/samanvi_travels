@@ -61,6 +61,7 @@ exports.updatefuelenterydataCtrl = function (req, res) {
   var err = validateBalance(data);
   if (err) return res.send({ status: 400, message: err });
   fuelmdl.updateFuelEntryMdl(data, function (err, results) {
+    if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
     if (err) { console.error('updateFuelEntry failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
   });
@@ -71,6 +72,7 @@ exports.deletefueldataCtrl1 = function (req, res) {
   try { data = readBody(req); } catch (e) { return res.status(400).send({ status: 400, message: e.message }); }
   if (!data.id) return res.send({ status: 400, message: 'id is required' });
   fuelmdl.deleteFuelEntryMdl(data, function (err, results) {
+    if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
     if (err) { console.error('deleteFuelEntry failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
   });

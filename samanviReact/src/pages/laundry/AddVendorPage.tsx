@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
+import { formatDate, formatAmount } from '@/lib/utils'
+
+const Req = () => <span className="text-red-500">*</span>
 
 type Ledger = {
   id: number
@@ -55,6 +58,7 @@ export default function AddVendorPage() {
   const [products, setProducts] = useState<ProductRow[]>([])
   const [draft, setDraft] = useState<{ product: Product | null; amount: string }>({ product: null, amount: '' })
   const [mode, setMode] = useState<'add' | 'edit'>('add')
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const named = localStorage.getItem('usr_nm') ?? ''
   const user_id = localStorage.getItem('user_id') ?? '0'
@@ -130,6 +134,8 @@ export default function AddVendorPage() {
     if (!form.todate) return 'Contract To Date is required'
     if (new Date(form.fromdate) >= new Date(form.todate)) return 'To Date must be after From Date'
     if (products.length === 0) return 'Add at least one product with rate'
+    const bad = products.find((p) => p.d_test_amount === '' || Number(p.d_test_amount) < 0 || isNaN(Number(p.d_test_amount)))
+    if (bad) return `Enter a valid rate for ${bad.d_test_name?.product_name || 'every product'}`
     return null
   }
 
@@ -239,19 +245,21 @@ export default function AddVendorPage() {
   }
 
   const tableCols: Column[] = useMemo(() => [
-    { label: 'Ref #', key: 'c_number' },
-    { label: 'Vendor Name', key: 'name', render: (v) => <span className="font-bold">{String(v)}</span> },
-    { label: 'Ledger', key: 'ledger' },
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Ref #', key: 'c_number', filterable: true },
+    { label: 'Vendor Name', key: 'name', filterable: true, render: (v) => <span className="font-bold">{String(v)}</span> },
+    { label: 'Ledger', key: 'ledger', filterable: true },
     ...productColumns.map((pc) => ({
       label: `${pc.label} (₹)`, key: pc.key,
       render: (_v: unknown, r: Record<string, unknown>) => {
         const products = (r as unknown as { products: Record<string, number> }).products
         const val = products[pc.key] ?? 0
-        return val > 0 ? `₹${val}` : <span className="text-slate-400">—</span>
+        return val > 0 ? `₹${formatAmount(val)}` : <span className="text-slate-400">—</span>
       },
     })),
-    { label: 'Contract From', key: 'fromdate' },
-    { label: 'Contract To', key: 'todate' },
+    { label: 'Contract Date', key: 'voucherdate', render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Contract From', key: 'fromdate', render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Contract To', key: 'todate', render: (v) => formatDate(String(v ?? '')) },
   ], [productColumns])
 
   const handleAction = (action: string, row: Record<string, unknown>) => {
@@ -272,15 +280,6 @@ export default function AddVendorPage() {
             <Shirt className="w-5 h-5 text-teal-500" />
             {mode === 'edit' ? `Editing ${form.c_number}` : 'New Vendor'}
           </h2>
-          <div className="flex gap-2">
-            {mode === 'edit' && (
-              <Button variant="ghost" onClick={resetForm}>Cancel</Button>
-            )}
-            <Button onClick={onSave} disabled={saving || updating}>
-              <Save className="w-4 h-4" />
-              {(saving || updating) ? 'Saving…' : (mode === 'edit' ? 'Update Vendor Contract' : 'Save Vendor Contract')}
-            </Button>
-          </div>
         </div>
 
         <div className="space-y-6">
@@ -291,24 +290,17 @@ export default function AddVendorPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <Label>Contract Date *</Label>
+                <Label>Contract Date <Req /></Label>
                 <Input type="date" max={today} value={form.voucherdate}
                   onChange={(e) => setForm({ ...form, voucherdate: e.target.value })} />
               </div>
               <div>
-                <Label>Vendor Name *</Label>
-                <Select
+                <Label>Vendor Name <Req /></Label>
+                <SearchableSelect placeholder="Select Vendor"
+                  options={ledgers.map((l) => ({ value: String(l.id), label: ledgerLabel(l) }))}
                   value={form.selectedledger ? String(form.selectedledger.id) : ''}
-                  onChange={(e) => {
-                    const id = Number(e.target.value)
-                    setForm({ ...form, selectedledger: ledgers.find((l) => l.id === id) || null })
-                  }}
-                >
-                  <option value="">Select Vendor</option>
-                  {ledgers.map((l) => (
-                    <option key={l.id} value={l.id}>{ledgerLabel(l)}</option>
-                  ))}
-                </Select>
+                  onChange={(v) => setForm({ ...form, selectedledger: ledgers.find((l) => String(l.id) === v) || null })}
+                  onClear={() => setForm({ ...form, selectedledger: null })} />
               </div>
             </div>
           </section>
@@ -320,12 +312,12 @@ export default function AddVendorPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <Label>From Date *</Label>
+                <Label>From Date <Req /></Label>
                 <Input type="date" max={today} value={form.fromdate}
                   onChange={(e) => setForm({ ...form, fromdate: e.target.value })} />
               </div>
               <div>
-                <Label>To Date *</Label>
+                <Label>To Date <Req /></Label>
                 <Input type="date" min={form.fromdate || undefined} value={form.todate}
                   onChange={(e) => setForm({ ...form, todate: e.target.value })} />
               </div>
@@ -336,26 +328,19 @@ export default function AddVendorPage() {
           <section>
             <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-4">
               <h3 className="text-xs font-bold text-slate-600 uppercase">Product Rates</h3>
-              <span className="text-sm font-bold text-teal-700">Total: ₹{grandTotal.toFixed(2)}</span>
+              <span className="text-sm font-bold text-teal-700">Total: ₹{formatAmount(grandTotal)}</span>
             </div>
             <div className="grid grid-cols-12 gap-3 items-end">
               <div className="col-span-6">
-                <Label>Choose Product Name *</Label>
-                <Select
+                <Label>Choose Product Name <Req /></Label>
+                <SearchableSelect placeholder="Select Product"
+                  options={productMaster.map((p) => ({ value: String(p.id), label: p.product_name }))}
                   value={draft.product ? String(draft.product.id) : ''}
-                  onChange={(e) => {
-                    const id = Number(e.target.value)
-                    setDraft({ ...draft, product: productMaster.find((p) => p.id === id) || null })
-                  }}
-                >
-                  <option value="">Select Product</option>
-                  {productMaster.map((p) => (
-                    <option key={p.id} value={p.id}>{p.product_name}</option>
-                  ))}
-                </Select>
+                  onChange={(v) => setDraft({ ...draft, product: productMaster.find((p) => String(p.id) === v) || null })}
+                  onClear={() => setDraft({ ...draft, product: null })} />
               </div>
               <div className="col-span-4">
-                <Label>Rate (₹) *</Label>
+                <Label>Rate (₹) <Req /></Label>
                 <Input type="number" step="0.01" placeholder="Enter rate" value={draft.amount}
                   onChange={(e) => setDraft({ ...draft, amount: e.target.value })} />
               </div>
@@ -369,7 +354,7 @@ export default function AddVendorPage() {
                 <tr>
                   <th className="p-2 text-left">S.No</th>
                   <th className="p-2 text-left">Product Name</th>
-                  <th className="p-2 text-right">Rate (₹)</th>
+                  <th className="p-2 text-right">Rate (₹) <span className="font-normal text-slate-400">— edit in place</span></th>
                   <th className="p-2 text-right">Action</th>
                 </tr>
               </thead>
@@ -384,7 +369,12 @@ export default function AddVendorPage() {
                     <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="border-t border-slate-100">
                       <td className="p-2">{i + 1}</td>
                       <td className="p-2">{p.d_test_name?.product_name}</td>
-                      <td className="p-2 text-right">₹{Number(p.d_test_amount).toFixed(2)}</td>
+                      {/* The rate is edited right here rather than by removing and
+                          re-adding the product; the Total above follows as it is typed. */}
+                      <td className="p-2 text-right">
+                        <Input type="number" step="0.01" min="0" value={p.d_test_amount} className="w-32 ml-auto text-right"
+                          onChange={(e) => setProducts(products.map((row, idx) => (idx === i ? { ...row, d_test_amount: e.target.value } : row)))} />
+                      </td>
                       <td className="p-2 text-right">
                         <button onClick={() => setProducts(products.filter((_, idx) => idx !== i))} className="text-red-500 hover:text-red-700">
                           <Trash2 className="w-4 h-4" />
@@ -397,6 +387,13 @@ export default function AddVendorPage() {
             </table>
           </section>
         </div>
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button variant="ghost" onClick={resetForm}>{mode === 'edit' ? 'Cancel' : 'Clear'}</Button>
+          <Button onClick={onSave} disabled={saving || updating}>
+            <Save className="w-4 h-4" />
+            {(saving || updating) ? 'Saving…' : (mode === 'edit' ? 'Update Vendor Contract' : 'Save Vendor Contract')}
+          </Button>
+        </div>
       </GlassCard>
 
       <DataTable
@@ -406,6 +403,8 @@ export default function AddVendorPage() {
         loading={isLoading}
         onAction={handleAction}
         actions={['edit', 'delete']}
+        columnFilters={columnFilters}
+        onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
     </motion.div>
   )

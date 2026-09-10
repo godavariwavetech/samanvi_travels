@@ -5,11 +5,13 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
+import { formatDate, formatDateTime, withStatusLabel, formatAmount } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
 
 export default function FuelReportsPage() {
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState({ fromdate: weekAgo, todate: today, admin_status: '1' })
   const [applied, setApplied] = useState(filter)
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
@@ -31,28 +33,29 @@ export default function FuelReportsPage() {
   // form fields — the data isn't collected anymore, so no point rendering
   // empty cells for it.
   const columns: Column[] = useMemo(() => [
-    { label: 'Ref #', key: 'c_number', render: (v, r: Record<string, unknown>) => (
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Ref #', key: 'c_number', filterable: true, render: (v, r: Record<string, unknown>) => (
         <button onClick={() => onView(r)} className="text-blue-600 hover:underline font-medium">{String(v)}</button>
       ) },
-    { label: 'Date', key: 'date' },
-    { label: 'Bus No', key: 'vehicle_number' },
+    { label: 'Date', key: 'date', render: (v) => formatDate(v) },
+    { label: 'Bus No', key: 'vehicle_number', filterable: true },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
-    { label: 'Dr Ledger', key: 'debit_ledger_id' },
-    { label: 'Cr Ledger', key: 'credit_ledger_id' },
+    { label: 'Dr Ledger', key: 'debit_ledger_id', filterable: true },
+    { label: 'Cr Ledger', key: 'credit_ledger_id', filterable: true },
     { label: 'KMs', key: 'kilometers' },
     { label: 'Qty (L)', key: 'quantity_filled' },
-    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${v}` : '—' },
-    { label: 'Bill', key: 'total_bill', render: (v) => v ? <span className="font-bold">₹{v}</span> : '—' },
+    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
+    { label: 'Bill', key: 'total_bill', render: (v) => v ? <span className="font-bold">₹{formatAmount(v)}</span> : '—' },
     { label: 'Avg KMPL', key: 'avg_kmpl' },
     { label: 'Remarks', key: 'remarks', render: (v) => v ? <span className="text-slate-600 text-xs">{String(v)}</span> : '—' },
-    { label: 'Action Date', key: 'admin_status_bydate' },
+    { label: 'Action Date', key: 'admin_status_bydate', render: (v) => formatDateTime(v) },
     { label: 'Action By', key: 'admin_status_byname' },
     {
-      label: 'Status', key: 'admin_status',
-      render: (v) => Number(v) === 1
+      label: 'Status', key: 'status_label', filterable: true,
+      render: (_v, r: Record<string, unknown>) => Number(r.admin_status) === 1
         ? <Badge variant="success">Approved</Badge>
-        : Number(v) === 2 ? <Badge variant="danger">Rejected</Badge>
+        : Number(r.admin_status) === 2 ? <Badge variant="danger">Rejected</Badge>
         : <Badge variant="warning">Pending</Badge>,
     },
   ], [])
@@ -97,15 +100,15 @@ export default function FuelReportsPage() {
             <span className="text-slate-600">Total Litres:</span> <b>{totalQty.toFixed(2)} L</b>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Amount:</span> <b>₹{totalBill.toFixed(2)}</b>
+            <span className="text-slate-600">Total Amount:</span> <b>₹{formatAmount(totalBill)}</b>
           </div>
         </div>
       )}
 
       <DataTable
         title="Filtered Fuel Entries"
-        columns={columns}
-        data={rows}
+        columns={columns} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        data={withStatusLabel(rows)}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
@@ -125,11 +128,11 @@ export default function FuelReportsPage() {
               </div>
               <div className="p-6 space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                  <div><b>Date:</b> {String(viewRow.date)}</div>
+                  <div><b>Date:</b> {formatDate(String(viewRow.date ?? ''))}</div>
                   <div><b>Vehicle:</b> {String(viewRow.vehicle_number)}</div>
                   <div><b>Qty:</b> {String(viewRow.quantity_filled)} L</div>
-                  <div><b>Price/L:</b> ₹{String(viewRow.price_per_liter)}</div>
-                  <div><b>Bill:</b> ₹{String(viewRow.total_bill)}</div>
+                  <div><b>Price/L:</b> ₹{formatAmount(viewRow.price_per_liter)}</div>
+                  <div><b>Bill:</b> ₹{formatAmount(viewRow.total_bill)}</div>
                   <div><b>Avg KMPL:</b> {String(viewRow.avg_kmpl)}</div>
                   <div><b>Prev Odo:</b> {String(viewRow.previous_odometer || viewRow.prev_odometer)}</div>
                   <div><b>Present Odo:</b> {String(viewRow.present_odometer)}</div>
@@ -151,7 +154,7 @@ export default function FuelReportsPage() {
                         {((viewRow._accounts as Array<Record<string, unknown>>) || [])
                           .filter((a) => a.account_type === 'Debit Account')
                           .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{String(a.amount)}</td></tr>
+                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{formatAmount(a.amount)}</td></tr>
                           ))}
                       </tbody>
                     </table>
@@ -163,7 +166,7 @@ export default function FuelReportsPage() {
                         {((viewRow._accounts as Array<Record<string, unknown>>) || [])
                           .filter((a) => a.account_type === 'Credit Account')
                           .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{String(a.amount)}</td></tr>
+                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{formatAmount(a.amount)}</td></tr>
                           ))}
                       </tbody>
                     </table>

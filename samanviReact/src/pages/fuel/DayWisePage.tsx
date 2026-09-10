@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
+import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -13,14 +14,10 @@ const weekday = (isoDate: string) => {
   catch { return '' }
 }
 
-const formatDate = (isoDate: string) => {
-  try {
-    const d = new Date(isoDate + 'T00:00:00')
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  } catch { return isoDate }
-}
+// Dates read dd/mm/yy here like everywhere else: formatDate from '@/lib/utils'.
 
 export default function DayWisePage() {
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [fromdate, setFromdate] = useState(today)
   const [applied, setApplied] = useState<string | null>(null)
 
@@ -41,17 +38,18 @@ export default function DayWisePage() {
   // Entry form changes. Target vs single-day quantity wouldn't compare
   // meaningfully against a monthly per-bus target anyway.
   const cols: Column[] = useMemo(() => [
-    { label: 'Ref #', key: 'c_number' },
-    { label: 'Bus No', key: 'vehicle_number' },
-    { label: 'Debit Ledger', key: 'debit_ledger', render: (v) => v ? String(v) : '—' },
-    { label: 'Credit Ledger', key: 'fuel_station', render: (v) => v ? String(v) : '—' },
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Ref #', key: 'c_number', filterable: true },
+    { label: 'Bus No', key: 'vehicle_number', filterable: true },
+    { label: 'Debit Ledger', key: 'debit_ledger', filterable: true, render: (v) => v ? String(v) : '—' },
+    { label: 'Credit Ledger', key: 'fuel_station', filterable: true, render: (v) => v ? String(v) : '—' },
     { label: 'Qty (L)', key: 'quantity_filled', render: (v) => Number(v || 0).toFixed(2) },
-    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${Number(v).toFixed(2)}` : '—' },
-    { label: 'Amount', key: 'total_bill', render: (v) => <span className="font-bold">₹{Number(v || 0).toFixed(2)}</span> },
+    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
+    { label: 'Amount', key: 'total_bill', render: (v) => <span className="font-bold">₹{formatAmount(v)}</span> },
     { label: 'Avg KMPL', key: 'avg_kmpl', render: (v) => v ? String(v) : '—' },
     { label: 'Remarks', key: 'remarks', render: (v) => v ? <span className="text-slate-600 text-xs">{String(v)}</span> : '—' },
-    { label: 'Status', key: 'admin_status', render: (v) => {
-        const s = Number(v)
+    { label: 'Status', key: 'status_label', filterable: true, render: (_v, r: Record<string, unknown>) => {
+        const s = Number(r.admin_status)
         if (s === 1) return <Badge variant="success">Approved</Badge>
         if (s === 2) return <Badge variant="danger">Rejected</Badge>
         return <Badge variant="warning">Pending</Badge>
@@ -91,18 +89,18 @@ export default function DayWisePage() {
             <span className="text-slate-600">Total Litres:</span> <b>{totalQty.toFixed(2)} L</b>
           </div>
           <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Avg Price/L:</span> <b>₹{avgPrice.toFixed(2)}</b>
+            <span className="text-slate-600">Avg Price/L:</span> <b>₹{formatAmount(avgPrice)}</b>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Amount:</span> <b>₹{totalAmount.toFixed(2)}</b>
+            <span className="text-slate-600">Total Amount:</span> <b>₹{formatAmount(totalAmount)}</b>
           </div>
         </div>
       )}
 
       <DataTable
         title="Day Wise Entries"
-        columns={cols}
-        data={applied ? rows : []}
+        columns={cols} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        data={applied ? withStatusLabel(rows) : []}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}

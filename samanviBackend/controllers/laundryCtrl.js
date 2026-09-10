@@ -165,6 +165,7 @@ exports.updateLaundryBillCtrl = function (req, res) {
   var err = validateBill(data);
   if (err) return res.send({ status: 400, message: err });
   lndmdl.updateLaundryBillMdl(data, function (err, results) {
+    if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
     if (err) { console.error('updateLaundryBill failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
   });
@@ -175,6 +176,7 @@ exports.deletelaundrybillCtrl = function (req, res) {
   try { data = readBody(req); } catch (e) { return res.status(400).send({ status: 400, message: e.message }); }
   if (!data.c_number) return res.send({ status: 400, message: 'c_number is required' });
   lndmdl.deleteLaundryBillMdl(data, function (err, results) {
+    if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
     if (err) { console.error('deleteLaundryBill failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
   });

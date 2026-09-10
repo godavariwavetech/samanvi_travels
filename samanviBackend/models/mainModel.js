@@ -14912,7 +14912,15 @@ exports.deleteTyrePositionMasterMdl = function (data, callback) {
 exports.getlaundryapproveddataMdl = function (callback) {
   var cntxtDtls = "in getlaundryapproveddataMdl";
   // var QRY_TO_EXEC = `select * from  laundrybill_maint  where  d_in=0 and admin_status=1 ORDER BY laundrybill_maint.voucherdate DESC;`;
-  var QRY_TO_EXEC = `  SELECT c_number,name,date,admin_status,SUM(totalamount) AS totalamount FROM laundrybill_maint WHERE d_in = 0 GROUP BY c_number,name,date,admin_status;`;
+  // Approved bills only (the page is titled Approved Vouchers), one row per
+  // bill, named the way LaundryApprovedPage renders them. It used to return
+  // every status under other column names, so the page listed pending and
+  // rejected bills with blank cells.
+  var QRY_TO_EXEC = `SELECT c_number AS bill_no, MIN(name) AS vendor_name, MIN(COALESCE(voucherdate, date)) AS bill_date,
+      COUNT(*) AS item_count, SUM(CAST(totalamount AS DECIMAL(15,2))) AS total_amount,
+      MIN(admin_action_name) AS approved_by, MIN(admin_action_date) AS approved_on, MIN(admin_status) AS admin_status
+    FROM laundrybill_maint WHERE d_in = 0 AND admin_status = 1
+    GROUP BY c_number ORDER BY MIN(COALESCE(voucherdate, date)) DESC;`;
 
   if (callback && typeof callback == "function")
     dbutil.execQuery(

@@ -6,6 +6,7 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, 
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
+import { formatDate, formatAmount } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 
@@ -21,6 +22,7 @@ function monthBounds(d = new Date()) {
 }
 
 export default function TargetReportPage() {
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState({ ...monthBounds(), bus_no: '' })
   const [applied, setApplied] = useState<typeof filter | null>(null)
 
@@ -43,11 +45,12 @@ export default function TargetReportPage() {
   const totalVariance = totalConsumed - totalTarget
 
   const cols: Column[] = useMemo(() => [
-    { label: 'Bus No', key: 'bus_no', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Bus No', key: 'bus_no', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
     { label: 'Target (L/mo)', key: 'target_liters', render: (v) => v ? `${Number(v).toFixed(2)} L` : <span className="text-slate-400">— no target —</span> },
     { label: 'Consumed (L)', key: 'consumed_liters', render: (v) => <span className="font-medium">{Number(v || 0).toFixed(2)} L</span> },
     { label: 'Fills', key: 'fill_count' },
-    { label: 'Total Bill', key: 'total_bill', render: (v) => v ? `₹${Number(v).toFixed(2)}` : '—' },
+    { label: 'Total Bill', key: 'total_bill', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
     {
       label: 'Variance', key: 'target_liters',
       render: (_v, r: Record<string, unknown>) => {
@@ -127,7 +130,7 @@ export default function TargetReportPage() {
 
       <DataTable
         title="Bus Wise Target vs Actual"
-        columns={cols}
+        columns={cols} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
         data={applied ? rows : []}
         loading={isLoading}
         onAction={() => {}}
