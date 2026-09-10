@@ -9,7 +9,7 @@ import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, 
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { excelCellToISODate } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 type DataType = string
@@ -443,9 +443,11 @@ const DRIVER_DATE_KEYS = new Set([
   'dl_expiry_date', 'transportoneissuedate', 'transportvalidityfrom', 'transportvalidityto',
 ])
 
-// Column order mirrors each type's Add-form field order exactly.
+// Column order mirrors each type's Add-form field order exactly. Driver and
+// Helper sheets open with the person's ID: it is decided by whoever fills the
+// sheet and imported as written, never generated on upload.
 const DRIVER_TEMPLATE_HEADERS = [
-  'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
+  'Driver ID*', 'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
   'Emergency Number', 'Date of Joining*', 'Referred By', 'Address',
   'DL Name*', 'DL Number*', 'DL Date of Birth', 'DL Linked Mobile Number',
   'DL Issue Date*', 'DL Issued By', 'DL Expiry Date*',
@@ -460,7 +462,7 @@ const STAFF_TEMPLATE_HEADERS = [
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
 ]
 const HELPER_TEMPLATE_HEADERS = [
-  'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
+  'Helper ID*', 'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
   'Mobile Number*', 'Alternate Number', 'Emergency Mobile', 'Date of Joining*',
   'Reference*', 'Address', 'Account Holder Name*', 'Account Number*',
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
@@ -645,9 +647,9 @@ export default function StaffPage() {
     const headers = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS
       : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
     const sample = dataType === 'Driver'
-      ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['D0001', 'Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : dataType === 'Helper'
-      ? ['Ramesh Kumar', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['H0001', 'Ramesh Kumar', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : ['Manager', 'Suresh', 'Suresh Kumar', '987654321012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
     downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
   }
@@ -657,7 +659,7 @@ export default function StaffPage() {
     let rows: any[][] = []
     if (dataType === 'Driver') {
       rows = driverList.map(r => [
-        r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
+        r.driver_id_number ?? '', r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
         r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.date_of_joining ?? '',
         r.reference ?? '', r.address ?? '', r.driver_name ?? '', r.dl_number ?? '',
         r.dl_dob ?? '', r.dl_linked_mobile ?? '',
@@ -669,7 +671,7 @@ export default function StaffPage() {
       downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
     } else if (dataType === 'Helper') {
       rows = helperList.map(r => [
-        r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
+        r.helper_id_number ?? '', r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
         r.mobile_number ?? '', r.alternate_number ?? '', r.emergency_mobile_number ?? '',
         r.date_of_joining ?? '', r.reference ?? '', r.address ?? '',
         r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
@@ -703,37 +705,55 @@ export default function StaffPage() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found'); return }
+      // The sheet must be the current template: an older Driver / Helper sheet
+      // without the ID column would parse cleanly with every value one field to
+      // the left, and nothing would say so until the records were wrong.
+      const expectedHeaders = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
+      const mismatch = headerRowMismatch(raw[0] ?? [], expectedHeaders)
+      if (mismatch) {
+        toast.error(`This does not look like the ${dataType} sheet. ${mismatch}. Download the latest template and fill that in.`)
+        return
+      }
       const [, ...dataRows] = raw
       let rows: { payload: Record<string, any>; key: string }[]
+      // Driver / Helper rows with no ID are left out and counted, so the person
+      // filling the sheet hears that the ID is theirs to give.
+      let missingId = 0
+      const cell = (r: any[], i: number) => String(r[i] ?? '').trim()
       if (dataType === 'Driver') {
-        rows = dataRows.filter(r => r && String(r[0] ?? '').trim() && String(r[9] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => {
+          if (!r || !cell(r, 1) || !cell(r, 10)) return false
+          if (!cell(r, 0)) { missingId++; return false }
+          return true
+        }).map(r => {
           const payload = {
-            nickname: String(r[0] ?? '').trim(),
-            aadhar_number: String(r[1] ?? '').trim() || null,
-            dldateofbirth: excelCellToISODate(r[2]) || null,
-            mobile_number: String(r[3] ?? '').trim(),
-            alternate_number: String(r[4] ?? '').trim() || null,
-            emergency_mobile_number: String(r[5] ?? '').trim() || null,
-            date_of_joining: excelCellToISODate(r[6]) || null,
-            reference: String(r[7] ?? '').trim() || null,
-            address: String(r[8] ?? '').trim() || null,
-            driver_name: String(r[9] ?? '').trim(),
-            dl_number: String(r[10] ?? '').trim() || null,
-            dl_dob: excelCellToISODate(r[11]) || null,
-            dl_linked_mobile: String(r[12] ?? '').trim() || null,
-            drivinglicense_joining_date: excelCellToISODate(r[13]) || null,
-            dl_issued_by: String(r[14] ?? '').trim() || null,
-            dl_expiry_date: excelCellToISODate(r[15]) || null,
-            transportoneissuedate: excelCellToISODate(r[16]) || null,
-            transportvalidityfrom: excelCellToISODate(r[17]) || null,
-            transportvalidityto: excelCellToISODate(r[18]) || null,
-            account_holder_name: String(r[19] ?? '').trim() || null,
-            account_number: String(r[20] ?? '').trim() || null,
-            bank_name: String(r[21] ?? '').trim() || null,
-            branch_name: String(r[22] ?? '').trim() || null,
-            ifsc_code: String(r[23] ?? '').trim() || null,
-            upi_id: String(r[24] ?? '').trim() || null,
-            remarks: String(r[25] ?? '').trim() || null,
+            driver_id_number: cell(r, 0).toUpperCase(),
+            nickname: cell(r, 1),
+            aadhar_number: cell(r, 2) || null,
+            dldateofbirth: excelCellToISODate(r[3]) || null,
+            mobile_number: cell(r, 4),
+            alternate_number: cell(r, 5) || null,
+            emergency_mobile_number: cell(r, 6) || null,
+            date_of_joining: excelCellToISODate(r[7]) || null,
+            reference: cell(r, 8) || null,
+            address: cell(r, 9) || null,
+            driver_name: cell(r, 10),
+            dl_number: cell(r, 11) || null,
+            dl_dob: excelCellToISODate(r[12]) || null,
+            dl_linked_mobile: cell(r, 13) || null,
+            drivinglicense_joining_date: excelCellToISODate(r[14]) || null,
+            dl_issued_by: cell(r, 15) || null,
+            dl_expiry_date: excelCellToISODate(r[16]) || null,
+            transportoneissuedate: excelCellToISODate(r[17]) || null,
+            transportvalidityfrom: excelCellToISODate(r[18]) || null,
+            transportvalidityto: excelCellToISODate(r[19]) || null,
+            account_holder_name: cell(r, 20) || null,
+            account_number: cell(r, 21) || null,
+            bank_name: cell(r, 22) || null,
+            branch_name: cell(r, 23) || null,
+            ifsc_code: cell(r, 24) || null,
+            upi_id: cell(r, 25) || null,
+            remarks: cell(r, 26) || null,
           }
           return { payload, key: payload.driver_name }
         })
@@ -762,28 +782,34 @@ export default function StaffPage() {
           return { payload, key: payload.fullName }
         })
       } else {
-        rows = dataRows.filter(r => r && String(r[0] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => {
+          if (!r || !cell(r, 1)) return false
+          if (!cell(r, 0)) { missingId++; return false }
+          return true
+        }).map(r => {
           const payload = {
-            helper_name: String(r[0] ?? '').trim(),
-            adhar_number: String(r[1] ?? '').trim() || null,
-            dob: excelCellToISODate(r[2]) || null,
-            mobile_number: String(r[3] ?? '').trim(),
-            alternate_number: String(r[4] ?? '').trim() || null,
-            emergency_mobile_number: String(r[5] ?? '').trim() || null,
-            date_of_joining: excelCellToISODate(r[6]) || null,
-            reference: String(r[7] ?? '').trim() || null,
-            address: String(r[8] ?? '').trim() || null,
-            account_holder_name: String(r[9] ?? '').trim() || null,
-            account_number: String(r[10] ?? '').trim() || null,
-            bank_name: String(r[11] ?? '').trim() || null,
-            branch_name: String(r[12] ?? '').trim() || null,
-            ifsc_code: String(r[13] ?? '').trim() || null,
-            upi_id: String(r[14] ?? '').trim() || null,
-            remarks: String(r[15] ?? '').trim() || null,
+            helper_id_number: cell(r, 0).toUpperCase(),
+            helper_name: cell(r, 1),
+            adhar_number: cell(r, 2) || null,
+            dob: excelCellToISODate(r[3]) || null,
+            mobile_number: cell(r, 4),
+            alternate_number: cell(r, 5) || null,
+            emergency_mobile_number: cell(r, 6) || null,
+            date_of_joining: excelCellToISODate(r[7]) || null,
+            reference: cell(r, 8) || null,
+            address: cell(r, 9) || null,
+            account_holder_name: cell(r, 10) || null,
+            account_number: cell(r, 11) || null,
+            bank_name: cell(r, 12) || null,
+            branch_name: cell(r, 13) || null,
+            ifsc_code: cell(r, 14) || null,
+            upi_id: cell(r, 15) || null,
+            remarks: cell(r, 16) || null,
           }
           return { payload, key: payload.helper_name }
         })
       }
+      if (missingId > 0) toast.warning(`${missingId} row${missingId !== 1 ? 's' : ''} left out — ${dataType} ID is required; fill it in on the sheet`)
       if (rows.length === 0) { toast.error('No valid rows (required field is empty)'); return }
       const existingList = dataType === 'Driver' ? driverList : dataType === 'Helper' ? helperList : staffList
       const existingKeyField = dataType === 'Driver' ? 'driver_name' : dataType === 'Helper' ? 'helper_name' : 'fullName'
@@ -807,6 +833,9 @@ export default function StaffPage() {
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadStaff({ type: previewType, rows, user_id: uid, usr_nm: unm })
       if (res.status === 200) {
+        // An ID problem (missing, repeated, or already another person's) stops
+        // the whole import before anything is written; the preview stays up.
+        if (res.data?.error) { toast.error(res.data.error); return }
         const { inserted, updated = 0, total } = res.data
         qc.invalidateQueries({ queryKey: ['active-staff'] })
         qc.invalidateQueries({ queryKey: ['drivers'] })
