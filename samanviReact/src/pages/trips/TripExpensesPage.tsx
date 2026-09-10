@@ -1894,12 +1894,18 @@ export default function TripExpensesPage() {
                     {isVanTrip && (<>
                       <div><Label>Line Code</Label><Input value={String(modal.row?.line_code ?? '')} readOnly disabled /></div>
                       <div><Label>Status</Label><Input value={String(modal.row?.trip_run_status || 'Running')} readOnly disabled /></div>
-                      <div><Label>Hirer</Label><Input value={String(modal.row?.hirer_name ?? '')} readOnly disabled /></div>
-                      <div><Label>Hirer Mobile</Label><Input value={String(modal.row?.phone_number ?? '')} readOnly disabled /></div>
-                      <div>
-                        <Label>{vanAmountLabel(modal.row)}</Label>
-                        <Input value={num(modal.row?.booking_amount) > 0 ? num(modal.row?.booking_amount).toLocaleString('en-IN') : ''} readOnly disabled />
-                      </div>
+                      {/* Only a hired van has a hirer, and only a hired van or an
+                          opting driver carries an amount; an own van shows neither. */}
+                      {vanHired && (<>
+                        <div><Label>Hirer</Label><Input value={String(modal.row?.hirer_name ?? '')} readOnly disabled /></div>
+                        <div><Label>Hirer Mobile</Label><Input value={String(modal.row?.phone_number ?? '')} readOnly disabled /></div>
+                      </>)}
+                      {num(modal.row?.booking_amount) > 0 && (
+                        <div>
+                          <Label>{vanAmountLabel(modal.row)}</Label>
+                          <Input value={num(modal.row?.booking_amount).toLocaleString('en-IN')} readOnly disabled />
+                        </div>
+                      )}
                     </>)}
                   </div>
 
@@ -2232,8 +2238,8 @@ export default function TripExpensesPage() {
                   {viewIsVan && (<>
                     <div><p className="text-[10px] font-bold uppercase text-slate-400">Line Code</p><p className="text-sm font-medium">{viewModal.row?.line_code || '—'}</p></div>
                     <div><p className="text-[10px] font-bold uppercase text-slate-400">Status</p><p className="text-sm font-medium">{viewModal.row?.trip_run_status || 'Running'}</p></div>
-                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Hirer</p><p className="text-sm font-medium">{viewModal.row?.hirer_name || '—'}</p>{viewModal.row?.phone_number && <p className="text-[11px] text-slate-400">{viewModal.row.phone_number}</p>}</div>
-                    <div><p className="text-[10px] font-bold uppercase text-slate-400">{vanAmountLabel(viewModal.row)}</p><p className="text-sm font-medium">{num(viewModal.row?.booking_amount) > 0 ? `₹${num(viewModal.row?.booking_amount).toLocaleString('en-IN')}` : '—'}</p></div>
+                    {viewHired && <div><p className="text-[10px] font-bold uppercase text-slate-400">Hirer</p><p className="text-sm font-medium">{viewModal.row?.hirer_name || '—'}</p>{viewModal.row?.phone_number && <p className="text-[11px] text-slate-400">{viewModal.row.phone_number}</p>}</div>}
+                    {num(viewModal.row?.booking_amount) > 0 && <div><p className="text-[10px] font-bold uppercase text-slate-400">{vanAmountLabel(viewModal.row)}</p><p className="text-sm font-medium">₹{num(viewModal.row?.booking_amount).toLocaleString('en-IN')}</p></div>}
                     {viewModal.row?.voucher_number && <div><p className="text-[10px] font-bold uppercase text-slate-400">Hire Voucher</p><p className="text-sm font-medium">{viewModal.row.voucher_number}</p>{(viewModal.row.hire_debit_ledger_name || viewModal.row.hire_credit_ledger_name) && <p className="text-[11px] text-slate-400">{String(viewModal.row.hire_debit_ledger_name ?? '—')} → {String(viewModal.row.hire_credit_ledger_name ?? '—')}</p>}</div>}
                   </>)}
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Expense Filed' : 'Amount'}</p><p className="text-sm font-bold text-slate-900">₹{Number(viewModal.row?.grantotal ?? 0).toLocaleString('en-IN')}</p></div>

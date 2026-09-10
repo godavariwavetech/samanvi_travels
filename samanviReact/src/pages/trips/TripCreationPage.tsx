@@ -515,10 +515,15 @@ export default function TripCreationPage() {
   // complete on its own — the same rule the Bus grid gives a halted route.
   const vanHalted = (row: VanRow) => row.status === 'Halt'
   const vanAmountActive = (row: VanRow) => !vanHalted(row) && (isHireBus(row.bus_no) || isOptingName(row.driver_name))
+  // The hirer - who the vehicle is taken from - only exists on a hired van, so
+  // the name and mobile are live and required there alone; an own van has
+  // nobody to name and those cells go inactive, like Amount and Pay To Ledger.
+  const vanHirerActive = (row: VanRow) => !vanHalted(row) && isHireBus(row.bus_no)
   const vanRowReady = (row: VanRow | undefined) => {
     if (!row) return false
     if (vanHalted(row)) return true
-    if (!row.bus_no || !row.hirer_name) return false
+    if (!row.bus_no) return false
+    if (vanHirerActive(row) && !row.hirer_name) return false
     if (!vanAmountActive(row)) return !!row.driver_name
     if (Number(row.amount) <= 0) return false
     // A hired van's charge is posted as a Journal, so it needs the ledger it is
@@ -542,7 +547,7 @@ export default function TripCreationPage() {
           service_no: route.serviceNo, service_no_id: String(route.id),
           trip_for: route.serviceFor, trip_for_id: route.service_for_id,
           driver1_id: halted ? '' : row.driver_id, driver1_name: halted ? '' : row.driver_name,
-          hirer_name: halted ? '' : row.hirer_name, phone_number: halted ? '' : row.phone_number,
+          hirer_name: vanHirerActive(row) ? row.hirer_name : '', phone_number: vanHirerActive(row) ? row.phone_number : '',
           booking_amount: vanAmountActive(row) ? row.amount : '',
           // Hire charge on a hired van: Hire vehicle charges debited against the
           // ledger picked on the row. The backend posts the Journal from these
@@ -609,6 +614,7 @@ export default function TripCreationPage() {
   // A halted van has no driver, hirer or amount here either.
   const editHalted = editRow?.vehicle_type === 'van' && editForm.trip_run_status === 'Halt'
   const editAmountActive = !editHalted && (isHireBus(editForm.bus_no) || isOptingName(editForm.driver1_name))
+  const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
@@ -628,7 +634,7 @@ export default function TripCreationPage() {
         updated_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
       }
       return tripsService.updateTrip(isVan
-        ? { ...common, hirer_name: editHalted ? '' : editForm.hirer_name, phone_number: editHalted ? '' : editForm.phone_number, line_code: editForm.line_code,
+        ? { ...common, hirer_name: editHirerActive ? editForm.hirer_name : '', phone_number: editHirerActive ? editForm.phone_number : '', line_code: editForm.line_code,
             booking_amount: editAmountActive ? editForm.booking_amount : '' }
         : { ...common,
             driver2_id: editForm.driver2_id, driver2_name: editForm.driver2_name,
@@ -783,6 +789,7 @@ export default function TripCreationPage() {
                           const hired = isHireBus(row.bus_no)
                           const halted = vanHalted(row)
                           const amountActive = vanAmountActive(row)
+                          const hirerActive = vanHirerActive(row)
                           return (
                             // A hired van is tinted so a sheet of mixed rows shows at
                             // a glance which trips are bought in rather than run by us.
@@ -841,14 +848,14 @@ export default function TripCreationPage() {
                                 )}
                               </td>
                               <td className="py-2 px-3">
-                                <Input value={halted ? '' : row.hirer_name} disabled={halted}
+                                <Input value={hirerActive ? row.hirer_name : ''} disabled={!hirerActive}
                                   onChange={(e) => updateVanRow(r.id, { hirer_name: e.target.value })}
-                                  placeholder={halted ? '—' : 'Name'} className="h-11 text-sm" />
+                                  placeholder={hirerActive ? 'Name' : '—'} className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
-                                <Input inputMode="numeric" maxLength={10} value={halted ? '' : row.phone_number} disabled={halted}
+                                <Input inputMode="numeric" maxLength={10} value={hirerActive ? row.phone_number : ''} disabled={!hirerActive}
                                   onChange={(e) => updateVanRow(r.id, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                                  placeholder={halted ? '—' : 'Mobile'} className="h-11 text-sm" />
+                                  placeholder={hirerActive ? 'Mobile' : '—'} className="h-11 text-sm" />
                               </td>
                               <td className="py-2 px-3">
                                 <Input type="number" value={amountActive ? row.amount : ''} disabled={!amountActive}
@@ -1151,14 +1158,14 @@ export default function TripCreationPage() {
                       <Input value={editForm.line_code} onChange={(e) => patchEdit({ line_code: e.target.value })} />
                     </div>
                     <div>
-                      <Label>Hirer Name {!editHalted && <span className="text-red-500">*</span>}</Label>
-                      <Input value={editHalted ? '' : editForm.hirer_name} disabled={editHalted}
-                        placeholder={editHalted ? '—' : ''} onChange={(e) => patchEdit({ hirer_name: e.target.value })} />
+                      <Label>Hirer Name {editHirerActive && <span className="text-red-500">*</span>}</Label>
+                      <Input value={editHirerActive ? editForm.hirer_name : ''} disabled={!editHirerActive}
+                        placeholder={editHirerActive ? '' : '—'} onChange={(e) => patchEdit({ hirer_name: e.target.value })} />
                     </div>
                     <div>
                       <Label>Phone Number</Label>
-                      <Input value={editHalted ? '' : editForm.phone_number} disabled={editHalted}
-                        placeholder={editHalted ? '—' : ''} onChange={(e) => patchEdit({ phone_number: e.target.value })} />
+                      <Input value={editHirerActive ? editForm.phone_number : ''} disabled={!editHirerActive}
+                        placeholder={editHirerActive ? '' : '—'} onChange={(e) => patchEdit({ phone_number: e.target.value })} />
                     </div>
                     <div>
                       <Label>Amount {editAmountActive && <span className="text-red-500">*</span>}</Label>
@@ -1248,7 +1255,7 @@ export default function TripCreationPage() {
                   onClick={() => saveEdit()}
                   disabled={savingEdit || !editForm.bus_no ||
                     (editRow.vehicle_type === 'van'
-                      ? (!editForm.hirer_name || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name))
+                      ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name))
                       : (!editForm.driver1_name && !editForm.opt_driver1_name))}
                 >
                   <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}
