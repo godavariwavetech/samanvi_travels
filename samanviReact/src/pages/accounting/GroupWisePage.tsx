@@ -53,6 +53,8 @@ interface TableRow {
   credit: number
   closing: number
   group: string   // immediate parent group name
+  // Section the row sits in (masters district id): decides what a sign means.
+  district_id: string
 }
 
 interface SearchItem {
@@ -407,7 +409,11 @@ export default function GroupWisePage() {
   const rowOf = (n: GWNode, group: string): TableRow => ({
     id: n.id, name: n.name, type: n.nodeType === 'group' ? 'Group' : 'Ledger',
     total: n.totalAmount, opening: n.opening, debit: n.debit, credit: n.credit, closing: n.closing, group,
+    district_id: String(n.district_id ?? ''),
   })
+  // Every row on the table comes from the one section picked above, so the
+  // totals row reads its signs the same way the rows do.
+  const tableDistrict = tableRows[0]?.district_id ?? ''
 
   // Selecting a financial year refetches the transaction totals (sectionMap
   // recomputes from the new amounts), but tableRows is only ever set by
@@ -426,15 +432,22 @@ export default function GroupWisePage() {
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
   const FILTER_KEYS = ['name', 'type', 'opening', 'debit', 'credit', 'closing'] as const
-  const drCr = (n: number) => `${n < 0 ? '(' : ''}₹${fmtAmt(n)}${n < 0 ? ')' : ''} ${n < 0 ? 'Cr' : 'Dr'}`
+  // parseTxAmt makes a positive figure the section's natural balance - a debit
+  // for Assets and Expenses, a CREDIT for Liabilities and Income - so the Dr/Cr
+  // tag has to read the sign the way the section does. Tagging every positive
+  // figure Dr showed a Payables credit balance as Dr and its debit as Cr, the
+  // opposite of what Ledger Wise and the voucher screens say for the same money.
+  const isCreditSection = (did: string) => did === '2' || did === '3'
+  const balanceTag = (n: number, did: string) => ((n < 0) !== isCreditSection(did) ? 'Cr' : 'Dr')
+  const drCr = (n: number, did: string) => `${n < 0 ? '(' : ''}₹${fmtAmt(n)}${n < 0 ? ')' : ''} ${balanceTag(n, did)}`
   const colValue = useCallback((row: TableRow, key: string): string => {
     switch (key) {
       case 'name': return row.name || '-'
       case 'type': return row.type || '-'
-      case 'opening': return drCr(row.opening)
+      case 'opening': return drCr(row.opening, row.district_id)
       case 'debit': return `₹${fmtAmt(row.debit)}`
       case 'credit': return `₹${fmtAmt(row.credit)}`
-      case 'closing': return drCr(row.closing)
+      case 'closing': return drCr(row.closing, row.district_id)
       default: return ''
     }
   }, [])
@@ -759,15 +772,15 @@ export default function GroupWisePage() {
 
   // A balance shown the way the Total Amount column always was: brackets and
   // red for a credit figure, Dr / Cr tagged on.
-  const balanceText = (n: number) => (
+  const balanceText = (n: number, did: string) => (
     <>
       {n < 0 ? '(' : ''}₹{fmtAmt(n)}{n < 0 ? ')' : ''}
-      <span className="ml-1 text-[10px] font-bold align-middle">{n < 0 ? 'Cr' : 'Dr'}</span>
+      <span className="ml-1 text-[10px] font-bold align-middle">{balanceTag(n, did)}</span>
     </>
   )
-  const balanceCell = (n: number) => (
+  const balanceCell = (n: number, did: string) => (
     n === 0 ? <span className="text-slate-300 font-normal">—</span>
-      : <span className={n < 0 ? 'text-red-500' : 'text-slate-800'}>{balanceText(n)}</span>
+      : <span className={n < 0 ? 'text-red-500' : 'text-slate-800'}>{balanceText(n, did)}</span>
   )
 
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
@@ -1060,7 +1073,7 @@ export default function GroupWisePage() {
                     {/* Opening and closing keep the section's Dr/Cr reading;
                         debit and credit are the plain period totals. */}
                     <td className="px-4 py-2.5 border-b border-slate-100 text-right font-semibold tabular-nums">
-                      {balanceCell(row.opening)}
+                      {balanceCell(row.opening, row.district_id)}
                     </td>
                     <td className="px-4 py-2.5 border-b border-slate-100 text-right tabular-nums text-slate-700">
                       {row.debit ? `₹${fmtAmt(row.debit)}` : <span className="text-slate-300">—</span>}
@@ -1069,7 +1082,7 @@ export default function GroupWisePage() {
                       {row.credit ? `₹${fmtAmt(row.credit)}` : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-4 py-2.5 border-b border-slate-100 text-right font-bold tabular-nums">
-                      {balanceCell(row.closing)}
+                      {balanceCell(row.closing, row.district_id)}
                     </td>
                   </tr>
                 ))}
@@ -1079,10 +1092,10 @@ export default function GroupWisePage() {
                   <td colSpan={2} className="px-4 py-3 text-right text-xs font-bold text-amber-700 uppercase tracking-wide">
                     Grand Total
                   </td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(tableTotals.opening)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(tableTotals.opening, tableDistrict)}</td>
                   <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(tableTotals.debit)}</td>
                   <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(tableTotals.credit)}</td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(tableTotals.closing)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(tableTotals.closing, tableDistrict)}</td>
                 </tr>
               </tfoot>
             </table>
