@@ -7,6 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
+import { isVanVehicleType } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 
@@ -194,6 +195,11 @@ export default function TripExpensesPage() {
   // Set when the user unticks Paid To — they want to place the leftover on some
   // other ledger by hand, so the auto-derived Paid To row stops coming back.
   const [paidToOptedOut, setPaidToOptedOut] = useState(false)
+  // Name of the owner ledger the Credit side was filled with for a hired van
+  // (see openAdd), so the hire notice can say what was done for the user.
+  const [hireCreditSeeded, setHireCreditSeeded] = useState('')
+  // Likewise the Opting Driver ledger credited for an opting driver's pay on a van.
+  const [vanOptingSeeded, setVanOptingSeeded] = useState('')
 
   // View modal
   const [viewModal, setViewModal] = useState<{ open: boolean; row: any; debit: any[]; credit: any[]; loading: boolean; ledgerIds: Partial<Record<PersonKey, string>> }>(
@@ -324,6 +330,20 @@ export default function TripExpensesPage() {
   // what the screen calls the amounts, and relaxes the "every beta is required"
   // rule for a seat nobody was assigned to.
   const isHalt = String(modal.row?.trip_run_status ?? '') === 'Halt'
+  // A van trip is a charter with one driver at most and no per-seat betas or
+  // opting salaries (a van service number carries no rates), so the crew grid
+  // shrinks to Driver1 and the beta boxes come away. A hired van has no driver
+  // of ours at all: what it costs is the hire charge, posted Hire vehicle
+  // charges -> the van owner's ledger (Bus Masters > Hire form), so both sides
+  // are filled in rather than picked by hand. Same hire rule as Trip Creation.
+  const isVanTrip = String(modal.row?.vehicle_type ?? '').toLowerCase() === 'van'
+  const vehicleOf = (busNo: string) => buses.find((b: any) => String(b.bus_no) === String(busNo))
+  const isHireVehicle = (busNo: string) => String(vehicleOf(busNo)?.bus_category ?? '') === 'hire'
+  const vanHired = isVanTrip && isHireVehicle(form.bus_no || String(modal.row?.bus_no ?? ''))
+  // A van trip picks from vans, a bus trip from the whole fleet as before.
+  const vehicleOptions = isVanTrip
+    ? buses.filter((b: any) => isVanVehicleType(b.vehicle_type) || String(b.bus_no) === form.bus_no)
+    : buses
   const seatHasPerson = (seat: OptingSeat | 'conductor'): boolean => !!String(
     seat === 'driver1' ? form.driver1_id : seat === 'driver2' ? form.driver2_id
       : seat === 'helper' ? form.helper_id : form.conductor_id)
@@ -707,7 +727,7 @@ export default function TripExpensesPage() {
   // typed for a held seat is left alone.
   const seatBetaPatch = (seat: OptingSeat, filled: boolean): Record<string, string> => {
     const key = SEAT_FIELDS[seat].beta
-    if (!filled) return { [key]: '' }
+    if (!filled || isVanTrip) return { [key]: '' }
     if (String(form[key] ?? '')) return {}
     const r = rateRef.current
     if (!r) return {}
@@ -716,6 +736,7 @@ export default function TripExpensesPage() {
     return { [key]: r.halted ? String(r.haltRate || '') : String(running ?? '') }
   }
   const seatFields = (seat: OptingSeat) => {
+    if (isVanTrip) return null
     const f = SEAT_FIELDS[seat]
     const filled = seatFilled(seat)
     return (
@@ -790,7 +811,7 @@ export default function TripExpensesPage() {
   }
 
   // ── Modal open/close ─────────────────────────────────────────────────────
-  const closeModal = () => { rateRef.current = null; setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}); setPaidToOptedOut(false) }
+  const closeModal = () => { rateRef.current = null; setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}); setPaidToOptedOut(false); setHireCreditSeeded(''); setVanOptingSeeded('') }
 
   const openAdd = async (row: any) => {
     setModal({ mode: 'add', row })
@@ -800,6 +821,8 @@ export default function TripExpensesPage() {
     setCreditRows([emptyLedgerRow()])
     setResolvedLedgerIds({})
     setPaidToOptedOut(false)
+    setHireCreditSeeded('')
+    setVanOptingSeeded('')
     setForm({
       ...emptyForm(),
       id: String(row.id ?? ''), trip_creation_id: String(row.trip_creation_id ?? row.id ?? ''),
@@ -831,13 +854,17 @@ export default function TripExpensesPage() {
     // seed with nothing, the user is told to type the betas, and everything
     // else sets up as usual.
     const rateRow = res?.data?.[0]
-    if (!rateRow && String(row.trip_run_status ?? '') !== 'Halt') {
+    // A van trip pays no per-seat beta and no opting salary (see isVanTrip), so
+    // every seat seeds empty and only parking and the hire charge remain - and
+    // a van service number having no rate row is nothing to warn about.
+    const van = String(row.vehicle_type ?? '').toLowerCase() === 'van'
+    if (!rateRow && !van && String(row.trip_run_status ?? '') !== 'Halt') {
       toast.warning(`No rates found for service ${row.service_no ?? ''} — enter the betas by hand`)
     }
     const rate = rateRow ?? {}
     {
-      const optDriverRate = optRate(rate, 'Driver')
-      const optHelperRate = optRate(rate, 'Helper')
+      const optDriverRate = van ? 0 : optRate(rate, 'Driver')
+      const optHelperRate = van ? 0 : optRate(rate, 'Helper')
       const d1Opting = seatIsOpting(row.driver1_id, row.driver1_name, row.opt_driver1_id)
       const d2Opting = seatIsOpting(row.driver2_id, row.driver2_name, row.opt_driver2_id)
       const hOpting = seatIsOpting(row.helper_id, row.helper_name, row.opt_helper_id)
@@ -853,6 +880,7 @@ export default function TripExpensesPage() {
       const haltRate = num(haltRes?.data?.halt_beta)
       rateRef.current = { halted, haltRate, rate }
       const seatRate = (assignedId: any, opting: boolean, running: any) => {
+        if (van) return ''
         if (!String(assignedId ?? '') && !opting) return ''
         return halted ? String(haltRate || '') : String(running ?? '')
       }
@@ -952,6 +980,48 @@ export default function TripExpensesPage() {
       if (remainder > 0 && paidToLedger) {
         seeded.push({ ledger: toLedgerObj(paidToLedger), amount: String(remainder), personKey: 'paidTo' })
       }
+      // A hired van's charge is owed to the van's owner - the ledger named on
+      // its Hire form in Bus Masters, or failing that the one the trip was
+      // posted with - so the Credit side is filled in to match the Hire vehicle
+      // charges debit seeded below, instead of being picked by hand every time.
+      // The booking amount on a van trip is one of two things (see VanRow in
+      // Trip Creation): the hire charge on a hired van, or the pay of an opting
+      // driver covering our own van. They post differently, so the vehicle
+      // decides which - a hired van has no driver of ours, so its amount is
+      // never an opting pay, and an own van's amount is never a hire.
+      const bookAmt = num(row.booking_amount)
+      const vanHiredVeh = van && isHireVehicle(row.bus_no)
+      const vanOptingDrv = van && !vanHiredVeh && d1Opting
+      const hireAmt = van && !vanHiredVeh ? 0 : bookAmt
+      const hirePosted = !!row.voucher_number
+      let hireCreditName = ''
+      if (vanHiredVeh && hireAmt > 0 && !hirePosted) {
+        const vehicle = buses.find((b: any) => String(b.bus_no) === String(row.bus_no))
+        const ownerId = String(vehicle?.owner_ledger_id || row.hire_credit_ledger_id || '')
+        const owner = ownerId ? findLedger(ownerId) : null
+        if (owner) {
+          seeded.push({ ledger: toLedgerObj(owner), amount: String(hireAmt) })
+          hireCreditName = String(owner.temple_name ?? '')
+        }
+      }
+      setHireCreditSeeded(hireCreditName)
+      // An opting driver's pay on our own van is salary: Salaries debited and
+      // the shared Opting Driver ledger credited, both for the booking amount.
+      // Untagged like the hire rows, so the beta re-price never touches them.
+      let optingCreditName = ''
+      let optingSalaryRow: LedgerRow | null = null
+      if (vanOptingDrv && bookAmt > 0) {
+        const optingLedger = findOptingLedger('optingDriver') ?? await ensureOptingLedger('optingDriver')
+        const salaryLedger = findExpenseLedger('salary')
+        if (optingLedger && salaryLedger) {
+          seeded.push({ ledger: toLedgerObj(optingLedger), amount: String(bookAmt) })
+          optingSalaryRow = { ledger: toLedgerObj(salaryLedger), amount: String(bookAmt) }
+          optingCreditName = String(optingLedger.temple_name ?? '')
+        } else {
+          toast.error(`Ledger not found: ${!salaryLedger ? EXPENSE_LEDGERS.salary.name : OPTING_LABEL.optingDriver} — pick the ledgers for the opting driver's pay by hand`)
+        }
+      }
+      setVanOptingSeeded(optingCreditName)
       if (seeded.length) setCreditRows(seeded)
       const derivedDebit = buildExpenseRows([], {
         amounts: {
@@ -964,8 +1034,6 @@ export default function TripExpensesPage() {
       // seeded on the Debit side — but only when the trip did NOT already post
       // it as a Journal at creation, which would make filing it here a second
       // booking of the same money.
-      const hireAmt = num(row.booking_amount)
-      const hirePosted = !!row.voucher_number
       if (hireAmt > 0 && !hirePosted) {
         const hireLedger = findHireLedger()
         if (hireLedger) {
@@ -975,6 +1043,9 @@ export default function TripExpensesPage() {
           setDebitRows(derivedDebit)
           toast.error('Ledger not found: Hire vehicle charges — pick the debit ledger for the hire by hand')
         }
+      } else if (optingSalaryRow) {
+        const kept = derivedDebit.filter((r) => r.ledger || r.amount)
+        setDebitRows([...kept, optingSalaryRow])
       } else {
         setDebitRows(derivedDebit)
       }
@@ -994,6 +1065,8 @@ export default function TripExpensesPage() {
     setCreditRows([emptyLedgerRow()])
     setResolvedLedgerIds({})
     setPaidToOptedOut(false)
+    setHireCreditSeeded('')
+    setVanOptingSeeded('')
 
     const res = await tripsService.getTripModalData({ serviceNo: row.c_number, sudId: 3 })
     const ledgerRows: any[] = res?.data?.[0] ?? []
@@ -1188,7 +1261,10 @@ export default function TripExpensesPage() {
   // own and no voucher is created, the way a garage job can be quick-completed
   // without one. A credit row the user typed by hand still counts as posting.
   // The trip's own hire charge, read straight off the row the modal opened on.
-  const hireAmount = num(modal.row?.booking_amount)
+  // On a van trip the booking amount is the opting driver's pay when the van is
+  // ours and its driver is opting (see openAdd); only a hired van's is a hire.
+  const vanOptingPay = isVanTrip && !vanHired && isOptingRole('driver1') ? num(modal.row?.booking_amount) : 0
+  const hireAmount = isVanTrip && !vanHired ? 0 : num(modal.row?.booking_amount)
   const hirePosted = !!modal.row?.voucher_number
   const anyoneTicked = PERSON_KEYS.some((k) => isPersonChecked(k))
   const noVoucher = !anyoneTicked && !paidToActive && !creditRows.some((r) => r.ledger && num(r.amount) > 0)
@@ -1295,12 +1371,13 @@ export default function TripExpensesPage() {
     if (!form.bus_no) { toast.error('Bus Number is required'); return false }
     // Only a held seat is charged, so only a held seat needs its beta - on a
     // running trip and a halted one alike. An empty seat is not an error.
-    if (OPTING_SEATS.some((seat) => seatFilled(seat) && seatBeta(seat) <= 0)) {
+    // A van trip carries no beta or opting salary, so neither check applies.
+    if (!isVanTrip && OPTING_SEATS.some((seat) => seatFilled(seat) && seatBeta(seat) <= 0)) {
       toast.error(isHalt ? 'Enter the halt beta for each assigned crew member' : 'Enter the beta for each crew member on the trip')
       return false
     }
     // The conductor is left out: no OPT-Conductor Salary exists to enter.
-    if (OPTING_SEATS.some((seat) => seat !== 'conductor' && isOptingRole(seat) && seatSalary(seat) <= 0)) {
+    if (!isVanTrip && OPTING_SEATS.some((seat) => seat !== 'conductor' && isOptingRole(seat) && seatSalary(seat) <= 0)) {
       toast.error('Enter the opting salary for each seat marked Opting'); return false
     }
     // Nothing is posted when nobody is paid through the books, so the ledger
@@ -1610,12 +1687,25 @@ export default function TripExpensesPage() {
                     <div><Label>Trip For</Label><Input value={form.trip_for} readOnly disabled /></div>
                     <div><Label>Service Number</Label><Input value={form.service_no} readOnly disabled /></div>
                     <div>
-                      <Label>Bus Number</Label>
-                      <Select value={form.bus_no} onChange={(e) => setForm((f) => ({ ...f, bus_no: e.target.value }))}>
+                      <Label>{isVanTrip ? 'Van Number' : 'Bus Number'}</Label>
+                      <Select value={form.bus_no} onChange={(e) => {
+                        const v = e.target.value
+                        // Moving a van trip onto a hired van drops our driver: no
+                        // driver of ours is on it (same rule as the Trip Creation grid).
+                        const dropDriver = isVanTrip && isHireVehicle(v)
+                        setForm((f) => ({
+                          ...f, bus_no: v,
+                          ...(dropDriver ? { driver1_id: '', driver1_name: '', opt_driver1_id: '', opt_driver1_name: '', ...seatBetaPatch('driver1', false) } : {}),
+                        }))
+                      }}>
                         <option value="">— Select —</option>
-                        {buses.map((b: any) => <option key={b.id} value={b.bus_no}>{b.bus_no}</option>)}
+                        {vehicleOptions.map((b: any) => <option key={b.id} value={b.bus_no}>{b.bus_no}{isVanTrip && isHireVehicle(b.bus_no) ? ' · Hired' : ''}</option>)}
                       </Select>
+                      {vanHired && <p className="text-[11px] font-bold text-amber-700 mt-1">Hired van — no driver of ours; the hire charge is what this trip costs</p>}
                     </div>
+                    {/* A hired van has no driver of ours; a van trip has one
+                        driver and no helper or conductor seat at all. */}
+                    {!vanHired && (
                     <div>
                       <Label>Driver1 Name</Label>
                       <Select value={isOptingRole('driver1') ? OPTING_VALUE : form.driver1_id} onChange={(e) => {
@@ -1629,6 +1719,8 @@ export default function TripExpensesPage() {
                       </Select>
                       {seatFields('driver1')}
                     </div>
+                    )}
+                    {!isVanTrip && (<>
                     <div>
                       <Label>Driver2 Name</Label>
                       <Select value={isOptingRole('driver2') ? OPTING_VALUE : form.driver2_id} onChange={(e) => {
@@ -1668,6 +1760,7 @@ export default function TripExpensesPage() {
                       </Select>
                       {seatFields('conductor')}
                     </div>
+                    </>)}
                     <div>
                       <Label>Paid To</Label>
                       <SearchableSelect
@@ -1747,11 +1840,24 @@ export default function TripExpensesPage() {
                       <p className="text-[11px] text-slate-500">
                         {hirePosted
                           ? `Already posted when the trip was created: ${modal.row.hire_debit_ledger_name ?? 'Hire vehicle charges'} debited, ${modal.row.hire_credit_ledger_name ?? 'the ledger picked then'} credited — don't file it again here.`
-                          : 'Seeded on the Debit side as Hire vehicle charges — pick who it is owed to on the Credit side.'}
+                          : hireCreditSeeded
+                            ? `Filled in for you: Hire vehicle charges debited, ${hireCreditSeeded} credited — change either side below if that is not right.`
+                            : 'Seeded on the Debit side as Hire vehicle charges — pick who it is owed to on the Credit side.'}
                       </p>
                     </div>
                   )}
 
+                  {/* An opting driver's pay on our own van, stated the same way. */}
+                  {vanOptingPay > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-2.5">
+                      <p className="text-xs font-bold text-amber-700">Opting driver pay ₹{vanOptingPay.toLocaleString('en-IN')}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {vanOptingSeeded
+                          ? `Filled in for you: Salaries debited, ${vanOptingSeeded} credited — change either side below if that is not right.`
+                          : 'Entered on Trip Creation as the opting driver\'s pay — debit Salaries and credit Opting Driver for it below.'}
+                      </p>
+                    </div>
+                  )}
                   {isHalt && (
                     <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-2.5">
                       <p className="text-xs font-bold text-red-700">Service Halted</p>
@@ -1779,7 +1885,8 @@ export default function TripExpensesPage() {
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 resize-none" />
                   </div>
 
-                  {/* Totals */}
+                  {/* Totals — a van trip has no beta or salary, so the boxes come away. */}
+                  {!isVanTrip && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="rounded-xl border border-slate-200 p-3 text-center">
                       <p className="text-xs font-bold text-slate-500 uppercase">Total Salary</p>
@@ -1796,6 +1903,7 @@ export default function TripExpensesPage() {
                       </p>
                     </div>
                   </div>
+                  )}
 
                   {noVoucher ? (
                     /* Nothing to post: the ledger sections come away and Submit

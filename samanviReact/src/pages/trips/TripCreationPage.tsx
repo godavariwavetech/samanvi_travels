@@ -379,6 +379,14 @@ export default function TripCreationPage() {
     () => new Set(buses.filter((b: any) => String(b.bus_category ?? '') === 'hire').map((b: any) => String(b.bus_no))),
     [buses])
   const isHireBus = (busNo: string) => hireBusNos.has(String(busNo))
+  // The hire is owed to the van's owner, so picking a hired van fills the Pay
+  // To Ledger with the owner ledger named on its Hire form in Bus Masters. The
+  // picker stays live for the odd case where the money goes elsewhere.
+  const ownerLedgerFor = (busNo: string): Partial<VanRow> => {
+    const vehicle = buses.find((b: any) => String(b.bus_no) === String(busNo))
+    const owner = vehicle?.owner_ledger_id ? ledgers.find((l: any) => String(l.ledger_id) === String(vehicle.owner_ledger_id)) : null
+    return owner ? { credit_ledger_id: String(owner.ledger_id), credit_ledger_name: String(owner.temple_name ?? '') } : {}
+  }
   const columns = useMemo(() => makeColumns(hireBusNos, vehicleType), [hireBusNos, vehicleType])
   // The records table shows the trips of the kind the tab above is on: bus
   // trips under Bus, van trips under Van. A row's kind is its stored
@@ -811,7 +819,7 @@ export default function TripCreationPage() {
                                     // Switching to a hired vehicle drops the driver: no
                                     // driver of ours is on it, so leaving a stale name
                                     // behind would file a trip against the wrong person.
-                                    ? { bus_no: v, driver_id: '', driver_name: '' }
+                                    ? { bus_no: v, driver_id: '', driver_name: '', ...ownerLedgerFor(v) }
                                     : { bus_no: v, amount: '', credit_ledger_id: '', credit_ledger_name: '' })}
                                   onClear={() => updateVanRow(r.id, { bus_no: '' })} />
                                 {hired && <p className="text-[10px] font-bold text-amber-700 mt-1">Hired vehicle</p>}
