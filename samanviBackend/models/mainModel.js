@@ -15171,19 +15171,43 @@ function createLedgersForImport(label, people, tbl, idCol, userId, cntxtDtls, do
 exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
   var cntxtDtls = 'in bulkUploadStaffMdl';
   var date = moment().utcOffset('+05:30').format('YYYY-MM-DD');
+  var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+  var keyOf = function (v) { return String(v || '').toLowerCase().trim(); };
+
+  // A row whose name already exists is not skipped: the Excel row replaces
+  // that person's Excel-covered fields (blank cells clear them), the same way
+  // bulkUploadBusesMdl treats a duplicate bus number. The id number, photos
+  // and ledger link are not in the sheet and are left alone; the name is the
+  // match key so it never changes and the person's ledger needs no rename.
+  var runUpdates = function (list, one, done) {
+    var i = 0;
+    var next = function () {
+      if (i >= list.length) return done();
+      one(list[i], function (err) { if (err) return callback(err, null); i++; next(); });
+    };
+    next();
+  };
+  var split = function (existing, nameCol, rowName) {
+    var existingKeys = new Set((existing || []).map(function (r) { return keyOf(r[nameCol]); }));
+    var toInsert = [], toUpdate = [];
+    rows.forEach(function (r) {
+      var name = rowName(r);
+      if (!name) return;
+      if (existingKeys.has(keyOf(name))) toUpdate.push(r); else toInsert.push(r);
+    });
+    return { toInsert: toInsert, toUpdate: toUpdate };
+  };
+  var finish = function (inserted, updated, extra) {
+    var out = { inserted: inserted, updated: updated, skipped: [], total: rows.length };
+    if (extra) { out.ledgers_created = extra.made; out.ledgers_failed = extra.failed; }
+    callback(null, out);
+  };
 
   if (type === 'Staff') {
     dbutil.execQuery(sqldb, `SELECT fullName FROM staff_register WHERE d_in=0`, cntxtDtls, function (err, existing) {
       if (err) return callback(err, null);
-      var existingKeys = new Set((existing || []).map(function (r) { return String(r.fullName || '').toLowerCase().trim(); }));
-      var skipped = [], toInsert = [];
-      rows.forEach(function (r) {
-        if (!r.fullName) return;
-        var key = r.fullName.toLowerCase().trim();
-        if (existingKeys.has(key)) { skipped.push(r.fullName); return; }
-        toInsert.push(r);
-      });
-      if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      var parts = split(existing, 'fullName', function (r) { return r.fullName; });
+      var toInsert = parts.toInsert, toUpdate = parts.toUpdate;
       // staff_register declares designation/idNumber/mobile/emergencyContact/
       // aadhaar/accountHolderName/accountNumber/bankName/ifscCode as NOT NULL
       // with no default, unlike driver_register (only `id`) and helper_register
@@ -15193,6 +15217,21 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       // cell blank, because `|| null` fed NULL into a NOT NULL column.
       // Empty string is what addstaffregisterMdl stores for these, so match it.
       var blank = function (v) { return v == null || v === '' ? '' : v; };
+      var updateStaff = function (r, next) {
+        var rec = {
+          designation: blank(r.designation) || 'Staff', nickName: r.nickName || null, mobile: blank(r.mobile),
+          emergencyContact: blank(r.emergencyContact), alternativemobilenumber: r.alternativemobilenumber || null,
+          dateOfJoining: r.dateOfJoining || null, aadhaar: blank(r.aadhaar), accountHolderName: blank(r.accountHolderName),
+          accountNumber: blank(r.accountNumber), ifscCode: blank(r.ifscCode), bankName: blank(r.bankName),
+          referencename: r.referencename || null, branchname: r.branchname || null, upiId: r.upiId || null,
+          remarks: r.remarks || null, dob: r.dob || null, address: r.address || null,
+        };
+        dbutil.execupdateQuery(sqldb, `UPDATE staff_register SET ? WHERE LOWER(TRIM(fullName)) = ? AND d_in=0`, [rec, keyOf(r.fullName)], cntxtDtls, next);
+      };
+      var afterInsert = function (extra) {
+        runUpdates(toUpdate, updateStaff, function () { finish(toInsert.length, toUpdate.length, extra); });
+      };
+      if (toInsert.length === 0) return afterInsert(null);
       var vals = toInsert.map(function (r) {
         return [blank(r.designation) || 'Staff', '', r.fullName, r.nickName || null, blank(r.mobile),
           blank(r.emergencyContact), r.alternativemobilenumber || null, r.dateOfJoining || null,
@@ -15210,7 +15249,7 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
           return { name: r.fullName, disambiguator: null, key: r.fullName };
         });
         createLedgersForImport('Staff', people, 'staff_register', 'fullName', userId, cntxtDtls, function (made, failed) {
-          callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length, ledgers_created: made, ledgers_failed: failed });
+          afterInsert({ made: made, failed: failed });
         });
       });
     });
@@ -15218,15 +15257,54 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
   } else if (type === 'Driver') {
     dbutil.execQuery(sqldb, `SELECT driver_name FROM driver_register WHERE d_in=0`, cntxtDtls, function (err, existing) {
       if (err) return callback(err, null);
-      var existingKeys = new Set((existing || []).map(function (r) { return String(r.driver_name || '').toLowerCase().trim(); }));
-      var skipped = [], toInsert = [];
-      rows.forEach(function (r) {
-        if (!r.driver_name) return;
-        var key = r.driver_name.toLowerCase().trim();
-        if (existingKeys.has(key)) { skipped.push(r.driver_name); return; }
-        toInsert.push(r);
-      });
-      if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      var parts = split(existing, 'driver_name', function (r) { return r.driver_name; });
+      var toInsert = parts.toInsert, toUpdate = parts.toUpdate;
+      var driverRec = function (r) {
+        return {
+          nickname: r.nickname || null, dldateofbirth: r.dldateofbirth || null, mobile_number: r.mobile_number || null,
+          alternate_number: r.alternate_number || null, emergency_mobile_number: r.emergency_mobile_number || null,
+          aadhar_number: r.aadhar_number || null, dl_number: r.dl_number || null, dl_issued_by: r.dl_issued_by || null,
+          dl_dob: r.dl_dob || null, dl_linked_mobile: r.dl_linked_mobile || null, dl_expiry_date: r.dl_expiry_date || null,
+          account_holder_name: r.account_holder_name || null, account_number: r.account_number || null,
+          bank_name: r.bank_name || null, branch_name: r.branch_name || null, ifsc_code: r.ifsc_code || null,
+          upi_id: r.upi_id || null, drivinglicense_joining_date: r.drivinglicense_joining_date || null,
+          transportoneissuedate: r.transportoneissuedate || null, transportvalidityfrom: r.transportvalidityfrom || null,
+          transportvalidityto: r.transportvalidityto || null, date_of_joining: r.date_of_joining || null,
+          reference: r.reference || null, remarks: r.remarks || null, address: r.address || null,
+        };
+      };
+      // Same select-before -> update -> diff -> driver_edit_history flow as
+      // adddrivereditMdl, so the Driver History button shows what the sheet
+      // changed. dl_dob is re-selected as text for the same reason as there.
+      var trackedKeys = Object.keys(DRIVER_FIELD_LABELS);
+      var selectCols = trackedKeys.map(function (k) { return k === 'dl_dob' ? `DATE_FORMAT(dl_dob, '%Y-%m-%d') as dl_dob` : k; }).join(', ');
+      var updateDriver = function (r, next) {
+        dbutil.execupdateQuery(sqldb, `SELECT id, driver_id_number, ${selectCols} FROM driver_register WHERE LOWER(TRIM(driver_name)) = ? AND d_in=0 LIMIT 1`, [keyOf(r.driver_name)], cntxtDtls, function (selErr, selRows) {
+          if (selErr) return next(selErr);
+          var before = (selRows && selRows[0]) || {};
+          var rec = driverRec(r);
+          dbutil.execupdateQuery(sqldb, `UPDATE driver_register SET ? WHERE id = ?`, [rec, before.id], cntxtDtls, function (upErr) {
+            if (upErr) return next(upErr);
+            var changes = [];
+            trackedKeys.forEach(function (k) {
+              if (!(k in rec)) return;
+              var oldV = before[k] == null ? '' : String(before[k]);
+              var newV = rec[k] == null ? '' : String(rec[k]);
+              if (oldV !== newV) changes.push(`${DRIVER_FIELD_LABELS[k] || k}: '${oldV || '—'}' -> '${newV || '—'}'`);
+            });
+            if (changes.length === 0) return next(null);
+            var histQ = `INSERT INTO driver_edit_history (driver_id, driver_id_number, changes_note, changed_by_id, changed_by_name) VALUES ('${before.id}', '${esc(before.driver_id_number)}', '${esc('Excel import\n' + changes.join('\n'))}', '${esc(userId)}', '${esc(usrNm)}')`;
+            sqldb.query(histQ, function (histErr) {
+              if (histErr) console.log('[bulkUploadStaffMdl] driver history log error:', histErr.message);
+              next(null);
+            });
+          });
+        });
+      };
+      var afterInsert = function (extra) {
+        runUpdates(toUpdate, updateDriver, function () { finish(toInsert.length, toUpdate.length, extra); });
+      };
+      if (toInsert.length === 0) return afterInsert(null);
       var genIdQry = `SELECT COALESCE(MAX(CAST(SUBSTRING(driver_id_number, 2) AS UNSIGNED)), 0) + 1 AS nextid FROM driver_register WHERE driver_id_number REGEXP '^D[0-9]+$'`;
       dbutil.execQuery(sqldb, genIdQry, cntxtDtls, function (idErr, idRows) {
         if (idErr) return callback(idErr, null);
@@ -15251,7 +15329,7 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
             return { name: r.driver_name, disambiguator: did, key: did };
           });
           createLedgersForImport('Drivers', people, 'driver_register', 'driver_id_number', userId, cntxtDtls, function (made, failed) {
-            callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length, ledgers_created: made, ledgers_failed: failed });
+            afterInsert({ made: made, failed: failed });
           });
         });
       });
@@ -15260,15 +15338,23 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
   } else if (type === 'Helper') {
     dbutil.execQuery(sqldb, `SELECT helper_name FROM helper_register WHERE d_in=0`, cntxtDtls, function (err, existing) {
       if (err) return callback(err, null);
-      var existingKeys = new Set((existing || []).map(function (r) { return String(r.helper_name || '').toLowerCase().trim(); }));
-      var skipped = [], toInsert = [];
-      rows.forEach(function (r) {
-        if (!r.helper_name) return;
-        var key = r.helper_name.toLowerCase().trim();
-        if (existingKeys.has(key)) { skipped.push(r.helper_name); return; }
-        toInsert.push(r);
-      });
-      if (toInsert.length === 0) return callback(null, { inserted: 0, skipped: skipped, total: rows.length });
+      var parts = split(existing, 'helper_name', function (r) { return r.helper_name; });
+      var toInsert = parts.toInsert, toUpdate = parts.toUpdate;
+      var updateHelper = function (r, next) {
+        var rec = {
+          mobile_number: r.mobile_number || null, alternate_number: r.alternate_number || null,
+          emergencymobilenumber: r.emergency_mobile_number || null, adhar_number: r.adhar_number || null,
+          account_holder_name: r.account_holder_name || null, account_number: r.account_number || null,
+          bank_name: r.bank_name || null, branch_name: r.branch_name || null, ifsc_code: r.ifsc_code || null,
+          upi_id: r.upi_id || null, date_of_joining: r.date_of_joining || null, reference: r.reference || null,
+          remarks: r.remarks || null, dob: r.dob || null, address: r.address || null,
+        };
+        dbutil.execupdateQuery(sqldb, `UPDATE helper_register SET ? WHERE LOWER(TRIM(helper_name)) = ? AND d_in=0`, [rec, keyOf(r.helper_name)], cntxtDtls, next);
+      };
+      var afterInsert = function (extra) {
+        runUpdates(toUpdate, updateHelper, function () { finish(toInsert.length, toUpdate.length, extra); });
+      };
+      if (toInsert.length === 0) return afterInsert(null);
       // helper_id_number is NOT NULL with no default — assign sequential H#### ids for the batch.
       var genIdQry = `SELECT COALESCE(MAX(CAST(SUBSTRING(helper_id_number, 2) AS UNSIGNED)), 0) + 1 AS nextid FROM helper_register WHERE helper_id_number REGEXP '^H[0-9]+$'`;
       dbutil.execQuery(sqldb, genIdQry, cntxtDtls, function (idErr, idRows) {
@@ -15291,14 +15377,14 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
             return { name: r.helper_name, disambiguator: hid, key: hid };
           });
           createLedgersForImport('Helpers', people, 'helper_register', 'helper_id_number', userId, cntxtDtls, function (made, failed) {
-            callback(null, { inserted: toInsert.length, skipped: skipped, total: rows.length, ledgers_created: made, ledgers_failed: failed });
+            afterInsert({ made: made, failed: failed });
           });
         });
       });
     });
 
   } else {
-    callback(null, { inserted: 0, skipped: [], total: 0 });
+    callback(null, { inserted: 0, updated: 0, skipped: [], total: 0 });
   }
 };
 

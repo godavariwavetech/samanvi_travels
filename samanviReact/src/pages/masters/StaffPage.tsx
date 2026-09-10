@@ -807,12 +807,12 @@ export default function StaffPage() {
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadStaff({ type: previewType, rows, user_id: uid, usr_nm: unm })
       if (res.status === 200) {
-        const { inserted, skipped, total } = res.data
+        const { inserted, updated = 0, total } = res.data
         qc.invalidateQueries({ queryKey: ['active-staff'] })
         qc.invalidateQueries({ queryKey: ['drivers'] })
         qc.invalidateQueries({ queryKey: ['active-helpers'] })
-        if (skipped.length > 0) {
-          toast.success(`Inserted ${inserted} of ${total}. ${skipped.length} duplicates skipped: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}`)
+        if (updated > 0) {
+          toast.success(`Inserted ${inserted} new and updated ${updated} existing ${previewType} record${updated !== 1 ? 's' : ''} (${total} total)`)
         } else {
           toast.success(`Successfully inserted ${inserted} ${previewType} records!`)
         }
@@ -981,6 +981,8 @@ export default function StaffPage() {
         submitting={uploading}
         onCancel={() => setPreviewOpen(false)}
         onConfirm={confirmImport}
+        duplicateHint="Duplicates are checked by default — they'll update the existing record with this row's values. Untick to leave that record unchanged."
+        duplicatesSelectedByDefault
       />
 
       {/* Empty state */}
