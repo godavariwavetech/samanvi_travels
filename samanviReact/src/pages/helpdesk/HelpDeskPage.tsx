@@ -133,9 +133,6 @@ export default function HelpDeskPage() {
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-blue-500" /> Raise New Ticket
           </h2>
-          <Button onClick={() => submit()} disabled={submitting || !form.module || !form.issue}>
-            <Save className="w-4 h-4" />{submitting ? 'Submitting…' : 'Submit Ticket'}
-          </Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
           <div>
@@ -165,6 +162,12 @@ export default function HelpDeskPage() {
               className="flex w-full rounded-xl border border-slate-200 bg-white/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/50 focus-visible:border-[#2563EB] focus-visible:bg-white transition-all shadow-sm resize-none"
             />
           </div>
+        </div>
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => submit()} disabled={submitting || !form.module || !form.issue}>
+          <Save className="w-4 h-4" />{submitting ? 'Submitting…' : 'Submit Ticket'}
+          </Button>
         </div>
       </GlassCard>
 

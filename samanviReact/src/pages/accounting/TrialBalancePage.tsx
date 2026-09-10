@@ -22,7 +22,7 @@ function fmt(d: any): string {
   if (!d) return '-'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '-'
-  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`
+  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
 }
 
 // The day before a yyyy-mm-dd date, for the "everything before From" query.

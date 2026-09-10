@@ -36,7 +36,7 @@ function fmtDate(d: any) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return String(d)
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'Asia/Kolkata' })
 }
 
 // YYYY-MM-DD in the fleet's local timezone — used both as the picker's selected value

@@ -17,7 +17,7 @@ function fmtDate(raw: string | null) {
   if (!raw) return '—'
   const d = new Date(raw)
   if (isNaN(d.getTime())) return raw
-  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}  ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}  ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 }
 
 // single change row — field label + OLD block → NEW block, full width, no truncation

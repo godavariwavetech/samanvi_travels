@@ -21,7 +21,7 @@ function fmtDate(v: any) {
   if (!v) return '—'
   const d = new Date(v)
   if (isNaN(d.getTime())) return String(v)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 export default function TyrePositionPage() {
@@ -133,7 +133,6 @@ export default function TyrePositionPage() {
       <GlassCard className="p-6" colorBar="bg-gradient-to-r from-blue-500 to-cyan-500">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><LayoutGrid className="w-5 h-5 text-blue-500" /> Mount Tyre</h2>
-          <Button onClick={() => assign()} disabled={isPending || !canAssign}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Mount Tyre'}</Button>
         </div>
         <div className="mb-5">
           <div className="flex items-center justify-between mb-3">
@@ -240,6 +239,10 @@ export default function TyrePositionPage() {
               reloading={loadingPositions}
             /></div>
           <div><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
+        </div>
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => assign()} disabled={isPending || !canAssign}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Mount Tyre'}</Button>
         </div>
       </GlassCard>
 

@@ -9,6 +9,7 @@ import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
 import { useAuthStore } from '@/store/auth.store'
 import { useFYStore } from '@/store/fy.store'
+import { formatDate } from '@/lib/utils'
 
 function KpiCard({ label, value, icon: Icon, color, bg, loading }: {
   label: string; value: string | number; icon: React.ElementType
@@ -115,7 +116,7 @@ export default function DashboardPage() {
                 {recentTrips.map((t: any, i) => (
                   <tr key={t.id ?? i} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-5 py-3 font-bold text-blue-600 text-sm">{t.c_number ?? `#${t.id}`}</td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{String(t.trip_date ?? t.cts ?? '—').split('T')[0]}</td>
+                    <td className="px-5 py-3 text-sm text-slate-600">{formatDate(t.trip_date ?? t.cts)}</td>
                     <td className="px-5 py-3 text-sm font-medium">{t.bus_no ?? '—'}</td>
                     <td className="px-5 py-3 text-sm">{t.service_no ?? '—'}</td>
                     <td className="px-5 py-3 text-sm text-slate-600">{t.driver1_name ?? '—'}</td>

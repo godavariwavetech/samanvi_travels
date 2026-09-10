@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType } from '@/lib/utils'
+import { isVanVehicleType, formatDate } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 
@@ -1522,7 +1522,7 @@ export default function TripExpensesPage() {
   }
   const columns: Column[] = [
     { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
-    { label: 'Trip Date', key: 'trip_date', render: (v) => String(v ?? '').split('T')[0] },
+    { label: 'Trip Date', key: 'trip_date', render: (v) => formatDate(v) },
     {
       label: 'Reference No', key: 'c_number',
       render: (v, row: any) => (
@@ -1745,7 +1745,7 @@ export default function TripExpensesPage() {
                       the payee, the amount and the tick read as one control. */}
                   {/* Readonly trip info */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                    <div><Label>Trip Date</Label><Input value={form.trip_date} readOnly disabled /></div>
+                    <div><Label>Trip Date</Label><Input value={formatDate(form.trip_date)} readOnly disabled /></div>
                     <div><Label>Trip For</Label><Input value={form.trip_for} readOnly disabled /></div>
                     <div><Label>Service Number</Label><Input value={form.service_no} readOnly disabled /></div>
                     <div>
@@ -2172,7 +2172,7 @@ export default function TripExpensesPage() {
                         <span className="absolute -left-[7px] w-3 h-3 rounded-full bg-amber-400 border-2 border-white" />
                         <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
                           <Clock className="w-3.5 h-3.5" />
-                          {new Date(h.changed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
+                          {new Date(h.changed_at).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
                         </div>
                         <ChangeNote note={h.changes_note ?? ''} />
                       </li>
@@ -2199,7 +2199,7 @@ export default function TripExpensesPage() {
               </div>
               <div className="p-6 space-y-5">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl">
-                  <div><p className="text-[10px] font-bold uppercase text-slate-400">Trip Date</p><p className="text-sm font-medium">{String(viewModal.row?.trip_date ?? '').split('T')[0]}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase text-slate-400">Trip Date</p><p className="text-sm font-medium">{formatDate(viewModal.row?.trip_date)}</p></div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Van No' : 'Bus No'}</p><p className="text-sm font-medium">{viewModal.row?.bus_no}</p></div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Service No</p><p className="text-sm font-medium">{viewModal.row?.service_no}</p></div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Driver' : 'Driver 1'}</p><p className="text-sm font-medium flex items-center gap-1.5">

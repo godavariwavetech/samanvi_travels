@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
+import { formatDate } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 const firstOfMonth = today.slice(0, 8) + '01'
@@ -48,7 +49,7 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
         <div className="p-6 space-y-5">
           {/* Trip info */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl">
-            {field('Trip Date', String(trip.trip_date ?? '').split('T')[0])}
+            {field('Trip Date', formatDate(trip.trip_date))}
             {field('Trip For', trip.trip_for)}
             {field('Bus No', trip.bus_no)}
             {field('Service No', trip.service_no)}
@@ -86,7 +87,7 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
           {(trip.admin_status_by_name || trip.status_date) && (
             <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl">
               {field('Action By', trip.admin_status_by_name)}
-              {field('Action Date', String(trip.status_date ?? '').split('T')[0])}
+              {field('Action Date', formatDate(trip.status_date))}
             </div>
           )}
         </div>
@@ -156,7 +157,7 @@ export default function AdminApprovalsPage() {
       render: (v, r: any) => (
         <div>
           <div className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</div>
-          <div className="text-xs text-slate-400">{String(r.trip_date ?? '').split('T')[0]}</div>
+          <div className="text-xs text-slate-400">{formatDate(r.trip_date)}</div>
         </div>
       ),
     },

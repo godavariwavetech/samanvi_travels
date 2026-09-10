@@ -18,14 +18,14 @@ function fmtDate(d: string) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return d
-  return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return dt.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function fmtDateShort(d: string) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return d
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 function SparePartsMaster() {

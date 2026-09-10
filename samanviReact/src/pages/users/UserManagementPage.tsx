@@ -474,9 +474,6 @@ export default function UserManagementPage() {
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <UserCircle className="w-5 h-5 text-blue-500" /> Create New User
                 </h2>
-                <Button onClick={() => createUser()} disabled={isPending || !canSubmit}>
-                  <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save User'}
-                </Button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div><Label>Full Name *</Label><Input placeholder="e.g. Prakash" value={form.name} onChange={f('name')} /></div>
@@ -562,6 +559,12 @@ export default function UserManagementPage() {
                     ))}
                   </div>
                 )}
+              </div>
+              {/* Submit sits under the fields, as on every other form. */}
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                <Button onClick={() => createUser()} disabled={isPending || !canSubmit}>
+                <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save User'}
+                </Button>
               </div>
             </GlassCard>
           </motion.div>

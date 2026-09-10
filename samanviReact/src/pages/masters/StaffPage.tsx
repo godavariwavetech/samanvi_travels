@@ -433,7 +433,7 @@ function fmtDMY(v: any): string {
   const s = String(v).split('T')[0]
   const d = new Date(s)
   if (isNaN(d.getTime())) return s
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`
 }
 // Raw DB value -> 'YYYY-MM-DD' for pre-filling <input type="date">.
 const toDateInput = (v: any) => (v ? String(v).split('T')[0] : '')
@@ -897,7 +897,7 @@ export default function StaffPage() {
     { label: 'Name', key: 'name', filterable: true, render: (v) => <span className="font-bold">{String(v ?? '—')}</span> },
     { label: 'Role', key: 'role', filterable: true, render: (v, r: any) => <div><Badge variant="purple">{String(v ?? '—')}</Badge><div className="text-xs text-slate-400 mt-0.5 capitalize">{r.staff_type}</div></div> },
     { label: 'Mobile', key: 'mobile', filterable: true },
-    { label: 'Left On', key: 'leaving_date', render: (v) => <span className="text-sm text-red-500 font-medium">{String(v ?? '—')}</span> },
+    { label: 'Left On', key: 'leaving_date', render: (v) => <span className="text-sm text-red-500 font-medium">{fmtDMY(v)}</span> },
     { label: 'Reason', key: 'termination_reason', render: (v) => <span className="text-xs text-slate-500 max-w-[200px] block truncate" title={String(v ?? '')}>{String(v ?? '—')}</span> },
     { label: 'Action', key: 'id', render: (_, row: any) => <Button variant="success" size="sm" onClick={() => rejoin(row)}><RotateCcw className="w-3.5 h-3.5" /> Rejoin</Button> },
   ]
@@ -1265,7 +1265,7 @@ export default function StaffPage() {
                       <span className="absolute -left-[7px] w-3 h-3 rounded-full bg-amber-400 border-2 border-white" />
                       <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
                         <Clock className="w-3.5 h-3.5" />
-                        {new Date(h.changed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
+                        {new Date(h.changed_at).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
                       </div>
                       <ChangeNote note={h.changes_note ?? ''} />
                     </li>

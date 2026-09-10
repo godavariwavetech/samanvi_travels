@@ -6,11 +6,12 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
+import { formatDateTime } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'Bus No', key: 'bus_no', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
   { label: 'Owner', key: 'ownername' },
-  { label: 'Added On', key: 'i_ts' },
+  { label: 'Added On', key: 'i_ts', render: (v) => formatDateTime(v) },
   { label: 'Type', key: 'issparetank', render: (v) => <Badge variant={v == 1 ? 'teal' : 'info'}>{v == 1 ? 'Spare Tank' : 'Regular'}</Badge> },
 ]
 
@@ -47,13 +48,16 @@ export default function SpareTankPage() {
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Fuel className="w-5 h-5 text-teal-500" /> Add Spare Tank</h2>
                 <div className="flex gap-2">
-                  <Button onClick={() => save()} disabled={isPending || !form.bus_no}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save'}</Button>
                   <button onClick={() => { setShowForm(false); setForm({ bus_no: '', ownername: '' }) }} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div><Label>Bus Number / Tank Name *</Label><Input placeholder="e.g. 4142-Spare Tank" value={form.bus_no} onChange={(e) => setForm({ ...form, bus_no: e.target.value })} /></div>
                 <div><Label>Owner Name</Label><Input placeholder="e.g. Samanvi" value={form.ownername} onChange={(e) => setForm({ ...form, ownername: e.target.value })} /></div>
+              </div>
+              {/* Submit sits under the fields, as on every other form. */}
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                <Button onClick={() => save()} disabled={isPending || !form.bus_no}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save'}</Button>
               </div>
             </GlassCard>
           </motion.div>

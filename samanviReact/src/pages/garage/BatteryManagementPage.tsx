@@ -9,6 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
+import { formatDate } from '@/lib/utils'
 
 const STATUSES = ['Active', 'Replaced', 'Scrapped']
 
@@ -30,7 +31,7 @@ function fmtDateTime(d: any) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return String(d)
-  return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+  return dt.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
 }
 
 export default function BatteryManagementPage() {
@@ -166,7 +167,7 @@ export default function BatteryManagementPage() {
     { label: 'Brand', key: 'brand', filterable: true },
     { label: 'Capacity', key: 'capacity_ah', filterable: true },
     { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => v ? <span className="font-medium">{String(v)}</span> : <span className="text-slate-300">—</span> },
-    { label: 'Installed', key: 'install_date', align: 'center', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+    { label: 'Installed', key: 'install_date', align: 'center', render: (v) => <span className="text-sm">{formatDate(v)}</span> },
     { label: 'Warranty (mo)', key: 'warranty_months', align: 'right', render: (v) => <span className="text-sm">{v ?? '—'}</span> },
     { label: 'Status', key: 'status', filterable: true, render: (v) => <Badge variant={statusVariant[String(v)] ?? 'default'}>{String(v)}</Badge> },
     { label: 'Cost', key: 'cost', align: 'right', render: (v) => <span className="font-medium">₹{v}</span> },

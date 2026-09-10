@@ -23,7 +23,7 @@ function fmtDate(v: any) {
   if (!v) return '—'
   const d = new Date(v)
   if (isNaN(d.getTime())) return String(v)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 export default function TyreRepairPage() {
@@ -132,7 +132,6 @@ export default function TyreRepairPage() {
       <GlassCard className="p-6" colorBar="bg-gradient-to-r from-rose-500 to-red-500">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Wrench className="w-5 h-5 text-rose-500" /> New Repair Entry</h2>
-          <Button onClick={() => save()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Entry'}</Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div><Label>Repair Date</Label><Input type="date" max={today} value={form.repair_date} onChange={f('repair_date')} /></div>
@@ -263,6 +262,10 @@ export default function TyreRepairPage() {
             )}
           </div>
         )}
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => save()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Entry'}</Button>
+        </div>
       </GlassCard>
 
       <DataTable

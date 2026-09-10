@@ -129,7 +129,7 @@ function fmtDate(d: string) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return d
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'Asia/Kolkata' })
 }
 
 function statusBadge(row: any) {

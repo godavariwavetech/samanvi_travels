@@ -7,6 +7,7 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader }
 import type { Column } from '@/components/shared'
 import { payrollService } from '@/services/payroll.service'
 import { mastersService } from '@/services/masters.service'
+import { formatDate } from '@/lib/utils'
 
 const today = new Date().toISOString().split('T')[0]
 const firstOfMonth = today.slice(0, 8) + '01'
@@ -114,7 +115,7 @@ export default function SalaryGenerationPage() {
 
       {applied && (
         <DataTable
-          title={`Salary Sheet — ${applied.fromdate} to ${applied.todate}`}
+          title={`Salary Sheet — ${formatDate(applied.fromdate)} to ${formatDate(applied.todate)}`}
           columns={cols}
           data={list}
           loading={isLoading}

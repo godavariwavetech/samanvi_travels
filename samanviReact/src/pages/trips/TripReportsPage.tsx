@@ -6,11 +6,11 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader }
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
-  { label: 'Date', key: 'date' },
+  { label: 'Date', key: 'date', render: (v) => formatDate(v) },
   { label: 'Bus / Route', key: 'bus_no', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">{r.service_no}</div></div> },
   { label: 'Driver', key: 'driver_name' },
   { label: 'Total Exp', key: 'total_amount', render: (v) => <span className="font-bold text-red-600">{formatCurrency(Number(v))}</span> },

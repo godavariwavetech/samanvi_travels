@@ -383,7 +383,7 @@ export default function RepairTrackingPage() {
     if (!d) return '-'
     const dt = new Date(d)
     if (isNaN(dt.getTime())) return '-'
-    return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`
+    return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
   }
 
   const dueDays = (d: any) => {
@@ -1147,7 +1147,7 @@ export default function RepairTrackingPage() {
           if (!d) return '—'
           const dt = new Date(d)
           if (isNaN(dt.getTime())) return '—'
-          return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}  ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+          return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}  ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
         }
         const activeParts  = historyParts.filter((p: any) => Number(p.d_in) !== 2)
         const partsTotal   = activeParts.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)

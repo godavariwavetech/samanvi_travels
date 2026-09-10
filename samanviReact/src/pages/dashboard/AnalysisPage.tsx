@@ -35,7 +35,7 @@ function ExpiryCell({ value }: { value: string | null | undefined }) {
   const bg = { expired: 'bg-red-50 text-red-700', critical: 'bg-red-50 text-red-600', warning: 'bg-amber-50 text-amber-700', upcoming: 'bg-yellow-50 text-yellow-700', ok: '' }
   return (
     <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${bg[status]}`}>
-      {new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+      {new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
     </span>
   )
 }

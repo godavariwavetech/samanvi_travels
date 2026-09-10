@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 
 export default function CollectionAgentPage() {
   const qc = useQueryClient()
@@ -142,7 +142,7 @@ export default function CollectionAgentPage() {
                     <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)}
                       onClick={(e) => e.stopPropagation()} className="w-4 h-4 accent-blue-600 rounded" />
                   </td>
-                  <td className="p-4 text-sm text-slate-600">{row.date}</td>
+                  <td className="p-4 text-sm text-slate-600">{formatDate(row.date)}</td>
                   <td className="p-4 font-bold text-blue-600">{row.pnr_no}</td>
                   <td className="p-4 text-sm"><div className="font-medium">{row.servicenumber}</div><div className="text-xs text-slate-400">{row.seatnumber}</div></td>
                   <td className="p-4 font-medium">{row.name}</td>

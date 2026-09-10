@@ -139,7 +139,6 @@ export default function TyreSalePage() {
       <GlassCard className="p-6" colorBar="bg-gradient-to-r from-violet-500 to-purple-600">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-violet-500" /> New Sale</h2>
-          <Button onClick={() => sell()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : `Sell ${selectedIds.length || ''} Tyre${selectedIds.length !== 1 ? 's' : ''}`}</Button>
         </div>
 
         <div className="mb-1">
@@ -236,6 +235,10 @@ export default function TyreSalePage() {
             </div>
           </div>
         )}
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => sell()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : `Sell ${selectedIds.length || ''} Tyre${selectedIds.length !== 1 ? 's' : ''}`}</Button>
+        </div>
       </GlassCard>
 
       {stockLedgerId && (

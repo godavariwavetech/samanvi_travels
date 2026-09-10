@@ -12,11 +12,21 @@ export const formatCurrency = (amount: number) =>
     maximumFractionDigits: 0,
   }).format(amount)
 
+// The one date format the app shows: dd/mm/yy. Every screen that shows a date
+// goes through this (or formatDateTime for a timestamp) so nothing reads
+// dd MMM yyyy in one place and yyyy-mm-dd in the next.
 export const formatDate = (date: string | Date | null | undefined): string => {
   if (!date) return '—'
   const d = new Date(date)
   if (isNaN(d.getTime())) return '—'
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`
+}
+// dd/mm/yy HH:MM for timestamps (edit history, created / updated columns).
+export const formatDateTime = (date: string | Date | null | undefined): string => {
+  if (!date) return '—'
+  const d = new Date(date)
+  if (isNaN(d.getTime())) return '—'
+  return `${formatDate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 // Converts a raw Excel cell into a 'YYYY-MM-DD' string for date columns.
@@ -96,3 +106,17 @@ export function headerRowMismatch(actual: unknown[], expected: string[]): string
   }
   return null
 }
+
+// Approval status as the word the table shows, on a field of its own, so the
+// column filter (which matches the stored value against the option text) can
+// offer Pending / Approved / Rejected instead of 0 / 1 / 2.
+export const statusLabel = (adminStatus: unknown): 'Pending' | 'Approved' | 'Rejected' =>
+  Number(adminStatus) === 1 ? 'Approved' : Number(adminStatus) === 2 ? 'Rejected' : 'Pending'
+export const withStatusLabel = <T extends Record<string, unknown>>(rows: T[]): (T & { status_label: string })[] =>
+  rows.map((r) => ({ ...r, status_label: statusLabel(r.admin_status) }))
+
+// Money the Indian way - 1,23,456.00 - for every rupee figure the app shows.
+// Takes what the API hands back (a number, or a numeric string), and reads
+// 0.00 rather than NaN for anything blank.
+export const formatAmount = (v: unknown): string =>
+  (Number(v) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })

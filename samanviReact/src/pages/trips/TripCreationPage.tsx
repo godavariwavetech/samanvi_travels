@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType } from '@/lib/utils'
+import { isVanVehicleType, formatDate } from '@/lib/utils'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
@@ -76,7 +76,7 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
     render: (v, r: any) => (
       <div>
         <div className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</div>
-        <div className="text-xs text-slate-400">{String(r.trip_date ?? '').split('T')[0]}</div>
+        <div className="text-xs text-slate-400">{formatDate(r.trip_date)}</div>
       </div>
     ),
   },
@@ -144,7 +144,7 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
     render: (v, r: any) => (
       <div>
         <div className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</div>
-        <div className="text-xs text-slate-400">{String(r.trip_date ?? '').split('T')[0]}</div>
+        <div className="text-xs text-slate-400">{formatDate(r.trip_date)}</div>
       </div>
     ),
   },
@@ -1119,7 +1119,7 @@ export default function TripCreationPage() {
                     </h3>
                     <p className="text-xs font-medium text-slate-500">
                       <span className="text-blue-600">{editRow.c_number ?? '#' + editRow.id}</span>
-                      {editRow.trip_date ? ' · ' + String(editRow.trip_date).split('T')[0] : ''}
+                      {editRow.trip_date ? ' · ' + formatDate(editRow.trip_date) : ''}
                       {editRow.service_no ? ' · ' + editRow.service_no : ''}
                     </p>
                   </div>
