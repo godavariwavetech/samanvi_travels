@@ -340,10 +340,14 @@ export default function TripExpensesPage() {
   const vehicleOf = (busNo: string) => buses.find((b: any) => String(b.bus_no) === String(busNo))
   const isHireVehicle = (busNo: string) => String(vehicleOf(busNo)?.bus_category ?? '') === 'hire'
   const vanHired = isVanTrip && isHireVehicle(form.bus_no || String(modal.row?.bus_no ?? ''))
-  // A van trip picks from vans, a bus trip from the whole fleet as before.
-  const vehicleOptions = isVanTrip
-    ? buses.filter((b: any) => isVanVehicleType(b.vehicle_type) || String(b.bus_no) === form.bus_no)
-    : buses
+  // A van trip picks from vans and a bus trip from buses - a service number is
+  // one or the other, so the other kind is never a valid choice here. The
+  // vehicle already on the trip stays listed whatever it is.
+  const vehicleOptions = buses.filter((b: any) => isVanVehicleType(b.vehicle_type) === isVanTrip || String(b.bus_no) === form.bus_no)
+  // What the van's booking amount is, for the read-only fields and the list.
+  const vanAmountLabel = (r: any) => (
+    isHireVehicle(String(r?.bus_no ?? '')) ? 'Hire Charge'
+      : seatIsOpting(r?.driver1_id, r?.driver1_name, r?.opt_driver1_id) ? 'Opting Driver Pay' : 'Amount')
   const seatHasPerson = (seat: OptingSeat | 'conductor'): boolean => !!String(
     seat === 'driver1' ? form.driver1_id : seat === 'driver2' ? form.driver2_id
       : seat === 'helper' ? form.helper_id : form.conductor_id)
@@ -1608,6 +1612,64 @@ export default function TripExpensesPage() {
     },
   ]
 
+  // The Van tab shows what a van trip was created with - line code, hirer,
+  // the amount and the hire voucher - in place of the bus crew columns, the
+  // same shape as Trip Creation's van records. The shared columns are reused.
+  const col = (key: string): Column => columns.find((c) => c.key === key)!
+  const vanColumns: Column[] = [
+    col('_sl'), col('trip_date'), col('c_number'), col('trip_run_status'),
+    {
+      label: 'Van / Service', key: 'bus_no', filterable: true,
+      render: (v, r: any) => (
+        <div>
+          <div className={`font-semibold ${isHireVehicle(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</div>
+          <div className="text-xs text-slate-500">{[r.service_no, r.line_code].filter(Boolean).join(' · ') || '—'}</div>
+        </div>
+      ),
+    },
+    {
+      label: 'Driver', key: 'driver1_name', filterable: true,
+      render: (v, r: any) => <span className="font-medium">{String(v || (isHireVehicle(String(r.bus_no ?? '')) ? 'Hired' : '—'))}</span>,
+    },
+    {
+      label: 'Hirer', key: 'hirer_name', filterable: true,
+      render: (v, r: any) => (
+        <div>
+          <div className="text-sm">{String(v ?? '—')}</div>
+          {r.phone_number && <div className="text-xs text-slate-400">{r.phone_number}</div>}
+        </div>
+      ),
+    },
+    {
+      label: 'Hire / Opting Pay', key: 'booking_amount', align: 'right',
+      render: (v, r: any) => num(v) > 0
+        ? (
+          <div>
+            <span className="text-sm font-semibold">₹{num(v).toLocaleString('en-IN')}</span>
+            <div className="text-[10px] text-slate-400">{vanAmountLabel(r)}</div>
+          </div>
+        )
+        : <span className="text-slate-300">—</span>,
+    },
+    {
+      label: 'Voucher', key: 'voucher_number', filterable: true,
+      render: (v, r: any) => v
+        ? (
+          <div>
+            <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{String(v)}</span>
+            {(r.hire_debit_ledger_name || r.hire_credit_ledger_name) && (
+              <div className="text-[11px] text-slate-400 mt-1">
+                {String(r.hire_debit_ledger_name ?? '—')} → {String(r.hire_credit_ledger_name ?? '—')}
+              </div>
+            )}
+          </div>
+        )
+        : <span className="text-slate-300 text-xs">—</span>,
+    },
+    { ...col('grantotal'), label: 'Expense Filed' },
+    col('admin_status'),
+  ]
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
       <PageHeader title="Trip Expenses" subtitle="File and review per-trip driver/helper/conductor expenses" />
@@ -1641,7 +1703,7 @@ export default function TripExpensesPage() {
 
       <DataTable
         title={`Trip Expenses (${filteredTrips.length})`}
-        columns={columns}
+        columns={vehicleTab === 'Van' ? vanColumns : columns}
         data={filteredTrips}
         loading={isLoading}
         onAction={handleAction}
@@ -1761,6 +1823,9 @@ export default function TripExpensesPage() {
                       {seatFields('conductor')}
                     </div>
                     </>)}
+                    {/* Paid To is the bus crew's leftover; a van has none. A van
+                        shows instead what it was created with. */}
+                    {!isVanTrip && (
                     <div>
                       <Label>Paid To</Label>
                       <SearchableSelect
@@ -1825,6 +1890,17 @@ export default function TripExpensesPage() {
                         </div>
                       )}
                     </div>
+                    )}
+                    {isVanTrip && (<>
+                      <div><Label>Line Code</Label><Input value={String(modal.row?.line_code ?? '')} readOnly disabled /></div>
+                      <div><Label>Status</Label><Input value={String(modal.row?.trip_run_status || 'Running')} readOnly disabled /></div>
+                      <div><Label>Hirer</Label><Input value={String(modal.row?.hirer_name ?? '')} readOnly disabled /></div>
+                      <div><Label>Hirer Mobile</Label><Input value={String(modal.row?.phone_number ?? '')} readOnly disabled /></div>
+                      <div>
+                        <Label>{vanAmountLabel(modal.row)}</Label>
+                        <Input value={num(modal.row?.booking_amount) > 0 ? num(modal.row?.booking_amount).toLocaleString('en-IN') : ''} readOnly disabled />
+                      </div>
+                    </>)}
                   </div>
 
                   {/* A hired van's charge: either already on the books from the
@@ -2105,7 +2181,7 @@ export default function TripExpensesPage() {
 
       {/* ── View modal ── */}
       <AnimatePresence>
-        {viewModal.open && (
+        {viewModal.open && (() => { const viewIsVan = String(viewModal.row?.vehicle_type ?? '').toLowerCase() === 'van'; const viewHired = viewIsVan && isHireVehicle(String(viewModal.row?.bus_no ?? '')); return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setViewModal((v) => ({ ...v, open: false }))}>
             <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
               className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -2118,13 +2194,15 @@ export default function TripExpensesPage() {
               <div className="p-6 space-y-5">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl">
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Trip Date</p><p className="text-sm font-medium">{String(viewModal.row?.trip_date ?? '').split('T')[0]}</p></div>
-                  <div><p className="text-[10px] font-bold uppercase text-slate-400">Bus No</p><p className="text-sm font-medium">{viewModal.row?.bus_no}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Van No' : 'Bus No'}</p><p className="text-sm font-medium">{viewModal.row?.bus_no}</p></div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Service No</p><p className="text-sm font-medium">{viewModal.row?.service_no}</p></div>
-                  <div><p className="text-[10px] font-bold uppercase text-slate-400">Driver 1</p><p className="text-sm font-medium flex items-center gap-1.5">
-                    <input type="checkbox" readOnly checked={viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />
-                    {viewModal.row?.driver1_name || '—'}</p>
+                  <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Driver' : 'Driver 1'}</p><p className="text-sm font-medium flex items-center gap-1.5">
+                    {!viewHired && <input type="checkbox" readOnly checked={viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />}
+                    {viewModal.row?.driver1_name || (viewHired ? 'Hired' : '—')}</p>
                     {viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? '')) && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('driver1', String(viewModal.row?.driver1_id ?? '')).toLocaleString('en-IN')}</p>}
                   </div>
+                  {/* A van has one driver and no Paid To; it shows what it was created with instead. */}
+                  {!viewIsVan && (<>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Driver 2</p><p className="text-sm font-medium flex items-center gap-1.5">
                     <input type="checkbox" readOnly checked={viewPersonPaid('driver2', String(viewModal.row?.driver2_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />
                     {viewModal.row?.driver2_name || '—'}</p>
@@ -2150,7 +2228,15 @@ export default function TripExpensesPage() {
                     ))}
                   </div>
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">Paid To</p><p className="text-sm font-medium">{viewModal.row?.paid_to_name || '—'}</p></div>
-                  <div><p className="text-[10px] font-bold uppercase text-slate-400">Amount</p><p className="text-sm font-bold text-slate-900">₹{Number(viewModal.row?.grantotal ?? 0).toLocaleString('en-IN')}</p></div>
+                  </>)}
+                  {viewIsVan && (<>
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Line Code</p><p className="text-sm font-medium">{viewModal.row?.line_code || '—'}</p></div>
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Status</p><p className="text-sm font-medium">{viewModal.row?.trip_run_status || 'Running'}</p></div>
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Hirer</p><p className="text-sm font-medium">{viewModal.row?.hirer_name || '—'}</p>{viewModal.row?.phone_number && <p className="text-[11px] text-slate-400">{viewModal.row.phone_number}</p>}</div>
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">{vanAmountLabel(viewModal.row)}</p><p className="text-sm font-medium">{num(viewModal.row?.booking_amount) > 0 ? `₹${num(viewModal.row?.booking_amount).toLocaleString('en-IN')}` : '—'}</p></div>
+                    {viewModal.row?.voucher_number && <div><p className="text-[10px] font-bold uppercase text-slate-400">Hire Voucher</p><p className="text-sm font-medium">{viewModal.row.voucher_number}</p>{(viewModal.row.hire_debit_ledger_name || viewModal.row.hire_credit_ledger_name) && <p className="text-[11px] text-slate-400">{String(viewModal.row.hire_debit_ledger_name ?? '—')} → {String(viewModal.row.hire_credit_ledger_name ?? '—')}</p>}</div>}
+                  </>)}
+                  <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Expense Filed' : 'Amount'}</p><p className="text-sm font-bold text-slate-900">₹{Number(viewModal.row?.grantotal ?? 0).toLocaleString('en-IN')}</p></div>
                 </div>
                 {viewModal.row?.remarks && (
                   <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl">
@@ -2189,7 +2275,7 @@ export default function TripExpensesPage() {
               </div>
             </motion.div>
           </div>
-        )}
+        ) })()}
       </AnimatePresence>
     </motion.div>
   )
