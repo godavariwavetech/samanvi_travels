@@ -172,6 +172,11 @@ export default function TripExpensesPage() {
   const [toDate, setToDate] = useState('')
   const [applied, setApplied] = useState<{ from: string; to: string } | null>(null)
   const [vehicleTab, setVehicleTab] = useState('All')
+  // Whether the trip's expense has been filed yet (trip_created.status: 0 not
+  // filed, 1 filed). The page is both the filing queue and the record of what
+  // was filed, so the two are worth switching between rather than reading one
+  // long mixed list.
+  const [filedTab, setFiledTab] = useState('All')
 
   // Add/Edit modal
   const [modal, setModal] = useState<{ mode: 'add' | 'edit' | null; row: any }>({ mode: null, row: null })
@@ -257,9 +262,26 @@ export default function TripExpensesPage() {
   const { data: subchildData } = useQuery({ queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild() })
 
   const trips: any[] = listData?.data ?? []
-  const filteredTrips = vehicleTab === 'All' ? trips
-    : vehicleTab === 'Van' ? trips.filter((t) => String(t.vehicle_type ?? '').toLowerCase() === 'van')
-      : trips.filter((t) => String(t.vehicle_type ?? '').toLowerCase() !== 'van')
+  const isVan = (t: any) => String(t.vehicle_type ?? '').toLowerCase() === 'van'
+  const isFiled = (t: any) => Number(t.status) === 1
+  const vehicleTrips = vehicleTab === 'All' ? trips
+    : vehicleTab === 'Van' ? trips.filter(isVan)
+      : trips.filter((t) => !isVan(t))
+  const filteredTrips = filedTab === 'All' ? vehicleTrips
+    : filedTab === 'Filed' ? vehicleTrips.filter(isFiled)
+      : vehicleTrips.filter((t) => !isFiled(t))
+  // Each tab's own count: the vehicle counts are of every trip in the date
+  // range, the filed counts are within the vehicle tab that is open.
+  const vehicleCounts = {
+    All: trips.length,
+    Bus: trips.filter((t) => !isVan(t)).length,
+    Van: trips.filter(isVan).length,
+  }
+  const filedCounts = {
+    All: vehicleTrips.length,
+    'Not Filed': vehicleTrips.filter((t) => !isFiled(t)).length,
+    Filed: vehicleTrips.filter(isFiled).length,
+  }
   const ledgerList: any[] = ledgerData?.data ?? []
   // openAdd/openEdit await getBeta before resolving ledgers, and a callback holds
   // the ledgerList from the render it was created in — so if the ledger query was
@@ -1705,10 +1727,13 @@ export default function TripExpensesPage() {
         </div>
       </GlassCard>
 
-      <TopNavTabs tabs={['All', 'Bus', 'Van']} activeTab={vehicleTab} onChange={setVehicleTab} />
+      <div className="flex items-center gap-3 flex-wrap">
+        <TopNavTabs tabs={['All', 'Bus', 'Van']} activeTab={vehicleTab} onChange={setVehicleTab} counts={vehicleCounts} className="mb-0" />
+        <TopNavTabs tabs={['All', 'Not Filed', 'Filed']} activeTab={filedTab} onChange={setFiledTab} counts={filedCounts} className="mb-0" />
+      </div>
 
       <DataTable
-        title={`Trip Expenses (${filteredTrips.length})`}
+        title={`${filedTab === 'All' ? 'Trip Expenses' : filedTab === 'Filed' ? 'Expenses Filed' : 'Awaiting an Expense'} (${filteredTrips.length})`}
         columns={vehicleTab === 'Van' ? vanColumns : columns}
         data={filteredTrips}
         loading={isLoading}
