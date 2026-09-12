@@ -7,6 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { mastersService } from '@/services/masters.service'
+import { tripsService } from '@/services/trips.service'
 import { accountingService } from '@/services/accounting.service'
 import { formatDate, withStatusLabel, formatAmount, formatDateTime } from '@/lib/utils'
 
@@ -57,6 +58,10 @@ type VendorRate = {
 }
 type VehicleRow = {
   vehicle_no: string
+  // True while the vehicle is the one the day's trips gave this service, so a
+  // changed bill date or service can re-derive it. A vehicle picked or cleared
+  // by hand sets it false and is never overwritten.
+  vehicle_auto?: boolean
   service_no: string
   products: { product_name: string; qty: string; rate: string }[]
 }
@@ -95,7 +100,7 @@ interface FormState extends ReturnType<typeof emptyForm> {}
 
 function BillForm({
   form, setForm, vendors, ledgers, buses, serviceOptions, rates, vehicleRows, setVehicleRows,
-  debits, setDebits, credits, setCredits,
+  debits, setDebits, credits, setCredits, vehicleFor,
 }: {
   form: FormState
   setForm: (f: FormState) => void
@@ -110,6 +115,8 @@ function BillForm({
   setDebits: (d: LedgerRow[]) => void
   credits: LedgerRow[]
   setCredits: (c: LedgerRow[]) => void
+  /** The vehicle that ran this service on the bill's date, '' when none did. */
+  vehicleFor: (serviceNo: string) => string
 }) {
   const total = billTotal(vehicleRows)
   const debitSum = ledgerSum(debits)
@@ -137,6 +144,7 @@ function BillForm({
     ])
   }
   const billedCount = billedRows(vehicleRows).length
+  const fetchedCount = vehicleRows.filter((r) => r.vehicle_auto && r.vehicle_no).length
 
   const updateVehicleField = (i: number, patch: Partial<VehicleRow>) => {
     setVehicleRows(vehicleRows.map((v, idx) => (idx === i ? { ...v, ...patch } : v)))
@@ -205,7 +213,9 @@ function BillForm({
             {/* Every Up service is listed; a row is billed once a quantity is
                 typed on it, and only billed rows need a vehicle or are saved. */}
             <p className="text-xs text-slate-500 mb-2">
-              {vehicleRows.length} service{vehicleRows.length === 1 ? '' : 's'} listed · {billedCount} billed. Type the quantities against a service; rows left blank are not billed.
+              {vehicleRows.length} service{vehicleRows.length === 1 ? '' : 's'} listed · {billedCount} billed
+              {fetchedCount > 0 && <> · {fetchedCount} vehicle{fetchedCount === 1 ? '' : 's'} taken from the day's trips</>}.
+              {' '}Type the quantities against a service; rows left blank are not billed.
             </p>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full text-xs min-w-max">
@@ -230,14 +240,26 @@ function BillForm({
                         <td className="py-1 px-2">
                           <SearchableSelect placeholder="Service" className="min-w-[8.5rem]" buttonClassName="h-8 text-xs"
                             options={serviceOptions.some((o) => o.value === row.service_no) || !row.service_no ? serviceOptions : [{ value: row.service_no, label: row.service_no }, ...serviceOptions]}
-                            value={row.service_no} onChange={(v) => updateVehicleField(ri, { service_no: v })}
-                            onClear={() => updateVehicleField(ri, { service_no: '' })} />
+                            value={row.service_no}
+                            onChange={(v) => updateVehicleField(ri, row.vehicle_auto === false
+                              ? { service_no: v }
+                              : { service_no: v, vehicle_no: vehicleFor(v), vehicle_auto: true })}
+                            onClear={() => updateVehicleField(ri, row.vehicle_auto === false
+                              ? { service_no: '' }
+                              : { service_no: '', vehicle_no: '', vehicle_auto: true })} />
                         </td>
                         <td className="py-1 px-2">
                           <SearchableSelect placeholder={billed ? 'Pick vehicle' : 'Vehicle'} className="min-w-[8.5rem]" buttonClassName={`h-8 text-xs ${billed && !row.vehicle_no ? 'border-red-300' : ''}`}
                             options={buses.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
-                            value={row.vehicle_no} onChange={(v) => updateVehicleField(ri, { vehicle_no: v })}
-                            onClear={() => updateVehicleField(ri, { vehicle_no: '' })} />
+                            value={row.vehicle_no}
+                            onChange={(v) => updateVehicleField(ri, { vehicle_no: v, vehicle_auto: false })}
+                            onClear={() => updateVehicleField(ri, { vehicle_no: '', vehicle_auto: false })} />
+                          {/* Why a billed row has no vehicle: no trip was created
+                              for that service on the bill's date, so there is
+                              nothing to take it from. */}
+                          {billed && !row.vehicle_no && row.service_no && !vehicleFor(row.service_no) && (
+                            <p className="text-[10px] text-amber-600 leading-tight mt-0.5">No trip on this date</p>
+                          )}
                         </td>
                         {row.products.map((p, pi) => (
                           <td key={pi} className="py-1 px-1.5 text-center">
@@ -451,6 +473,25 @@ export default function LaundryBillPage() {
   const { data: busesResp } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
   const { data: routesResp } = useQuery({ queryKey: ['routes'], queryFn: () => mastersService.getServiceRoutes() })
   const { data: billsResp, isLoading } = useQuery({ queryKey: ['laundry-bills'], queryFn: () => laundryService.getLaundryBills() })
+  // The trips created for the bill's date. Laundry is billed per vehicle, and
+  // the vehicle that carried a service that day is already on its trip, so the
+  // Vehicle No fills itself rather than being picked service by service.
+  const { data: dayTripsResp } = useQuery({
+    queryKey: ['laundry-day-trips', form.voucherdate],
+    queryFn: () => tripsService.getExpensesFilter({ fromdate: form.voucherdate, todate: form.voucherdate }),
+    enabled: !!form.voucherdate,
+  })
+  const vehicleByService = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of ((dayTripsResp?.data ?? []) as any[])) {
+      const svc = String(t.service_no ?? '').trim()
+      const bus = String(t.bus_no ?? '').trim()
+      // First trip wins if a service somehow ran twice that day.
+      if (svc && bus && !m.has(svc)) m.set(svc, bus)
+    }
+    return m
+  }, [dayTripsResp])
+  const vehicleFor = (serviceNo: string) => vehicleByService.get(String(serviceNo ?? '').trim()) ?? ''
 
   const vendors = (vendorsResp?.data ?? []) as Vendor[]
   const ledgers = (ledgersResp?.data ?? []) as Ledger[]
@@ -492,8 +533,8 @@ export default function LaundryBillPage() {
     if (form.vendor && rates.length > 0 && vehicleRows.length === 0 && mode === 'add') {
       const products = () => rates.map((r) => ({ product_name: r.product_name, qty: '', rate: String(r.amount || 0) }))
       setVehicleRows(serviceOptions.length
-        ? serviceOptions.map((o) => ({ vehicle_no: '', service_no: o.value, products: products() }))
-        : [{ vehicle_no: '', service_no: '', products: products() }])
+        ? serviceOptions.map((o) => ({ vehicle_no: vehicleFor(o.value), vehicle_auto: true, service_no: o.value, products: products() }))
+        : [{ vehicle_no: '', vehicle_auto: true, service_no: '', products: products() }])
       if (form.vendor.ledger_id && filledLedgerLines(credits).length === 0) {
         const l = ledgers.find((x) => x.id === Number(form.vendor?.ledger_id))
         if (l) setCredits([{ ledger: l, amount: '', auto: true }])
@@ -501,6 +542,25 @@ export default function LaundryBillPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates, form.vendor])
+
+  // The day's trips arrive after the rows are laid out, and the bill date can
+  // change under them, so every vehicle this form filled in is re-derived
+  // whenever that mapping moves. One picked or cleared by hand is left alone.
+  useEffect(() => {
+    if (mode !== 'add') return
+    setVehicleRows((rows) => {
+      let changed = false
+      const next = rows.map((r) => {
+        if (r.vehicle_auto === false) return r
+        const want = r.service_no ? vehicleFor(r.service_no) : ''
+        if (want === r.vehicle_no) return r
+        changed = true
+        return { ...r, vehicle_no: want, vehicle_auto: true }
+      })
+      return changed ? next : rows
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicleByService, mode])
 
   // Ledger amounts the panels filled in - the vendor's seeded credit row, and
   // any ledger picked before the quantities were typed - follow the bill total
@@ -640,6 +700,8 @@ export default function LaundryBillPage() {
     ]
     const loadedRows: VehicleRow[] = vehs.map((r) => ({
       vehicle_no: String(r.vehicle_no || ''),
+      // Saved on the bill, so it stands whatever the day's trips now say.
+      vehicle_auto: false,
       service_no: String(r.service_no || ''),
       products: productDefs
         .filter((pd) => r[`${pd.key}_qty`] || r[`${pd.key}_rate`])
@@ -768,7 +830,7 @@ export default function LaundryBillPage() {
               </div>
               <BillForm
                 form={form} setForm={setForm}
-                vendors={vendors} ledgers={ledgers} buses={buses} serviceOptions={serviceOptions} rates={rates}
+                vendors={vendors} ledgers={ledgers} buses={buses} serviceOptions={serviceOptions} rates={rates} vehicleFor={vehicleFor}
                 vehicleRows={vehicleRows} setVehicleRows={setVehicleRows}
                 debits={debits} setDebits={setDebits} credits={credits} setCredits={setCredits}
               />
