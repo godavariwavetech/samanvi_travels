@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
@@ -102,6 +102,13 @@ export default function DayBookPage() {
           expensives:  item.expensives  || '—',
           valueDate:   item.valuedate   || item.valueDate || '',
           bus_no:      item.vehicleNo   || item.bus_no    || '—',
+          // Optional columns: the trip behind a trip expense or its voucher,
+          // and the litres / price per litre behind a fuel fill (pieces on a
+          // laundry bill).
+          trip_date:   item.trip_date   || '',
+          quantity:    item.quantity    ?? null,
+          rate:        item.rate        ?? null,
+          quantity_unit: item.quantity_unit || '',
           name:        item.name        || '—',
           description: item.description || '—',
           debit,
@@ -121,7 +128,13 @@ export default function DayBookPage() {
     )
   }, [tableRows, search])
 
-  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'name', 'description', 'debit', 'credit'] as const
+  // Trip Date, Quantity and Rate, ticked on and off above the table the way
+  // Voucher Approvals' "Show columns" works; all three start visible.
+  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(REPORT_EXTRA_COLS))
+  const showCol = (c: string) => extraCols.has(c)
+  const extraCount = extraCols.size
+
+  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'tripDate', 'quantity', 'rate', 'name', 'description', 'debit', 'credit'] as const
 
   const colValue = (row: any, key: string): string => {
     switch (key) {
@@ -132,6 +145,9 @@ export default function DayBookPage() {
       case 'expensives': return row.expensives
       case 'valueDate': return fmt(row.valueDate)
       case 'bus_no': return row.bus_no
+      case 'tripDate': return row.trip_date ? fmt(row.trip_date) : '—'
+      case 'quantity': return reportQuantity(row) || '—'
+      case 'rate': return reportRate(row) || '—'
       case 'name': return row.name
       case 'description': return row.description
       case 'debit': return row.debit ? fmtAmt(row.debit) : '—'
@@ -169,16 +185,20 @@ export default function DayBookPage() {
   const difference  = totalDebit - totalCredit
 
   const exportExcel = () => {
-    const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', 'Name', 'Description', 'Debit', 'Credit', 'Balance']
+    // The ticked optional columns go out too, after Vehicle No as on screen.
+    const extras = REPORT_EXTRA_COLS.filter(showCol)
+    const pad = extras.map(() => '')
+    const extraValues = (r: any) => extras.map((c) => c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '') : c === 'Quantity' ? reportQuantity(r) : reportRate(r))
+    const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', ...extras, 'Name', 'Description', 'Debit', 'Credit', 'Balance']
     const body = displayRows.map(r => [
       r.i, r.c_number, r.vouchertype, fmt(r.i_ts),
       r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
-      r.expensives, r.group, fmt(r.valueDate), r.bus_no, r.name, r.description,
+      r.expensives, r.group, fmt(r.valueDate), r.bus_no, ...extraValues(r), r.name, r.description,
       r.debit || '', r.credit || '',
       r.balance >= 0 ? `${r.balance.toFixed(2)} Dr` : `${Math.abs(r.balance).toFixed(2)} Cr`,
     ])
-    body.push(['', '', '', '', '', '', '', '', '', '', 'Total', totalDebit || '', totalCredit || '', ''])
-    body.push(['', '', '', '', '', '', '', '', '', '', 'Difference (Dr - Cr)',
+    body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Total', totalDebit || '', totalCredit || '', ''])
+    body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Difference (Dr - Cr)',
       difference >= 0 ? difference : '',
       difference < 0 ? Math.abs(difference) : '',
       difference === 0 ? 'Balanced' : difference > 0 ? `${difference.toFixed(2)} Dr` : `${Math.abs(difference).toFixed(2)} Cr`,
@@ -358,6 +378,7 @@ export default function DayBookPage() {
               <FileText className="w-4 h-4" /> Download PDF
             </button>
           </div>
+          <ReportColumnPicker options={REPORT_EXTRA_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <GlassCard className="p-5">
               <p className="text-xs font-bold text-slate-500 uppercase">Total Entries</p>
@@ -408,6 +429,9 @@ export default function DayBookPage() {
                   <TH filterKey="expensives">Ledger Name</TH>
                   <TH filterKey="valueDate">Value Date</TH>
                   <TH filterKey="bus_no">Vehicle No</TH>
+                  {showCol('Trip Date') && <TH filterKey="tripDate">Trip Date</TH>}
+                  {showCol('Quantity') && <TH cls="text-right" filterKey="quantity">Quantity</TH>}
+                  {showCol('Rate') && <TH cls="text-right" filterKey="rate">Rate</TH>}
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="description">Description</TH>
                   <TH cls="text-right" filterKey="debit">Debit</TH>
@@ -456,6 +480,9 @@ export default function DayBookPage() {
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.valueDate)}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.bus_no}</td>
+                    {showCol('Trip Date') && <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.trip_date ? fmt(row.trip_date) : '—'}</td>}
+                    {showCol('Quantity') && <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportQuantity(row) || '—'}</td>}
+                    {showCol('Rate') && <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportRate(row) || '—'}</td>}
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.name}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 max-w-[200px] truncate">{row.description}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-right font-medium text-red-600 tabular-nums whitespace-nowrap">
@@ -477,7 +504,7 @@ export default function DayBookPage() {
               {/* Totals + Difference rows */}
               <tfoot>
                 <tr className="bg-blue-50 font-bold border-t-2 border-blue-200">
-                  <td colSpan={10} className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase tracking-wide">
+                  <td colSpan={10 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase tracking-wide">
                     Total
                   </td>
                   <td className="px-3 py-2.5 text-right text-red-600 tabular-nums">{fmtAmt(totalDebit)}</td>
@@ -490,7 +517,7 @@ export default function DayBookPage() {
                   </td>
                 </tr>
                 <tr className={`font-bold border-t border-dashed ${difference === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
-                  <td colSpan={10} className={`px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wide ${difference === 0 ? 'text-green-700' : 'text-amber-700'}`}>
+                  <td colSpan={10 + extraCount} className={`px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wide ${difference === 0 ? 'text-green-700' : 'text-amber-700'}`}>
                     Difference (Dr − Cr)
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-red-600">

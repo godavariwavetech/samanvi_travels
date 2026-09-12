@@ -5,7 +5,7 @@ import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditC
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
@@ -757,11 +757,18 @@ export default function LedgerWisePage() {
 
   const closeModal = () => setModal({ open: false, entry: null, data: null, loading: false })
 
+  // ─── Optional columns ──────────────────────────────────────────────────────
+  // Trip Date, Quantity and Rate, ticked on and off above the table the way
+  // Voucher Approvals' "Show columns" works; all three start visible.
+  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(REPORT_EXTRA_COLS))
+  const showCol = (c: string) => extraCols.has(c)
+  const extraCount = extraCols.size
+
   // ─── Column filters ────────────────────────────────────────────────────────
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
 
-  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'name', 'description', 'debitAmount', 'creditAmount'] as const
+  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'tripDate', 'quantity', 'rate', 'name', 'description', 'debitAmount', 'creditAmount'] as const
 
   const colValue = useCallback((row: any, key: string): string => {
     switch (key) {
@@ -771,6 +778,9 @@ export default function LedgerWisePage() {
       case 'opp_ledgers': return row.opp_ledgers || 'N/A'
       case 'valueDate': return fmt(row.valueDate)
       case 'vehicleNo': return (row.vehicleNo || row.bus_no) || '-'
+      case 'tripDate': return row.trip_date ? fmt(row.trip_date) : '-'
+      case 'quantity': return reportQuantity(row) || '-'
+      case 'rate': return reportRate(row) || '-'
       case 'name': return row.name || '-'
       case 'description': return row.description || '-'
       case 'debitAmount': return row.debit > 0 ? fmtAmt(row.debit) : '-'
@@ -817,11 +827,15 @@ export default function LedgerWisePage() {
 
   // ─── Excel Export ──────────────────────────────────────────────────────────
   const exportExcel = () => {
+    // The ticked optional columns go out too, after Vehicle No. as on screen.
+    const extras = REPORT_EXTRA_COLS.filter(showCol)
+    const pad = extras.map(() => '')
+    const extraValues = (r: any) => extras.map((c) => c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '-') : c === 'Quantity' ? (reportQuantity(r) || '-') : (reportRate(r) || '-'))
     const data: any[][] = [
-      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
+      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', ...extras, 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
     ]
     if (showOB) {
-      data.push(['', '', '', '', 'Opening Balance', '', '', '', '', '',
+      data.push(['', '', '', '', 'Opening Balance', '', '', '', ...pad, '', '',
         openingBalance >= 0 ? openingBalance : 0,
         openingBalance < 0 ? Math.abs(openingBalance) : 0,
         balStr(openingBalance),
@@ -831,17 +845,18 @@ export default function LedgerWisePage() {
       data.push([
         i + 1, r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
         r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
+        ...extraValues(r),
         r.name || '-', r.description || '-',
         r.debit, r.credit, balStr(r.runningBalance ?? 0),
       ])
     })
-    data.push(['', '', '', '', 'Total', '', '', '', '', '', totalDebit, totalCredit, ''])
-    data.push(['', '', '', '', 'Closing Balance', '', '', '', '', '',
+    data.push(['', '', '', '', 'Total', '', '', '', ...pad, '', '', totalDebit, totalCredit, ''])
+    data.push(['', '', '', '', 'Closing Balance', '', '', '', ...pad, '', '',
       closingBalance < 0 ? Math.abs(closingBalance) : 0,
       closingBalance >= 0 ? closingBalance : 0,
       balStr(closingBalance),
     ])
-    data.push(['', '', '', '', 'Grand Total', '', '', '', '', '', grandDebit, grandCredit, ''])
+    data.push(['', '', '', '', 'Grand Total', '', '', '', ...pad, '', '', grandDebit, grandCredit, ''])
 
     const ws = XLSX.utils.aoa_to_sheet(data)
     ws['!cols'] = data[0].map((_: any, ci: number) => ({
@@ -850,7 +865,7 @@ export default function LedgerWisePage() {
     // Dr/Cr Amount columns (10, 11) hold real numbers — format them so Excel
     // treats them as numeric (right-aligned, summable via the status bar).
     for (let r = 1; r < data.length; r++) {
-      for (const c of [10, 11]) {
+      for (const c of [10 + extras.length, 11 + extras.length]) {
         const cellRef = XLSX.utils.encode_cell({ r, c })
         const cell = ws[cellRef]
         if (cell && typeof cell.v === 'number') cell.z = '#,##0.00'
@@ -995,7 +1010,7 @@ export default function LedgerWisePage() {
 
   const SummaryRow = ({ label, dr, cr, bal }: { label: string; dr?: number; cr?: number; bal?: number }) => (
     <tr className="bg-blue-50 border-t-2 border-blue-200 font-bold">
-      <td colSpan={9} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
+      <td colSpan={9 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{dr != null ? fmtAmt(dr) : ''}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{cr != null ? fmtAmt(cr) : ''}</td>
       <td className={`px-3 py-2.5 text-right tabular-nums ${bal != null ? obCbCls(bal) : ''}`}>
@@ -1006,7 +1021,7 @@ export default function LedgerWisePage() {
 
   const GrandRow = ({ label, dr, cr }: { label: string; dr: number; cr: number }) => (
     <tr className="bg-amber-50 border-t-2 border-amber-300 font-bold">
-      <td colSpan={9} className="px-3 py-2.5 text-right text-xs font-bold text-amber-800 uppercase tracking-wide">{label}</td>
+      <td colSpan={9 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-amber-800 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{fmtAmt(dr)}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{fmtAmt(cr)}</td>
       <td />
@@ -1118,6 +1133,8 @@ export default function LedgerWisePage() {
             </div>
           </div>
 
+          <ReportColumnPicker options={REPORT_EXTRA_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
+
           {/* Summary strip */}
           <SummaryStrip />
         </div>
@@ -1149,6 +1166,9 @@ export default function LedgerWisePage() {
                   <TH filterKey="opp_ledgers">Opp-Ledger</TH>
                   <TH filterKey="valueDate">Value Date</TH>
                   <TH filterKey="vehicleNo">Vehicle No.</TH>
+                  {showCol('Trip Date') && <TH filterKey="tripDate">Trip Date</TH>}
+                  {showCol('Quantity') && <TH cls="text-right" filterKey="quantity">Quantity</TH>}
+                  {showCol('Rate') && <TH cls="text-right" filterKey="rate">Rate</TH>}
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="description">Description</TH>
                   <TH cls="text-right" filterKey="debitAmount">Dr Amount</TH>
@@ -1160,7 +1180,7 @@ export default function LedgerWisePage() {
                 {/* Opening Balance */}
                 {showOB && (
                   <tr className="bg-sky-50 border-b border-sky-200">
-                    <td colSpan={9} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
+                    <td colSpan={9 + extraCount} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
                       Opening Balance —{' '}
                       <span className={obCbCls(openingBalance)}>{balStr(openingBalance)}</span>
                     </td>
@@ -1176,13 +1196,13 @@ export default function LedgerWisePage() {
                     of swapping the whole card out for a blank message */}
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={12 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
                       No transactions found for the selected criteria.
                     </td>
                   </tr>
                 ) : displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={12 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
                       No rows match the active filters.
                     </td>
                   </tr>
@@ -1226,6 +1246,15 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {(row.vehicleNo || row.bus_no) || '-'}
                     </td>
+                    {showCol('Trip Date') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.trip_date ? fmt(row.trip_date) : '-'}</td>
+                    )}
+                    {showCol('Quantity') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportQuantity(row) || '-'}</td>
+                    )}
+                    {showCol('Rate') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportRate(row) || '-'}</td>
+                    )}
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap" title={row.name || '-'}>
                       {row.name || '-'}
                     </td>
