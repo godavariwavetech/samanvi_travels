@@ -12,11 +12,16 @@ api.interceptors.request.use((config) => {
   }
   // Lists are fetched with GET (fuel entries, laundry bills, trips...). A
   // browser or the server's proxy may hand back a cached copy of a GET, so a
-  // record just saved never showed until a hard refresh. Every GET carries a
-  // unique stamp and asks for a fresh response, so a refetch is a real fetch.
+  // record just saved never showed until a hard refresh. A unique stamp per
+  // request means no cache has a copy of that URL to hand back, and the API
+  // answers every /nodeapp call with Cache-Control: no-store (see app.js).
+  //
+  // The stamp alone does it: a `Cache-Control` REQUEST header would make the
+  // call non-simple, and the API's Access-Control-Allow-Headers never listed
+  // it, so the browser failed the preflight and every GET list on staging came
+  // back empty while the same URL answered fine outside a browser.
   if ((config.method ?? 'get').toLowerCase() === 'get') {
     config.params = { ...(config.params ?? {}), _ts: Date.now() }
-    config.headers['Cache-Control'] = 'no-cache'
   }
   return config
 })

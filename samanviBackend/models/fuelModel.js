@@ -1,5 +1,6 @@
 var sqldb = require('../config/dbconnect');
 var refnum = require('../utils/refnumber');
+var ensureColumn = require('../utils/ensurecolumn');
 var moment = require('moment');
 
 // Per-bus monthly fuel target — replaces the legacy per-service_number
@@ -45,19 +46,9 @@ sqldb.query(
 
 // Fuel entries are reviewed the way vouchers are, and a rejection there
 // always carries a reason (mainvoucher_t.rejection_reason); this is its home
-// on a fuel entry.
-sqldb.query(
-  `SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS
-   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fuel_entry' AND COLUMN_NAME = 'rejection_reason'`,
-  function (err, rows) {
-    if (err) { console.error('[DB] fuel_entry.rejection_reason check:', err.message); return; }
-    if (rows && rows[0] && rows[0].c > 0) return;
-    sqldb.query('ALTER TABLE fuel_entry ADD COLUMN rejection_reason TEXT DEFAULT NULL', function (err2) {
-      if (err2) console.error('[DB] fuel_entry.rejection_reason add:', err2.message);
-      else console.log('fuel_entry.rejection_reason column added');
-    });
-  }
-);
+// on a fuel entry. Through ensureColumn, so a database where the ALTER cannot
+// run still approves and rejects - just without keeping the reason.
+var rejectionReason = ensureColumn(sqldb, 'fuel_entry', 'rejection_reason', 'TEXT DEFAULT NULL');
 
 // Reference number generation is derived from MAX(c_id) inside fuel_entry rather
 // than a separate counter table — this matches how mainvoucher_t / trips already
@@ -339,11 +330,13 @@ exports.updateFuelAdminStatusMdl = function (data, callback) {
   // entry clears it, as it does on a voucher.
   var status = Number(data.admin_status);
   var reason = status === 2 ? String(data.rejection_reason || '') : '';
+  var reasonSet = rejectionReason.present ? ', rejection_reason=?' : '';
+  var reasonArg = rejectionReason.present ? [reason] : [];
   sqldb.query(
-    `UPDATE fuel_entry SET admin_status=?, admin_status_byid=?, admin_status_byname=?, admin_status_bydate=?, rejection_reason=? WHERE id=?;
+    `UPDATE fuel_entry SET admin_status=?, admin_status_byid=?, admin_status_byname=?, admin_status_bydate=?${reasonSet} WHERE id=?;
      UPDATE fuelentry_subt SET admin_status=? WHERE lastinsert_id=?`,
-    [status, String(data.user_id || 0), data.named || '', now, reason, Number(data.id),
-     status, String(data.id)],
+    [status, String(data.user_id || 0), data.named || '', now].concat(reasonArg, [Number(data.id),
+     status, String(data.id)]),
     callback
   );
 };

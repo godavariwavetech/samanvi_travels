@@ -106,6 +106,12 @@ jobs:
             fi
             pm2 save
             pm2 list
+            # Only the schema lines. A column the app adds for itself failing to
+            # land is otherwise invisible until a page 500s (staging lost both
+            # rejection_reason columns that way on 2026-09-12), and the rest of
+            # the log carries live data that has no business in a CI transcript.
+            sleep 5
+            pm2 logs samanvi-staging --lines 400 --nostream 2>/dev/null | grep "\[DB\]" | tail -25 || echo "no [DB] lines in the log"
           '
 
       # ── 6. Sync frontend build ──────────────────────────────────────────────
