@@ -120,6 +120,11 @@ export const statusLabel = (adminStatus: unknown): 'Pending' | 'Approved' | 'Rej
 export const withStatusLabel = <T extends Record<string, unknown>>(rows: T[]): (T & { status_label: string })[] =>
   rows.map((r) => ({ ...r, status_label: statusLabel(r.admin_status) }))
 
+// An Indian mobile number: ten digits, and the first is 6, 7, 8 or 9 - no
+// landline, no country code, no short number. Screens keep the input to digits
+// as it is typed, so this only has to judge the finished value.
+export const isValidMobile = (v: unknown): boolean => /^[6-9]\d{9}$/.test(String(v ?? '').trim())
+
 // Money the Indian way - 1,23,456.00 - for every rupee figure the app shows.
 // Takes what the API hands back (a number, or a numeric string), and reads
 // 0.00 rather than NaN for anything blank.

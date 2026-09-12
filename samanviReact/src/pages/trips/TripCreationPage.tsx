@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType, formatDate } from '@/lib/utils'
+import { isVanVehicleType, formatDate, isValidMobile } from '@/lib/utils'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
@@ -511,7 +511,10 @@ export default function TripCreationPage() {
     if (vanHalted(row)) return true
     if (!row.bus_no) return false
     if (vanHirerActive(row) && !row.hirer_name) return false
-    if (!vanHalted(row) && isOptingName(row.driver_name) && (!row.opt_driver_name.trim() || row.opt_driver_mobile.length !== 10)) return false
+    // A mobile is required of an opting driver and optional for a hirer, but
+    // either way a number that is there has to be a real one.
+    if (vanHirerActive(row) && row.phone_number && !isValidMobile(row.phone_number)) return false
+    if (vanOptingActive(row) && (!row.opt_driver_name.trim() || !isValidMobile(row.opt_driver_mobile))) return false
     if (!vanAmountActive(row)) return !!row.driver_name
     if (Number(row.amount) <= 0) return false
     // The amount is all the sheet records; the voucher for it (hire charge or
@@ -602,6 +605,12 @@ export default function TripCreationPage() {
   const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
   const editOptingActive = !editHalted && !isHireBus(editForm.bus_no) && isOptingName(editForm.driver1_name)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
+  // The hire on this trip is already filed and sits on the books against the
+  // hired van. Turning the trip into an own-van one would leave that voucher
+  // standing for a vehicle the trip no longer used, so the expense has to come
+  // off in Trip Expenses first.
+  const hirePosted = editRow?.vehicle_type === 'van' && !!editRow?.voucher_number && isHireBus(String(editRow?.bus_no ?? ''))
+  const hirePostedConflict = hirePosted && !!editForm.bus_no && !isHireBus(editForm.bus_no)
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
     // Only the keys relevant to this row's vehicle type are sent — the backend
@@ -892,7 +901,9 @@ export default function TripCreationPage() {
                                 <Input inputMode="numeric" maxLength={10} value={nameActive ? row[mobileKey] : ''} disabled={!nameActive}
                                   onChange={(e) => updateVanRow(r.id, { [mobileKey]: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                                   placeholder={nameActive ? 'Mobile' : '—'} className="h-11 text-sm" />
-                                {optingActive && row.opt_driver_mobile.length > 0 && row.opt_driver_mobile.length !== 10 && <p className="text-[10px] font-semibold text-red-500 mt-1">10 digits</p>}
+                                {nameActive && row[mobileKey] && !isValidMobile(row[mobileKey]) && (
+                                  <p className="text-[10px] font-semibold text-red-500 mt-1">10 digits, starting 6-9</p>
+                                )}
                               </td>
                               <td className="py-2 px-3">
                                 <Input type="number" value={amountActive ? row.amount : ''} disabled={!amountActive}
@@ -1155,7 +1166,17 @@ export default function TripCreationPage() {
                   <Label>Bus No <span className="text-red-500">*</span></Label>
                   <SearchableSelect placeholder="Select" options={editRow.vehicle_type === 'van' ? vanOptions : editBusOptions}
                     value={editForm.bus_no}
-                    onChange={(v) => patchEdit({ bus_no: v })} onClear={() => patchEdit({ bus_no: '' })} />
+                    onChange={(v) => patchEdit(editRow.vehicle_type !== 'van'
+                      ? { bus_no: v }
+                      // Changing a van between hired and own changes who is paid,
+                      // so whatever belonged to the old arrangement goes with it.
+                      // The Amount especially: left behind, the hire charge was
+                      // read as the opting driver's pay the moment a driver was
+                      // picked, and saved against them.
+                      : isHireBus(v)
+                        ? { bus_no: v, driver1_id: '', driver1_name: '', opt_driver1_id: '', opt_driver1_name: '', opt_driver1_mobile: '', booking_amount: '' }
+                        : { bus_no: v, hirer_name: '', phone_number: '', booking_amount: '' })}
+                    onClear={() => patchEdit({ bus_no: '' })} />
                 </div>
 
                 {editRow.vehicle_type === 'van' ? (
@@ -1184,6 +1205,12 @@ export default function TripCreationPage() {
                       <Input inputMode="numeric" maxLength={10} value={editOptingActive ? editForm.opt_driver1_mobile : editHirerActive ? editForm.phone_number : ''} disabled={!editHirerActive && !editOptingActive}
                         placeholder={editHirerActive || editOptingActive ? '' : '—'}
                         onChange={(e) => patchEdit(editOptingActive ? { opt_driver1_mobile: e.target.value.replace(/\D/g, '').slice(0, 10) } : { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })} />
+                      {(() => {
+                        const m = editOptingActive ? editForm.opt_driver1_mobile : editHirerActive ? editForm.phone_number : ''
+                        return m && !isValidMobile(m)
+                          ? <p className="text-[11px] font-semibold text-red-500 mt-1">10 digits, starting 6-9</p>
+                          : null
+                      })()}
                     </div>
                     <div>
                       <Label>Amount {editAmountActive && <span className="text-red-500">*</span>}</Label>
@@ -1267,14 +1294,22 @@ export default function TripCreationPage() {
                 </div>
               </div>
 
+              {hirePostedConflict && (
+                <div className="px-6 pb-2">
+                  <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+                    The hire on this trip is already filed under voucher {String(editRow.voucher_number)}. Delete that expense in Trip Expenses before moving the trip onto an own van.
+                  </p>
+                </div>
+              )}
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
                 <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
                 <Button
                   onClick={() => saveEdit()}
-                  disabled={savingEdit || !editForm.bus_no ||
+                  disabled={savingEdit || !editForm.bus_no || hirePostedConflict ||
                     (editRow.vehicle_type === 'van'
                       ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name)
-                        || (!editHalted && isOptingName(editForm.driver1_name) && (!String(editForm.opt_driver1_name ?? '').trim() || String(editForm.opt_driver1_mobile ?? '').length !== 10)))
+                        || (editHirerActive && !!editForm.phone_number && !isValidMobile(editForm.phone_number))
+                        || (editOptingActive && (!String(editForm.opt_driver1_name ?? '').trim() || !isValidMobile(editForm.opt_driver1_mobile))))
                       : (!editForm.driver1_name && !editForm.opt_driver1_name))}
                 >
                   <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}
