@@ -10,6 +10,14 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  // Lists are fetched with GET (fuel entries, laundry bills, trips...). A
+  // browser or the server's proxy may hand back a cached copy of a GET, so a
+  // record just saved never showed until a hard refresh. Every GET carries a
+  // unique stamp and asks for a fresh response, so a refetch is a real fetch.
+  if ((config.method ?? 'get').toLowerCase() === 'get') {
+    config.params = { ...(config.params ?? {}), _ts: Date.now() }
+    config.headers['Cache-Control'] = 'no-cache'
+  }
   return config
 })
 

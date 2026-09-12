@@ -82,6 +82,11 @@ export const scrollContentToTop = () => {
   const el = document.getElementById('modal-scroll-container') ?? document.getElementById('app-scroll-container')
   el?.scrollTo({ top: 0, behavior: 'smooth' })
 }
+// The other end of a long sheet (the Trip Creation roster) for the same scroller.
+export const scrollContentToBottom = () => {
+  const el = document.getElementById('modal-scroll-container') ?? document.getElementById('app-scroll-container')
+  el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+}
 
 // Excel importers map columns by POSITION, so a sheet from a different screen
 // (or an older template) is read as though its columns were the expected ones

@@ -118,6 +118,10 @@ app.use(function(req, res, next) {
     next();
 });
 app.use(logErrors);
+// API answers are live data, never to be cached by the browser or a proxy in
+// front of the server; a cached GET made a just-saved fuel entry invisible
+// on the list until a hard refresh.
+app.use('/nodeapp', function (req, res, next) { res.set('Cache-Control', 'no-store'); next(); });
 app.use('/nodeapp', require('./routes/routes'));
 
 function logErrors(err, req, res, next) {

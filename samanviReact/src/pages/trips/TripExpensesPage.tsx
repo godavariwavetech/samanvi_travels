@@ -1035,9 +1035,10 @@ export default function TripExpensesPage() {
         },
       })
       // A van's hire charge is an expense of this trip like any beta, so it is
-      // seeded on the Debit side — but only when the trip did NOT already post
-      // it as a Journal at creation, which would make filing it here a second
-      // booking of the same money.
+      // seeded on the Debit side. This is the only place the hire is posted -
+      // Trip Creation just records the amount - so the guard only matters for
+      // a trip that already has a voucher, where seeding it again would book
+      // the same money twice.
       if (hireAmt > 0 && !hirePosted) {
         const hireLedger = findHireLedger()
         if (hireLedger) {
@@ -1629,7 +1630,12 @@ export default function TripExpensesPage() {
     },
     {
       label: 'Driver', key: 'driver1_name', filterable: true,
-      render: (v, r: any) => <span className="font-medium">{String(v || (isHireVehicle(String(r.bus_no ?? '')) ? 'Hired' : '—'))}</span>,
+      render: (v, r: any) => (
+        <div>
+          <span className="font-medium">{String(v || (isHireVehicle(String(r.bus_no ?? '')) ? 'Hired' : '—'))}</span>
+          {r.opt_driver1_name && <div className="text-xs text-slate-500">{r.opt_driver1_name}{r.opt_driver1_mobile ? ` · ${r.opt_driver1_mobile}` : ''}</div>}
+        </div>
+      ),
     },
     {
       label: 'Hirer', key: 'hirer_name', filterable: true,
@@ -1779,6 +1785,9 @@ export default function TripExpensesPage() {
                         <option value={OPTING_VALUE}>{optingNameForSeat('driver1')}</option>
                         {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
                       </Select>
+                      {isVanTrip && isOptingRole('driver1') && (modal.row?.opt_driver1_name || modal.row?.opt_driver1_mobile) && (
+                        <p className="text-[11px] font-semibold text-slate-500 mt-1">{String(modal.row?.opt_driver1_name ?? '')}{modal.row?.opt_driver1_mobile ? ` · ${modal.row.opt_driver1_mobile}` : ''}</p>
+                      )}
                       {seatFields('driver1')}
                     </div>
                     )}
@@ -1921,7 +1930,7 @@ export default function TripExpensesPage() {
                       </p>
                       <p className="text-[11px] text-slate-500">
                         {hirePosted
-                          ? `Already posted when the trip was created: ${modal.row.hire_debit_ledger_name ?? 'Hire vehicle charges'} debited, ${modal.row.hire_credit_ledger_name ?? 'the ledger picked then'} credited — don't file it again here.`
+                          ? `Already on the books under this trip's voucher: ${modal.row.hire_debit_ledger_name ?? 'Hire vehicle charges'} debited, ${modal.row.hire_credit_ledger_name ?? 'the owner ledger'} credited — it is not filed a second time.`
                           : hireCreditSeeded
                             ? `Filled in for you: Hire vehicle charges debited, ${hireCreditSeeded} credited — change either side below if that is not right.`
                             : 'Seeded on the Debit side as Hire vehicle charges — pick who it is owed to on the Credit side.'}

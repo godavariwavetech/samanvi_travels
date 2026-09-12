@@ -2328,9 +2328,10 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
       res.status(500).send("Server Error");
       return;
     }
-    let c_id = cresults1[0] ? cresults1[0].c_id : 0;
-    c_id = c_id * 1 + 1;
-    const c_number = "TRIP00" + c_id;
+    // The expense rows keep the trip's own number (the model reads it off the
+    // body); nothing new is minted on an update.
+    let c_id = req.body.c_id;
+    const c_number = req.body.c_number;
     appmdl.updateadddiagnoptntDtsmmdl(
       c_id,
       c_number,
@@ -3192,7 +3193,11 @@ exports.tripcreated = function (req, res) {
     }
     let c_id = cresults1[0] ? cresults1[0].c_id : 0;
     c_id = c_id * 1 + 1;
-    const c_number = "TRIP00" + c_id;
+    // T<yymmdd><nnn> for the trip's date (utils/refnumber); an edit never mints,
+    // it keeps the number the trip already has.
+    appmdl.nextTripNumberMdl(data.trip_date, function (numErr, minted) {
+    if (numErr) { console.log(numErr); res.send({ status: 500, data: null }); return; }
+    const c_number = data.type == "edit" ? data.c_number : minted;
 
     appmdl.tripcreated(c_id, c_number, data, function (err, results) {
       if (err) {
@@ -3218,6 +3223,7 @@ exports.tripcreated = function (req, res) {
         res.send({ status: 200, data: results });
       }
     });
+    });
   });
 };
 
@@ -3230,39 +3236,11 @@ exports.bulkCreateTripsCtrl = function (req, res) {
       return;
     }
 
-    var candidates = (results && results.voucherCandidates) || [];
-    if (candidates.length === 0) {
-      res.send({ status: 200, data: results });
-      return;
-    }
-
-    // Post one Journal voucher per qualifying row, sequentially (createTripVoucherMdl
-    // mints c_number from today's mainvoucher_t count, so overlapping calls could
-    // collide) — mirrors the Garage/Battery "create record, then conditionally post
-    // voucher, then link it back" sequence. Each candidate carries its own
-    // debit AND credit ledger now (both pickable per row on the frontend).
-    var ci = 0;
-    var postNext = function () {
-      if (ci >= candidates.length) { res.send({ status: 200, data: results }); return; }
-      var cand = candidates[ci];
-      appmdl.createTripVoucherMdl({
-        debit_ledgers: [{ ledger_id: cand.debit_ledger_id, ledger_name: cand.debit_ledger_name, amount: cand.amount }],
-        credit_ledgers: [{ ledger_id: cand.credit_ledger_id, ledger_name: cand.credit_ledger_name, amount: cand.amount }],
-        trip_c_number: cand.c_number, entry_by: data.usr_nm, user_id: data.user_id,
-        vehicle_number: cand.bus_no || '',
-        description: cand.service_no ? 'Service ' + cand.service_no : '',
-      }, function (voucherErr, voucherNumber) {
-        if (voucherErr) {
-          console.error('[createTripVoucherMdl] failed for trip ' + cand.c_number + ':', voucherErr.message);
-          ci++; postNext();
-          return;
-        }
-        appmdl.setTripVoucherNumberMdl(cand.c_number, voucherNumber, function () {
-          ci++; postNext();
-        });
-      });
-    };
-    postNext();
+    // A trip's voucher - the hire charge on a hired van, the crew's pay - is
+    // filed from Trip Expenses, never at creation: the sheet only records the
+    // trip. (It used to post the hire Journal here, which then sat on the
+    // expense screen as "already posted" with nothing left to file.)
+    res.send({ status: 200, data: results });
   });
 };
 

@@ -1,4 +1,5 @@
 var sqldb = require('../config/dbconnect');
+var refnum = require('../utils/refnumber');
 var moment = require('moment');
 
 // Per-bus monthly fuel target — replaces the legacy per-service_number
@@ -42,18 +43,38 @@ sqldb.query(
   }
 );
 
+// Fuel entries are reviewed the way vouchers are, and a rejection there
+// always carries a reason (mainvoucher_t.rejection_reason); this is its home
+// on a fuel entry.
+sqldb.query(
+  `SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS
+   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fuel_entry' AND COLUMN_NAME = 'rejection_reason'`,
+  function (err, rows) {
+    if (err) { console.error('[DB] fuel_entry.rejection_reason check:', err.message); return; }
+    if (rows && rows[0] && rows[0].c > 0) return;
+    sqldb.query('ALTER TABLE fuel_entry ADD COLUMN rejection_reason TEXT DEFAULT NULL', function (err2) {
+      if (err2) console.error('[DB] fuel_entry.rejection_reason add:', err2.message);
+      else console.log('fuel_entry.rejection_reason column added');
+    });
+  }
+);
+
 // Reference number generation is derived from MAX(c_id) inside fuel_entry rather
 // than a separate counter table — this matches how mainvoucher_t / trips already
 // mint their own c_numbers (see mainCtrl tripcreated). Concurrent submits could
 // collide; the whole create flow runs inside a single connection/transaction to
 // keep the window small, but MySQL isn't guaranteeing uniqueness — good enough
 // for the traffic this endpoint sees, matches prior modules' behavior.
-function nextRefNumber(connection, cb) {
+// Reference = F + the fuel date + a per-day sequence (see utils/refnumber),
+// the voucher-number style; c_id stays the running row counter it always was.
+function nextRefNumber(connection, fuelDate, cb) {
   connection.query('SELECT MAX(CAST(c_id AS UNSIGNED)) AS max_id FROM fuel_entry', function (err, rows) {
     if (err) return cb(err);
     var next = ((rows[0] && rows[0].max_id) || 0) + 1;
-    var c_number = 'FUEL' + String(next).padStart(5, '0');
-    cb(null, { c_id: next, c_number: c_number });
+    refnum.nextRefNumber(connection, 'fuel_entry', 'F', fuelDate, function (err2, c_number) {
+      if (err2) return cb(err2);
+      cb(null, { c_id: next, c_number: c_number });
+    });
   });
 }
 
@@ -110,7 +131,7 @@ exports.createFuelEntryMdl = function (data, callback) {
       if (err) { connection.release(); return callback(err); }
       var rollback = function (e) { connection.rollback(function () { connection.release(); callback(e); }); };
 
-      nextRefNumber(connection, function (err, ref) {
+      nextRefNumber(connection, data.date, function (err, ref) {
         if (err) return rollback(err);
         var now = moment().format('YYYY-MM-DD HH:mm:ss');
         var debitRows = data.patientsTstdts || [];
@@ -314,11 +335,15 @@ exports.searchFuelEntriesMdl = function (data, callback) {
 
 exports.updateFuelAdminStatusMdl = function (data, callback) {
   var now = moment().format('YYYY-MM-DD HH:mm:ss');
+  // The reason travels with a rejection only; approving or reopening the
+  // entry clears it, as it does on a voucher.
+  var status = Number(data.admin_status);
+  var reason = status === 2 ? String(data.rejection_reason || '') : '';
   sqldb.query(
-    `UPDATE fuel_entry SET admin_status=?, admin_status_byid=?, admin_status_byname=?, admin_status_bydate=? WHERE id=?;
+    `UPDATE fuel_entry SET admin_status=?, admin_status_byid=?, admin_status_byname=?, admin_status_bydate=?, rejection_reason=? WHERE id=?;
      UPDATE fuelentry_subt SET admin_status=? WHERE lastinsert_id=?`,
-    [Number(data.admin_status), String(data.user_id || 0), data.named || '', now, Number(data.id),
-     Number(data.admin_status), String(data.id)],
+    [status, String(data.user_id || 0), data.named || '', now, reason, Number(data.id),
+     status, String(data.id)],
     callback
   );
 };

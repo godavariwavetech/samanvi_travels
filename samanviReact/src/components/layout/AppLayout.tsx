@@ -10,6 +10,16 @@ export function AppLayout() {
   const { isAuthenticated } = useAuthStore()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Desktop: the side menu can be folded away so a wide sheet (the trip
+  // roster, the ledger reports) gets the whole width. Remembered per browser.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('sidebar_collapsed') === '1' } catch { return false }
+  })
+  const setCollapsed = (v: boolean) => {
+    try { localStorage.setItem('sidebar_collapsed', v ? '1' : '0') } catch { /* storage unavailable */ }
+    setSidebarCollapsed(v)
+  }
+  const toggleCollapsed = () => setCollapsed(!sidebarCollapsed)
 
   if (!isAuthenticated) {
     return <Navigate to="/auth/login" replace />
@@ -32,10 +42,10 @@ export function AppLayout() {
         )}
       </AnimatePresence>
 
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} collapsed={sidebarCollapsed} onExpand={() => setCollapsed(false)} />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopHeader onMenuToggle={() => setSidebarOpen((o) => !o)} />
+        <TopHeader onMenuToggle={() => setSidebarOpen((o) => !o)} sidebarCollapsed={sidebarCollapsed} onSidebarToggle={toggleCollapsed} />
         <div id="app-scroll-container" className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 scrollbar-hide">
           <AnimatePresence mode="wait">
             <motion.div

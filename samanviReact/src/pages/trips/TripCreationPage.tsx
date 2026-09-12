@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil } from 'lucide-react'
+import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
@@ -41,16 +41,16 @@ type VanRow = {
   line_code: string
   bus_no: string
   driver_id: string; driver_name: string
+  // Who an Opting Driver actually is - they are off the register, so the row
+  // takes their name and mobile; both go with the trip (opt_driver1_name /
+  // opt_driver1_mobile) so Trip Expenses and the records can name them.
+  opt_driver_name: string; opt_driver_mobile: string
   hirer_name: string; phone_number: string
   // What the trip costs us beyond our own payroll: the hire charge on a hired
   // van, or the opting driver's pay when the seat is covered by someone off the
   // register. An own van with a registered driver has neither, so the field is
   // inactive there rather than silently accepting a number.
   amount: string
-  // Who the hire charge is owed to. A hired van's Amount is money out, so it
-  // posts as a Journal on creation - Hire vehicle charges debited, this ledger
-  // credited - and the ledger has to be named for that entry to exist at all.
-  credit_ledger_id: string; credit_ledger_name: string
   remarks: string
 }
 
@@ -96,7 +96,12 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
   },
   {
     label: 'Driver', key: 'driver1_name', filterable: true,
-    render: (v, r: any) => <span className="font-medium">{String(v || (hireBusNos.has(String(r.bus_no ?? '')) ? 'Hired' : '—'))}</span>,
+    render: (v, r: any) => (
+      <div>
+        <span className="font-medium">{String(v || (hireBusNos.has(String(r.bus_no ?? '')) ? 'Hired' : '—'))}</span>
+        {r.opt_driver1_name && <div className="text-xs text-slate-500">{r.opt_driver1_name}{r.opt_driver1_mobile ? ` · ${r.opt_driver1_mobile}` : ''}</div>}
+      </div>
+    ),
   },
   {
     label: 'Hirer', key: 'hirer_name', filterable: true,
@@ -112,9 +117,9 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
     render: (v) => v ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>,
   },
   {
-    // The Journal the hire posted, with both sides named — a hired van reads
-    // "Hire vehicle charges → <the ledger picked at creation>" so the entry is
-    // checkable from the trip list without opening the voucher.
+    // The voucher Trip Expenses filed for the trip, with both sides named — a
+    // hired van reads "Hire vehicle charges → <the van owner's ledger>" so the
+    // entry is checkable from the trip list without opening the voucher.
     label: 'Voucher', key: 'voucher_number', filterable: true,
     render: (v, r: any) => v
       ? (
@@ -238,22 +243,7 @@ export default function TripCreationPage() {
   const { data: helperData } = useQuery({ queryKey: ['helpers'], queryFn: () => mastersService.getHelper({ staffreports: 'Helper' }) })
   const { data: staffData } = useQuery({ queryKey: ['staff-all'], queryFn: () => mastersService.getStaff({}) })
   const { data: activeStaffData } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff() })
-  // Ledger master, for the Van grid's Pay To Ledger picker and for resolving
-  // the Hire vehicle charges expense ledger the hire is debited to.
-  const { data: ledgerData } = useQuery({ queryKey: ['expense-trip-ledger'], queryFn: () => accountingService.getExpenseTripLedger() })
-
   const buses: any[] = (busData?.data ?? []).filter((b: any) => b.d_in === 0 && !b.issparetank)
-  const ledgers: any[] = ledgerData?.data ?? []
-  const ledgerOptions = ledgers.map((l: any) => ({ value: String(l.ledger_id), label: String(l.temple_name ?? '') }))
-  // Resolved by name, with the id only as a fallback, so a database that seeded
-  // this ledger under a different id still posts the hire to the right place.
-  const normLedgerName = (v: any) => String(v ?? '').toLowerCase().replace(/[^a-z]/g, '')
-  const HIRE_LEDGER_ID = 388
-  const hireChargesLedger = useMemo(
-    () => ledgers.find((l: any) => normLedgerName(l.temple_name) === 'hirevehiclecharges')
-      ?? ledgers.find((l: any) => Number(l.ledger_id) === HIRE_LEDGER_ID)
-      ?? ledgers.find((l: any) => normLedgerName(l.temple_name).startsWith('hirevehicle')),
-    [ledgers])
   const allRoutes: any[] = routeData?.data ?? []
   const drivers: any[] = driverData?.data ?? []
   const helpers: any[] = helperData?.data ?? []
@@ -356,9 +346,9 @@ export default function TripCreationPage() {
   const makeEmptyVanRow = (): VanRow => ({
     status: 'Running', line_code: '', bus_no: '',
     driver_id: '', driver_name: '',
+    opt_driver_name: '', opt_driver_mobile: '',
     hirer_name: '', phone_number: '',
     amount: '',
-    credit_ledger_id: '', credit_ledger_name: '',
     remarks: '',
   })
 
@@ -380,13 +370,6 @@ export default function TripCreationPage() {
     [buses])
   const isHireBus = (busNo: string) => hireBusNos.has(String(busNo))
   // The hire is owed to the van's owner, so picking a hired van fills the Pay
-  // To Ledger with the owner ledger named on its Hire form in Bus Masters. The
-  // picker stays live for the odd case where the money goes elsewhere.
-  const ownerLedgerFor = (busNo: string): Partial<VanRow> => {
-    const vehicle = buses.find((b: any) => String(b.bus_no) === String(busNo))
-    const owner = vehicle?.owner_ledger_id ? ledgers.find((l: any) => String(l.ledger_id) === String(vehicle.owner_ledger_id)) : null
-    return owner ? { credit_ledger_id: String(owner.ledger_id), credit_ledger_name: String(owner.temple_name ?? '') } : {}
-  }
   const columns = useMemo(() => makeColumns(hireBusNos, vehicleType), [hireBusNos, vehicleType])
   // The records table shows the trips of the kind the tab above is on: bus
   // trips under Bus, van trips under Van. A row's kind is its stored
@@ -519,16 +502,21 @@ export default function TripCreationPage() {
   // the name and mobile are live and required there alone; an own van has
   // nobody to name and those cells go inactive, like Amount and Pay To Ledger.
   const vanHirerActive = (row: VanRow) => !vanHalted(row) && isHireBus(row.bus_no)
+  // The same Name / Mobile cells take the opting driver on an own van - the
+  // one person off the register the row has to name - so the sheet has a
+  // single pair of inputs rather than a second pair under the driver.
+  const vanOptingActive = (row: VanRow) => !vanHalted(row) && !isHireBus(row.bus_no) && isOptingName(row.driver_name)
   const vanRowReady = (row: VanRow | undefined) => {
     if (!row) return false
     if (vanHalted(row)) return true
     if (!row.bus_no) return false
     if (vanHirerActive(row) && !row.hirer_name) return false
+    if (!vanHalted(row) && isOptingName(row.driver_name) && (!row.opt_driver_name.trim() || row.opt_driver_mobile.length !== 10)) return false
     if (!vanAmountActive(row)) return !!row.driver_name
     if (Number(row.amount) <= 0) return false
-    // A hired van's charge is posted as a Journal, so it needs the ledger it is
-    // credited to. An opting driver's amount posts nothing yet, so it doesn't.
-    return isHireBus(row.bus_no) ? !!row.credit_ledger_id : true
+    // The amount is all the sheet records; the voucher for it (hire charge or
+    // opting pay) is filed from Trip Expenses, so no ledger is picked here.
+    return true
   }
   // Only services that have no trip for this date yet, so the same van service
   // cannot be booked twice on one day - the rule the bus roster already applies.
@@ -543,24 +531,20 @@ export default function TripCreationPage() {
         // than filed against a trip that never ran.
         const halted = vanHalted(row)
         return {
-          vehicle_type: 'van', line_code: row.line_code, bus_no: row.bus_no,
+          // The picker shows the service number's line code as the default; the
+          // row only stores one when it is changed, so the default is sent too -
+          // untouched rows used to save with no line code at all.
+          vehicle_type: 'van', line_code: row.line_code || route.line_code || '', bus_no: row.bus_no,
           service_no: route.serviceNo, service_no_id: String(route.id),
           trip_for: route.serviceFor, trip_for_id: route.service_for_id,
           driver1_id: halted ? '' : row.driver_id, driver1_name: halted ? '' : row.driver_name,
+          opt_driver1_name: !halted && isOptingName(row.driver_name) ? row.opt_driver_name.trim() : '',
+          opt_driver1_mobile: !halted && isOptingName(row.driver_name) ? row.opt_driver_mobile : '',
           hirer_name: vanHirerActive(row) ? row.hirer_name : '', phone_number: vanHirerActive(row) ? row.phone_number : '',
           booking_amount: vanAmountActive(row) ? row.amount : '',
-          // Hire charge on a hired van: Hire vehicle charges debited against the
-          // ledger picked on the row. The backend posts the Journal from these
-          // two and links it back to the trip; sending neither (own van, opting
-          // driver, halt) leaves the row posting nothing, as before.
-          ...(!halted && isHireBus(row.bus_no) && row.credit_ledger_id && Number(row.amount) > 0 && hireChargesLedger
-            ? {
-                debit_ledger_id: String(hireChargesLedger.ledger_id),
-                debit_ledger_name: String(hireChargesLedger.temple_name ?? ''),
-                credit_ledger_id: row.credit_ledger_id,
-                credit_ledger_name: row.credit_ledger_name,
-              }
-            : {}),
+          // No ledgers: the hire charge is posted from Trip Expenses, where the
+          // Debit (Hire vehicle charges) and Credit (the van owner's ledger from
+          // Bus Masters) are filled in for the user.
           remarks: row.remarks, trip_run_status: row.status,
         }
       })
@@ -588,6 +572,7 @@ export default function TripCreationPage() {
       bus_no: String(row.bus_no ?? ''),
       driver1_id: String(row.driver1_id ?? ''), driver1_name: String(row.driver1_name ?? ''),
       opt_driver1_id: String(row.opt_driver1_id ?? ''), opt_driver1_name: String(row.opt_driver1_name ?? ''),
+      opt_driver1_mobile: String(row.opt_driver1_mobile ?? ''),
       driver1_checked: row.driver1_paid_direct ? '1' : '',
       driver2_id: String(row.driver2_id ?? ''), driver2_name: String(row.driver2_name ?? ''),
       opt_driver2_id: String(row.opt_driver2_id ?? ''), opt_driver2_name: String(row.opt_driver2_name ?? ''),
@@ -615,6 +600,7 @@ export default function TripCreationPage() {
   const editHalted = editRow?.vehicle_type === 'van' && editForm.trip_run_status === 'Halt'
   const editAmountActive = !editHalted && (isHireBus(editForm.bus_no) || isOptingName(editForm.driver1_name))
   const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
+  const editOptingActive = !editHalted && !isHireBus(editForm.bus_no) && isOptingName(editForm.driver1_name)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
@@ -635,6 +621,7 @@ export default function TripCreationPage() {
       }
       return tripsService.updateTrip(isVan
         ? { ...common, hirer_name: editHirerActive ? editForm.hirer_name : '', phone_number: editHirerActive ? editForm.phone_number : '', line_code: editForm.line_code,
+            opt_driver1_mobile: !editHalted && isOptingName(editForm.driver1_name) ? editForm.opt_driver1_mobile : '',
             booking_amount: editAmountActive ? editForm.booking_amount : '' }
         : { ...common,
             driver2_id: editForm.driver2_id, driver2_name: editForm.driver2_name,
@@ -658,6 +645,42 @@ export default function TripCreationPage() {
     },
     onError: () => toast.error('Server error'),
   })
+
+  // The roster is long, so Submit is offered both above and below it (the
+  // same button, so the count and the disabled state never disagree), with a
+  // jump to the other end beside each.
+  const submitButton = vehicleType === 'Van' ? (
+    <Button onClick={() => submitVanRows()} disabled={submittingVan || readyVanRows.length === 0} className="px-10 h-11">
+      <Save className="w-4 h-4" />
+      {submittingVan ? 'Submitting…' : `Submit ${readyVanRows.length > 0 ? `(${readyVanRows.length})` : ''}`}
+    </Button>
+  ) : (
+    <Button onClick={() => submitGrid()} disabled={submittingGrid || submitRoutes.length === 0 || incompleteRoutes.length > 0} className="px-10 h-11">
+      <Save className="w-4 h-4" />
+      {submittingGrid ? 'Submitting…' : `Submit ${submitRoutes.length > 0 ? `(${submitRoutes.length})` : ''}`}
+    </Button>
+  )
+  // The roster is its own scroll box (max 70vh). A small panel docked to its
+  // right edge - always in view, never over the rows - jumps to either end of
+  // the sheet by scrolling that box, not the page.
+  const rosterJump = (
+    <div className="pointer-events-none absolute inset-y-0 right-3 z-20 flex items-center">
+      <div className="pointer-events-auto flex flex-col rounded-2xl bg-white/95 backdrop-blur shadow-lg border border-slate-200 p-1">
+        {(['top', 'bottom'] as const).map((dir, i) => (
+          <button key={dir} type="button"
+            onClick={(e) => {
+              const box = (e.currentTarget.closest('[data-roster]') as HTMLElement | null)?.querySelector('table')?.parentElement as HTMLElement | null
+              box?.scrollTo({ top: dir === 'top' ? 0 : box.scrollHeight, behavior: 'smooth' })
+            }}
+            title={dir === 'top' ? 'Scroll to the top of the sheet' : 'Scroll to the bottom of the sheet'}
+            className={`flex flex-col items-center gap-0.5 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-colors ${i === 1 ? 'border-t border-slate-100' : ''}`}>
+            {dir === 'top' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
+            {dir === 'top' ? 'Top' : 'Bottom'}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
@@ -686,9 +709,12 @@ export default function TripCreationPage() {
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <Map className="w-5 h-5 text-blue-500" /> Daily Trip Sheet
                 </h2>
-                <button onClick={() => setShowGrid(false)} className="text-slate-400 hover:text-red-500 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {submitButton}
+                  <button onClick={() => setShowGrid(false)} className="text-slate-400 hover:text-red-500 transition-colors p-2" title="Close">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               {/* The records table below switches with this tab, and its
@@ -717,7 +743,8 @@ export default function TripCreationPage() {
 
               {vehicleType === 'Van' ? (
                 <>
-                  <DualScrollTable tableClassName="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
+                  <div className="relative" data-roster>
+<DualScrollTable tableClassName="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
                     <table className="table-fixed w-max text-sm border-collapse">
                       <thead>
                         <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
@@ -729,10 +756,10 @@ export default function TripCreationPage() {
                           <th className="py-2.5 px-3 w-32">Status</th>
                           <th className="py-2.5 px-3 w-52">Van No</th>
                           <th className="py-2.5 px-3 w-56">Driver</th>
-                          <th className="py-2.5 px-3 w-40">Hirer Name</th>
+                          <th className="py-2.5 px-3 w-40">Name</th>
                           <th className="py-2.5 px-3 w-32">Mobile</th>
                           <th className="py-2.5 px-3 w-32">Amount</th>
-                          <th className="py-2.5 px-3 w-56">Pay To Ledger</th>
+                          <th className="py-2.5 px-3 w-44">Voucher</th>
                           <th className="py-2.5 px-3 w-80">Remarks</th>
                           <th className="py-2.5 px-3 w-10" />
                         </tr>
@@ -758,11 +785,11 @@ export default function TripCreationPage() {
                                 <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
                                 <td className={`py-2 px-3 font-medium ${wasHired ? 'text-amber-700' : ''}`}>{existing.bus_no || '—'}</td>
                                 <td className="py-2 px-3 text-slate-600 text-xs">{existing.driver1_name || (wasHired ? 'Hired' : '—')}</td>
-                                <td className="py-2 px-3 text-slate-600 text-xs">{existing.hirer_name || '—'}</td>
-                                <td className="py-2 px-3 text-slate-500 text-xs">{existing.phone_number || '—'}</td>
+                                <td className="py-2 px-3 text-slate-600 text-xs">{existing.hirer_name || existing.opt_driver1_name || '—'}</td>
+                                <td className="py-2 px-3 text-slate-500 text-xs">{existing.phone_number || existing.opt_driver1_mobile || '—'}</td>
                                 <td className="py-2 px-3 text-slate-600 text-xs">{existing.booking_amount ? `₹${Number(existing.booking_amount).toLocaleString('en-IN')}` : '—'}</td>
-                                {/* The hire's Journal, once posted — the row's proof that
-                                    the charge reached the books. */}
+                                {/* The trip's voucher, once Trip Expenses has filed it — the
+                                    row's proof that the charge reached the books. */}
                                 <td className="py-2 px-3 text-xs">
                                   {existing.voucher_number ? (
                                     <>
@@ -790,6 +817,11 @@ export default function TripCreationPage() {
                           const halted = vanHalted(row)
                           const amountActive = vanAmountActive(row)
                           const hirerActive = vanHirerActive(row)
+                          const optingActive = vanOptingActive(row)
+                          // Whose name and mobile the two cells hold on this row.
+                          const nameKey = optingActive ? 'opt_driver_name' : 'hirer_name'
+                          const mobileKey = optingActive ? 'opt_driver_mobile' : 'phone_number'
+                          const nameActive = hirerActive || optingActive
                           return (
                             // A hired van is tinted so a sheet of mixed rows shows at
                             // a glance which trips are bought in rather than run by us.
@@ -826,8 +858,8 @@ export default function TripCreationPage() {
                                     // Switching to a hired vehicle drops the driver: no
                                     // driver of ours is on it, so leaving a stale name
                                     // behind would file a trip against the wrong person.
-                                    ? { bus_no: v, driver_id: '', driver_name: '', ...ownerLedgerFor(v) }
-                                    : { bus_no: v, amount: '', credit_ledger_id: '', credit_ledger_name: '' })}
+                                    ? { bus_no: v, driver_id: '', driver_name: '', opt_driver_name: '', opt_driver_mobile: '' }
+                                    : { bus_no: v, amount: '' })}
                                   onClear={() => updateVanRow(r.id, { bus_no: '' })} />
                                 {hired && <p className="text-[10px] font-bold text-amber-700 mt-1">Hired vehicle</p>}
                               </td>
@@ -842,46 +874,36 @@ export default function TripCreationPage() {
                                       // A registered driver is paid through payroll, so an
                                       // amount typed for an opting pick is dropped with it.
                                       const d = drivers.find((dr) => String(dr.id) === v)
-                                      updateVanRow(r.id, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '', amount: '' })
+                                      updateVanRow(r.id, { driver_id: v, driver_name: d?.nickname ?? d?.driver_name ?? '', amount: '', opt_driver_name: '', opt_driver_mobile: '' })
                                     }}
-                                    onClear={() => updateVanRow(r.id, { driver_id: '', driver_name: '', amount: '' })} />
+                                    onClear={() => updateVanRow(r.id, { driver_id: '', driver_name: '', amount: '', opt_driver_name: '', opt_driver_mobile: '' })} />
                                 )}
+                                {optingActive && <p className="text-[10px] font-bold text-blue-700 mt-1">Name and mobile in the next two cells</p>}
+                              </td>
+                              {/* Hirer on a hired van, opting driver on an own van: the
+                                  same two cells, bound to whichever the row has. */}
+                              <td className="py-2 px-3">
+                                <Input value={nameActive ? row[nameKey] : ''} disabled={!nameActive}
+                                  onChange={(e) => updateVanRow(r.id, { [nameKey]: e.target.value })}
+                                  placeholder={optingActive ? 'Opting driver name' : hirerActive ? 'Hirer name' : '—'} className="h-11 text-sm" />
+                                {nameActive && <p className="text-[10px] font-semibold text-slate-400 mt-1">{optingActive ? 'Opting driver' : 'Hirer'}</p>}
                               </td>
                               <td className="py-2 px-3">
-                                <Input value={hirerActive ? row.hirer_name : ''} disabled={!hirerActive}
-                                  onChange={(e) => updateVanRow(r.id, { hirer_name: e.target.value })}
-                                  placeholder={hirerActive ? 'Name' : '—'} className="h-11 text-sm" />
-                              </td>
-                              <td className="py-2 px-3">
-                                <Input inputMode="numeric" maxLength={10} value={hirerActive ? row.phone_number : ''} disabled={!hirerActive}
-                                  onChange={(e) => updateVanRow(r.id, { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })}
-                                  placeholder={hirerActive ? 'Mobile' : '—'} className="h-11 text-sm" />
+                                <Input inputMode="numeric" maxLength={10} value={nameActive ? row[mobileKey] : ''} disabled={!nameActive}
+                                  onChange={(e) => updateVanRow(r.id, { [mobileKey]: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                                  placeholder={nameActive ? 'Mobile' : '—'} className="h-11 text-sm" />
+                                {optingActive && row.opt_driver_mobile.length > 0 && row.opt_driver_mobile.length !== 10 && <p className="text-[10px] font-semibold text-red-500 mt-1">10 digits</p>}
                               </td>
                               <td className="py-2 px-3">
                                 <Input type="number" value={amountActive ? row.amount : ''} disabled={!amountActive}
                                   onChange={(e) => updateVanRow(r.id, { amount: e.target.value })}
                                   placeholder={amountActive ? 'Amount' : '—'} className="h-11 text-sm" />
                               </td>
-                              {/* Only a hired van's amount is posted, so only it names a
-                                  ledger. The debit side is fixed - Hire vehicle charges -
-                                  and shown here so the whole entry is visible before Submit. */}
+                              {/* Nothing is posted from the sheet: the hire charge (or an
+                                  opting driver's pay) is filed from Trip Expenses, and the
+                                  voucher it makes shows in this column on the created row. */}
                               <td className="py-2 px-3">
-                                {hired && !halted ? (
-                                  <>
-                                    <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={ledgerOptions}
-                                      value={row.credit_ledger_id}
-                                      onChange={(v) => updateVanRow(r.id, {
-                                        credit_ledger_id: v,
-                                        credit_ledger_name: ledgers.find((l: any) => String(l.ledger_id) === v)?.temple_name ?? '',
-                                      })}
-                                      onClear={() => updateVanRow(r.id, { credit_ledger_id: '', credit_ledger_name: '' })} />
-                                    <p className="text-[10px] font-semibold text-slate-400 mt-1">
-                                      Debit: {hireChargesLedger?.temple_name ?? 'Hire vehicle charges (ledger not found)'}
-                                    </p>
-                                  </>
-                                ) : (
-                                  <p className="text-xs text-slate-400 h-11 flex items-center">Not applicable</p>
-                                )}
+                                <p className="text-xs text-slate-400 h-11 flex items-center">{amountActive ? 'Filed from Trip Expenses' : 'Not applicable'}</p>
                               </td>
                               <td className="py-2 px-3">
                                 <Input value={row.remarks} onChange={(e) => updateVanRow(r.id, { remarks: e.target.value })}
@@ -894,24 +916,20 @@ export default function TripCreationPage() {
                       </tbody>
                     </table>
                   </DualScrollTable>
+{rosterJump}
+</div>
 
                   {/* No "Add Row": the Van tab is a roster of every van service for
                       the date, the same as the Bus tab, so rows are not added by hand. */}
                   <div className="flex items-center justify-center gap-3 mt-3">
-                    <Button
-                      onClick={() => submitVanRows()}
-                      disabled={submittingVan || readyVanRows.length === 0}
-                      className="px-14 text-base h-11"
-                    >
-                      <Save className="w-4 h-4" />
-                      {submittingVan ? 'Submitting…' : `Submit ${readyVanRows.length > 0 ? `(${readyVanRows.length})` : ''}`}
-                    </Button>
+                    {submitButton}
                   </div>
                 </>
               ) : busRoutes.length === 0 ? (
                 <p className="text-sm text-slate-400 py-6 text-center">No Bus service routes found — add one under Masters → Service Routes first.</p>
               ) : (
-                <DualScrollTable tableClassName="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
+                <div className="relative" data-roster>
+<DualScrollTable tableClassName="overflow-auto max-h-[70vh] rounded-xl border border-slate-200">
                   <table className="table-fixed w-max text-sm border-collapse">
                     <thead>
                       <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
@@ -1058,6 +1076,8 @@ export default function TripCreationPage() {
                     </tbody>
                   </table>
                 </DualScrollTable>
+{rosterJump}
+</div>
               )}
 
               {vehicleType === 'Bus' && (
@@ -1067,14 +1087,7 @@ export default function TripCreationPage() {
                       {incompleteRoutes.length} row(s) need Driver 1
                     </span>
                   )}
-                  <Button
-                    onClick={() => submitGrid()}
-                    disabled={submittingGrid || submitRoutes.length === 0 || incompleteRoutes.length > 0}
-                    className="px-14 text-base h-11"
-                  >
-                    <Save className="w-4 h-4" />
-                    {submittingGrid ? 'Submitting…' : `Submit ${submitRoutes.length > 0 ? `(${submitRoutes.length})` : ''}`}
-                  </Button>
+                  {submitButton}
                 </div>
               )}
             </GlassCard>
@@ -1155,17 +1168,22 @@ export default function TripCreationPage() {
                     </div>
                     <div>
                       <Label>Line Code</Label>
-                      <Input value={editForm.line_code} onChange={(e) => patchEdit({ line_code: e.target.value })} />
+                      <MasterListPicker panelId="van-edit-line-code-panel" queryKey="line-codes" queryFn={() => mastersService.getLineCodes()}
+                        valueKey="line_code" value={editForm.line_code} onChange={(v) => patchEdit({ line_code: v })} placeholder="Select" />
+                    </div>
+                    {/* Hirer on a hired van, opting driver on an own van: the same
+                        two fields, bound to whichever the trip has. */}
+                    <div>
+                      <Label>{editOptingActive ? 'Opting Driver Name' : 'Hirer Name'} {(editHirerActive || editOptingActive) && <span className="text-red-500">*</span>}</Label>
+                      <Input value={editOptingActive ? editForm.opt_driver1_name : editHirerActive ? editForm.hirer_name : ''} disabled={!editHirerActive && !editOptingActive}
+                        placeholder={editHirerActive || editOptingActive ? '' : '—'}
+                        onChange={(e) => patchEdit(editOptingActive ? { opt_driver1_name: e.target.value } : { hirer_name: e.target.value })} />
                     </div>
                     <div>
-                      <Label>Hirer Name {editHirerActive && <span className="text-red-500">*</span>}</Label>
-                      <Input value={editHirerActive ? editForm.hirer_name : ''} disabled={!editHirerActive}
-                        placeholder={editHirerActive ? '' : '—'} onChange={(e) => patchEdit({ hirer_name: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label>Phone Number</Label>
-                      <Input value={editHirerActive ? editForm.phone_number : ''} disabled={!editHirerActive}
-                        placeholder={editHirerActive ? '' : '—'} onChange={(e) => patchEdit({ phone_number: e.target.value })} />
+                      <Label>Mobile {editOptingActive && <span className="text-red-500">*</span>}</Label>
+                      <Input inputMode="numeric" maxLength={10} value={editOptingActive ? editForm.opt_driver1_mobile : editHirerActive ? editForm.phone_number : ''} disabled={!editHirerActive && !editOptingActive}
+                        placeholder={editHirerActive || editOptingActive ? '' : '—'}
+                        onChange={(e) => patchEdit(editOptingActive ? { opt_driver1_mobile: e.target.value.replace(/\D/g, '').slice(0, 10) } : { phone_number: e.target.value.replace(/\D/g, '').slice(0, 10) })} />
                     </div>
                     <div>
                       <Label>Amount {editAmountActive && <span className="text-red-500">*</span>}</Label>
@@ -1255,7 +1273,8 @@ export default function TripCreationPage() {
                   onClick={() => saveEdit()}
                   disabled={savingEdit || !editForm.bus_no ||
                     (editRow.vehicle_type === 'van'
-                      ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name))
+                      ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name)
+                        || (!editHalted && isOptingName(editForm.driver1_name) && (!String(editForm.opt_driver1_name ?? '').trim() || String(editForm.opt_driver1_mobile ?? '').length !== 10)))
                       : (!editForm.driver1_name && !editForm.opt_driver1_name))}
                 >
                   <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}

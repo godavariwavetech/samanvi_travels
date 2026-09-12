@@ -10,6 +10,7 @@ var sqldb = require("../config/dbconnect");
 // every connection. DATETIME/TIMESTAMP columns are left as Date objects.
 if (!sqldb.config.connectionConfig.dateStrings) sqldb.config.connectionConfig.dateStrings = ["DATE"];
 var dbutil = require(appRoot + "/utils/assets_dbutils");
+var refnum = require(appRoot + "/utils/refnumber");
 var moment = require("moment");
 
 // A trip expense is written twice: its own rows in expensive_details, which
@@ -347,6 +348,16 @@ function tripRowsWithoutVoucher(alias) {
         ADD COLUMN booking_amount DECIMAL(12,2) DEFAULT NULL`, function (err) {
         if (err) console.log('[DB] trip_created.vehicle_type/line_code/hirer_name/booking_amount migration:', err.message);
         else console.log('[DB] trip_created.vehicle_type/line_code/hirer_name/booking_amount columns added');
+      });
+    }
+  });
+  // An opting driver on a van is somebody off the register, so the sheet takes
+  // their name (opt_driver1_name) and mobile; the mobile needs a column.
+  sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'opt_driver1_mobile'`, function (err, rows) {
+    if (!err && rows && rows.length === 0) {
+      sqldb.query(`ALTER TABLE trip_created ADD COLUMN opt_driver1_mobile VARCHAR(15) DEFAULT NULL`, function (err) {
+        if (err) console.log('[DB] trip_created.opt_driver1_mobile migration:', err.message);
+        else console.log('[DB] trip_created.opt_driver1_mobile column added');
       });
     }
   });
@@ -5137,7 +5148,7 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
       'driver1_name', 'driver1_id', 'driver2_name', 'driver2_id',
       'helper_name', 'helper_id', 'conductor_name', 'conductor_id',
       'optreg', 'optreg1', 'optreg2',
-      'opt_driver1_id', 'opt_driver1_name', 'opt_driver2_id', 'opt_driver2_name', 'opt_helper_id', 'opt_helper_name',
+      'opt_driver1_id', 'opt_driver1_name', 'opt_driver1_mobile', 'opt_driver2_id', 'opt_driver2_name', 'opt_helper_id', 'opt_helper_name',
       'trip_date', 'trip_for', 'trip_for_id', 'trip_run_status',
       'paid_to_type', 'paid_to_name', 'paid_to_id',
       'hirer_name', 'phone_number', 'line_code', 'booking_amount', 'remarks',
@@ -5184,13 +5195,15 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
 // + amount (`amount` for Bus, `booking_amount` for Van — both persisted into the
 // same `trip_created.booking_amount` column so Trip Records has one "Amount"
 // column regardless of vehicle type) — the frontend pre-fills debit from the
-// selected Paid-To person (Bus) but the user can override it per row. For Van,
-// if a row's debit_ledger_id is left blank, a Receivables ledger is resolved
-// here via ensureHirerLedger (deduped by phone, so a repeat hirer reuses their
-// ledger) — an explicit debit_ledger_id always wins over that auto-resolve.
-// Rows with both a debit and credit ledger + a positive amount are returned in
-// `voucherCandidates` so the controller can post one Journal voucher per row via
-// createTripVoucherMdl and link it back with `voucher_number`.
+// selected Paid-To person (Bus) but the user can override it per row. A hired
+// van's row carries both sides itself (Hire vehicle charges against the owner
+// ledger from Bus Masters); nothing here creates a ledger on its own - the
+// per-hirer Receivables ledger this used to mint for every van booking left a
+// new ledger in the master each time a trip was filed.
+// Nothing is posted at creation: the trip's voucher (hire charge, crew pay) is
+// filed from Trip Expenses, which links it back with `voucher_number`. Rows
+// that carry both ledgers are still listed in `voucherCandidates` for callers
+// that want to know, but the controller no longer acts on them.
 exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback) {
   var cntxtDtls = 'in bulkCreateTripsMdl';
   // A Halt row records that the service did not run, so it legitimately has no
@@ -5247,27 +5260,9 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
     resolveNext();
   });
 
-  // Resolve a Receivables ledger for every Van row that didn't get an explicit
-  // debit_ledger_id, one at a time (ensureHirerLedger does its own dedupe-by-phone
-  // lookup/insert, so these can't run in parallel without risking duplicate
-  // ledgers for the same phone).
-  var vi = 0;
-  var resolveNext = function () {
-    if (vi >= toInsert.length) return proceedWithInsert();
-    var r = toInsert[vi];
-    // Runs for every van booking with a hirer, not only those without an
-    // explicit debit ledger: a hired van now sends its own Hire vehicle charges
-    // debit, and the hirer still belongs on the books either way.
-    if (r.vehicle_type === 'van' && r.hirer_name && r.phone_number && r.booking_amount) {
-      exports.ensureHirerLedger(r.hirer_name, r.phone_number, userId, function (err, ledgerId) {
-        if (err) console.error('[ensureHirerLedger] failed for trip hirer ' + r.hirer_name + ':', err.message);
-        else r.hirer_ledger_id = ledgerId;
-        vi++; resolveNext();
-      });
-    } else {
-      vi++; resolveNext();
-    }
-  };
+  // Ledgers are picked, never minted, on a trip sheet: the hirer's name and
+  // mobile are kept on the trip as details, not turned into a ledger.
+  var resolveNext = function () { proceedWithInsert(); };
 
   function proceedWithInsert() {
     exports.maintripexpenseuniquenoMdl(function (err, cresults1) {
@@ -5275,6 +5270,10 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
       var c_id = cresults1[0] ? cresults1[0].c_id : 0;
       c_id = c_id * 1;
 
+      // T<yymmdd><nnn> for the sheet's date, one per row, in the voucher-number
+      // style (utils/refnumber); c_id stays the running counter.
+      refnum.nextRefNumbers(sqldb, 'trip_created', 'T', trip_date, toInsert.length, function (numErr, tripNumbers) {
+      if (numErr) return callback(numErr, null);
       var now = new Date();
       var istTime = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
       var formattedDate = istTime.getUTCFullYear() + '-' +
@@ -5285,12 +5284,12 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
         String(istTime.getUTCSeconds()).padStart(2, '0');
 
       var voucherCandidates = [];
-      var vals = toInsert.map(function (r) {
+      var vals = toInsert.map(function (r, idx) {
         c_id = c_id + 1;
-        var c_number = 'TRIP00' + c_id;
+        var c_number = tripNumbers[idx];
 
         var amount = parseFloat(r.vehicle_type === 'van' ? r.booking_amount : r.amount) || 0;
-        var debitLedgerId = r.debit_ledger_id || (r.vehicle_type === 'van' ? r.hirer_ledger_id : null);
+        var debitLedgerId = r.debit_ledger_id || null;
         var debitLedgerName = r.debit_ledger_name || (r.vehicle_type === 'van' ? r.hirer_name : r.paid_to_name);
         if (debitLedgerId && r.credit_ledger_id && amount > 0) {
           voucherCandidates.push({
@@ -5313,20 +5312,26 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
           c_id, c_number, r.trip_run_status || 'Running',
           r.vehicle_type || 'bus', r.line_code || null, r.hirer_name || null, (amount || null), r.phone_number || null,
           r.hirer_ledger_id || null,
-          r.opt_driver1_id || null, r.opt_driver1_name || null,
+          r.opt_driver1_id || null, r.opt_driver1_name || null, r.opt_driver1_mobile || null,
           r.opt_driver2_id || null, r.opt_driver2_name || null,
           r.opt_helper_id || null, r.opt_helper_name || null,
           r.driver1_paid_direct ? 1 : 0, r.driver2_paid_direct ? 1 : 0,
           r.helper_paid_direct ? 1 : 0, r.conductor_paid_direct ? 1 : 0,
         ];
       });
-      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
+      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver1_mobile, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, voucherCandidates: voucherCandidates });
       });
+      });
     });
   }
+};
+
+// The next trip number for a date, for the single-trip create path.
+exports.nextTripNumberMdl = function (tripDate, callback) {
+  refnum.nextRefNumber(sqldb, 'trip_created', 'T', tripDate, callback);
 };
 
 exports.addtoexpensive_details = function (c_id, c_number, data, callback) {
@@ -8578,19 +8583,28 @@ exports.getsearchdataMdl = function (data, callback) {
     GROUP BY mv.id;
 
     -- FUEL ENTRY
+    -- The fill behind the line (fuel_entry) lends its litres and price per
+    -- litre, so the report can show the quantity and rate the amount came from.
     SELECT fe.*, 'fuelentry_subt' AS source_table,
-      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
+      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers,
+      MAX(fx.quantity_filled) AS quantity, MAX(fx.price_per_liter) AS rate, 'L' AS quantity_unit
     FROM fuelentry_subt fe
     LEFT JOIN fuelentry_subt fe2
       ON fe.c_number = fe2.c_number AND fe2.d_in='0' AND fe2.ledger_id != fe.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON fe2.ledger_id = mm.id
+    LEFT JOIN fuel_entry fx ON fx.id = fe.lastinsert_id
     WHERE fe.d_in='0' AND fe.admin_status='1'
     ${transFuel} ${ledgerFuel}
     GROUP BY fe.id;
 
     -- LAUNDRY BILL
+    -- A bill has several products at their own rates, so only the pieces
+    -- washed across the bill are a single figure; there is no one rate.
     SELECT lb.*, 'laundrybill_subt' AS source_table,
-      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers
+      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers,
+      (SELECT SUM(COALESCE(m.blanket_qty, 0) + COALESCE(m.white_qty, 0) + COALESCE(m.pillow_qty, 0) + COALESCE(m.cover_qty, 0) + COALESCE(m.curtain_qty, 0))
+         FROM laundrybill_maint m WHERE m.c_number = lb.c_number AND m.d_in = 0) AS quantity,
+      NULL AS rate, 'pcs' AS quantity_unit
     FROM laundrybill_subt lb
     LEFT JOIN laundrybill_subt lb2
       ON lb.c_number = lb2.c_number AND lb2.d_in='0' AND lb2.ledger_id != lb.ledger_id
@@ -9243,10 +9257,22 @@ exports.getdaybookreportsMdl = function (data, callback) {
   const cntxtDtls = "in getdaybookreportsMdl";
   //console.log()data, 5242);
 
+  // Each block also carries the optional Day Book columns: the trip a voucher
+  // was filed for (trip_created points back at it), and the quantity and
+  // rate behind a fuel fill or a laundry bill - the same three Ledger Wise
+  // offers, see getsearchdataMdl.
   const query1 = `SELECT * FROM expensive_details WHERE d_in = 0 AND ${tripRowsWithoutVoucher('')} AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
-  const query2 = `SELECT * FROM mainvoucher_subt WHERE d_in = 0 AND voucherdate BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
-  const query3 = `SELECT * FROM fuelentry_subt WHERE d_in = 0 AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
-  const query4 = `SELECT * FROM laundrybill_subt WHERE d_in = 0 AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY i_ts DESC;`;
+  const query2 = `SELECT mv.*,
+      (SELECT MAX(tc.trip_date) FROM trip_created tc WHERE tc.voucher_number = mv.c_number AND tc.d_in = 0) AS trip_date
+    FROM mainvoucher_subt mv WHERE mv.d_in = 0 AND mv.voucherdate BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY mv.i_ts DESC;`;
+  const query3 = `SELECT fe.*, fx.quantity_filled AS quantity, fx.price_per_liter AS rate, 'L' AS quantity_unit
+    FROM fuelentry_subt fe LEFT JOIN fuel_entry fx ON fx.id = fe.lastinsert_id
+    WHERE fe.d_in = 0 AND DATE(fe.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY fe.i_ts DESC;`;
+  const query4 = `SELECT lb.*,
+      (SELECT SUM(COALESCE(m.blanket_qty, 0) + COALESCE(m.white_qty, 0) + COALESCE(m.pillow_qty, 0) + COALESCE(m.cover_qty, 0) + COALESCE(m.curtain_qty, 0))
+         FROM laundrybill_maint m WHERE m.c_number = lb.c_number AND m.d_in = 0) AS quantity,
+      NULL AS rate, 'pcs' AS quantity_unit
+    FROM laundrybill_subt lb WHERE lb.d_in = 0 AND DATE(lb.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY lb.i_ts DESC;`;
 
   //console.log()'Query1:', query1);
   //console.log()'Query2:', query2);
@@ -14494,7 +14520,12 @@ exports.createTripVoucherMdl = function (data, callback) {
   dbutil.execupdateQuery(sqldb, `SELECT COUNT(*) as cnt FROM mainvoucher_t WHERE DATE(i_ts) = CURDATE()`, [], 'tripVoucherCount', function (err, countRes) {
     if (err) return callback(err);
     var baseCount = countRes && countRes[0] ? (parseInt(countRes[0].cnt) || 0) : 0;
-    var c_number  = 'V' + datePart + String(baseCount + 1).padStart(3, '0');
+    // A trip has one voucher (the hire Journal posted at creation, later
+    // updated with the expense lines), so it carries the trip's own T-number,
+    // the way a fuel entry's voucher is the fuel number. Older trips without a
+    // T-number still get a V-number.
+    var tripNo    = String(data.trip_c_number || '');
+    var c_number  = /^T\d{9}$/.test(tripNo) ? tripNo : 'V' + datePart + String(baseCount + 1).padStart(3, '0');
     var c_id      = baseCount + 1;
     var totalAmt  = rows.debit.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
     var descText  = ((data.description || '') + ' [Trip: ' + (data.trip_c_number || '') + ']').trim();
