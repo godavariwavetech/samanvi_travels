@@ -3,12 +3,12 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines } from '@/components/shared'
-import type { Column, LedgerLine } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
+import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
-import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
+import { formatDate, withStatusLabel, formatAmount, formatDateTime } from '@/lib/utils'
 
 // Required-field marker, the same red asterisk every other form uses.
 const Req = () => <span className="text-red-500">*</span>
@@ -203,6 +203,14 @@ export default function FuelEntryPage() {
   const [editForm, setEditForm] = useState<FormState | null>(null)
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
+  // Entries are reviewed the way vouchers are: a tab per status, Approve /
+  // Reject on each pending row or on the selected rows together, and a
+  // rejection that asks for its reason.
+  const [tab, setTab] = useState<ApprovalTab>('pending')
+  const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([])
+  const [rejectTarget, setRejectTarget] = useState<{ rows: Record<string, unknown>[] } | null>(null)
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const [bulkRejecting, setBulkRejecting] = useState(false)
 
   const { data: entries, isLoading } = useQuery({
     queryKey: ['fuel-entries'],
@@ -224,12 +232,27 @@ export default function FuelEntryPage() {
   const named = localStorage.getItem('usr_nm') ?? ''
   const user_id = localStorage.getItem('user_id') ?? '0'
 
+  // Every fuel fill is debited to Diesel, so a new entry opens with that row
+  // already on the debit side (its amount follows the bill); the credit side -
+  // the station or advance the money came from - is the one thing to pick.
+  // Resolved by name so another database's Diesel ledger works too.
+  const dieselLedger = ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /^diesel$/i.test(String(l.temple_name ?? '').trim()))
+    ?? ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /diesel/i.test(String(l.temple_name ?? '')))
+  const openNew = () => {
+    setForm({ ...emptyForm(), ...(dieselLedger ? { patientsTstdts: [{ ledger: dieselLedger, amount: '', auto: true }] } : {}) })
+    setShowForm(true)
+  }
+
   const { mutate: submit, isPending } = useMutation({
     mutationFn: () => fuelService.submitFuelEntry({ ...form, ...toApiRows(form), named, user_id }),
     onSuccess: (res) => {
       if (res?.status === 200) {
         toast.success(`Fuel entry saved (${res.data?.c_number || ''})`)
         qc.invalidateQueries({ queryKey: ['fuel-entries'] })
+        // Saving a fill rolls the vehicle's odometer on the server, and the next
+        // entry pre-fills Previous Odometer from the vehicle list, so that list
+        // has to come back too - it used to show the old reading until a reload.
+        qc.invalidateQueries({ queryKey: ['buses'] })
         setForm(emptyForm())
         setShowForm(false)
       } else toast.error(res?.message || 'Failed to save')
@@ -243,6 +266,10 @@ export default function FuelEntryPage() {
       if (res?.status === 200) {
         toast.success('Fuel entry updated')
         qc.invalidateQueries({ queryKey: ['fuel-entries'] })
+        // Saving a fill rolls the vehicle's odometer on the server, and the next
+        // entry pre-fills Previous Odometer from the vehicle list, so that list
+        // has to come back too - it used to show the old reading until a reload.
+        qc.invalidateQueries({ queryKey: ['buses'] })
         setEditForm(null)
       } else toast.error(res?.message || 'Failed to update')
     },
@@ -262,12 +289,43 @@ export default function FuelEntryPage() {
     update()
   }
 
-  const onStatusChange = async (row: Record<string, unknown>, admin_status: number) => {
-    const res = await fuelService.updateFuelAdminStatus({ id: row.id, admin_status, named, user_id })
+  const refreshAfterStatus = () => {
+    qc.invalidateQueries({ queryKey: ['fuel-entries'] })
+    qc.invalidateQueries({ queryKey: ['fuel-approved-reports'] })
+    qc.invalidateQueries({ queryKey: ['buses'] })
+  }
+  const setStatus = (row: Record<string, unknown>, admin_status: number, rejection_reason = '') =>
+    fuelService.updateFuelAdminStatus({ id: row.id, admin_status, rejection_reason, named, user_id })
+  const onStatusChange = async (row: Record<string, unknown>, admin_status: number, rejection_reason = '') => {
+    const res = await setStatus(row, admin_status, rejection_reason).catch(() => null)
     if (res?.status === 200) {
-      toast.success('Status updated')
-      qc.invalidateQueries({ queryKey: ['fuel-entries'] })
+      toast.success(admin_status === 1 ? 'Entry approved' : admin_status === 2 ? 'Entry rejected' : 'Entry reopened for review')
+      refreshAfterStatus()
+      setViewRow(null)
     } else toast.error(res?.message || 'Failed')
+  }
+  // Approve / reject the selected rows one after another, as Voucher Approvals
+  // does, then report the count once.
+  const runBulk = async (rows: Record<string, unknown>[], admin_status: 1 | 2, reason = '') => {
+    if (!rows.length) return
+    const setLoading = admin_status === 1 ? setBulkApproving : setBulkRejecting
+    setLoading(true)
+    let done = 0
+    for (const row of rows) {
+      const res = await setStatus(row, admin_status, reason).catch(() => null)
+      if (res?.status === 200) done++
+    }
+    setLoading(false)
+    setSelectedRows([])
+    toast.success(`${done} of ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} ${admin_status === 1 ? 'approved' : 'rejected'}`)
+    refreshAfterStatus()
+  }
+  const askReject = (rows: Record<string, unknown>[]) => { if (rows.length) setRejectTarget({ rows }) }
+  const confirmReject = (reason: string) => {
+    const rows = rejectTarget?.rows ?? []
+    setRejectTarget(null)
+    if (rows.length === 1) onStatusChange(rows[0], 2, reason)
+    else runBulk(rows, 2, reason)
   }
 
   const onEdit = async (row: Record<string, unknown>) => {
@@ -304,6 +362,7 @@ export default function FuelEntryPage() {
     if (res?.status === 200) {
       toast.success('Entry deleted')
       qc.invalidateQueries({ queryKey: ['fuel-entries'] })
+      qc.invalidateQueries({ queryKey: ['buses'] })
     } else toast.error(res?.message || 'Failed')
   }
 
@@ -334,42 +393,39 @@ export default function FuelEntryPage() {
         const status = Number(r.admin_status)
         if (status === 1) return <Badge variant="success">Approved</Badge>
         if (status === 2) return <Badge variant="danger">Rejected</Badge>
-        return (
-          <select
-            className="text-xs border rounded px-2 py-1"
-            value={status}
-            onChange={(e) => onStatusChange(r, Number(e.target.value))}
-          >
-            <option value={0}>Pending</option>
-            <option value={1}>Approve</option>
-            <option value={2}>Reject</option>
-          </select>
-        )
+        return <Badge variant="warning">Pending</Badge>
       },
     },
-  ], [])
+    // What the reviewer did and when; the reason when it was declined.
+    ...(tab === 'pending' ? [] : [
+      { label: 'Action By', key: 'admin_status_byname', filterable: true, render: (v) => v ? String(v) : '—' } as Column,
+      { label: 'Action Date', key: 'admin_status_bydate', render: (v) => v ? formatDateTime(String(v)) : '—' } as Column,
+    ]),
+    ...(tab === 'rejected' ? [{ label: 'Reason', key: 'rejection_reason', render: (v) => v ? <span className="text-red-700 text-xs max-w-[220px] line-clamp-2 block">{String(v)}</span> : '—' } as Column] : []),
+    {
+      label: 'Actions', key: 'id',
+      render: (_v, r: Record<string, unknown>) => (
+        <ApprovalRowActions tab={tab}
+          onView={() => onView(r)} onEdit={() => onEdit(r)} onDelete={() => onDelete(r)}
+          onApprove={() => onStatusChange(r, 1)} onReject={() => askReject([r])} onReopen={() => onStatusChange(r, 0)} />
+      ),
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [tab])
 
-  const handleAction = (action: string, row: Record<string, unknown>) => {
-    if (action === 'view') onView(row)
-    else if (action === 'edit') {
-      if (Number(row.admin_status) === 1 || Number(row.admin_status) === 2) {
-        return toast.error('Approved / rejected entries cannot be edited')
-      }
-      onEdit(row)
-    } else if (action === 'delete') {
-      if (Number(row.admin_status) === 1 || Number(row.admin_status) === 2) {
-        return toast.error('Approved / rejected entries cannot be deleted')
-      }
-      onDelete(row)
-    }
-  }
+  const counts = { pending: 0, approved: 0, rejected: 0 } as Record<ApprovalTab, number>
+  for (const r of entryList) counts[approvalTabOf(r.admin_status)]++
+  const shownEntries = entryList.filter((r) => approvalTabOf(r.admin_status) === tab)
+  // Column filters are scoped to the open tab, as on Voucher Approvals -
+  // carrying them over made the next tab look stuck or empty.
+  const changeTab = (t: ApprovalTab) => { setTab(t); setColumnFilters({}); setSelectedRows([]) }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <PageHeader title="Fuel Entry" subtitle="Record daily fuel fills for each vehicle" />
 
       <div className="flex justify-end">
-        {!showForm && <Button onClick={() => setShowForm(true)}><Plus className="w-4 h-4" /> Log Fuel</Button>}
+        {!showForm && <Button onClick={openNew}><Plus className="w-4 h-4" /> Log Fuel</Button>}
       </div>
 
           <AnimatePresence>
@@ -395,98 +451,70 @@ export default function FuelEntryPage() {
             )}
           </AnimatePresence>
 
+      <ApprovalStatusTabs tab={tab} onChange={changeTab} counts={counts} />
+
       <DataTable
-        title="Fuel Entry Records"
+        title={tab === 'pending' ? 'Fuel Entries Awaiting Approval' : tab === 'approved' ? 'Approved Fuel Entries' : 'Rejected Fuel Entries'}
         columns={entryColumns}
-        data={withStatusLabel(entryList)}
+        data={withStatusLabel(shownEntries)}
         loading={isLoading}
-        onAction={handleAction}
+        onAction={() => {}}
+        actions={[]}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        selectable={tab === 'pending'}
+        sumKey="total_bill"
+        onSelectionChange={(rows) => setSelectedRows(rows as Record<string, unknown>[])}
+        selectionActions={tab === 'pending' ? (
+          <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
+            onApprove={() => runBulk(selectedRows, 1)} onReject={() => askReject(selectedRows)} />
+        ) : undefined}
       />
+
+      <RejectReasonModal open={!!rejectTarget} onCancel={() => setRejectTarget(null)} onConfirm={confirmReject}
+        subject={rejectTarget && rejectTarget.rows.length === 1
+          ? `Fuel entry ${String(rejectTarget.rows[0].c_number ?? '')}`
+          : `Rejecting ${rejectTarget?.rows.length ?? 0} fuel entries`} />
 
       {/* View modal */}
       <AnimatePresence>
         {viewRow && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-              <div className="bg-gradient-to-r from-amber-400 to-orange-500 px-6 py-4 flex justify-between items-center text-white">
-                <h3 className="font-bold text-lg">Fuel Entry Details — {String(viewRow.c_number)}</h3>
-                <button onClick={() => setViewRow(null)} className="text-white/70 hover:text-white"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                  <div><b>Date:</b> {formatDate(String(viewRow.date ?? ''))}</div>
-                  <div><b>Vehicle:</b> {String(viewRow.vehicle_number)}</div>
-                  <div><b>Qty:</b> {String(viewRow.quantity_filled)} L</div>
-                  <div><b>Price/L:</b> ₹{formatAmount(viewRow.price_per_liter)}</div>
-                  <div><b>Bill:</b> ₹{formatAmount(viewRow.total_bill)}</div>
-                  <div><b>Avg KMPL:</b> {String(viewRow.avg_kmpl)}</div>
-                  <div><b>Prev Odo:</b> {String(viewRow.previous_odometer || viewRow.prev_odometer)}</div>
-                  <div><b>Present Odo:</b> {String(viewRow.present_odometer)}</div>
-                  <div><b>KMs:</b> {String(viewRow.kilometers)}</div>
-                </div>
-                {viewRow.remarks ? (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
-                    <b>Remarks:</b> <span className="text-slate-700">{String(viewRow.remarks)}</span>
-                  </div>
-                ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="border rounded-xl">
-                    <div className="bg-blue-50 px-3 py-2 font-bold text-blue-700 rounded-t-xl">Debit Ledgers</div>
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {((viewRow._accounts as Array<Record<string, unknown>>) || [])
-                          .filter((a) => a.account_type === 'Debit Account')
-                          .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{formatAmount(a.amount)}</td></tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="border rounded-xl">
-                    <div className="bg-emerald-50 px-3 py-2 font-bold text-emerald-700 rounded-t-xl">Credit Ledgers</div>
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {((viewRow._accounts as Array<Record<string, unknown>>) || [])
-                          .filter((a) => a.account_type === 'Credit Account')
-                          .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{formatAmount(a.amount)}</td></tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <RecordModal size="lg" title="Fuel Entry" subtitle={String(viewRow.c_number ?? '')} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setViewRow(null)}>
+            <DetailGrid>
+              <DetailField label="Date" value={formatDate(String(viewRow.date ?? ''))} />
+              <DetailField label="Vehicle No" value={String(viewRow.vehicle_number ?? '—')} />
+              <DetailField label="Quantity" value={`${String(viewRow.quantity_filled ?? 0)} L`} />
+              <DetailField label="Price / Litre" value={`₹${formatAmount(viewRow.price_per_liter)}`} />
+              <DetailField label="Bill" value={`₹${formatAmount(viewRow.total_bill)}`} strong />
+              <DetailField label="Avg KMPL" value={String(viewRow.avg_kmpl ?? '—')} />
+              <DetailField label="Previous Odometer" value={String(viewRow.previous_odometer || viewRow.prev_odometer || '—')} />
+              <DetailField label="Present Odometer" value={String(viewRow.present_odometer ?? '—')} />
+              <DetailField label="Kilometres" value={String(viewRow.kilometers ?? '—')} />
+              <DetailField label="Status" value={<Badge variant={Number(viewRow.admin_status) === 1 ? 'success' : Number(viewRow.admin_status) === 2 ? 'danger' : 'warning'}>{Number(viewRow.admin_status) === 1 ? 'Approved' : Number(viewRow.admin_status) === 2 ? 'Rejected' : 'Pending'}</Badge>} />
+              {Number(viewRow.admin_status) !== 0 && <DetailField label="Action By" value={String(viewRow.admin_status_byname || '—')} />}
+              {Number(viewRow.admin_status) !== 0 && <DetailField label="Action Date" value={viewRow.admin_status_bydate ? formatDateTime(String(viewRow.admin_status_bydate)) : '—'} />}
+            </DetailGrid>
+            <RemarksBlock text={viewRow.remarks} />
+            <RejectionReasonNote reason={viewRow.rejection_reason} />
+            <LedgerSideLists rows={(viewRow._accounts as Array<Record<string, unknown>>) || []} />
+            <ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
+              onApprove={() => onStatusChange(viewRow, 1)} onReject={() => askReject([viewRow])} onReopen={() => onStatusChange(viewRow, 0)} />
+          </RecordModal>
         )}
       </AnimatePresence>
 
       {/* Edit modal */}
       <AnimatePresence>
         {editForm && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl max-w-5xl w-full shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-              <div className="bg-gradient-to-r from-amber-400 to-orange-500 px-6 py-4 flex justify-between items-center text-white">
-                <h3 className="font-bold text-lg">Edit Fuel Entry — {editForm.c_number}</h3>
-                <button onClick={() => setEditForm(null)} className="text-white/70 hover:text-white"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6">
-                <FuelForm form={editForm} setForm={setEditForm} buses={buses} ledgers={ledgers} />
-                <div className="flex justify-end gap-2 mt-6">
-                  <Button variant="ghost" onClick={() => setEditForm(null)}>Cancel</Button>
-                  <Button onClick={onSaveEdit} disabled={updating}>
-                    <Save className="w-4 h-4" /> {updating ? 'Updating…' : 'Update Entry'}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <RecordModal size="xl" title="Edit Fuel Entry" subtitle={editForm.c_number} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setEditForm(null)}>
+            <FuelForm form={editForm} setForm={setEditForm} buses={buses} ledgers={ledgers} />
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <Button variant="ghost" onClick={() => setEditForm(null)}>Cancel</Button>
+              <Button onClick={onSaveEdit} disabled={updating}>
+                <Save className="w-4 h-4" /> {updating ? 'Updating…' : 'Update Entry'}
+              </Button>
+            </div>
+          </RecordModal>
         )}
       </AnimatePresence>
     </motion.div>

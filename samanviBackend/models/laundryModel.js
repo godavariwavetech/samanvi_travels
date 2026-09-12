@@ -1,6 +1,22 @@
 var sqldb = require('../config/dbconnect');
 var moment = require('moment');
 
+// Laundry bills are reviewed the way vouchers are, and a rejection there
+// always carries a reason; this is its home on a bill (one value per bill,
+// stamped on every vehicle row of it).
+sqldb.query(
+  `SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS
+   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'laundrybill_maint' AND COLUMN_NAME = 'rejection_reason'`,
+  function (err, rows) {
+    if (err) { console.error('[DB] laundrybill_maint.rejection_reason check:', err.message); return; }
+    if (rows && rows[0] && rows[0].c > 0) return;
+    sqldb.query('ALTER TABLE laundrybill_maint ADD COLUMN rejection_reason TEXT DEFAULT NULL', function (err2) {
+      if (err2) console.error('[DB] laundrybill_maint.rejection_reason add:', err2.message);
+      else console.log('laundrybill_maint.rejection_reason column added');
+    });
+  }
+);
+
 // Reference number is minted from MAX(c_id) inside mainlaundry_t — same pattern
 // as fuel entries. Not concurrency-safe on paper; the create flow runs inside a
 // single connection/transaction to keep the collision window small.
@@ -498,6 +514,7 @@ exports.listLaundryBillsMdl = function (callback) {
             MIN(admin_action_id) AS admin_action_id,
             MIN(admin_action_name) AS admin_action_name,
             MIN(admin_action_date) AS admin_action_date,
+            MIN(rejection_reason) AS rejection_reason,
             COUNT(*) AS vehicle_count,
             SUM(CAST(totalamount AS DECIMAL(15,2))) AS total_amount
      FROM laundrybill_maint
@@ -536,10 +553,13 @@ exports.updateLaundryBillAdminStatusMdl = function (data, callback) {
     // laundrybill_subt), as it does for fuel, so both tables are stamped -
     // an approved bill used to stay invisible on every ledger report.
     `UPDATE laundrybill_maint
-     SET admin_status = ?, admin_action_id = ?, admin_action_name = ?, admin_action_date = ?
+     SET admin_status = ?, admin_action_id = ?, admin_action_name = ?, admin_action_date = ?, rejection_reason = ?
      WHERE c_number = ?;
      UPDATE laundrybill_subt SET admin_status = ? WHERE c_number = ?`,
-    [Number(data.admin_status), String(data.user_id || 0), data.named || '', now, data.c_number,
+    // The reason travels with a rejection only; approving or reopening the
+    // bill clears it, as it does on a voucher.
+    [Number(data.admin_status), String(data.user_id || 0), data.named || '', now,
+     Number(data.admin_status) === 2 ? String(data.rejection_reason || '') : '', data.c_number,
      Number(data.admin_status), data.c_number],
     callback
   );

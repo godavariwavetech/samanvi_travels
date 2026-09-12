@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Target, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, RecordModal } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
@@ -191,25 +191,15 @@ export default function FuelTargetPage() {
       {/* Edit modal */}
       <AnimatePresence>
         {editForm && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden">
-              <div className="bg-gradient-to-r from-green-500 to-emerald-500 px-6 py-4 flex justify-between items-center text-white">
-                <h3 className="font-bold text-lg">Edit Fuel Target</h3>
-                <button onClick={() => setEditForm(null)} className="text-white/70 hover:text-white"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6">
-                {renderForm(editForm, setEditForm)}
-                <div className="flex justify-end gap-2 mt-6">
-                  <Button variant="ghost" onClick={() => setEditForm(null)}>Cancel</Button>
-                  <Button onClick={onSaveEdit} disabled={updating}>
-                    <Save className="w-4 h-4" /> {updating ? 'Updating…' : 'Update Target'}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <RecordModal title="Edit Fuel Target" subtitle={editForm.bus_no} icon={<Target className="w-4 h-4 text-green-500" />} onClose={() => setEditForm(null)}>
+            {renderForm(editForm, setEditForm)}
+            <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+              <Button variant="ghost" onClick={() => setEditForm(null)}>Cancel</Button>
+              <Button onClick={onSaveEdit} disabled={updating}>
+                <Save className="w-4 h-4" /> {updating ? 'Updating…' : 'Update Target'}
+              </Button>
+            </div>
+          </RecordModal>
         )}
       </AnimatePresence>
     </motion.div>
