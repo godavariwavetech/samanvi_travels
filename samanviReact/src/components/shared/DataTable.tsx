@@ -40,6 +40,10 @@ interface DataTableProps<T extends Record<string, unknown>> {
   selectionActions?: ReactNode
   columnFilters?: Record<string, string[]>
   onColumnFilterChange?: (key: string, vals: string[]) => void
+  /** The rows left after the search box and column filters, whenever that set
+   *  changes - so a page's Excel / PDF download can carry exactly what the
+   *  table shows. */
+  onFilteredChange?: (rows: T[]) => void
   filterBar?: ReactNode
   className?: string
   /** Opt-in: paginate `filtered` rows and show page controls above and below the table. */
@@ -132,6 +136,7 @@ export function DataTable<T extends Record<string, unknown>>({
   selectionActions,
   columnFilters,
   onColumnFilterChange,
+  onFilteredChange,
   filterBar,
   className,
   paginated = false,
@@ -210,6 +215,18 @@ export function DataTable<T extends Record<string, unknown>>({
   // Reset to page 1 whenever the search text or column filters change, so the
   // user never lands on a now-empty page after narrowing the result set.
   useEffect(() => { setPage(1) }, [search, columnFilters])
+
+  // Report the visible set to the page, but only when it actually changed:
+  // `data` is often rebuilt on every render, so comparing the rows' keys keeps
+  // a page that stores these rows in state from re-rendering forever.
+  const filteredSigRef = useRef('')
+  useEffect(() => {
+    if (!onFilteredChange) return
+    const sig = filtered.map(keyOf).join('\u0001')
+    if (sig === filteredSigRef.current) return
+    filteredSigRef.current = sig
+    onFilteredChange(filtered)
+  })
 
   const totalPages = paginated ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1
   const safePage = Math.min(page, totalPages)

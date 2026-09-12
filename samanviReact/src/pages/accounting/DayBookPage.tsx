@@ -183,6 +183,12 @@ export default function DayBookPage() {
   const totalDebit  = tableRows.reduce((s, r) => s + r.debit,  0)
   const totalCredit = tableRows.reduce((s, r) => s + r.credit, 0)
   const difference  = totalDebit - totalCredit
+  // The table footer and both downloads sum the rows actually shown - the
+  // search and column filters applied - and number them from 1. The cards
+  // above keep the whole date range.
+  const shownDebit  = displayRows.reduce((s, r) => s + r.debit,  0)
+  const shownCredit = displayRows.reduce((s, r) => s + r.credit, 0)
+  const shownDifference = shownDebit - shownCredit
 
   const exportExcel = () => {
     // The ticked optional columns go out too, after Vehicle No as on screen.
@@ -190,18 +196,18 @@ export default function DayBookPage() {
     const pad = extras.map(() => '')
     const extraValues = (r: any) => extras.map((c) => c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '') : c === 'Quantity' ? reportQuantity(r) : reportRate(r))
     const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', ...extras, 'Name', 'Description', 'Debit', 'Credit', 'Balance']
-    const body = displayRows.map(r => [
-      r.i, r.c_number, r.vouchertype, fmt(r.i_ts),
+    const body = displayRows.map((r, i) => [
+      i + 1, r.c_number, r.vouchertype, fmt(r.i_ts),
       r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
       r.expensives, r.group, fmt(r.valueDate), r.bus_no, ...extraValues(r), r.name, r.description,
       r.debit || '', r.credit || '',
       r.balance >= 0 ? `${r.balance.toFixed(2)} Dr` : `${Math.abs(r.balance).toFixed(2)} Cr`,
     ])
-    body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Total', totalDebit || '', totalCredit || '', ''])
+    body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Total', shownDebit || '', shownCredit || '', ''])
     body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Difference (Dr - Cr)',
-      difference >= 0 ? difference : '',
-      difference < 0 ? Math.abs(difference) : '',
-      difference === 0 ? 'Balanced' : difference > 0 ? `${difference.toFixed(2)} Dr` : `${Math.abs(difference).toFixed(2)} Cr`,
+      shownDifference >= 0 ? shownDifference : '',
+      shownDifference < 0 ? Math.abs(shownDifference) : '',
+      shownDifference === 0 ? 'Balanced' : shownDifference > 0 ? `${shownDifference.toFixed(2)} Dr` : `${Math.abs(shownDifference).toFixed(2)} Cr`,
     ])
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     ws['!cols'] = header.map((_, ci) => ({ wch: Math.max(...[header, ...body].map(r => String(r[ci] ?? '').length)) + 2 }))
@@ -235,8 +241,8 @@ export default function DayBookPage() {
     // width, which throws off right-alignment. Plain numbers render correctly.
     const balStr = (b: number) => b >= 0 ? `${fmtAmt(b)} Dr` : `${fmtAmt(Math.abs(b))} Cr`
 
-    const body = displayRows.map(r => [
-      String(r.i), r.c_number, r.vouchertype, fmt(r.i_ts),
+    const body = displayRows.map((r, i) => [
+      String(i + 1), r.c_number, r.vouchertype, fmt(r.i_ts),
       r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
       r.expensives, r.group || '-', fmt(r.valueDate), r.bus_no, r.name, r.description,
       { content: r.debit ? fmtAmt(r.debit) : '-', styles: { halign: 'right' as const } },
@@ -254,16 +260,18 @@ export default function DayBookPage() {
       foot: [[
         '', '', '', '', '', '', '', '', '', '',
         { content: 'Total', styles: { halign: 'right' as const } },
-        { content: fmtAmt(totalDebit), styles: { halign: 'right' as const } },
-        { content: fmtAmt(totalCredit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownDebit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownCredit), styles: { halign: 'right' as const } },
         { content: '', styles: { halign: 'right' as const } },
       ], [
         '', '', '', '', '', '', '', '', '', '',
         { content: 'Difference (Dr − Cr)', styles: { halign: 'right' as const } },
-        { content: difference > 0 ? fmtAmt(difference) : '-', styles: { halign: 'right' as const } },
-        { content: difference < 0 ? fmtAmt(Math.abs(difference)) : '-', styles: { halign: 'right' as const } },
-        { content: difference === 0 ? 'Balanced' : balStr(difference), styles: { halign: 'right' as const } },
+        { content: shownDifference > 0 ? fmtAmt(shownDifference) : '-', styles: { halign: 'right' as const } },
+        { content: shownDifference < 0 ? fmtAmt(Math.abs(shownDifference)) : '-', styles: { halign: 'right' as const } },
+        { content: shownDifference === 0 ? 'Balanced' : balStr(shownDifference), styles: { halign: 'right' as const } },
       ]],
+      // Totals once, under the last row - not repeated on every page.
+      showFoot: 'lastPage',
       theme: 'grid',
       margin: { left: marginX, right: marginX },
       tableWidth: TABLE_WIDTH_MM,
@@ -442,7 +450,7 @@ export default function DayBookPage() {
               <tbody>
                 {displayRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{row.i}</td>
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{idx + 1}</td>
                     <td className="px-3 py-2 border-b border-slate-100 font-medium text-blue-600 whitespace-nowrap">{row.c_number}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 whitespace-nowrap">{row.vouchertype}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.i_ts)}</td>
@@ -505,29 +513,29 @@ export default function DayBookPage() {
               <tfoot>
                 <tr className="bg-blue-50 font-bold border-t-2 border-blue-200">
                   <td colSpan={10 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase tracking-wide">
-                    Total
+                    Total{displayRows.length !== tableRows.length ? ` (${displayRows.length} of ${tableRows.length} rows)` : ''}
                   </td>
-                  <td className="px-3 py-2.5 text-right text-red-600 tabular-nums">{fmtAmt(totalDebit)}</td>
-                  <td className="px-3 py-2.5 text-right text-emerald-600 tabular-nums">{fmtAmt(totalCredit)}</td>
-                  <td className={`px-3 py-2.5 text-right tabular-nums ${tableRows[tableRows.length - 1]?.balance >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
+                  <td className="px-3 py-2.5 text-right text-red-600 tabular-nums">{fmtAmt(shownDebit)}</td>
+                  <td className="px-3 py-2.5 text-right text-emerald-600 tabular-nums">{fmtAmt(shownCredit)}</td>
+                  <td className={`px-3 py-2.5 text-right tabular-nums ${displayRows[displayRows.length - 1]?.balance >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
                     {(() => {
-                      const b = tableRows[tableRows.length - 1]?.balance ?? 0
+                      const b = displayRows[displayRows.length - 1]?.balance ?? 0
                       return b >= 0 ? `${fmtAmt(b)} Dr` : `${fmtAmt(Math.abs(b))} Cr`
                     })()}
                   </td>
                 </tr>
-                <tr className={`font-bold border-t border-dashed ${difference === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
-                  <td colSpan={10 + extraCount} className={`px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wide ${difference === 0 ? 'text-green-700' : 'text-amber-700'}`}>
+                <tr className={`font-bold border-t border-dashed ${shownDifference === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <td colSpan={10 + extraCount} className={`px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wide ${shownDifference === 0 ? 'text-green-700' : 'text-amber-700'}`}>
                     Difference (Dr − Cr)
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-red-600">
-                    {difference > 0 ? fmtAmt(difference) : '—'}
+                    {shownDifference > 0 ? fmtAmt(shownDifference) : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600">
-                    {difference < 0 ? fmtAmt(Math.abs(difference)) : '—'}
+                    {shownDifference < 0 ? fmtAmt(Math.abs(shownDifference)) : '—'}
                   </td>
-                  <td className={`px-3 py-2.5 text-right tabular-nums font-extrabold ${difference === 0 ? 'text-green-600' : difference > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {difference === 0 ? '✓ Balanced' : difference > 0 ? `${fmtAmt(difference)} Dr` : `${fmtAmt(Math.abs(difference))} Cr`}
+                  <td className={`px-3 py-2.5 text-right tabular-nums font-extrabold ${shownDifference === 0 ? 'text-green-600' : shownDifference > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {shownDifference === 0 ? '✓ Balanced' : shownDifference > 0 ? `${fmtAmt(shownDifference)} Dr` : `${fmtAmt(Math.abs(shownDifference))} Cr`}
                   </td>
                 </tr>
               </tfoot>

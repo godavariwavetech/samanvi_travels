@@ -695,16 +695,22 @@ export default function GroupWisePage() {
   }
 
   // ── Export Excel ──────────────────────────────────────────────────────────
+  // Downloads carry exactly the rows on the table - the column and amount
+  // filters applied - numbered from 1, with the total of those rows.
+  const shownTotals = useMemo(() => displayRows.reduce(
+    (t, r) => ({ opening: t.opening + r.opening, debit: t.debit + r.debit, credit: t.credit + r.credit, closing: t.closing + r.closing }),
+    { opening: 0, debit: 0, credit: 0, closing: 0 }), [displayRows])
+
   const exportExcel = () => {
-    if (!tableRows.length) { toast.warning('No data to export'); return }
+    if (!displayRows.length) { toast.warning('No data to export'); return }
     const sectionLabel = SECTIONS.find(s => s.key === selectedSection)?.label ?? 'Report'
-    const ws = XLSX.utils.json_to_sheet(tableRows.map(r => ({
-      'Name': r.name, 'Type': r.type,
+    const ws = XLSX.utils.json_to_sheet(displayRows.map((r, i) => ({
+      'Sl No': i + 1, 'Name': r.name, 'Group': r.group || '', 'Type': r.type,
       'Opening Balance': r.opening, 'Debit': r.debit, 'Credit': r.credit, 'Closing Balance': r.closing,
     })))
     XLSX.utils.sheet_add_json(ws, [{
-      'Name': 'Grand Total', 'Type': '',
-      'Opening Balance': tableTotals.opening, 'Debit': tableTotals.debit, 'Credit': tableTotals.credit, 'Closing Balance': tableTotals.closing,
+      'Sl No': '', 'Name': 'Grand Total', 'Group': '', 'Type': '',
+      'Opening Balance': shownTotals.opening, 'Debit': shownTotals.debit, 'Credit': shownTotals.credit, 'Closing Balance': shownTotals.closing,
     }], { skipHeader: true, origin: -1 })
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sectionLabel)
@@ -713,7 +719,7 @@ export default function GroupWisePage() {
 
   // ── Export PDF ────────────────────────────────────────────────────────────
   const exportPDF = () => {
-    if (!tableRows.length) { toast.warning('No data to export'); return }
+    if (!displayRows.length) { toast.warning('No data to export'); return }
     const sectionLabel = SECTIONS.find(s => s.key === selectedSection)?.label ?? 'Report'
     const subtitle = lastParentLabel(sectionLabel)
 
@@ -732,6 +738,7 @@ export default function GroupWisePage() {
     // body/columnStyles alignment below (autoTable doesn't otherwise carry
     // columnStyles' halign over to the head row).
     const headers = [
+      { content: 'Sl No', styles: { halign: 'center' as const } },
       { content: 'Name', styles: { halign: 'left' as const } },
       { content: 'Group', styles: { halign: 'left' as const } },
       { content: 'Type', styles: { halign: 'left' as const } },
@@ -751,21 +758,23 @@ export default function GroupWisePage() {
     autoTable(doc, {
       startY: 28,
       head: [headers],
-      body: tableRows.map(r => [r.name, r.group || '-', r.type, amt(r.opening), fmtAmt(r.debit), fmtAmt(r.credit), amt(r.closing)]),
+      body: displayRows.map((r, i) => [String(i + 1), r.name, r.group || '-', r.type, amt(r.opening), fmtAmt(r.debit), fmtAmt(r.credit), amt(r.closing)]),
       // Foot cells need the same explicit per-column halign as the head —
       // columnStyles' halign doesn't carry over to head/foot rows, only body.
       foot: [[
-        '', '',
+        '', '', '',
         { content: 'Grand Total', styles: { halign: 'right' as const } },
-        { content: amt(tableTotals.opening), styles: { halign: 'right' as const } },
-        { content: fmtAmt(tableTotals.debit), styles: { halign: 'right' as const } },
-        { content: fmtAmt(tableTotals.credit), styles: { halign: 'right' as const } },
-        { content: amt(tableTotals.closing), styles: { halign: 'right' as const } },
+        { content: amt(shownTotals.opening), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownTotals.debit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownTotals.credit), styles: { halign: 'right' as const } },
+        { content: amt(shownTotals.closing), styles: { halign: 'right' as const } },
       ]],
+      // One Grand Total, under the last row - not repeated on every page.
+      showFoot: 'lastPage',
       headStyles: { fillColor: [37, 99, 235] },
       footStyles: { fillColor: [254, 243, 199], textColor: [180, 83, 9], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
+      columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
     })
     doc.save(`${fileBaseName(sectionLabel)}_${downloadDate()}.pdf`)
   }
@@ -1023,6 +1032,7 @@ export default function GroupWisePage() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
+                  <TH cls="text-center">Sl No</TH>
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="type">Type</TH>
                   <TH cls="text-right" filterKey="opening">Opening Balance</TH>
@@ -1034,12 +1044,13 @@ export default function GroupWisePage() {
               <tbody>
                 {displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">
                       No rows match the active filters.
                     </td>
                   </tr>
                 ) : displayRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                    <td className="px-4 py-2.5 border-b border-slate-100 text-center text-slate-500">{idx + 1}</td>
                     <td className="px-4 py-2.5 border-b border-slate-100 font-medium text-slate-800">
                       {row.type === 'Ledger' ? (
                         <div className="flex items-center gap-2 flex-wrap">
@@ -1089,13 +1100,13 @@ export default function GroupWisePage() {
               </tbody>
               <tfoot>
                 <tr className="bg-amber-50 border-t-2 border-amber-200">
-                  <td colSpan={2} className="px-4 py-3 text-right text-xs font-bold text-amber-700 uppercase tracking-wide">
-                    Grand Total
+                  <td colSpan={3} className="px-4 py-3 text-right text-xs font-bold text-amber-700 uppercase tracking-wide">
+                    Grand Total{displayRows.length !== tableRows.length ? ` (${displayRows.length} of ${tableRows.length} rows)` : ''}
                   </td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(tableTotals.opening, tableDistrict)}</td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(tableTotals.debit)}</td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(tableTotals.credit)}</td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(tableTotals.closing, tableDistrict)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(shownTotals.opening, tableDistrict)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(shownTotals.debit)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(shownTotals.credit)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(shownTotals.closing, tableDistrict)}</td>
                 </tr>
               </tfoot>
             </table>

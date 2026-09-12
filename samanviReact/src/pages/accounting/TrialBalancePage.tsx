@@ -53,6 +53,7 @@ function fmtFileDate(d: any): string {
 }
 
 const cols: Column[] = [
+  { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
   {
     label: 'Ledger Name', key: 'ledger_name', filterable: true, filterType: 'text',
     render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">{r.group_name}</div></div>,
@@ -76,6 +77,9 @@ export default function TrialBalancePage() {
   const [range, setRange] = useState({ fromdate: selectedFY.fromDate, todate: selectedFY.toDate })
   const [applied, setApplied] = useState(range)
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
+  // The rows the table is showing after its search box and column filters -
+  // the downloads carry exactly these, numbered from 1, with their total.
+  const [shownRows, setShownRows] = useState<any[] | null>(null)
 
   useEffect(() => {
     const next = { fromdate: selectedFY.fromDate, todate: selectedFY.toDate }
@@ -136,12 +140,18 @@ export default function TrialBalancePage() {
 
   const closingStr = (cb: number) => cb === 0 ? '-' : cb > 0 ? `${fmtAmt(cb)} Dr` : `${fmtAmt(Math.abs(cb))} Cr`
 
+  const exportRows: typeof list = shownRows ?? list
+  const exportTotals = {
+    opening: exportRows.reduce((s, r) => s + r.opening, 0), debit: exportRows.reduce((s, r) => s + r.debit, 0),
+    credit: exportRows.reduce((s, r) => s + r.credit, 0), closing: exportRows.reduce((s, r) => s + r.closing, 0),
+  }
+
   const exportExcel = () => {
-    const header = ['Ledger Name', 'Group', 'Opening Balance', 'Debit', 'Credit', 'Closing Balance']
-    const body = list.map(r => [
-      r.ledger_name, r.group_name, closingStr(r.opening), r.debit || '', r.credit || '', closingStr(r.closing),
+    const header = ['Sl No', 'Ledger Name', 'Group', 'Opening Balance', 'Debit', 'Credit', 'Closing Balance']
+    const body = exportRows.map((r, i) => [
+      i + 1, r.ledger_name, r.group_name, closingStr(r.opening), r.debit || '', r.credit || '', closingStr(r.closing),
     ])
-    body.push(['', 'Grand Total', closingStr(totalOpening), totalDr || '', totalCr || '', closingStr(totalClosing)])
+    body.push(['', '', 'Grand Total', closingStr(exportTotals.opening), exportTotals.debit || '', exportTotals.credit || '', closingStr(exportTotals.closing)])
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     ws['!cols'] = header.map((_, ci) => ({ wch: Math.max(...[header, ...body].map(r => String(r[ci] ?? '').length)) + 2 }))
     const wb = XLSX.utils.book_new()
@@ -164,6 +174,7 @@ export default function TrialBalancePage() {
     // Header/footer cell alignment is set explicitly per column so it matches
     // the body — autoTable's columnStyles halign only carries to body rows.
     const headers = [
+      { content: 'Sl No', styles: { halign: 'center' as const } },
       { content: 'Ledger Name', styles: { halign: 'left' as const } },
       { content: 'Group', styles: { halign: 'left' as const } },
       { content: 'Opening Balance', styles: { halign: 'right' as const } },
@@ -171,8 +182,8 @@ export default function TrialBalancePage() {
       { content: 'Credit', styles: { halign: 'right' as const } },
       { content: 'Closing Balance', styles: { halign: 'right' as const } },
     ]
-    const body = list.map(r => [
-      r.ledger_name, r.group_name,
+    const body = exportRows.map((r, i) => [
+      { content: String(i + 1), styles: { halign: 'center' as const } }, r.ledger_name, r.group_name,
       { content: closingStr(r.opening), styles: { halign: 'right' as const } },
       { content: r.debit ? fmtAmt(r.debit) : '-', styles: { halign: 'right' as const } },
       { content: r.credit ? fmtAmt(r.credit) : '-', styles: { halign: 'right' as const } },
@@ -184,17 +195,19 @@ export default function TrialBalancePage() {
       head: [headers],
       body,
       foot: [[
-        '', { content: 'Grand Total', styles: { halign: 'right' as const } },
-        { content: closingStr(totalOpening), styles: { halign: 'right' as const } },
-        { content: fmtAmt(totalDr), styles: { halign: 'right' as const } },
-        { content: fmtAmt(totalCr), styles: { halign: 'right' as const } },
-        { content: closingStr(totalClosing), styles: { halign: 'right' as const } },
+        '', '', { content: 'Grand Total', styles: { halign: 'right' as const } },
+        { content: closingStr(exportTotals.opening), styles: { halign: 'right' as const } },
+        { content: fmtAmt(exportTotals.debit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(exportTotals.credit), styles: { halign: 'right' as const } },
+        { content: closingStr(exportTotals.closing), styles: { halign: 'right' as const } },
       ]],
+      // One Grand Total, under the last row - not repeated on every page.
+      showFoot: 'lastPage',
       theme: 'grid',
       headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
       footStyles: { fillColor: [239, 246, 255], textColor: [30, 64, 175], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+      columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' } },
     })
     const dateStamp = fmtFileDate(new Date())
     doc.save(`TrialBalance_${fmtFileDate(applied.fromdate)}_to_${fmtFileDate(applied.todate)}_${dateStamp}.pdf`)
@@ -256,6 +269,7 @@ export default function TrialBalancePage() {
         title="Trial Balance" columns={cols} data={list} loading={anyLoading} actions={[]}
         columnFilters={colFilters}
         onColumnFilterChange={(key, vals) => setColFilters(f => ({ ...f, [key]: vals }))}
+        onFilteredChange={(rows) => setShownRows(rows as any[])}
       />
     </motion.div>
   )

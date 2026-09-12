@@ -808,6 +808,12 @@ export default function LedgerWisePage() {
     })
   }, [rows, colFilters, activeFilterCount, colValue])
 
+  // The Total row on screen and in both downloads sums the rows shown - the
+  // column filters applied - and the downloads carry only those rows. Opening,
+  // Closing and Grand Total stay the ledger's own figures for the period.
+  const shownDebit = displayRows.reduce((s, r) => s + r.debit, 0)
+  const shownCredit = displayRows.reduce((s, r) => s + r.credit, 0)
+
   // Opp-Ledger is a comma-joined string of names (possibly several) — map each
   // back to its parent group via the ledger master list for the exports.
   const nameToGroup = useMemo(() => {
@@ -841,7 +847,7 @@ export default function LedgerWisePage() {
         balStr(openingBalance),
       ])
     }
-    rows.forEach((r, i) => {
+    displayRows.forEach((r, i) => {
       data.push([
         i + 1, r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
         r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
@@ -850,7 +856,7 @@ export default function LedgerWisePage() {
         r.debit, r.credit, balStr(r.runningBalance ?? 0),
       ])
     })
-    data.push(['', '', '', '', 'Total', '', '', '', ...pad, '', '', totalDebit, totalCredit, ''])
+    data.push(['', '', '', '', 'Total', '', '', '', ...pad, '', '', shownDebit, shownCredit, ''])
     data.push(['', '', '', '', 'Closing Balance', '', '', '', ...pad, '', '',
       closingBalance < 0 ? Math.abs(closingBalance) : 0,
       closingBalance >= 0 ? closingBalance : 0,
@@ -939,7 +945,7 @@ export default function LedgerWisePage() {
       ])
     }
 
-    rows.forEach((r, i) => {
+    displayRows.forEach((r, i) => {
       body.push([
         String(i + 1), r.c_number || '-', fmtShort(resolveDisplayDate(r)), r.vouchertype || 'N/A',
         r.opp_ledgers || 'N/A', fmtShort(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
@@ -952,8 +958,8 @@ export default function LedgerWisePage() {
 
     body.push(['', '', '', '',
       { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
-      { content: fmtN(totalDebit), styles: { fontStyle: 'bold', halign: 'right' } },
-      { content: fmtN(totalCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
+      { content: fmtN(shownDebit), styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: fmtN(shownCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
     body.push(['', '', '', '',
       { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
@@ -1275,7 +1281,7 @@ export default function LedgerWisePage() {
                 })}
               </tbody>
               <tfoot>
-                <SummaryRow label="Total" dr={totalDebit} cr={totalCredit} />
+                <SummaryRow label={displayRows.length !== rows.length ? `Total (${displayRows.length} of ${rows.length} rows)` : 'Total'} dr={shownDebit} cr={shownCredit} />
                 <SummaryRow
                   label="Closing Balance"
                   dr={closingBalance < 0 ? Math.abs(closingBalance) : 0}
