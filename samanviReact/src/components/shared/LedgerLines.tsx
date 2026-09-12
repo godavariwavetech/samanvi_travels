@@ -80,6 +80,12 @@ export function LedgerLines<L extends LedgerLike>({ side, rows, onChange, ledger
     }
     onChange(lines.map((r, i) => {
       if (i !== index) return r
+      // Swapping the account on a line that already has one: only the ledger
+      // changes, so the amount stays exactly as it is (and keeps following the
+      // bill if the panel filled it). Re-deriving it here read `remaining`
+      // with this line's own amount already counted against the bill, so
+      // changing a picked ledger emptied the amount beside it.
+      if (r.ledger) return { ...r, ledger: chosen }
       if (r.amount !== '' && !r.auto) return { ...r, ledger: chosen }
       // Filled in by the panel, so it stays live against the bill (see syncAutoLedgerLines).
       return { ledger: chosen, amount: remaining > 0 ? remaining.toFixed(2) : '', auto: true }
