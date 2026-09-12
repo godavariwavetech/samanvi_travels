@@ -82,14 +82,27 @@ jobs:
       # so the two cannot drift again; the secret stays as a fallback for a
       # differently-named deployment, and pm2 list makes the next mismatch
       # visible straight from the deploy log.
+      # If the process is not in PM2 at all - the deploy user's PM2 daemon was
+      # found freshly spawned and empty on 2026-09-12, with staging down on
+      # :8946 while production still answered on :8945 - start it here with
+      # the same command the note above gives, so a lost daemon never leaves
+      # staging dark until someone logs in.
       - name: Restart PM2 (staging)
         run: |
           ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
             set -e
             export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
-            pm2 restart samanvi-staging --update-env \
-              || pm2 restart "${{ secrets.STAGING_PM2_APP_NAME }}" --update-env
+            if pm2 describe samanvi-staging > /dev/null 2>&1; then
+              pm2 restart samanvi-staging --update-env
+            elif pm2 describe "${{ secrets.STAGING_PM2_APP_NAME }}" > /dev/null 2>&1; then
+              pm2 restart "${{ secrets.STAGING_PM2_APP_NAME }}" --update-env
+            else
+              echo "samanvi-staging is not in PM2 - starting it on :8946"
+              cd "${{ secrets.STAGING_BACKEND_PATH }}"
+              PORT=8946 FRONTEND_DIR="${{ secrets.STAGING_FRONTEND_PATH }}" \
+                pm2 start app.js --name samanvi-staging
+            fi
             pm2 save
             pm2 list
           '
