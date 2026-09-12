@@ -86,7 +86,10 @@ jobs:
       # found freshly spawned and empty on 2026-09-12, with staging down on
       # :8946 while production still answered on :8945 - start it here with
       # the same command the note above gives, so a lost daemon never leaves
-      # staging dark until someone logs in.
+      # staging dark until someone logs in. The STAGING_PM2_APP_NAME secret is
+      # no longer consulted: on the same day it matched the two production-
+      # named processes (pm2 ids 0 and 1), so the "fallback" restarted
+      # production and left staging down while the deploy reported success.
       - name: Restart PM2 (staging)
         run: |
           ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
@@ -95,8 +98,6 @@ jobs:
             export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
             if pm2 describe samanvi-staging > /dev/null 2>&1; then
               pm2 restart samanvi-staging --update-env
-            elif pm2 describe "${{ secrets.STAGING_PM2_APP_NAME }}" > /dev/null 2>&1; then
-              pm2 restart "${{ secrets.STAGING_PM2_APP_NAME }}" --update-env
             else
               echo "samanvi-staging is not in PM2 - starting it on :8946"
               cd "${{ secrets.STAGING_BACKEND_PATH }}"
