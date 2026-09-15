@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType, formatDate } from '@/lib/utils'
+import { isVanVehicleType, formatDate, ledgerOption } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 
@@ -301,7 +301,8 @@ export default function TripExpensesPage() {
     const r = await reloadLedgers()
     ledgerRef.current = r.data?.data ?? []
   }
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.ledger_id), label: l.temple_name }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l, 'ledger_id'))
+  const ledgerGroupOf = useLedgerGroupOf()
   const findLedger = (id: string) => ledgerRef.current.find((l: any) => String(l.ledger_id) === id)
 
   const drivers: any[] = driverData?.data ?? []
@@ -2288,7 +2289,7 @@ export default function TripExpensesPage() {
                         {viewModal.debit.length === 0 && <div className="p-3 text-sm text-slate-400">No entries</div>}
                         {viewModal.debit.map((item, i) => (
                           <div key={i} className="flex justify-between px-4 py-2 text-sm">
-                            <span>{item.expensives}</span><span className="font-semibold">₹{item.amount}</span>
+                            <span>{item.expensives}<LedgerGroupTag group={ledgerGroupOf({ id: (item as any).ledger_id, name: item.expensives })} /></span><span className="font-semibold">₹{item.amount}</span>
                           </div>
                         ))}
                       </div>
@@ -2299,7 +2300,7 @@ export default function TripExpensesPage() {
                         {viewModal.credit.length === 0 && <div className="p-3 text-sm text-slate-400">No entries</div>}
                         {viewModal.credit.map((item, i) => (
                           <div key={i} className="flex justify-between px-4 py-2 text-sm">
-                            <span>{item.expensives}</span><span className="font-semibold">₹{item.amount}</span>
+                            <span>{item.expensives}<LedgerGroupTag group={ledgerGroupOf({ id: (item as any).ledger_id, name: item.expensives })} /></span><span className="font-semibold">₹{item.amount}</span>
                           </div>
                         ))}
                       </div>

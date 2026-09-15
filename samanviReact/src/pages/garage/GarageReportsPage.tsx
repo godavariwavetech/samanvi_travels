@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -35,7 +35,7 @@ function ledgerChips(v: any, cls: string) {
     <div className="flex flex-col gap-1">
       {entries.map((e, i) => (
         <span key={i} className={`inline-flex items-center gap-1 w-fit px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${cls}`}>
-          {e.name}: ₹{e.amount.toLocaleString('en-IN')}
+          <LedgerNameWithGroup name={e.name} />: ₹{e.amount.toLocaleString('en-IN')}
         </span>
       ))}
     </div>

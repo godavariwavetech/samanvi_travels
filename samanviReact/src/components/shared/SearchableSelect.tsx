@@ -6,6 +6,9 @@ import { cn } from '@/lib/utils'
 export interface SearchableSelectOption {
   value: string
   label: string
+  // Muted secondary text beside the label (e.g. a ledger's parent group).
+  // Display only - it is searchable but never part of the picked value.
+  hint?: string
 }
 
 interface SearchableSelectProps {
@@ -49,7 +52,7 @@ export function SearchableSelect({
 
   const selected = options.find((o) => o.value === value)
   const filtered = search.trim()
-    ? options.filter((o) => o.label.toLowerCase().includes(search.trim().toLowerCase()))
+    ? options.filter((o) => `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(search.trim().toLowerCase()))
     : options
 
   const openDropdown = () => {
@@ -180,6 +183,9 @@ export function SearchableSelect({
             )}
           >
             {o.label}
+            {o.hint && (
+              <span className={cn('ml-2 text-xs font-normal', i === hi ? 'text-blue-100' : 'text-slate-400')}>— {o.hint}</span>
+            )}
           </li>
         ))}
       </ul>
@@ -206,6 +212,7 @@ export function SearchableSelect({
         >
           <span className={cn('truncate', (selected || displayLabel) ? 'text-slate-900' : 'text-slate-400')}>
             {selected ? selected.label : (displayLabel || placeholder)}
+            {selected?.hint && <span className="ml-1.5 text-xs text-slate-400">— {selected.hint}</span>}
           </span>
           <ChevronDown className={cn('w-4 h-4 text-slate-400 flex-shrink-0 ml-2 transition-transform', open && 'rotate-180')} />
         </button>

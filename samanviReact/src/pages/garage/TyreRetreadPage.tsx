@@ -7,6 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelec
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const EMPTY_FORM = { tyre_id: '', retread_date: '', cost: '', remarks: '' }
 
@@ -41,7 +42,7 @@ export function TyreRetreadPanel() {
   const list: any[] = data?.data ?? []
   const tyreList: any[] = tyres?.data ?? []
   const ledgerList: any[] = (ledgersData?.data ?? []).filter((l: any) => /tyre/i.test(l.temple_name || l.name || ''))
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   const selectedTyre = tyreList.find((t: any) => String(t.id) === form.tyre_id)
 

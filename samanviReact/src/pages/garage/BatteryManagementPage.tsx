@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { formatDate } from '@/lib/utils'
+import { formatDate, ledgerOption } from '@/lib/utils'
 
 const STATUSES = ['Active', 'Replaced', 'Scrapped']
 
@@ -74,7 +74,7 @@ export default function BatteryManagementPage() {
 
   const brandOptions = brandList.map((b: any) => ({ value: b.brand_name, label: b.brand_name }))
   const capacityOptions = capacityList.map((c: any) => ({ value: c.capacity_ah, label: c.capacity_ah }))
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   // Prefill debit/credit rows from the battery's linked voucher once it loads (edit mode)
   useEffect(() => {

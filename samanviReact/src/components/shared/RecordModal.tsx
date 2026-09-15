@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { motion } from 'motion/react'
 import { X } from 'lucide-react'
 import { formatAmount } from '@/lib/utils'
+import { LedgerGroupTag, useLedgerGroupOf } from './LedgerLines'
 
 // The one popup shape the app uses for a record (see the Trip Expenses view
 // and edit popups): a white card with a plain header - icon, title, reference
@@ -68,6 +69,7 @@ export function LedgerSideLists({ rows, nameKey = 'expensives', amountKey = 'amo
   amountKey?: string
   typeKey?: string
 }) {
+  const groupOf = useLedgerGroupOf()
   const side = (type: 'Debit Account' | 'Credit Account') => rows.filter((r) => r[typeKey] === type)
   const panel = (label: string, tone: string, list: Array<Record<string, unknown>>) => (
     <div className="rounded-xl border border-slate-200 overflow-hidden">
@@ -76,7 +78,7 @@ export function LedgerSideLists({ rows, nameKey = 'expensives', amountKey = 'amo
         {list.length === 0 && <div className="p-3 text-sm text-slate-400">No entries</div>}
         {list.map((item, i) => (
           <div key={i} className="flex justify-between px-4 py-2 text-sm">
-            <span>{String(item[nameKey] ?? '')}</span><span className="font-semibold">₹{formatAmount(item[amountKey])}</span>
+            <span>{String(item[nameKey] ?? '')}<LedgerGroupTag group={groupOf({ id: item.ledger_id, name: item[nameKey] })} /></span><span className="font-semibold">₹{formatAmount(item[amountKey])}</span>
           </div>
         ))}
       </div>

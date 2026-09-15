@@ -10,6 +10,7 @@ import { accountingService } from '@/services/accounting.service'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { ledgerOption } from '@/lib/utils'
 
 interface JobRow { category: string; priority: string; technician: string; description: string }
 interface PartRow { category_id: string; part_id: string; qty: string; rate: string }
@@ -77,7 +78,7 @@ export default function RepairEntryPage() {
   const entryList: any[] = entries?.data ?? []
   const ledgerList: any[] = ledgersData?.data ?? []
 
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
   const partsOptions = partsList.map((p: any) => ({ value: String(p.part_id), label: p.part_name }))
   const catOptions = catList.map((c: any) => ({ value: String(c.id), label: c.name }))
 
@@ -371,7 +372,7 @@ export default function RepairEntryPage() {
                 <SearchableSelect
                   value={form.driver}
                   onChange={setField('driver')}
-                  options={driverList.map((d) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))}
+                  options={driverList.map((d) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))}
                   placeholder="Select Driver"
                   onReload={() => reloadDrivers()}
                   reloading={loadingDrivers}

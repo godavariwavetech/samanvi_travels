@@ -4,12 +4,12 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck, Pencil, Check, RefreshCw, History } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY, getFYList, type FinancialYear } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, ledgerGroupName } from '@/lib/utils'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Ledger { id: number; temple_name: string; ledger_id: number; [key: string]: any }
@@ -95,9 +95,9 @@ function LedgerDropdown({ value, ledgers, onChange, onRefresh, refreshing }: {
   }, [open])
 
   const filtered = ledgers.filter(l =>
-    (l.temple_name ?? '').toLowerCase().includes(search.toLowerCase())
+    `${l.temple_name ?? ''} ${ledgerGroupName(l)}`.toLowerCase().includes(search.toLowerCase())
   )
-  const groupOf = (l: Ledger) => l.subchildtwo || l.child || ''
+  const groupOf = (l: Ledger) => ledgerGroupName(l)
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
 
@@ -294,7 +294,7 @@ function LedgerTable({ rows, side, offset = 0, onRemove, onEditAmount }: {
           {rows.map((row, i) => (
             <tr key={i} className={`border-b last:border-0 ${isDr ? 'border-red-50' : 'border-emerald-50'}`}>
               <td className="py-2 text-xs text-slate-400">{offset + i + 1}</td>
-              <td className="py-2 font-medium text-slate-800 truncate max-w-[160px]">{row.ledger?.temple_name}</td>
+              <td className="py-2 font-medium text-slate-800 truncate max-w-[220px]">{row.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(row.ledger)} /></td>
               <td className="py-2 text-right pr-1">
                 {editingIndex === i ? (
                   <input
@@ -370,6 +370,7 @@ function LedgerDetailCard({
           }`}>{isDr ? 'DR' : 'CR'}</span>
           <span className="font-semibold text-slate-800 text-sm truncate min-w-0">
             {item.ledger?.temple_name ?? <span className="text-slate-400 italic text-xs">Ledger not selected</span>}
+            {item.ledger && <LedgerGroupTag group={ledgerGroupName(item.ledger)} />}
           </span>
           {isPending && (
             <span className="text-[10px] text-slate-400 italic bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">pending</span>
@@ -501,6 +502,7 @@ export default function VoucherEntryPage() {
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
   })
+  const ledgerGroupOf = useLedgerGroupOf()
   const { data: voucherTypesRes } = useQuery({
     queryKey: ['voucher-types'],
     queryFn: () => accountingService.getVoucherTypes({}),
@@ -1270,14 +1272,14 @@ export default function VoucherEntryPage() {
                     <td className="py-2 pr-2">
                       <div className="flex flex-col gap-0.5">
                         {splitLedgerNames(v.debit_ledger_name).map((l, i) => (
-                          <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}</span>
+                          <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}<LedgerGroupTag group={ledgerGroupOf({ name: l })} /></span>
                         ))}
                       </div>
                     </td>
                     <td className="py-2 pr-2">
                       <div className="flex flex-col gap-0.5">
                         {splitLedgerNames(v.credit_ledger_name).map((l, i) => (
-                          <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}</span>
+                          <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}<LedgerGroupTag group={ledgerGroupOf({ name: l })} /></span>
                         ))}
                       </div>
                     </td>

@@ -578,9 +578,24 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
   const filteredSearchItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return []
+    // Items whose own name matches come first (exact, then starts-with, then
+    // contains); items only matched through a parent's name come last. With the
+    // path matches mixed in tree order, a query that is also a group's name
+    // ("Staff", "Fuel") filled the list with that group's contents and pushed the
+    // ledger actually searched for past the cut-off.
+    const rank = (item: FlatGroup) => {
+      const name = item.node.name.toLowerCase()
+      if (name === q) return 0
+      if (name.startsWith(q)) return 1
+      if (name.includes(q)) return 2
+      return item.path.toLowerCase().includes(q) ? 3 : -1
+    }
     return allSearchItems
-      .filter(item => item.node.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q))
-      .slice(0, 25)
+      .map(item => ({ item, r: rank(item) }))
+      .filter(x => x.r >= 0)
+      .sort((a, b) => a.r - b.r)
+      .slice(0, 100)
+      .map(x => x.item)
   }, [allSearchItems, searchQuery])
 
   const jumpToSearchResult = (item: FlatGroup) => {

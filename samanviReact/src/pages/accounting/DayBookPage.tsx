@@ -6,8 +6,9 @@ import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
+import { ledgerGroupName } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -66,7 +67,7 @@ export default function DayBookPage() {
   const ledgerIdToGroup = useMemo(() => {
     const m = new Map<number, string>()
     const list: any[] = ledgersRes?.data ?? []
-    list.forEach(l => { const id = Number(l.id ?? l.ledger_id); if (id) m.set(id, l.child || '') })
+    list.forEach(l => { const id = Number(l.id ?? l.ledger_id); if (id) m.set(id, ledgerGroupName(l)) })
     return m
   }, [ledgersRes])
 
@@ -460,7 +461,7 @@ export default function DayBookPage() {
                             title="View in Ledger Wise"
                             className="inline-flex items-center gap-1 text-blue-600 font-medium hover:text-blue-800 hover:underline truncate"
                           >
-                            <span className="truncate">{row.expensives}</span>
+                            <span className="truncate">{row.expensives}<LedgerGroupTag group={row.group} /></span>
                             <ExternalLink className="w-3 h-3 opacity-60 flex-shrink-0" />
                           </button>
                           <button
@@ -472,7 +473,7 @@ export default function DayBookPage() {
                           </button>
                         </div>
                       ) : (
-                        <span className="text-slate-700 truncate">{row.expensives}</span>
+                        <span className="text-slate-700 truncate">{row.expensives}<LedgerGroupTag group={row.group} /></span>
                       )}
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.valueDate)}</td>

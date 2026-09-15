@@ -130,3 +130,44 @@ export const isValidMobile = (v: unknown): boolean => /^[6-9]\d{9}$/.test(String
 // 0.00 rather than NaN for anything blank.
 export const formatAmount = (v: unknown): string =>
   (Number(v) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+// A ledger's immediate parent group, for showing beside its name wherever a
+// ledger is picked or listed. Ledger rows (mainmasterssubchildtwo) carry the
+// hierarchy denormalised: subchildtwo is the container the ledger sits in,
+// falling back to the subgroup (child) and then the group (mandal_name).
+// Display only - nothing saved or searched server-side depends on it.
+export const ledgerGroupName = (l: unknown): string => {
+  if (!l || typeof l !== 'object') return ''
+  const r = l as Record<string, unknown>
+  for (const k of ['subchildtwo', 'child', 'mandal_name']) {
+    const v = String(r[k] ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
+// A dropdown option for a ledger: the name as the label and its group as the
+// muted hint (see SearchableSelectOption). valueKey picks the id field the
+// screen stores ('id' for most, 'ledger_id' where the list is keyed that way).
+export const ledgerOption = (l: any, valueKey: string = 'id') => ({
+  value: String(l?.[valueKey] ?? ''),
+  label: String(l?.temple_name || l?.name || ''),
+  hint: ledgerGroupName(l) || undefined,
+})
+
+// For rows that only carry a ledger's id or name (saved voucher lines, report
+// rows): builds a lookup from the full ledger list to that ledger's group.
+export const ledgerGroupLookup = (ledgers: any[] | undefined) => {
+  const byId = new Map<string, string>()
+  const byName = new Map<string, string>()
+  for (const l of ledgers ?? []) {
+    const g = ledgerGroupName(l)
+    if (!g) continue
+    if (l.id != null) byId.set(String(l.id), g)
+    const n = String(l.temple_name ?? '').trim().toLowerCase()
+    if (n && !byName.has(n)) byName.set(n, g)
+  }
+  return (idOrName: { id?: unknown; name?: unknown }): string =>
+    (idOrName.id != null && byId.get(String(idOrName.id))) ||
+    byName.get(String(idOrName.name ?? '').trim().toLowerCase()) || ''
+}

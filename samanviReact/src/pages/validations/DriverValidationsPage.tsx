@@ -13,7 +13,7 @@ import { ExpirySummary, TABS, rowsForTab, validityColumns, type Tab, type Validi
 // transport validity are the same fields as on the driver form.
 const VALIDATION_FIELDS: ValidityField[] = [
   { key: 'dl_expiry_date', label: 'DL Expiry' },
-  { key: 'transportvalidityto', label: 'Transport (Badge)' },
+  { key: 'transportvalidityto', label: 'Transport Valid To' },
   { key: 'medical_validity', label: 'Medical Fitness' },
 ]
 
@@ -60,7 +60,7 @@ export default function DriverValidationsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <PageHeader title="Driver Validations" subtitle="Track licence, badge and medical expiry for every active driver and edit dates inline" />
+      <PageHeader title="Driver Validations" subtitle="Track licence, transport and medical expiry for every active driver and edit dates inline" />
       <ExpirySummary rows={driverList} fields={VALIDATION_FIELDS} noun="Driver" onPick={setTab} />
       <TopNavTabs tabs={[...TABS]} activeTab={tab} onChange={(t) => setTab(t as Tab)} />
       <DataTable

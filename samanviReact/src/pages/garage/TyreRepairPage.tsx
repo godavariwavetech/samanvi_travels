@@ -9,6 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const EMPTY_FORM = { repair_date: '', vehicle_number: '', odometer: '', tyre_id: '', repair_type: '', has_cost: true, cost: '', vendor_id: '', remarks: '' }
 
@@ -46,7 +47,7 @@ export default function TyreRepairPage() {
   const vendorList: any[] = vendors?.data ?? []
   const busList: any[] = buses?.data ?? []
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   const selectedTyre = tyreList.find((t: any) => String(t.id) === form.tyre_id)
 

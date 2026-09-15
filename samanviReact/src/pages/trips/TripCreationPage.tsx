@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect } from '@/components/shared'
+import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { isVanVehicleType, formatDate, isValidMobile } from '@/lib/utils'
@@ -127,7 +127,7 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
           <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{String(v)}</span>
           {(r.debit_ledger_name || r.credit_ledger_name) && (
             <div className="text-[11px] text-slate-400 mt-1">
-              {String(r.debit_ledger_name ?? '—')} → {String(r.credit_ledger_name ?? '—')}
+              <LedgerNameWithGroup name={r.debit_ledger_name} /> → <LedgerNameWithGroup name={r.credit_ledger_name} />
             </div>
           )}
         </div>
@@ -174,8 +174,8 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
     label: 'Amount', key: 'booking_amount',
     render: (v) => v ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>,
   },
-  { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
-  { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+  { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, render: (v) => <span className="text-sm"><LedgerNameWithGroup name={v} /></span> },
+  { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, render: (v) => <span className="text-sm"><LedgerNameWithGroup name={v} /></span> },
   {
     label: 'Voucher', key: 'voucher_number', filterable: true,
     render: (v) => v
@@ -817,7 +817,7 @@ export default function TripCreationPage() {
                                   {existing.voucher_number ? (
                                     <>
                                       <div className="font-mono text-emerald-700">{existing.voucher_number}</div>
-                                      {existing.credit_ledger_name && <div className="text-slate-400">{existing.credit_ledger_name}</div>}
+                                      {existing.credit_ledger_name && <div className="text-slate-400"><LedgerNameWithGroup name={existing.credit_ledger_name} /></div>}
                                     </>
                                   ) : <span className="text-slate-400">—</span>}
                                 </td>

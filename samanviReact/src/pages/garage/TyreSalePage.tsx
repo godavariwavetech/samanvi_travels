@@ -7,6 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const LEDGER_STATUS_MAP: Record<string, string> = {
   'New Tyres In Stock': 'In Stock',
@@ -40,13 +41,13 @@ export default function TyreSalePage() {
 
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   // Debit is restricted to the "Tyres In Stock" group, since picking it also
   // determines which tyres are available to sell. Credit stays free-choice
   // (Cash, Buyer, …).
   const stockLedgerList = ledgerList.filter((l: any) => l.subchildtwo === 'Tyres In Stock')
-  const stockLedgerOptions = stockLedgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const stockLedgerOptions = stockLedgerList.map((l: any) => ledgerOption(l))
 
   // The first Debit row IS the stock ledger picker — no separate field needed.
   // Picking it narrows the tyre list to whatever bucket it represents (e.g.

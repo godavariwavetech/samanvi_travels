@@ -689,7 +689,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.driver}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, driver: v }))}
-                    options={driverList.map((d) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))}
+                    options={driverList.map((d) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))}
                     placeholder="Select driver"
                     onReload={() => reloadDrivers()}
                     reloading={loadingDrivers}

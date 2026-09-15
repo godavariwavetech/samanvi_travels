@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Search, X, Fuel } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { formatDate, formatDateTime, withStatusLabel, formatAmount } from '@/lib/utils'
@@ -41,8 +41,8 @@ export default function FuelReportsPage() {
     { label: 'Bus No', key: 'vehicle_number', filterable: true },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
-    { label: 'Dr Ledger', key: 'debit_ledger_id', filterable: true },
-    { label: 'Cr Ledger', key: 'credit_ledger_id', filterable: true },
+    { label: 'Dr Ledger', key: 'debit_ledger_id', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
+    { label: 'Cr Ledger', key: 'credit_ledger_id', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
     { label: 'KMs', key: 'kilometers' },
     { label: 'Qty (L)', key: 'quantity_filled' },
     { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },

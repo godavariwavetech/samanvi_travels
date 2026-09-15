@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter, LedgerNameWithGroup } from '@/components/shared'
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
@@ -44,8 +44,8 @@ export default function DriverWisePage() {
         if (d1 && d2) return `${d1}, ${d2}`
         return d1 || d2 || '—'
       } },
-    { label: 'Debit Ledger', key: 'debit_ledger', filterable: true, render: (v) => v ? String(v) : '—' },
-    { label: 'Credit Ledger', key: 'fuel_station', filterable: true, render: (v) => v ? String(v) : '—' },
+    { label: 'Debit Ledger', key: 'debit_ledger', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
+    { label: 'Credit Ledger', key: 'fuel_station', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
     { label: 'KMs Run', key: 'kilometers', render: (v) => v ? String(v) : '—' },
     { label: 'Quantity', key: 'quantity_filled', render: (v) => Number(v || 0).toFixed(2) },
     { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },

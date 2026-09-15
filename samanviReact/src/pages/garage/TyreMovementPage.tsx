@@ -9,6 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const EMPTY_FORM = {
   from_bus: '', position_log_id: '', tyre_id: '',
@@ -63,7 +64,7 @@ export default function TyreMovementPage() {
   // (Retread Tyre Entry), not by this move.
   const destinationOptions = ledgerList
     .filter((l: any) => Object.prototype.hasOwnProperty.call(DESTINATION_STATUS_MAP, l.temple_name))
-    .map((l: any) => ({ value: String(l.id), label: l.temple_name }))
+    .map((l: any) => ledgerOption(l))
 
   const destinationName = ledgerList.find((l: any) => String(l.id) === form.destination_ledger_id)?.temple_name || ''
   const destinationStatus = DESTINATION_STATUS_MAP[destinationName]

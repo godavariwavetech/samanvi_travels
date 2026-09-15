@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelec
 import type { Column } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
-import { formatDate, formatAmount } from '@/lib/utils'
+import { formatDate, formatAmount, ledgerGroupName } from '@/lib/utils'
 
 const Req = () => <span className="text-red-500">*</span>
 
@@ -297,7 +297,7 @@ export default function AddVendorPage() {
               <div>
                 <Label>Vendor Name <Req /></Label>
                 <SearchableSelect placeholder="Select Vendor"
-                  options={ledgers.map((l) => ({ value: String(l.id), label: ledgerLabel(l) }))}
+                  options={ledgers.map((l) => ({ value: String(l.id), label: ledgerLabel(l), hint: ledgerGroupName(l) || undefined }))}
                   value={form.selectedledger ? String(form.selectedledger.id) : ''}
                   onChange={(v) => setForm({ ...form, selectedledger: ledgers.find((l) => String(l.id) === v) || null })}
                   onClear={() => setForm({ ...form, selectedledger: null })} />

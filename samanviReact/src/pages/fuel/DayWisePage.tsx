@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { Search, Calendar } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
@@ -41,8 +41,8 @@ export default function DayWisePage() {
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     { label: 'Ref #', key: 'c_number', filterable: true },
     { label: 'Bus No', key: 'vehicle_number', filterable: true },
-    { label: 'Debit Ledger', key: 'debit_ledger', filterable: true, render: (v) => v ? String(v) : '—' },
-    { label: 'Credit Ledger', key: 'fuel_station', filterable: true, render: (v) => v ? String(v) : '—' },
+    { label: 'Debit Ledger', key: 'debit_ledger', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
+    { label: 'Credit Ledger', key: 'fuel_station', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
     { label: 'Qty (L)', key: 'quantity_filled', render: (v) => Number(v || 0).toFixed(2) },
     { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
     { label: 'Amount', key: 'total_bill', render: (v) => <span className="font-bold">₹{formatAmount(v)}</span> },

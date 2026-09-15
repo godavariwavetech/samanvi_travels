@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CircleDot, Save, Plus, X, Edit2, Truck, ShoppingCart, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const STATUSES = ['In Stock', 'In Use', 'Retreaded', 'Scrapped', 'Sold', 'Pending Retread']
 
@@ -79,7 +80,7 @@ export default function TyreInventoryPage() {
 
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   // Standalone tyre purchases are stock coming in, so default the debit side
   // to the "New Tyres In Stock" ledger instead of leaving it for the user to
@@ -275,7 +276,7 @@ export default function TyreInventoryPage() {
             const text = p.replace(/^(Debit|Credit) Account: /, '')
             return (
               <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full w-fit whitespace-nowrap ${isDebit ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                {isDebit ? 'Dr' : 'Cr'} {text}
+                {isDebit ? 'Dr' : 'Cr'} <LedgerNameWithGroup name={text.replace(/ ₹[0-9.]+$/, '')} />{(text.match(/ ₹[0-9.]+$/) || [''])[0]}
               </span>
             )
           })}

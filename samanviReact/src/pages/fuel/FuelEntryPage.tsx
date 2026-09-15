@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
@@ -242,6 +242,15 @@ export default function FuelEntryPage() {
     setForm({ ...emptyForm(), ...(dieselLedger ? { patientsTstdts: [{ ledger: dieselLedger, amount: '', auto: true }] } : {}) })
     setShowForm(true)
   }
+  // The form opens by itself when the screen is entered - once, after the
+  // ledgers arrive, so the Diesel row is already on it.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (autoOpened.current || !ledgersResp) return
+    autoOpened.current = true
+    openNew()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledgersResp])
 
   const { mutate: submit, isPending } = useMutation({
     mutationFn: () => fuelService.submitFuelEntry({ ...form, ...toApiRows(form), named, user_id }),
@@ -379,8 +388,8 @@ export default function FuelEntryPage() {
     { label: 'Vehicle No', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
-    { label: 'Debit Ledger', key: 'debit_ledger_id', filterable: true, render: (v) => v ? String(v) : '—' },
-    { label: 'Credit Ledger', key: 'credit_ledger_id', filterable: true, render: (v) => v ? String(v) : '—' },
+    { label: 'Debit Ledger', key: 'debit_ledger_id', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
+    { label: 'Credit Ledger', key: 'credit_ledger_id', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
     { label: 'KMs', key: 'kilometers' },
     { label: 'Qty (L)', key: 'quantity_filled' },
     { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },

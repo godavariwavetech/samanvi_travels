@@ -1706,7 +1706,8 @@ exports.adddriverregisterMdl = function (
           // Best-effort: the driver record is already saved regardless of whether
           // the ledger auto-creation below succeeds. Every driver lands under the
           // single shared "Drivers" container — no more split by driver type.
-          module.exports.ensurePersonLedger("Drivers", data.driver_name, driverIdNumber, data.entryby, function (ledgerErr, ledgerId) {
+          // Named after the Aadhar name (nickname), not the DL name.
+          module.exports.ensurePersonLedger("Drivers", data.nickname || data.driver_name, driverIdNumber, data.entryby, function (ledgerErr, ledgerId) {
             if (ledgerErr) {
               console.error("[ensurePersonLedger] failed for driver " + driverIdNumber + ":", ledgerErr.message);
               callback(err, results);
@@ -10658,12 +10659,12 @@ exports.adddrivereditMdl = function (
     dbutil.execupdateQuery(sqldb, `SELECT ledger_id FROM driver_register WHERE id = ?`, [data.id], cntxtDtls, function (selErr, selRows) {
       var existingLedgerId = (!selErr && selRows && selRows[0]) ? selRows[0].ledger_id : null;
       if (existingLedgerId) {
-        module.exports.renamePersonLedger(existingLedgerId, data.driver_name, data.driver_id_number, function (renameErr) {
+        module.exports.renamePersonLedger(existingLedgerId, data.nickname || data.driver_name, data.driver_id_number, function (renameErr) {
           if (renameErr) console.error("[renamePersonLedger] failed for driver " + data.driver_id_number + ":", renameErr.message);
           callback(err, results);
         });
       } else {
-        module.exports.ensurePersonLedger("Drivers", data.driver_name, data.driver_id_number, data.entryby, function (ledgerErr, ledgerId) {
+        module.exports.ensurePersonLedger("Drivers", data.nickname || data.driver_name, data.driver_id_number, data.entryby, function (ledgerErr, ledgerId) {
           if (ledgerErr) {
             console.error("[ensurePersonLedger] backfill failed for driver " + data.driver_id_number + ":", ledgerErr.message);
             callback(err, results);
@@ -13200,7 +13201,7 @@ exports.getrepairentryMdl = function (data, callback) {
   var cntxtDtls = "getrepairentryMdl";
   var QRY_TO_EXEC = `
   SELECT vj.*,
-    COALESCE(dr.driver_name, dr.nickname, '') AS driver_name,
+    COALESCE(NULLIF(dr.nickname, ''), dr.driver_name, '') AS driver_name,
     sr.fullName AS staff_name,
     rc.name AS repair_category_name,
     (SELECT GROUP_CONCAT(rc2.name ORDER BY jc2.id SEPARATOR ', ')
@@ -13951,7 +13952,7 @@ exports.getJobStageDataMdl = function (data, callback) {
 exports.getScheduledJobsMdl = function (data, callback) {
   var QRY_TO_EXEC = `
     SELECT vj.*,
-      COALESCE(dr.driver_name, dr.nickname, '') AS driver_name,
+      COALESCE(NULLIF(dr.nickname, ''), dr.driver_name, '') AS driver_name,
       rc.name AS repair_category_name,
       (SELECT GROUP_CONCAT(rc2.name ORDER BY jc2.id SEPARATOR ', ')
        FROM job_categories jc2
@@ -13976,7 +13977,7 @@ exports.getScheduledJobsMdl = function (data, callback) {
 exports.getRepeatJobsMdl = function (data, callback) {
   var QRY_TO_EXEC = `
     SELECT vj.*,
-      COALESCE(dr.driver_name, dr.nickname, '') AS driver_name,
+      COALESCE(NULLIF(dr.nickname, ''), dr.driver_name, '') AS driver_name,
       sr.fullName AS staff_name,
       rc.name AS repair_category_name,
       (SELECT GROUP_CONCAT(rc2.name ORDER BY jc2.id SEPARATOR ', ')
@@ -14056,7 +14057,7 @@ exports.getJobFullHistoryMdl = function (data, callback) {
            vj.finish_remarks, vj.approval_remarks,
            vj.amount, vj.vehicle_number, vj.odometer_reading,
            vj.is_repeated_job, vj.next_job_date,
-           COALESCE(d.driver_name, d.nickname, '') AS driver_name
+           COALESCE(NULLIF(d.nickname, ''), d.driver_name, '') AS driver_name
     FROM vehicle_jobs vj
     LEFT JOIN driver_register d ON d.id = vj.reported_driver_id
     WHERE vj.id = '${jobId}';
@@ -15419,26 +15420,21 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
     });
     return { toInsert: toInsert, toUpdate: toUpdate };
   };
-  // The sheet decides each Driver / Helper ID (its first column): it is taken
-  // as written, never generated. It has to be present, unique within the
-  // sheet, and not already carried by a different person on the register; any
-  // of those stops the import before a row is written, so a half-done batch
-  // never has to be untangled.
-  var checkIds = function (existing, idCol, nameCol, label, list, idOf, nameOf) {
-    var holderOf = {};
-    (existing || []).forEach(function (e) { if (e[idCol]) holderOf[keyOf(e[idCol])] = String(e[nameCol] || ''); });
-    var seen = {};
-    for (var i = 0; i < list.length; i++) {
-      var id = String(idOf(list[i]) || '').trim(), name = String(nameOf(list[i]) || '');
-      if (!id) return label + ' is required for ' + name;
-      if (seen[keyOf(id)]) return label + ' ' + id + ' is given to more than one row in the sheet';
-      seen[keyOf(id)] = true;
-      var holder = holderOf[keyOf(id)];
-      if (holder && keyOf(holder) !== keyOf(name)) return label + ' ' + id + ' already belongs to ' + holder;
-    }
-    return null;
+  // Driver / Helper IDs never come from the sheet. Each new person gets the
+  // next serial ID (D0001 / H0001), counted on from the highest one on the
+  // register - deleted people included, so an ID is never handed out twice -
+  // exactly as adddriverregisterMdl / addhelperregisterMdl do for one person.
+  // A person already on the register keeps the ID they have.
+  var nextSerialIds = function (tbl, col, prefix, count, done) {
+    var q = `SELECT COALESCE(MAX(CAST(SUBSTRING(${col}, 2) AS UNSIGNED)), 0) AS maxid FROM ${tbl} WHERE ${col} REGEXP '^${prefix}[0-9]+$'`;
+    dbutil.execQuery(sqldb, q, cntxtDtls, function (err, r) {
+      if (err) return done(err);
+      var n = r && r[0] ? Number(r[0].maxid) : 0;
+      var ids = [];
+      for (var i = 1; i <= count; i++) ids.push(prefix + String(n + i).padStart(4, '0'));
+      done(null, ids);
+    });
   };
-  var idRefused = function (msg) { callback(null, { inserted: 0, updated: 0, skipped: [], total: rows.length, error: msg }); };
   var finish = function (inserted, updated, extra) {
     var out = { inserted: inserted, updated: updated, skipped: [], total: rows.length };
     if (extra) { out.ledgers_created = extra.made; out.ledgers_failed = extra.failed; }
@@ -15501,12 +15497,8 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       if (err) return callback(err, null);
       var parts = split(existing, 'driver_name', function (r) { return r.driver_name; });
       var toInsert = parts.toInsert, toUpdate = parts.toUpdate;
-      var idErr = checkIds(existing, 'driver_id_number', 'driver_name', 'Driver ID', toInsert.concat(toUpdate),
-        function (r) { return r.driver_id_number; }, function (r) { return r.driver_name; });
-      if (idErr) return idRefused(idErr);
       var driverRec = function (r) {
         return {
-          driver_id_number: String(r.driver_id_number).trim(),
           nickname: r.nickname || null, dldateofbirth: r.dldateofbirth || null, mobile_number: r.mobile_number || null,
           alternate_number: r.alternate_number || null, emergency_mobile_number: r.emergency_mobile_number || null,
           aadhar_number: r.aadhar_number || null, dl_number: r.dl_number || null, dl_issued_by: r.dl_issued_by || null,
@@ -15522,7 +15514,7 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       // Same select-before -> update -> diff -> driver_edit_history flow as
       // adddrivereditMdl, so the Driver History button shows what the sheet
       // changed. dl_dob is re-selected as text for the same reason as there.
-      // A changed ID renames the person's ledger too, as the edit form does.
+      // A changed Aadhar name renames the person's ledger too, as the edit form does.
       var trackedKeys = Object.keys(DRIVER_FIELD_LABELS);
       var selectCols = trackedKeys.map(function (k) { return k === 'dl_dob' ? `DATE_FORMAT(dl_dob, '%Y-%m-%d') as dl_dob` : k; }).join(', ');
       var updateDriver = function (r, next) {
@@ -15533,8 +15525,7 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
           dbutil.execupdateQuery(sqldb, `UPDATE driver_register SET ? WHERE id = ?`, [rec, before.id], cntxtDtls, function (upErr) {
             if (upErr) return next(upErr);
             var changes = [];
-            var oldId = String(before.driver_id_number == null ? '' : before.driver_id_number);
-            if (oldId !== rec.driver_id_number) changes.push(`Driver ID: '${oldId || '—'}' -> '${rec.driver_id_number}'`);
+            var driverId = String(before.driver_id_number == null ? '' : before.driver_id_number);
             trackedKeys.forEach(function (k) {
               if (!(k in rec) || k === 'driver_id_number') return;
               var oldV = before[k] == null ? '' : String(before[k]);
@@ -15543,15 +15534,17 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
             });
             var logAndNext = function () {
               if (changes.length === 0) return next(null);
-              var histQ = `INSERT INTO driver_edit_history (driver_id, driver_id_number, changes_note, changed_by_id, changed_by_name) VALUES ('${before.id}', '${esc(rec.driver_id_number)}', '${esc('Excel import\n' + changes.join('\n'))}', '${esc(userId)}', '${esc(usrNm)}')`;
+              var histQ = `INSERT INTO driver_edit_history (driver_id, driver_id_number, changes_note, changed_by_id, changed_by_name) VALUES ('${before.id}', '${esc(driverId)}', '${esc('Excel import\n' + changes.join('\n'))}', '${esc(userId)}', '${esc(usrNm)}')`;
               sqldb.query(histQ, function (histErr) {
                 if (histErr) console.log('[bulkUploadStaffMdl] driver history log error:', histErr.message);
                 next(null);
               });
             };
-            if (oldId === rec.driver_id_number || !before.ledger_id) return logAndNext();
-            module.exports.renamePersonLedger(before.ledger_id, r.driver_name, rec.driver_id_number, function (renameErr) {
-              if (renameErr) console.error('[bulkUploadStaffMdl] ledger rename failed for driver ' + rec.driver_id_number + ':', renameErr.message);
+            var oldNick = String(before.nickname == null ? '' : before.nickname);
+            var newNick = String(rec.nickname == null ? '' : rec.nickname);
+            if (oldNick === newNick || !before.ledger_id) return logAndNext();
+            module.exports.renamePersonLedger(before.ledger_id, r.nickname || r.driver_name, driverId, function (renameErr) {
+              if (renameErr) console.error('[bulkUploadStaffMdl] ledger rename failed for driver ' + driverId + ':', renameErr.message);
               logAndNext();
             });
           });
@@ -15561,8 +15554,10 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
         runUpdates(toUpdate, updateDriver, function () { finish(toInsert.length, toUpdate.length, extra); });
       };
       if (toInsert.length === 0) return afterInsert(null);
-      var vals = toInsert.map(function (r) {
-        return [String(r.driver_id_number).trim(), r.driver_name, r.nickname || null, r.dldateofbirth || null, r.mobile_number || null,
+      nextSerialIds('driver_register', 'driver_id_number', 'D', toInsert.length, function (idErr, newIds) {
+      if (idErr) return callback(idErr, null);
+      var vals = toInsert.map(function (r, i) {
+        return [newIds[i], r.driver_name, r.nickname || null, r.dldateofbirth || null, r.mobile_number || null,
           r.alternate_number || null, r.emergency_mobile_number || null, r.aadhar_number || null,
           r.dl_number || null, r.dl_issued_by || null, r.dl_dob || null, r.dl_linked_mobile || null,
           r.dl_expiry_date || null, r.account_holder_name || null,
@@ -15575,13 +15570,13 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       var QRY = 'INSERT INTO driver_register (driver_id_number, driver_name, nickname, dldateofbirth, mobile_number, alternate_number, emergency_mobile_number, aadhar_number, dl_number, dl_issued_by, dl_dob, dl_linked_mobile, dl_expiry_date, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, drivinglicense_joining_date, transportoneissuedate, transportvalidityfrom, transportvalidityto, date_of_joining, reference, remarks, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        var people = toInsert.map(function (r) {
-          var did = String(r.driver_id_number).trim();
-          return { name: r.driver_name, disambiguator: did, key: did };
+        var people = toInsert.map(function (r, i) {
+          return { name: r.nickname || r.driver_name, disambiguator: newIds[i], key: newIds[i] };
         });
         createLedgersForImport('Drivers', people, 'driver_register', 'driver_id_number', userId, cntxtDtls, function (made, failed) {
           afterInsert({ made: made, failed: failed });
         });
+      });
       });
     });
 
@@ -15590,16 +15585,13 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       if (err) return callback(err, null);
       var parts = split(existing, 'helper_name', function (r) { return r.helper_name; });
       var toInsert = parts.toInsert, toUpdate = parts.toUpdate;
-      var idErr = checkIds(existing, 'helper_id_number', 'helper_name', 'Helper ID', toInsert.concat(toUpdate),
-        function (r) { return r.helper_id_number; }, function (r) { return r.helper_name; });
-      if (idErr) return idRefused(idErr);
+      // The name is the match key and the ledger's name, and the ID is kept, so
+      // an update never needs a ledger rename.
       var updateHelper = function (r, next) {
-        var newId = String(r.helper_id_number).trim();
-        dbutil.execupdateQuery(sqldb, `SELECT id, helper_id_number, ledger_id FROM helper_register WHERE LOWER(TRIM(helper_name)) = ? AND d_in=0 LIMIT 1`, [keyOf(r.helper_name)], cntxtDtls, function (selErr, selRows) {
+        dbutil.execupdateQuery(sqldb, `SELECT id FROM helper_register WHERE LOWER(TRIM(helper_name)) = ? AND d_in=0 LIMIT 1`, [keyOf(r.helper_name)], cntxtDtls, function (selErr, selRows) {
           if (selErr) return next(selErr);
           var before = (selRows && selRows[0]) || {};
           var rec = {
-            helper_id_number: newId,
             mobile_number: r.mobile_number || null, alternate_number: r.alternate_number || null,
             emergencymobilenumber: r.emergency_mobile_number || null, adhar_number: r.adhar_number || null,
             account_holder_name: r.account_holder_name || null, account_number: r.account_number || null,
@@ -15608,14 +15600,7 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
             remarks: r.remarks || null, dob: r.dob || null, address: r.address || null,
           };
           dbutil.execupdateQuery(sqldb, `UPDATE helper_register SET ? WHERE id = ?`, [rec, before.id], cntxtDtls, function (upErr) {
-            if (upErr) return next(upErr);
-            var oldId = String(before.helper_id_number == null ? '' : before.helper_id_number);
-            if (oldId === newId || !before.ledger_id) return next(null);
-            // The ledger carries the ID, so a changed ID renames it (as the edit form does).
-            module.exports.renamePersonLedger(before.ledger_id, r.helper_name, newId, function (renameErr) {
-              if (renameErr) console.error('[bulkUploadStaffMdl] ledger rename failed for helper ' + newId + ':', renameErr.message);
-              next(null);
-            });
+            next(upErr || null);
           });
         });
       };
@@ -15623,8 +15608,10 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
         runUpdates(toUpdate, updateHelper, function () { finish(toInsert.length, toUpdate.length, extra); });
       };
       if (toInsert.length === 0) return afterInsert(null);
-      var vals = toInsert.map(function (r) {
-        return [String(r.helper_id_number).trim(), r.helper_name, r.nickname || null, r.mobile_number || null, r.alternate_number || null,
+      nextSerialIds('helper_register', 'helper_id_number', 'H', toInsert.length, function (idErr, newIds) {
+      if (idErr) return callback(idErr, null);
+      var vals = toInsert.map(function (r, i) {
+        return [newIds[i], r.helper_name, r.nickname || null, r.mobile_number || null, r.alternate_number || null,
           r.emergency_mobile_number || null, r.adhar_number || null, r.account_holder_name || null,
           r.account_number || null, r.bank_name || null, r.branch_name || null,
           r.ifsc_code || null, r.upi_id || null, r.date_of_joining || null,
@@ -15634,13 +15621,13 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       var QRY = 'INSERT INTO helper_register (helper_id_number, helper_name, nickname, mobile_number, alternate_number, emergencymobilenumber, adhar_number, account_holder_name, account_number, bank_name, branch_name, ifsc_code, upi_id, date_of_joining, reference, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        var people = toInsert.map(function (r) {
-          var hid = String(r.helper_id_number).trim();
-          return { name: r.helper_name, disambiguator: hid, key: hid };
+        var people = toInsert.map(function (r, i) {
+          return { name: r.helper_name, disambiguator: newIds[i], key: newIds[i] };
         });
         createLedgersForImport('Helpers', people, 'helper_register', 'helper_id_number', userId, cntxtDtls, function (made, failed) {
           afterInsert({ made: made, failed: failed });
         });
+      });
       });
     });
 

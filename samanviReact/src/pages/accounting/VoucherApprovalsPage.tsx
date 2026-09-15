@@ -5,11 +5,11 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, ledgerGroupName } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
 
@@ -72,8 +72,8 @@ function LedgerDropdown({ value, ledgers, onChange, onRefresh, refreshing }: {
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
-  const filtered = ledgers.filter(l => l.temple_name?.toLowerCase().includes(search.toLowerCase()))
-  const groupOf = (l: any) => l?.subchildtwo || l?.child || ''
+  const filtered = ledgers.filter(l => `${l.temple_name ?? ''} ${ledgerGroupName(l)}`.toLowerCase().includes(search.toLowerCase()))
+  const groupOf = (l: any) => ledgerGroupName(l)
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
   const panel = open && rect && createPortal(
@@ -203,6 +203,8 @@ interface FilterOpts {
   busList: { label: string; value: string }[]
   staffOptions: { label: string; value: string }[]
   entryByOpts: { label: string; value: string }[]
+  // Parent group of a ledger by name, shown muted beside the Dr/Cr ledger names.
+  ledgerGroupOf?: (l: { id?: unknown; name?: unknown }) => string
 }
 
 // Required columns — always visible, no checkbox in the picker.
@@ -319,7 +321,7 @@ const buildCols = (
     render: (v: any) => {
       const items: string[] = Array.isArray(v) ? v : []
       return items.length
-        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}</span>)}</div>
+        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}<LedgerGroupTag group={fOpts.ledgerGroupOf?.({ name: l })} /></span>)}</div>
         : <span className="text-slate-300">—</span>
     },
   })
@@ -329,7 +331,7 @@ const buildCols = (
     render: (v: any) => {
       const items: string[] = Array.isArray(v) ? v : []
       return items.length
-        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}</span>)}</div>
+        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}<LedgerGroupTag group={fOpts.ledgerGroupOf?.({ name: l })} /></span>)}</div>
         : <span className="text-slate-300">—</span>
     },
   })
@@ -448,7 +450,7 @@ function ELedgerTable({ rows, side, offset = 0, ledgers, onRemove, onUpdate, onR
                   <LedgerDropdown value={draftLedger} ledgers={ledgersFor(row)} onChange={setDraftLedger}
                     onRefresh={onRefreshLedgers} refreshing={ledgersRefreshing} />
                 ) : (
-                  <span className="font-medium text-slate-800 truncate max-w-[160px] block">{row.ledger?.temple_name}</span>
+                  <span className="font-medium text-slate-800 truncate max-w-[200px] block">{row.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(row.ledger)} /></span>
                 )}
               </td>
               <td className="py-2 pr-1 align-middle text-right">
@@ -522,6 +524,7 @@ function ELedgerDetailCard({
           <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide flex-shrink-0 ${isDr ? 'text-red-500 bg-red-100 border border-red-200' : 'text-emerald-600 bg-emerald-100 border border-emerald-200'}`}>{isDr ? 'DR' : 'CR'}</span>
           <span className="font-semibold text-slate-800 text-sm truncate min-w-0">
             {item.ledger?.temple_name ?? <span className="text-slate-400 italic text-xs">Ledger not selected</span>}
+            {item.ledger && <LedgerGroupTag group={ledgerGroupName(item.ledger)} />}
           </span>
           {isPending && <span className="text-[10px] text-slate-400 italic bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">pending</span>}
         </div>
@@ -641,6 +644,7 @@ export default function VoucherApprovalsPage() {
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
   })
+  const ledgerGroupOf = useLedgerGroupOf()
 
   const { data: voucherTypesRes } = useQuery({
     queryKey: ['voucher-types'],
@@ -1269,6 +1273,7 @@ export default function VoucherApprovalsPage() {
           busList,
           staffOptions: staffFilterOpts,
           entryByOpts,
+          ledgerGroupOf,
         }, optionalCols) as any}
         data={getList()}
         loading={loadSearch}
@@ -1501,7 +1506,7 @@ export default function VoucherApprovalsPage() {
                               <td className="px-4 py-2.5 text-xs text-slate-400">{i + 1}</td>
                               <td className="px-4 py-2.5">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}</span>
+                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}<LedgerGroupTag group={ledgerGroupOf({ id: r.ledger_id, name: r.expensives })} /></span>
                                   <span className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded tracking-wide">DR</span>
                                 </div>
                               </td>
@@ -1515,7 +1520,7 @@ export default function VoucherApprovalsPage() {
                               <td className="px-4 py-2.5">
                                 <div className="flex items-center gap-2 pl-6">
                                   <span className="text-slate-400 text-xs italic mr-1">To</span>
-                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}</span>
+                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}<LedgerGroupTag group={ledgerGroupOf({ id: r.ledger_id, name: r.expensives })} /></span>
                                   <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded tracking-wide">CR</span>
                                 </div>
                               </td>
@@ -1550,7 +1555,7 @@ export default function VoucherApprovalsPage() {
                               <div className={`flex items-center justify-between px-4 py-2.5 ${isDr ? 'bg-red-50' : 'bg-emerald-50'}`}>
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide flex-shrink-0 ${isDr ? 'text-red-500 bg-red-100 border border-red-200' : 'text-emerald-600 bg-emerald-100 border border-emerald-200'}`}>{isDr ? 'DR' : 'CR'}</span>
-                                  <span className="font-semibold text-slate-800 text-sm truncate">{r.expensives || '—'}</span>
+                                  <span className="font-semibold text-slate-800 text-sm truncate">{r.expensives || '—'}<LedgerGroupTag group={ledgerGroupOf({ id: r.ledger_id, name: r.expensives })} /></span>
                                 </div>
                                 <span className={`font-bold text-sm tabular-nums flex-shrink-0 ml-2 ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
                                   ₹{Number(r.amount||0).toLocaleString('en-IN',{minimumFractionDigits:2})}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -516,6 +516,15 @@ export default function LaundryBillPage() {
     setDebits(laundryLedger ? [{ ledger: laundryLedger, amount: '', auto: true }] : [emptyLedgerLine<Ledger>()])
     setShowForm(true)
   }
+  // The form opens by itself when the screen is entered - once, after the
+  // ledgers arrive, so the Laundry Expenses row is already on it.
+  const autoOpened = useRef(false)
+  useEffect(() => {
+    if (autoOpened.current || !ledgersResp) return
+    autoOpened.current = true
+    openNew()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledgersResp])
 
   // Fetch this vendor's product rates when the vendor changes.
   const { data: ratesResp } = useQuery({

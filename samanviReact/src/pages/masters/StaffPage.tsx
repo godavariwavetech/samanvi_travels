@@ -391,10 +391,10 @@ const DRIVER_DATE_KEYS = new Set([
 ])
 
 // Column order mirrors each type's Add-form field order exactly. Driver and
-// Helper sheets open with the person's ID: it is decided by whoever fills the
-// sheet and imported as written, never generated on upload.
+// Helper IDs are not on the sheet: the server gives each new person the next
+// serial ID (D0001 / H0001), the same as adding one from the form.
 const DRIVER_TEMPLATE_HEADERS = [
-  'Driver ID*', 'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
+  'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
   'Emergency Number', 'Date of Joining*', 'Referred By', 'Address',
   'DL Name*', 'DL Number*', 'DL Date of Birth', 'DL Linked Mobile Number',
   'DL Issue Date*', 'DL Issued By', 'DL Expiry Date*',
@@ -409,7 +409,7 @@ const STAFF_TEMPLATE_HEADERS = [
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
 ]
 const HELPER_TEMPLATE_HEADERS = [
-  'Helper ID*', 'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
+  'Full Name (Aadhar Name)*', 'Aadhar Number*', 'Date of Birth',
   'Mobile Number*', 'Alternate Number', 'Emergency Mobile', 'Date of Joining*',
   'Reference*', 'Address', 'Account Holder Name*', 'Account Number*',
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
@@ -569,9 +569,9 @@ export default function StaffPage() {
     const headers = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS
       : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
     const sample = dataType === 'Driver'
-      ? ['D0001', 'Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : dataType === 'Helper'
-      ? ['H0001', 'Ramesh Kumar', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['Ramesh Kumar', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : ['Manager', 'Suresh', 'Suresh Kumar', '987654321012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
     downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
   }
@@ -583,7 +583,7 @@ export default function StaffPage() {
     let rows: any[][] = []
     if (dataType === 'Driver') {
       rows = (shown ?? driverList).map(r => [
-        r.driver_id_number ?? '', r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
+        r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
         r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.date_of_joining ?? '',
         r.reference ?? '', r.address ?? '', r.driver_name ?? '', r.dl_number ?? '',
         r.dl_dob ?? '', r.dl_linked_mobile ?? '',
@@ -595,7 +595,7 @@ export default function StaffPage() {
       downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
     } else if (dataType === 'Helper') {
       rows = (shown ?? helperList).map(r => [
-        r.helper_id_number ?? '', r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
+        r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
         r.mobile_number ?? '', r.alternate_number ?? '', r.emergency_mobile_number ?? '',
         r.date_of_joining ?? '', r.reference ?? '', r.address ?? '',
         r.account_holder_name ?? '', r.account_number ?? '', r.bank_name ?? '',
@@ -630,8 +630,8 @@ export default function StaffPage() {
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found'); return }
       // The sheet must be the current template: an older Driver / Helper sheet
-      // without the ID column would parse cleanly with every value one field to
-      // the left, and nothing would say so until the records were wrong.
+      // that still opens with an ID column would parse cleanly with every value
+      // one field to the right, and nothing would say so until the records were wrong.
       const expectedHeaders = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
       const mismatch = headerRowMismatch(raw[0] ?? [], expectedHeaders)
       if (mismatch) {
@@ -640,44 +640,36 @@ export default function StaffPage() {
       }
       const [, ...dataRows] = raw
       let rows: { payload: Record<string, any>; key: string }[]
-      // Driver / Helper rows with no ID are left out and counted, so the person
-      // filling the sheet hears that the ID is theirs to give.
-      let missingId = 0
       const cell = (r: any[], i: number) => String(r[i] ?? '').trim()
       if (dataType === 'Driver') {
-        rows = dataRows.filter(r => {
-          if (!r || !cell(r, 1) || !cell(r, 10)) return false
-          if (!cell(r, 0)) { missingId++; return false }
-          return true
-        }).map(r => {
+        rows = dataRows.filter(r => r && cell(r, 0) && cell(r, 9)).map(r => {
           const payload = {
-            driver_id_number: cell(r, 0).toUpperCase(),
-            nickname: cell(r, 1),
-            aadhar_number: cell(r, 2) || null,
-            dldateofbirth: excelCellToISODate(r[3]) || null,
-            mobile_number: cell(r, 4),
-            alternate_number: cell(r, 5) || null,
-            emergency_mobile_number: cell(r, 6) || null,
-            date_of_joining: excelCellToISODate(r[7]) || null,
-            reference: cell(r, 8) || null,
-            address: cell(r, 9) || null,
-            driver_name: cell(r, 10),
-            dl_number: cell(r, 11) || null,
-            dl_dob: excelCellToISODate(r[12]) || null,
-            dl_linked_mobile: cell(r, 13) || null,
-            drivinglicense_joining_date: excelCellToISODate(r[14]) || null,
-            dl_issued_by: cell(r, 15) || null,
-            dl_expiry_date: excelCellToISODate(r[16]) || null,
-            transportoneissuedate: excelCellToISODate(r[17]) || null,
-            transportvalidityfrom: excelCellToISODate(r[18]) || null,
-            transportvalidityto: excelCellToISODate(r[19]) || null,
-            account_holder_name: cell(r, 20) || null,
-            account_number: cell(r, 21) || null,
-            bank_name: cell(r, 22) || null,
-            branch_name: cell(r, 23) || null,
-            ifsc_code: cell(r, 24) || null,
-            upi_id: cell(r, 25) || null,
-            remarks: cell(r, 26) || null,
+            nickname: cell(r, 0),
+            aadhar_number: cell(r, 1) || null,
+            dldateofbirth: excelCellToISODate(r[2]) || null,
+            mobile_number: cell(r, 3),
+            alternate_number: cell(r, 4) || null,
+            emergency_mobile_number: cell(r, 5) || null,
+            date_of_joining: excelCellToISODate(r[6]) || null,
+            reference: cell(r, 7) || null,
+            address: cell(r, 8) || null,
+            driver_name: cell(r, 9),
+            dl_number: cell(r, 10) || null,
+            dl_dob: excelCellToISODate(r[11]) || null,
+            dl_linked_mobile: cell(r, 12) || null,
+            drivinglicense_joining_date: excelCellToISODate(r[13]) || null,
+            dl_issued_by: cell(r, 14) || null,
+            dl_expiry_date: excelCellToISODate(r[15]) || null,
+            transportoneissuedate: excelCellToISODate(r[16]) || null,
+            transportvalidityfrom: excelCellToISODate(r[17]) || null,
+            transportvalidityto: excelCellToISODate(r[18]) || null,
+            account_holder_name: cell(r, 19) || null,
+            account_number: cell(r, 20) || null,
+            bank_name: cell(r, 21) || null,
+            branch_name: cell(r, 22) || null,
+            ifsc_code: cell(r, 23) || null,
+            upi_id: cell(r, 24) || null,
+            remarks: cell(r, 25) || null,
           }
           return { payload, key: payload.driver_name }
         })
@@ -706,34 +698,28 @@ export default function StaffPage() {
           return { payload, key: payload.fullName }
         })
       } else {
-        rows = dataRows.filter(r => {
-          if (!r || !cell(r, 1)) return false
-          if (!cell(r, 0)) { missingId++; return false }
-          return true
-        }).map(r => {
+        rows = dataRows.filter(r => r && cell(r, 0)).map(r => {
           const payload = {
-            helper_id_number: cell(r, 0).toUpperCase(),
-            helper_name: cell(r, 1),
-            adhar_number: cell(r, 2) || null,
-            dob: excelCellToISODate(r[3]) || null,
-            mobile_number: cell(r, 4),
-            alternate_number: cell(r, 5) || null,
-            emergency_mobile_number: cell(r, 6) || null,
-            date_of_joining: excelCellToISODate(r[7]) || null,
-            reference: cell(r, 8) || null,
-            address: cell(r, 9) || null,
-            account_holder_name: cell(r, 10) || null,
-            account_number: cell(r, 11) || null,
-            bank_name: cell(r, 12) || null,
-            branch_name: cell(r, 13) || null,
-            ifsc_code: cell(r, 14) || null,
-            upi_id: cell(r, 15) || null,
-            remarks: cell(r, 16) || null,
+            helper_name: cell(r, 0),
+            adhar_number: cell(r, 1) || null,
+            dob: excelCellToISODate(r[2]) || null,
+            mobile_number: cell(r, 3),
+            alternate_number: cell(r, 4) || null,
+            emergency_mobile_number: cell(r, 5) || null,
+            date_of_joining: excelCellToISODate(r[6]) || null,
+            reference: cell(r, 7) || null,
+            address: cell(r, 8) || null,
+            account_holder_name: cell(r, 9) || null,
+            account_number: cell(r, 10) || null,
+            bank_name: cell(r, 11) || null,
+            branch_name: cell(r, 12) || null,
+            ifsc_code: cell(r, 13) || null,
+            upi_id: cell(r, 14) || null,
+            remarks: cell(r, 15) || null,
           }
           return { payload, key: payload.helper_name }
         })
       }
-      if (missingId > 0) toast.warning(`${missingId} row${missingId !== 1 ? 's' : ''} left out — ${dataType} ID is required; fill it in on the sheet`)
       if (rows.length === 0) { toast.error('No valid rows (required field is empty)'); return }
       const existingList = dataType === 'Driver' ? driverList : dataType === 'Helper' ? helperList : staffList
       const existingKeyField = dataType === 'Driver' ? 'driver_name' : dataType === 'Helper' ? 'helper_name' : 'fullName'
@@ -757,8 +743,8 @@ export default function StaffPage() {
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadStaff({ type: previewType, rows, user_id: uid, usr_nm: unm })
       if (res.status === 200) {
-        // An ID problem (missing, repeated, or already another person's) stops
-        // the whole import before anything is written; the preview stays up.
+        // A server-side refusal stops the whole import before anything is
+        // written; the preview stays up.
         if (res.data?.error) { toast.error(res.data.error); return }
         const { inserted, updated = 0, total } = res.data
         qc.invalidateQueries({ queryKey: ['active-staff'] })

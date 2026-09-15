@@ -5,7 +5,8 @@ import { BookMarked, Search, X, ExternalLink, CreditCard, BookOpen, History, Che
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { ledgerGroupName } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
@@ -159,6 +160,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
   const totalCr = creditRows.reduce((s: number, e: any) => s + Number(e.amount || 0), 0)
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01
   const getLedgerName = (e: any) => e.expensives || e.temple_name || '—'
+  const groupOf = useLedgerGroupOf()
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -224,7 +226,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
                   <td className="px-4 py-2.5 text-xs text-slate-400">{i + 1}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{getLedgerName(r)}</span>
+                      <span className="font-semibold text-slate-800">{getLedgerName(r)}<LedgerGroupTag group={groupOf({ id: r.ledger_id, name: getLedgerName(r) })} /></span>
                       <span className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded tracking-wide">DR</span>
                     </div>
                   </td>
@@ -238,7 +240,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2 pl-6">
                       <span className="text-slate-400 text-xs italic mr-1">To</span>
-                      <span className="font-semibold text-slate-800">{getLedgerName(r)}</span>
+                      <span className="font-semibold text-slate-800">{getLedgerName(r)}<LedgerGroupTag group={groupOf({ id: r.ledger_id, name: getLedgerName(r) })} /></span>
                       <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded tracking-wide">CR</span>
                     </div>
                   </td>
@@ -270,7 +272,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
                     <div className={`flex items-center justify-between px-4 py-2.5 ${isDr ? 'bg-red-50' : 'bg-emerald-50'}`}>
                       <div className="flex items-center gap-2.5 min-w-0">
                         <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide flex-shrink-0 ${isDr ? 'text-red-500 bg-red-100 border border-red-200' : 'text-emerald-600 bg-emerald-100 border border-emerald-200'}`}>{isDr ? 'DR' : 'CR'}</span>
-                        <span className="font-semibold text-slate-800 text-sm truncate">{getLedgerName(r)}</span>
+                        <span className="font-semibold text-slate-800 text-sm truncate">{getLedgerName(r)}<LedgerGroupTag group={groupOf({ id: r.ledger_id, name: getLedgerName(r) })} /></span>
                       </div>
                       <span className={`font-bold text-sm tabular-nums flex-shrink-0 ml-2 ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
                         ₹{fmtAmt(Number(r.amount || 0))}
@@ -399,6 +401,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
   const debitEntries = entries.filter((e: any) => e.account_type === 'Debit Account' || e.amount_type === 'Debit Account')
   const creditEntries = entries.filter((e: any) => e.account_type === 'Credit Account' || e.amount_type === 'Credit Account')
   const getLedgerName = (e: any) => e.temple_name || e.expensives || 'Unknown'
+  const groupOf = useLedgerGroupOf()
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -452,7 +455,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 ? <p className="text-xs text-slate-400 text-center py-2">No debit entries</p>
                 : debitEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                     <span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
@@ -471,7 +474,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 ? <p className="text-xs text-slate-400 text-center py-2">No credit entries</p>
                 : creditEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                     <span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
@@ -531,8 +534,8 @@ function LedgerSelectDropdown({ value, ledgers, onChange, onRefresh, refreshing 
     return () => document.removeEventListener('mousedown', close)
   }, [open])
 
-  const filtered = ledgers.filter(l => (l.temple_name ?? l.ledger_name ?? '').toLowerCase().includes(search.toLowerCase()))
-  const groupOf = (l: any) => l?.subchildtwo || l?.child || ''
+  const filtered = ledgers.filter(l => `${l.temple_name ?? l.ledger_name ?? ''} ${ledgerGroupName(l)}`.toLowerCase().includes(search.toLowerCase()))
+  const groupOf = (l: any) => ledgerGroupName(l)
   const selected = ledgers.find(l => String(l.id) === String(value))
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
@@ -818,7 +821,7 @@ export default function LedgerWisePage() {
   // back to its parent group via the ledger master list for the exports.
   const nameToGroup = useMemo(() => {
     const m = new Map<string, string>()
-    ledgerList.forEach(l => { if (l.temple_name) m.set(String(l.temple_name).trim().toLowerCase(), l.child || '') })
+    ledgerList.forEach(l => { if (l.temple_name) m.set(String(l.temple_name).trim().toLowerCase(), ledgerGroupName(l)) })
     return m
   }, [ledgerList])
 
@@ -1238,8 +1241,8 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 whitespace-nowrap">
                       {row.vouchertype || 'N/A'}
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[160px] truncate" title={row.opp_ledgers || 'N/A'}>
-                      {row.opp_ledgers || 'N/A'}
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[220px] truncate" title={row.opp_ledgers || 'N/A'}>
+                      {row.opp_ledgers || 'N/A'}<LedgerGroupTag group={oppLedgerGroup(row.opp_ledgers)} />
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {fmt(row.valueDate)}

@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { excelCellToISODate, headerRowMismatch, isVanVehicleType } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, isVanVehicleType, ledgerOption } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 // ── Sold Out / Service Out modal ───────────────────────────────────────────
@@ -249,7 +249,7 @@ export default function BusNoPage() {
     queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild(),
   })
   const hireLedgers: any[] = (ledgerData?.data ?? []).filter((l: any) => String(l.subchildtwo ?? '') === HIRE_GROUP)
-  const hireLedgerOptions = hireLedgers.map((l: any) => ({ value: String(l.ledger_id), label: String(l.temple_name ?? '') }))
+  const hireLedgerOptions = hireLedgers.map((l: any) => ledgerOption(l, 'ledger_id'))
   const hireContainer = (subchildData?.data ?? []).find(
     (c: any) => String(c.temple_name ?? '') === HIRE_GROUP && String(c.child ?? '') === 'Payables')
   const [newOwner, setNewOwner] = useState('')

@@ -12,10 +12,12 @@ import { toast } from 'sonner'
 import {
   GlassCard, Button, Input, Label, PageHeader,
   DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu,
+  LedgerGroupTag, useLedgerGroupOf,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 
 type SimplePartRow = { part_id: string; qty: string; rate: string }
@@ -174,10 +176,11 @@ export default function RepairTrackingPage() {
   const staffList: any[]   = staffData?.data ?? []
 
   const partsOptions  = partsList.map((p: any) => ({ value: String(p.part_id), label: p.part_name }))
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
+  const ledgerGroupOf = useLedgerGroupOf()
   const catOptions    = catList.map((c: any) => ({ value: String(c.id), label: c.name }))
   const busOptions    = busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))
-  const driverOptions = driverList.map((d: any) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))
+  const driverOptions = driverList.map((d: any) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))
   const staffOptions  = staffList.map((s: any) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))
 
   const findLedger = (keyword: string): LedgerEntry => {
@@ -1323,7 +1326,7 @@ export default function RepairTrackingPage() {
                             <div className="divide-y divide-slate-100">
                               {entries.map((l: any, i: number) => (
                                 <div key={i} className="flex justify-between items-center px-3 py-2.5 bg-white">
-                                  <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                                  <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}<LedgerGroupTag group={ledgerGroupOf({ id: l.ledger_id, name: l.ledger_name })} /></span>
                                   <span className={`text-xs font-bold ${type === 'debit' ? 'text-blue-700' : 'text-emerald-700'}`}>
                                     ₹{Number(l.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                   </span>
@@ -1509,7 +1512,7 @@ export default function RepairTrackingPage() {
                           <p className="text-xs text-slate-400 px-1">No debit entries</p>
                         ) : stageLedgers.filter((l: any) => l.entry_type === 'debit').map((l: any, i: number) => (
                           <div key={i} className="flex justify-between items-center px-2 py-1.5 bg-white rounded-lg border border-blue-100">
-                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}<LedgerGroupTag group={ledgerGroupOf({ id: l.ledger_id, name: l.ledger_name })} /></span>
                             <span className="text-xs font-bold text-blue-700">₹{Number(l.amount).toLocaleString('en-IN')}</span>
                           </div>
                         ))}
@@ -1524,7 +1527,7 @@ export default function RepairTrackingPage() {
                           <p className="text-xs text-slate-400 px-1">No credit entries</p>
                         ) : stageLedgers.filter((l: any) => l.entry_type === 'credit').map((l: any, i: number) => (
                           <div key={i} className="flex justify-between items-center px-2 py-1.5 bg-white rounded-lg border border-emerald-100">
-                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}<LedgerGroupTag group={ledgerGroupOf({ id: l.ledger_id, name: l.ledger_name })} /></span>
                             <span className="text-xs font-bold text-emerald-700">₹{Number(l.amount).toLocaleString('en-IN')}</span>
                           </div>
                         ))}

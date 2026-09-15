@@ -1,7 +1,40 @@
 import { PlusCircle, MinusCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
+import { accountingService } from '@/services/accounting.service'
+import { ledgerGroupLookup, ledgerGroupName } from '@/lib/utils'
 import { Input } from './Input'
 import { SearchableSelect } from './SearchableSelect'
+
+// A ledger's parent group as a small muted suffix beside its name - the table
+// and list counterpart of the hint the ledger dropdowns show.
+export function LedgerGroupTag({ group, className }: { group?: string; className?: string }) {
+  if (!group) return null
+  return <span className={`ml-1.5 text-[11px] font-normal text-slate-400 ${className ?? ''}`}>— {group}</span>
+}
+
+// For screens whose rows only carry a ledger id / name (saved voucher lines,
+// view modals): the group of that ledger, looked up from the full ledger list.
+// Shares one cached query, so every caller costs a single request.
+export function useLedgerGroupOf() {
+  const { data } = useQuery({ queryKey: ['ledger-groups'], queryFn: () => accountingService.getLedgerName(), staleTime: 5 * 60 * 1000 })
+  return ledgerGroupLookup((data as any)?.data ?? [])
+}
+
+// A stored ledger name followed by its group tag - for table cells and module
+// level column renderers, which cannot call useLedgerGroupOf themselves.
+export function LedgerNameWithGroup({ name, id }: { name: unknown; id?: unknown }) {
+  const groupOf = useLedgerGroupOf()
+  const text = String(name ?? '').trim()
+  if (!text) return <>—</>
+  const whole = groupOf({ id, name: text })
+  // Report queries GROUP_CONCAT several ledgers into "A, B"; tag each one.
+  const parts = text.split(', ')
+  if (!whole && parts.length > 1) {
+    return <>{parts.map((p, i) => <span key={i}>{i > 0 && ', '}{p}<LedgerGroupTag group={groupOf({ name: p })} /></span>)}</>
+  }
+  return <>{text}<LedgerGroupTag group={whole} /></>
+}
 
 // One side of a voucher - the Debit Accounts or Credit Accounts panel - laid
 // out the way Trip Expenses and Voucher Entry lay it out: a coloured header
@@ -62,7 +95,7 @@ interface LedgerLinesProps<L extends LedgerLike> {
 
 export function LedgerLines<L extends LedgerLike>({ side, rows, onChange, ledgers, otherRows, remaining, onReload, reloading }: LedgerLinesProps<L>) {
   const isDebit = side === 'debit'
-  const options = ledgers.map((l) => ({ value: String(l.id), label: ledgerLineLabel(l) }))
+  const options = ledgers.map((l) => ({ value: String(l.id), label: ledgerLineLabel(l), hint: ledgerGroupName(l) || undefined }))
   const total = ledgerLinesTotal(rows)
   const lines = rows.length ? rows : [emptyLedgerLine<L>()]
 

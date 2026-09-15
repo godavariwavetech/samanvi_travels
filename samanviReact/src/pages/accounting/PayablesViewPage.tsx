@@ -4,12 +4,12 @@ import { motion } from 'motion/react'
 import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY } from '@/lib/fy'
-import { scrollContentToTop } from '@/lib/utils'
+import { scrollContentToTop, ledgerGroupName, ledgerOption } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -90,7 +90,8 @@ function InlineRefresh({ onRefresh, refreshing, title }: {
 // inline reload button, for plain string-value option lists ────────────────
 function SimpleDropdown({ value, options, placeholder = 'Select…', searchable, onChange, onRefresh, refreshing }: {
   value: string
-  options: { label: string; value: string }[]
+  // hint: muted secondary text (a ledger's parent group) - searchable, display only
+  options: { label: string; value: string; hint?: string }[]
   placeholder?: string
   searchable?: boolean
   onChange: (v: string) => void
@@ -131,8 +132,9 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
   const filtered = searchable
-    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    ? options.filter(o => `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(search.toLowerCase()))
     : options
+  const selectedOpt = options.find(o => o.value === value)
 
   const panel = open && rect && createPortal(
     <div id="payables-simple-portal-panel" style={{
@@ -155,7 +157,7 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
           <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch('') }}
             className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
               value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
-            }`}>{opt.label}</div>
+            }`}>{opt.label}<LedgerGroupTag group={opt.hint} /></div>
         ))}
       </div>
     </div>,
@@ -167,7 +169,8 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
       <button ref={btnRef} type="button" onClick={openDropdown}
         className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
         <span className={value ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
-          {options.find(o => o.value === value)?.label || placeholder}
+          {selectedOpt?.label || placeholder}
+          <LedgerGroupTag group={selectedOpt?.hint} />
         </span>
         <span className="flex items-center gap-1 flex-shrink-0">
           {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh options" />}
@@ -673,6 +676,7 @@ function DebitCreditCards({ entries }: { entries: any[] }) {
   const debitTotal = debitEntries.reduce((s, e) => s + Number(e.amount || 0), 0)
   const creditTotal = creditEntries.reduce((s, e) => s + Number(e.amount || 0), 0)
   const getLedgerName = (e: any) => e.temple_name || e.expensives || 'Unknown'
+  const groupOf = useLedgerGroupOf()
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -686,7 +690,7 @@ function DebitCreditCards({ entries }: { entries: any[] }) {
             ? <p className="text-xs text-slate-400 text-center py-3">No debit entries</p>
             : debitEntries.map((e, i) => (
               <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
-                <span className="text-sm text-slate-700">{getLedgerName(e)}</span>
+                <span className="text-sm text-slate-700">{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                 <span className="text-sm text-slate-700 ml-2">₹{fmtAmt(Number(e.amount))}</span>
               </div>
             ))}
@@ -702,7 +706,7 @@ function DebitCreditCards({ entries }: { entries: any[] }) {
             ? <p className="text-xs text-slate-400 text-center py-3">No credit entries</p>
             : creditEntries.map((e, i) => (
               <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
-                <span className="text-sm text-slate-700">{getLedgerName(e)}</span>
+                <span className="text-sm text-slate-700">{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                 <span className="text-sm text-slate-700 ml-2">₹{fmtAmt(Number(e.amount))}</span>
               </div>
             ))}
@@ -785,6 +789,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
   const debitEntries = entries.filter((e: any) => e.account_type === 'Debit Account' || e.amount_type === 'Debit Account')
   const creditEntries = entries.filter((e: any) => e.account_type === 'Credit Account' || e.amount_type === 'Credit Account')
   const getLedgerName = (e: any) => e.temple_name || e.expensives || 'Unknown'
+  const groupOf = useLedgerGroupOf()
   return (
     <ModalOverlay onClose={onClose}>
       <div className="px-6 py-4 rounded-t-2xl flex items-center justify-between" style={{ background: 'linear-gradient(90deg,#7b5bf2,#5ac8fa)' }}>
@@ -820,7 +825,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
               {debitEntries.length === 0 ? <p className="text-xs text-slate-400 text-center py-2">No debit entries</p>
                 : debitEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span><span>₹{fmtAmt(Number(e.amount))}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span><span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
             </div>
@@ -833,7 +838,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
               {creditEntries.length === 0 ? <p className="text-xs text-slate-400 text-center py-2">No credit entries</p>
                 : creditEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span><span>₹{fmtAmt(Number(e.amount))}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span><span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
             </div>
@@ -2144,7 +2149,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                           {debitEntries.map((d, i) => (
                             <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                               <td className="px-3 py-2 text-xs text-slate-600">{i + 1}</td>
-                              <td className="px-3 py-2 text-xs text-slate-800">{d.ledger?.temple_name}</td>
+                              <td className="px-3 py-2 text-xs text-slate-800">{d.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(d.ledger)} /></td>
                               <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">₹{fmtAmt(d.amount)}</td>
                             </tr>
                           ))}
@@ -2166,7 +2171,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                       value={creditAddForm.ledger_id}
                       placeholder="Select Ledger"
                       searchable
-                      options={creditLedgerOptions.map((e: any) => ({ label: e.temple_name ?? e.name, value: String(e.id) }))}
+                      options={creditLedgerOptions.map((e: any) => ledgerOption(e))}
                       onChange={v => setCreditAddForm(f => ({ ...f, ledger_id: v }))}
                       onRefresh={() => refetchExpenseLedgers()}
                       refreshing={expenseLedgersFetching}
@@ -2209,10 +2214,10 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                                       value={editingCreditForm.ledger_id}
                                       placeholder="Select Ledger"
                                       searchable
-                                      options={creditLedgerOptions.map((e: any) => ({ label: e.temple_name ?? e.name, value: String(e.id) }))}
+                                      options={creditLedgerOptions.map((e: any) => ledgerOption(e))}
                                       onChange={v => setEditingCreditForm(f => ({ ...f, ledger_id: v }))}
                                     />
-                                  ) : c.ledger?.temple_name}
+                                  ) : <>{c.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(c.ledger)} /></>}
                                 </td>
                                 <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">
                                   {isEditing ? (
@@ -2280,7 +2285,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                             <tr className="bg-emerald-50/60 italic">
                               <td className="px-3 py-2 text-xs text-slate-400">{creditEntries.length + 1}</td>
                               <td className="px-3 py-2 text-xs text-emerald-700">
-                                {pendingCreditEntry.ledger?.temple_name}
+                                {pendingCreditEntry.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(pendingCreditEntry.ledger)} />
                                 <span className="ml-1.5 text-[10px] font-semibold not-italic text-emerald-500 bg-emerald-100 px-1.5 py-0.5 rounded">pending</span>
                               </td>
                               <td className="px-3 py-2 text-xs text-right tabular-nums text-emerald-700">₹{fmtAmt(pendingCreditEntry.amount)}</td>

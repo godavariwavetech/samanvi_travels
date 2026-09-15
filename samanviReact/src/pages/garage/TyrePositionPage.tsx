@@ -3,12 +3,13 @@ import { motion } from 'motion/react'
 import { LayoutGrid, Save, Plus, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const EMPTY_FORM = { vehicle_number: '', position: '', tyre_id: '', odometer_at_fitting: '', fitted_date: '', remarks: '' }
 
@@ -47,7 +48,7 @@ export default function TyrePositionPage() {
   const mountedTyreIds = new Set(list.map((p: any) => p.tyre_id))
   const inStockTyres: any[] = (tyres?.data ?? []).filter((t: any) => t.status === 'In Stock' && !mountedTyreIds.has(t.id))
   const ledgerList: any[] = (ledgersData?.data ?? []).filter((l: any) => /tyre/i.test(l.temple_name || l.name || ''))
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   const f = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((s) => ({ ...s, [k]: e.target.value }))
@@ -115,7 +116,7 @@ export default function TyrePositionPage() {
             const text = p.replace(/^(Debit|Credit) Account: /, '')
             return (
               <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full w-fit whitespace-nowrap ${isDebit ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                {isDebit ? 'Dr' : 'Cr'} {text}
+                {isDebit ? 'Dr' : 'Cr'} <LedgerNameWithGroup name={text.replace(/ ₹[0-9.]+$/, '')} />{(text.match(/ ₹[0-9.]+$/) || [''])[0]}
               </span>
             )
           })}
