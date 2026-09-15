@@ -15,6 +15,7 @@ import RolesPage from '@/pages/users/RolesPage'
 
 // Validations
 import VehicleValidationsPage from '@/pages/validations/VehicleValidationsPage'
+import DriverValidationsPage from '@/pages/validations/DriverValidationsPage'
 
 // Masters
 import BusNoPage from '@/pages/masters/BusNoPage'
@@ -132,7 +133,10 @@ export const router = createBrowserRouter([
       { path: 'helpdesk', element: <HelpDeskPage /> },
       { path: 'users', element: <UserManagementPage /> },
       { path: 'roles', element: <RolesPage /> },
-      { path: 'validations', element: <VehicleValidationsPage /> },
+      // Validations: Drivers and Vehicles. The old single-page link still lands on Vehicles.
+      { path: 'validations', element: <Navigate to="/validations/vehicles" replace /> },
+      { path: 'validations/drivers', element: <DriverValidationsPage /> },
+      { path: 'validations/vehicles', element: <VehicleValidationsPage /> },
 
       // Masters
       { path: 'masters/service-for', element: <ServiceForPage /> },

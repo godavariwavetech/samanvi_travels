@@ -1689,6 +1689,16 @@ exports.deleteDriveroneCtrl = function (req, res) {
   });
 };
 
+exports.setServiceNoActiveCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const payload = decryptPayload(encryptedPayload);
+  appmdl.setServiceNoActiveMdl(payload, function (err, results) {
+    if (err) { res.send({ status: 500, data: results }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
 exports.deleteservicenumber = function (req, res) {
   // var data = req.body;
   const { encryptedPayload, signature } = req.body;
@@ -2322,6 +2332,13 @@ exports.addexpensesdetails = function (req, res) {
 };
 
 exports.updateexpensesdetailsCtrl = function (req, res) {
+  // An approved trip, or a trip whose voucher is already approved in Voucher
+  // Approvals, is on the books: re-filing replaced the voucher's lines with
+  // pending ones under a header still marked approved, and the payable
+  // silently dropped out of Ledger Wise. Checked before anything is touched.
+  appmdl.tripExpenseLockMdl(req.body.c_number, function (lockErr, lockMsg) {
+  if (lockErr) { res.status(500).send("Server Error"); return; }
+  if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
   appmdl.deletetripexpensesMdl(req.body, function (err, cresults1) {
     if (err) {
       //console.log()"err " + err);
@@ -2441,16 +2458,23 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
       }
     );
   });
+  });
 };
+
 
 exports.deleteexpenseCtrl = function (req, res) {
   var data = req.body;
-  appmdl.deleteexpenseMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
+  // Same lock as editing: an approved expense or voucher is not deleted.
+  appmdl.tripExpenseLockMdl(data.c_number, function (lockErr, lockMsg) {
+    if (lockErr) { res.send(500, "Server Error"); return; }
+    if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
+    appmdl.deleteexpenseMdl(data, function (err, results) {
+      if (err) {
+        res.send(500, "Server Error");
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
   });
 };
 
@@ -4695,6 +4719,25 @@ exports.updateBusValidityDateCtrl = function (req, res) {
     return;
   }
   appmdl.updateBusValidityDateMdl(data, function (err, results) {
+    if (err) {
+      res.send({ status: 500, data: results });
+      return;
+    }
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.updateDriverValidityDateCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  let data;
+  try {
+    validateSignature(encryptedPayload, signature);
+    data = decryptPayload(encryptedPayload);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid request" });
+    return;
+  }
+  appmdl.updateDriverValidityDateMdl(data, function (err, results) {
     if (err) {
       res.send({ status: 500, data: results });
       return;

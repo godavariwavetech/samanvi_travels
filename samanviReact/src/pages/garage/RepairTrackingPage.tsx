@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import {
-  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, FileSpreadsheet, FileText, Pencil, RefreshCw, XCircle, BellRing,
+  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, Pencil, RefreshCw, XCircle, BellRing,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -11,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   GlassCard, Button, Input, Label, PageHeader,
-  DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable,
+  DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -973,12 +973,7 @@ export default function RepairTrackingPage() {
           </button>
         ))}
         <div className="ml-auto flex gap-1.5 items-center">
-          <button onClick={downloadExcel} className="inline-flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
-          </button>
-          <button onClick={downloadPdf} className="inline-flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors">
-            <FileText className="w-3.5 h-3.5" /> PDF
-          </button>
+          <ExportMenu onExport={(f) => f === 'excel' ? downloadExcel() : downloadPdf()} />
         </div>
       </div>
 

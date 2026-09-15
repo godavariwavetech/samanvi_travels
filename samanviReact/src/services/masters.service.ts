@@ -68,6 +68,7 @@ export const mastersService = {
   updateBus: (data: unknown) => api.post('/updatebusnumber', securePayload(data)).then((r) => r.data),
   getBusHistory: (data: unknown) => api.post('/getbushistory', data).then((r) => r.data),
   updateBusValidityDate: (data: unknown) => api.post('/updatebusvaliditydate', securePayload(data)).then((r) => r.data),
+  updateDriverValidityDate: (data: unknown) => api.post('/updatedrivervaliditydate', securePayload(data)).then((r) => r.data),
   getServiceOutBuses: () => api.post('/getserviceoutbuses', {}).then((r) => r.data),
   markBusServiceOut: (data: unknown) => api.post('/markbusserviceout', securePayload(data)).then((r) => r.data),
   reactivateBus: (data: unknown) => api.post('/reactivatebus', securePayload(data)).then((r) => r.data),
@@ -77,6 +78,9 @@ export const mastersService = {
   addServiceRoute: (data: unknown) => api.post('/driverone', securePayload(data)).then((r) => r.data),
   updateServiceRoute: (data: unknown) => api.post('/updateserviceno', data).then((r) => r.data),  // plain JSON — controller reads req.body directly
   deleteServiceRoute: (data: unknown) => api.post('/deletedriverone', securePayload(data)).then((r) => r.data),
+  // An inactive service number is left out of Trip Creation until reactivated.
+  setServiceRouteActive: (data: { id: number; is_active: 0 | 1; userid?: string | null; usrnm?: string | null }) =>
+    api.post('/setservicenoactive', securePayload(data)).then((r) => r.data),
 
   // ── Halt Beta (one company-wide amount, app_settings) ────
   getHaltBeta: () => api.post('/gethaltbeta', {}).then((r) => r.data),

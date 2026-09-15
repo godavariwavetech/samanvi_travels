@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'motion/react'
-import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, FileSpreadsheet, FileText, History, Clock } from 'lucide-react'
+import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
@@ -452,12 +452,7 @@ export default function RepairEntryPage() {
                 </span>
               </h3>
               <div className="flex gap-1.5">
-                <button onClick={downloadExcel} className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
-                  <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
-                </button>
-                <button onClick={downloadPdf} className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors">
-                  <FileText className="w-3.5 h-3.5" /> PDF
-                </button>
+                <ExportMenu onExport={(f) => f === 'excel' ? downloadExcel() : downloadPdf()} />
                 {activeFilterCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                     {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active ·{' '}

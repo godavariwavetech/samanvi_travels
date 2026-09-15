@@ -1,11 +1,11 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings, Upload, Download, FileSpreadsheet, ImagePlus, History, Clock } from 'lucide-react'
+import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Upload, Download, ImagePlus, History, Clock } from 'lucide-react'
 import ChangeNote from '@/components/shared/ChangeNote'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -14,30 +14,15 @@ import * as XLSX from 'xlsx'
 
 type DataType = string
 
-// ── Staff Type picker with inline "add new" ────────────────────────────────
+// ── Designation picker ─────────────────────────────────────────────────────
+// Pick only: designations are added and removed under Main Masters > Designation.
 function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const qc = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [newType, setNewType] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
   const { data } = useQuery({ queryKey: ['staff-types'], queryFn: () => mastersService.getStaffTypes() })
   const types: any[] = data?.data ?? []
-
-  const { mutate: add, isPending } = useMutation({
-    mutationFn: () => mastersService.addStaffType({ type_name: newType.trim() }),
-    onSuccess: (res) => {
-      if (res.status === 200) {
-        toast.success('Staff type added!')
-        qc.invalidateQueries({ queryKey: ['staff-types'] })
-        onChange(newType.trim())
-        setNewType('')
-        setOpen(false)
-      }
-    },
-    onError: () => toast.error('Server error'),
-  })
 
   const openDropdown = () => {
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
@@ -49,7 +34,7 @@ function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: str
     const close = (e: MouseEvent) => {
       if (document.getElementById('st-panel')?.contains(e.target as Node) ||
           btnRef.current?.contains(e.target as Node)) return
-      setOpen(false); setNewType('')
+      setOpen(false)
     }
     const onScroll = (e: Event) => {
       if (document.getElementById('st-panel')?.contains(e.target as Node)) return
@@ -86,22 +71,9 @@ function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: str
           </li>
         ))}
       </ul>
-      <div className="border-t border-slate-100 p-2 flex gap-2 flex-shrink-0">
-        <input
-          value={newType}
-          onChange={e => setNewType(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && newType.trim() && add()}
-          placeholder="Add new type…"
-          className="flex-1 text-sm px-3 py-1.5 rounded-lg border border-slate-200 outline-none focus:border-blue-400"
-        />
-        <button
-          onMouseDown={() => newType.trim() && add()}
-          disabled={isPending || !newType.trim()}
-          className="px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {types.length === 0 && (
+        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">No designations yet - add them under Main Masters &gt; Designation.</p>
+      )}
     </div>,
     document.body
   )
@@ -394,31 +366,6 @@ const emptyHelperImages: Record<'adharcardfront' | 'adharcardback' | 'upiscanner
 
 const FIXED_TYPES = ['Driver', 'Staff', 'Helper', 'Terminated']
 
-// ── Inline "Add new type" input ────────────────────────────────────────────
-function AddCustomTypeInline({ onAdd, isPending }: { onAdd: (name: string) => void; isPending: boolean }) {
-  const [value, setValue] = useState('')
-  const submit = () => {
-    const trimmed = value.trim()
-    if (!trimmed) return
-    onAdd(trimmed)
-    setValue('')
-  }
-  return (
-    <div className="flex items-center gap-2">
-      <Input
-        placeholder="Add new type…"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-        className="w-44 h-11"
-      />
-      <Button onClick={submit} disabled={isPending || !value.trim()} variant="primary">
-        <Plus className="w-4 h-4" /> Add
-      </Button>
-    </div>
-  )
-}
-
 const typeColors: Record<string, string> = {
   Driver: 'bg-gradient-to-r from-emerald-500 to-teal-500',
   Staff: 'bg-gradient-to-r from-blue-500 to-violet-500',
@@ -508,37 +455,16 @@ export default function StaffPage() {
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value.replace(/\D/g, '').slice(0, max) }))
 
-  const isCustomType = dataType !== '' && !FIXED_TYPES.includes(dataType)
-
   // Queries
-  const { data: staffTypesData } = useQuery({ queryKey: ['staff-types'], queryFn: () => mastersService.getStaffTypes() })
-  const { data: staffData, isLoading: loadStaff } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff(), enabled: dataType === 'Staff' || isCustomType })
+  const { data: staffData, isLoading: loadStaff } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff(), enabled: dataType === 'Staff' })
   const { data: driverData, isLoading: loadDrivers } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers(), enabled: dataType === 'Driver' })
   const { data: helperData, isLoading: loadHelpers } = useQuery({ queryKey: ['active-helpers'], queryFn: () => mastersService.getActiveHelpers(), enabled: dataType === 'Helper' })
   const { data: terminatedData, isLoading: loadTerminated } = useQuery({ queryKey: ['terminated-staff'], queryFn: () => mastersService.getTerminatedStaff(), enabled: dataType === 'Terminated' })
 
-  const customTypes: any[] = staffTypesData?.data ?? []
-  const allStaffList: any[]    = staffData?.data ?? []
-  const staffList: any[]       = isCustomType
-    ? allStaffList.filter((s: any) => s.designation === dataType)
-    : allStaffList
+  const staffList: any[]       = staffData?.data ?? []
   const driverList: any[]     = driverData?.data ?? []
   const helperList: any[]     = helperData?.data ?? []
   const terminatedList: any[] = terminatedData?.data ?? []
-
-  // Add / delete custom type
-  const { mutate: addCustomType, isPending: addingCustomType } = useMutation({
-    mutationFn: (name: string) => mastersService.addStaffType({ type_name: name }),
-    onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Type added!'); qc.invalidateQueries({ queryKey: ['staff-types'] }) }
-      else toast.error('Failed')
-    },
-    onError: () => toast.error('Server error'),
-  })
-  const { mutate: delCustomType } = useMutation({
-    mutationFn: (id: number) => mastersService.deleteStaffType({ id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['staff-types'] }),
-  })
 
   // Mutations
   const { mutate: addStaff, isPending: addingStaff } = useMutation({
@@ -636,10 +562,6 @@ export default function StaffPage() {
     setDataType(type)
     setShowForm(false)
     setColumnFilters({})
-    // Pre-fill designation for custom types
-    if (type && !FIXED_TYPES.includes(type)) {
-      setStaffForm(f => ({ ...f, designation: type }))
-    }
   }
 
   const downloadTemplate = () => {
@@ -654,11 +576,13 @@ export default function StaffPage() {
     downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
   }
 
-  const downloadData = () => {
+  // The table's Export > Excel: the rows it shows, in the upload sheet's layout,
+  // so the file can be edited and imported back.
+  const downloadData = (shown?: any[]) => {
     if (!dataType || dataType === 'Terminated') return
     let rows: any[][] = []
     if (dataType === 'Driver') {
-      rows = driverList.map(r => [
+      rows = (shown ?? driverList).map(r => [
         r.driver_id_number ?? '', r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
         r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.date_of_joining ?? '',
         r.reference ?? '', r.address ?? '', r.driver_name ?? '', r.dl_number ?? '',
@@ -670,7 +594,7 @@ export default function StaffPage() {
       ])
       downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
     } else if (dataType === 'Helper') {
-      rows = helperList.map(r => [
+      rows = (shown ?? helperList).map(r => [
         r.helper_id_number ?? '', r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
         r.mobile_number ?? '', r.alternate_number ?? '', r.emergency_mobile_number ?? '',
         r.date_of_joining ?? '', r.reference ?? '', r.address ?? '',
@@ -679,7 +603,7 @@ export default function StaffPage() {
       ])
       downloadExcel([HELPER_TEMPLATE_HEADERS, ...rows], `Helpers_${Date.now()}.xlsx`)
     } else {
-      rows = staffList.map(r => [
+      rows = (shown ?? staffList).map(r => [
         r.designation ?? '', r.nickName ?? '', r.fullName ?? '', r.aadhaar ?? '', r.dob ?? '',
         r.mobile ?? '', r.alternativemobilenumber ?? '', r.emergencyContact ?? '',
         r.dateOfJoining ?? '', r.referencename ?? '', r.address ?? '',
@@ -906,15 +830,15 @@ export default function StaffPage() {
     : dataType === 'Staff' ? staffList
     : dataType === 'Helper' ? helperList
     : dataType === 'Terminated' ? terminatedList
-    : staffList  // custom type — filtered by designation
+    : staffList
   const currentLoading = dataType === 'Driver' ? loadDrivers
     : dataType === 'Helper' ? loadHelpers
     : dataType === 'Terminated' ? loadTerminated
-    : loadStaff  // Staff + custom types all use staffData
+    : loadStaff
   const currentCols = dataType === 'Driver' ? driverCols
     : dataType === 'Helper' ? helperCols
     : dataType === 'Terminated' ? terminatedCols
-    : staffCols  // Staff + custom types show same columns
+    : staffCols
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
@@ -941,40 +865,11 @@ export default function StaffPage() {
             >
               <option value="">Select Type</option>
               {FIXED_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              {customTypes.length > 0 && (
-                <optgroup label="── Custom Types ──">
-                  {customTypes.map((t) => <option key={t.id} value={t.type_name}>{t.type_name}</option>)}
-                </optgroup>
-              )}
             </select>
             <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
-
-          {/* Add new type inline */}
-          <AddCustomTypeInline
-            onAdd={(name) => addCustomType(name)}
-            isPending={addingCustomType}
-          />
         </div>
 
-        {/* Custom types chips */}
-        {customTypes.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-slate-100">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider self-center">Custom Types:</span>
-            {customTypes.map((t) => (
-              <span key={t.id}
-                className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-blue-200">
-                {t.type_name}
-                <button
-                  onClick={() => delCustomType(t.id)}
-                  className="text-blue-400 hover:text-red-500 transition-colors ml-0.5"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
 
         {/* Excel actions — only for Driver / Staff / Helper */}
         {['Driver', 'Staff', 'Helper'].includes(dataType) && (
@@ -985,12 +880,6 @@ export default function StaffPage() {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
             >
               <Download className="w-3.5 h-3.5" /> Template
-            </button>
-            <button
-              onClick={downloadData}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" /> Export
             </button>
             <label className="cursor-pointer">
               <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${uploading ? 'border-blue-200 bg-blue-50 text-blue-400' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
@@ -1019,14 +908,14 @@ export default function StaffPage() {
         <GlassCard className="p-12 text-center">
           <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h5 className="text-slate-500 font-semibold">Please select a data type to view records</h5>
-          <p className="text-sm text-slate-400 mt-1">Choose from the dropdown above or add a new custom type</p>
+          <p className="text-sm text-slate-400 mt-1">Choose Driver, Staff, Helper or Terminated from the dropdown above</p>
         </GlassCard>
       )}
 
-      {/* Add form */}
+      {/* Add / edit form (popup) */}
       <AnimatePresence>
         {showForm && dataType && dataType !== 'Terminated' && (
-          <motion.div key={`form-${dataType}`} initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }}>
+          <FormModal key={`form-${dataType}`}>
             <GlassCard className="p-6" colorBar={typeColors[dataType] ?? 'bg-gradient-to-r from-slate-400 to-slate-600'}>
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -1083,16 +972,13 @@ export default function StaffPage() {
                 </div>
               )}
 
-              {/* Staff form — also used for custom types */}
-              {(dataType === 'Staff' || isCustomType) && (
+              {/* Staff form */}
+              {dataType === 'Staff' && (
                 <div className="space-y-5">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div>
                       <Label>Designation <span className="text-red-500">*</span></Label>
-                      {isCustomType
-                        ? <Input value={staffForm.designation} readOnly className="bg-slate-50 text-slate-500 cursor-not-allowed" />
-                        : <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
-                      }
+                      <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
                     </div>
                     <div><Label>Nick Name</Label><Input value={staffForm.nickName} onChange={sf('nickName')} /></div>
                   </div>
@@ -1163,7 +1049,7 @@ export default function StaffPage() {
               )}
 
               <div className="flex gap-3 mt-6">
-                {(dataType === 'Staff' || isCustomType) && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
+                {dataType === 'Staff' && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
                 {dataType === 'Driver' && (
                   <Button
                     onClick={() => editingDriverRow ? editDriverMutate() : addDriver()}
@@ -1177,7 +1063,7 @@ export default function StaffPage() {
                 <Button variant="ghost" onClick={() => { setShowForm(false); setEditingDriverRow(null); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages) }}><X className="w-4 h-4" /> Cancel</Button>
               </div>
             </GlassCard>
-          </motion.div>
+          </FormModal>
         )}
       </AnimatePresence>
 
@@ -1198,7 +1084,7 @@ export default function StaffPage() {
             </div>
           )}
           <DataTable
-            title={`${dataType === 'Terminated' ? 'Terminated Staff' : `Active ${dataType}s`} (${currentData.length})${isCustomType ? ` — filtered by designation: ${dataType}` : ''}`}
+            title={`${dataType === 'Terminated' ? 'Terminated Staff' : `Active ${dataType}s`} (${currentData.length})`}
             columns={currentCols}
             data={currentData}
             loading={currentLoading}
@@ -1211,6 +1097,7 @@ export default function StaffPage() {
               if (action === 'history' && dataType === 'Driver') setDriverHistoryFor(row)
             }}
             actions={dataType === 'Terminated' ? [] : dataType === 'Driver' ? ['view', 'edit', 'history'] : ['view']}
+            onExport={['Driver', 'Staff', 'Helper'].includes(dataType) ? { excel: (rows) => downloadData(rows) } : undefined}
             columnFilters={columnFilters}
             onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
           />

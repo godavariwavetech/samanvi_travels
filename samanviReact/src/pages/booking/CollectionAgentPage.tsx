@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { Users, Send, TrendingUp } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { bookingService } from '@/services/booking.service'
 import { formatCurrency, formatDate } from '@/lib/utils'
 
@@ -112,7 +113,22 @@ export default function CollectionAgentPage() {
       <GlassCard className="overflow-hidden">
         <div className="p-5 border-b border-slate-100 bg-white/40 flex justify-between items-center">
           <h3 className="font-bold text-slate-900 text-lg">Booking Records</h3>
-          <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${bookingList.length} records`}</p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${bookingList.length} records`}</p>
+            <ExportMenu
+              disabled={isLoading || bookingList.length === 0}
+              onExport={(format) => exportRows({
+                title: 'Booking Records',
+                headers: ['Sl No', 'Date', 'PNR', 'Service', 'Seat', 'Passenger', 'Fare', 'Commission', 'Amount', 'Booked By', 'Status'],
+                rows: bookingList.map((r, i) => [
+                  i + 1, formatDate(r.date), r.pnr_no ?? '', r.servicenumber ?? '', r.seatnumber ?? '', r.name ?? '',
+                  Number(r.fare) || 0, Number(r.agentcommission) || 0, Number(r.finalamount) || 0, r.bookedby ?? '',
+                  r.agentstatus == 1 ? 'Assigned' : 'Pending',
+                ]),
+                format,
+              })}
+            />
+          </div>
         </div>
         <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left min-w-[900px]">

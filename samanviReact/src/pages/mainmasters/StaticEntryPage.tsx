@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { Building2, Save, Pencil, Check, X, Trash2, Plus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { mainmastersService } from '@/services/mainmasters.service'
 
 export default function StaticEntryPage() {
@@ -113,6 +114,11 @@ export default function StaticEntryPage() {
           <span className="text-xs text-slate-500 font-medium ml-1">
             {isLoading ? 'Loading…' : `${list.length} record${list.length !== 1 ? 's' : ''}`}
           </span>
+          <ExportMenu
+            className="ml-auto"
+            disabled={isLoading || list.length === 0}
+            onExport={(format) => exportRows({ title: 'Static Entries', headers: ['Sl No', 'Entry Name'], rows: list.map((r) => [r.i, r.districtnm ?? '']), format })}
+          />
         </div>
 
         <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">

@@ -1,11 +1,11 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
+import { BookMarked, Search, X, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
@@ -1130,12 +1130,7 @@ export default function LedgerWisePage() {
                   <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
                 </span>
               )}
-              <Button variant="outline" onClick={exportExcel} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
-                <FileSpreadsheet className="w-4 h-4" /> Download Excel
-              </Button>
-              <Button variant="outline" onClick={exportPDF} className="border-red-300 text-red-700 hover:bg-red-50">
-                <FileText className="w-4 h-4" /> Download PDF
-              </Button>
+              <ExportMenu onExport={(f) => f === 'excel' ? exportExcel() : exportPDF()} />
             </div>
           </div>
 

@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Save, X, Plus, Edit2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { mastersService } from '@/services/masters.service'
 
 export default function DesignationPage() {
@@ -66,7 +67,13 @@ export default function DesignationPage() {
       <GlassCard className="overflow-hidden">
         <div className="p-5 border-b border-slate-100 bg-white/40 flex items-center justify-between">
           <h3 className="font-bold text-slate-900 text-lg">Designation List</h3>
-          <span className="text-xs text-slate-500 font-medium">{isLoading ? 'Loading…' : `${list.length} record${list.length !== 1 ? 's' : ''}`}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-500 font-medium">{isLoading ? 'Loading…' : `${list.length} record${list.length !== 1 ? 's' : ''}`}</span>
+            <ExportMenu
+              disabled={isLoading || list.length === 0}
+              onExport={(format) => exportRows({ title: 'Designation List', headers: ['Sl No', 'Designation', 'Level'], rows: list.map((r) => [r.sno, r.type_name ?? '', r.level ?? '']), format })}
+            />
+          </div>
         </div>
         <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left">

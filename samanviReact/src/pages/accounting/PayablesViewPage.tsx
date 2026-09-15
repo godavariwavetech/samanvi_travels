@@ -1,10 +1,10 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
-import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -1764,20 +1764,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
           subtitle="Track and record outstanding payable transactions"
         />
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={exportToExcel}
-            disabled={rows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-40"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Excel
-          </button>
-          <button
-            onClick={exportToPDF}
-            disabled={rows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-40"
-          >
-            <FileText className="w-4 h-4" /> PDF
-          </button>
+          <ExportMenu disabled={rows.length === 0} onExport={(f) => f === 'excel' ? exportToExcel() : exportToPDF()} />
         </div>
       </div>
 

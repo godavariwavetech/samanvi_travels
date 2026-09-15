@@ -52,7 +52,13 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Sold Out / Service Out', path: '/masters/service-out' },
     ],
   },
-  { id: 'validations', label: 'Validations', icon: ShieldCheck, path: '/validations' },
+  {
+    id: 'validations', label: 'Validations', icon: ShieldCheck,
+    children: [
+      { label: 'Drivers',  path: '/validations/drivers' },
+      { label: 'Vehicles', path: '/validations/vehicles' },
+    ],
+  },
   {
     id: 'trips', label: 'Trip Management', icon: Map,
     children: [

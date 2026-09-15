@@ -1,13 +1,13 @@
 ﻿import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, FileDown, FileText, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
+import { ChevronDown, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
@@ -838,18 +838,7 @@ export default function GroupWisePage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={exportExcel}
-              disabled={!tableRows.length}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors shadow-sm">
-              <FileDown className="w-4 h-4" /> Excel
-            </button>
-            <button
-              onClick={exportPDF}
-              disabled={!tableRows.length}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-40 transition-colors shadow-sm">
-              <FileText className="w-4 h-4" /> PDF
-            </button>
+            <ExportMenu disabled={!tableRows.length} onExport={(f) => f === 'excel' ? exportExcel() : exportPDF()} />
           </div>
         </div>
       </GlassCard>

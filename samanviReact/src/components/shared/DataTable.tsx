@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { Search, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
+import { Search, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
 import { Input } from './Input'
 import { ColumnFilterDropdown } from './ColumnFilterDropdown'
+import { ExportMenu } from './ExportMenu'
 import { cn } from '@/lib/utils'
+import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 
 export interface Column<T = Record<string, unknown>> {
   label: string
@@ -52,6 +54,14 @@ interface DataTableProps<T extends Record<string, unknown>> {
   pageSize?: number
   /** Opt-in: mirror a slim scrollbar above the table, synced with the table's own horizontal scroll — lets wide tables be scrolled without hunting for the scrollbar below a long list of rows. */
   topScrollbar?: boolean
+  /** Export button (Excel / PDF of the rows left after search and filters). On by default. */
+  exportable?: boolean
+  /** File / PDF heading for the export. Defaults to the title. */
+  exportTitle?: string
+  /** A page whose export has its own layout (an import-ready sheet, a report
+   *  with totals) plugs it into this button per format, so the page never
+   *  shows two Export buttons. A format left out uses the built-in export. */
+  onExport?: Partial<Record<ExportFormat, (rows: T[]) => void | Promise<void>>>
 }
 
 function buildPageList(current: number, total: number): (number | '…')[] {
@@ -144,6 +154,9 @@ export function DataTable<T extends Record<string, unknown>>({
   // On by default: every list gets a scrollbar above its header, so a wide
   // table can be swiped from the top instead of hunting for the bar under it.
   topScrollbar = true,
+  exportable = true,
+  exportTitle,
+  onExport,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
@@ -301,6 +314,21 @@ export function DataTable<T extends Record<string, unknown>>({
     onAction?.(action, row)
   }
 
+  // Every row the search and filters leave (all pages, not just the one shown),
+  // each cell as the text it renders on screen.
+  const handleExport = async (format: ExportFormat) => {
+    const custom = onExport?.[format]
+    if (custom) return custom(filtered)
+    const render = await loadCellRenderer()
+    const cols = columns.filter((c) => c.label.trim())
+    const rows = filtered.map((row, i) => cols.map((col) => {
+      const raw = (row as any)[col.key]
+      if (col.render) return nodeText(render, col.render(raw, row, i), raw)
+      return raw == null || typeof raw === 'object' ? '' : typeof raw === 'number' ? raw : String(raw)
+    }))
+    exportRows({ title: exportTitle || title, headers: cols.map((c) => c.label), rows, format })
+  }
+
   const actionButtons = [
     { type: 'view' as const, icon: Eye, cls: 'text-blue-600 bg-blue-50 hover:bg-blue-100 border-blue-100' },
     { type: 'edit' as const, icon: Edit2, cls: 'text-amber-600 bg-amber-50 hover:bg-amber-100 border-amber-100' },
@@ -346,9 +374,7 @@ export function DataTable<T extends Record<string, unknown>>({
             </button>
           )}
 
-          <Button variant="outline" size="sm" className="h-9 sm:h-10 bg-white flex-shrink-0">
-            <Download className="w-4 h-4" /> <span className="hidden sm:inline">Export</span>
-          </Button>
+          {exportable && <ExportMenu onExport={handleExport} disabled={loading || filtered.length === 0} />}
         </div>
       </div>
       {filterBar && (

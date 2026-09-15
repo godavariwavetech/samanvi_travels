@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { CreditCard, CheckCircle, Send, TrendingUp } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable } from '@/components/shared'
+import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { bookingService } from '@/services/booking.service'
 import { formatCurrency } from '@/lib/utils'
 
@@ -123,7 +124,24 @@ export default function AccountantPage() {
       <GlassCard className="overflow-hidden">
         <div className="p-5 border-b border-slate-100 bg-white/40 flex justify-between items-center">
           <h3 className="font-bold text-slate-900 text-lg">Collection Records</h3>
-          <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${recordList.length} records`}</p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${recordList.length} records`}</p>
+            <ExportMenu
+              disabled={isLoading || recordList.length === 0}
+              onExport={(format) => exportRows({
+                title: 'Collection Records',
+                headers: ['Sl No', 'Passenger', 'Fare', 'Remarks', 'Agent', 'Status'],
+                rows: [
+                  ...recordList.map((r, i) => [
+                    i + 1, r.name ?? r.accontant_id ?? '', Number(r.amount) || 0, r.ramrks ?? '', r.assigned_name ?? '',
+                    r.status == 2 ? 'Accepted' : r.status == 1 ? 'Rejected' : 'Pending',
+                  ]),
+                  ['', 'Total', totalAmount, '', '', ''],
+                ],
+                format,
+              })}
+            />
+          </div>
         </div>
         <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left min-w-[700px]">

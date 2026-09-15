@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Bus, Save, Plus, X, Edit2, Upload, Download, FileSpreadsheet, History, Clock, LogOut } from 'lucide-react'
+import { Bus, Save, Plus, X, Edit2, Upload, Download, History, Clock, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect, FormModal } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -450,8 +450,10 @@ export default function BusNoPage() {
     const led = hireLedgers.find((l: any) => String(l.ledger_id) === String(id))
     return led ? String(led.temple_name ?? '') : ''
   }
-  const downloadData = () => {
-    const everything: any[] = data?.data ?? []
+  // The table's Export > Excel: the rows it shows, in the import sheet's layout
+  // for the Bus / Van choice, so the file can be edited and imported back.
+  const downloadData = (shown?: any[]) => {
+    const everything: any[] = shown ?? data?.data ?? []
     const all = everything.filter(b => (sheetType === 'Van' ? isVanVehicle(b) : !isVanVehicle(b)))
     if (sheetType === 'Van') {
       const vanRows = all.map(b => [
@@ -627,10 +629,10 @@ export default function BusNoPage() {
         )}
       </div>
 
-      {/* ── Add / Edit Form ── */}
+      {/* ── Add / Edit Form (popup) ── */}
       <AnimatePresence>
         {showForm && (
-          <motion.div key="bus-form" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }}>
+          <FormModal key="bus-form">
             <div ref={formRef}>
             <GlassCard className="p-6" colorBar={isEdit ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-blue-500 to-cyan-500'}>
 
@@ -775,7 +777,7 @@ export default function BusNoPage() {
               </div>
             </GlassCard>
             </div>
-          </motion.div>
+          </FormModal>
         )}
       </AnimatePresence>
 
@@ -799,12 +801,6 @@ export default function BusNoPage() {
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
           >
             <Download className="w-3.5 h-3.5" /> Download Template
-          </button>
-          <button
-            onClick={downloadData}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Export All Data
           </button>
           <label className="cursor-pointer">
             <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${uploading ? 'border-blue-200 bg-blue-50 text-blue-400' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
@@ -845,6 +841,7 @@ export default function BusNoPage() {
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters(prev => ({ ...prev, [k]: v }))}
         className="border-2 border-slate-200"
+        onExport={{ excel: (rows) => downloadData(rows) }}
         paginated
         pageSize={10}
         topScrollbar

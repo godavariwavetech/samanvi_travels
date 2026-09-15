@@ -1,13 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Plus, X, Save, Edit2, Search, Route, Upload, Download, FileSpreadsheet } from 'lucide-react'
+import { Plus, X, Save, Edit2, Search, Route, Upload, Download } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, MasterListPicker, ExcelImportPreviewModal, TopNavTabs } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, MasterListPicker, ExcelImportPreviewModal, TopNavTabs, FormModal } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { scrollContentToTop, headerRowMismatch } from '@/lib/utils'
+import { headerRowMismatch, formatDate } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 const EMPTY: Record<string, string> = {
@@ -194,6 +194,8 @@ export default function ServiceNoPage() {
   }
 
   const isVanRoute = (r: any) => String(r.vehicle_type ?? 'bus') === 'van'
+  // Rows from before the column existed are active.
+  const isActiveRoute = (r: any) => String(r.is_active ?? '1') !== '0'
   const typeList = useMemo(
     () => routeList.filter((r) => (listType === 'Van' ? isVanRoute(r) : !isVanRoute(r))),
     [routeList, listType])
@@ -201,7 +203,52 @@ export default function ServiceNoPage() {
     if (search && !String(r.serviceNo ?? '').toLowerCase().includes(search.trim().toLowerCase())) return false
     if (filterFor && r.serviceFor !== filterFor) return false
     return true
-  }), [typeList, search, filterFor])
+  }).map((r) => ({ ...r, status_label: isActiveRoute(r) ? 'Active' : 'Inactive' })), [typeList, search, filterFor])
+
+  // Active / Inactive: an inactive service number is not offered on Trip
+  // Creation until it is switched back on. Its past trips are untouched.
+  const { mutate: setActive, isPending: settingActive } = useMutation({
+    mutationFn: (row: any) => mastersService.setServiceRouteActive({
+      id: row.id, is_active: isActiveRoute(row) ? 0 : 1,
+      userid: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res, row: any) => {
+      if (res.status === 200) {
+        toast.success(`${row.serviceNo} ${isActiveRoute(row) ? 'deactivated - hidden from Trip Creation from today (earlier dates still show it)' : 'activated'}`)
+        qc.invalidateQueries({ queryKey: ['routes'] })
+      } else toast.error('Failed to update status')
+    },
+    onError: () => toast.error('Server error'),
+  })
+  const tableCols: Column[] = useMemo(() => {
+    const statusCol: Column = {
+      label: 'Status', key: 'status_label', filterable: true,
+      filterOptions: [{ label: 'Active', value: 'Active' }, { label: 'Inactive', value: 'Inactive' }],
+      render: (v, row: any) => {
+        const on = v === 'Active'
+        return (
+          <button
+            type="button"
+            disabled={settingActive}
+            onClick={() => setActive(row)}
+            title={on ? 'Click to deactivate' : 'Click to activate'}
+            className="inline-flex items-center gap-2 disabled:opacity-60"
+          >
+            <span className={`relative inline-block w-9 h-5 rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${on ? 'left-[18px]' : 'left-0.5'}`} />
+            </span>
+            <span className="text-left">
+              <span className={`block text-xs font-semibold ${on ? 'text-emerald-700' : 'text-slate-500'}`}>{on ? 'Active' : 'Inactive'}</span>
+              {!on && row.inactive_from && <span className="block text-[10px] text-slate-400 whitespace-nowrap">from {formatDate(row.inactive_from)}</span>}
+            </span>
+          </button>
+        )
+      },
+    }
+    // Right after Service No, so the state is read alongside the number.
+    const at = cols.findIndex((c) => c.key === 'serviceNo') + 1
+    return [...cols.slice(0, at), statusCol, ...cols.slice(at)]
+  }, [settingActive, setActive])
 
   const buildPayload = () => ({
     ...form,
@@ -229,7 +276,6 @@ export default function ServiceNoPage() {
     const next = Object.fromEntries(Object.keys(EMPTY).map((k) => [k, row[k] ?? '']))
     setForm(next); setFormTab(formTabFor(next))
     setIsEdit(true); setEditId(row.id); setShowForm(true)
-    scrollContentToTop()
   }
 
   const { mutate: del } = useMutation({
@@ -269,9 +315,12 @@ export default function ServiceNoPage() {
   }
 
   // ── Excel download — current data ─────────────────────────────────────────
-  const downloadData = () => {
+  // The table's Export > Excel: the rows it shows, in the upload sheet's layout,
+  // so the file can be edited and imported back.
+  const downloadData = (shown?: any[]) => {
+    const source: any[] = shown ?? typeList
     if (listType === 'Van') {
-      const vanRows = typeList.map(r => [
+      const vanRows = source.map(r => [
         r.serviceFor ?? '', r.serviceNo ?? '', r.bus_operator_name ?? '', r.trip_type ?? '', r.line_code ?? '',
         r.start_boarding_point ?? '', r.start_boarding_time ?? '', r.end_boarding_point ?? '', r.end_boarding_time ?? '',
         r.viaPlaces ?? '', r.remarks ?? '',
@@ -280,7 +329,7 @@ export default function ServiceNoPage() {
       toast.success(`Exported ${vanRows.length} van routes`)
       return
     }
-    const rows = typeList.map(r => [
+    const rows = source.map(r => [
       r.serviceFor ?? '', r.serviceNo ?? '', r.fromCity ?? '', r.toCity ?? '', r.viaPlaces ?? '',
       r.parkingAmount ?? '', r.driverOneBeta ?? '', r.driverTwoBeta ?? '', r.helperBeta ?? '',
       r.conductorBeta ?? '', r.distance ?? '', r.optDriver ?? '', r.optHelper ?? '',
@@ -417,10 +466,10 @@ export default function ServiceNoPage() {
         {!showForm && <Button onClick={openAdd}><Plus className="w-4 h-4" /> Add Service Number</Button>}
       </div>
 
-      {/* ── Form ── */}
+      {/* ── Form (popup) ── */}
       <AnimatePresence>
         {showForm && (
-          <motion.div key="svc-form" initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }}>
+          <FormModal key="svc-form">
             <GlassCard className="p-6" colorBar={isEdit ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-indigo-500 to-blue-500'}>
 
               <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
@@ -583,7 +632,7 @@ export default function ServiceNoPage() {
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
               </div>
             </GlassCard>
-          </motion.div>
+          </FormModal>
         )}
       </AnimatePresence>
 
@@ -630,12 +679,6 @@ export default function ServiceNoPage() {
           >
             <Download className="w-3.5 h-3.5" /> Template
           </button>
-          <button
-            onClick={downloadData}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Export
-          </button>
           <label className="cursor-pointer">
             <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${uploading ? 'border-blue-200 bg-blue-50 text-blue-400' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
               <Upload className="w-3.5 h-3.5" /> {uploading ? 'Uploading…' : 'Import Excel'}
@@ -658,7 +701,7 @@ export default function ServiceNoPage() {
       {/* ── Routes table ── */}
       <DataTable
         title={`${listType} Service Routes (${filtered.length})`}
-        columns={cols}
+        columns={tableCols}
         data={filtered}
         loading={isLoading}
         onAction={(action, row) => {
@@ -667,6 +710,7 @@ export default function ServiceNoPage() {
         }}
         actions={['edit', 'delete']}
         icon={<Route className="w-5 h-5 text-indigo-500" />}
+        onExport={{ excel: (rows) => downloadData(rows) }}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters(prev => ({ ...prev, [k]: v }))}
       />

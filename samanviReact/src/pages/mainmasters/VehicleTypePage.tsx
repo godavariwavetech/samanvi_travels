@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { Bus, Plus, X, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { mastersService } from '@/services/masters.service'
 
 export default function VehicleTypePage() {
@@ -74,9 +75,15 @@ export default function VehicleTypePage() {
 
       {/* Existing types */}
       <GlassCard className="p-6">
-        <h3 className="font-bold text-slate-700 mb-4">
-          Current Vehicle Types ({types.length})
-        </h3>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="font-bold text-slate-700">
+            Current Vehicle Types ({types.length})
+          </h3>
+          <ExportMenu
+            disabled={types.length === 0}
+            onExport={(format) => exportRows({ title: 'Vehicle Types', headers: ['Sl No', 'Type Name'], rows: types.map((t, i) => [i + 1, t.type_name ?? '']), format })}
+          />
+        </div>
 
         {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -1817,6 +1817,18 @@ exports.getServiceOutBusesMdl = function (callback) {
   var QRY_TO_EXEC = `SELECT * FROM busses WHERE d_in=1 AND service_out_date IS NOT NULL AND service_out_date <> '' ORDER BY service_out_date DESC`;
   dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, callback);
 };
+// Active / Inactive toggle on a service number (Masters > Service Numbers).
+exports.setServiceNoActiveMdl = function (data, callback) {
+  var cntxtDtls = "in setServiceNoActiveMdl";
+  var active = String(data.is_active) === '0' || data.is_active === false ? 0 : 1;
+  // Switched off from today (IST): trips on earlier dates can still be made on
+  // it. Switching it back on clears the date.
+  var inactiveFrom = active ? null : moment().utcOffset("+05:30").format("YYYY-MM-DD");
+  dbutil.execupdateQuery(sqldb,
+    'UPDATE driverone SET is_active = ?, inactive_from = ?, updated_by = ?, updated_userid = ? WHERE id = ?',
+    [active, inactiveFrom, data.usrnm || null, data.userid || null, data.id], cntxtDtls, callback);
+};
+
 exports.deletedriveoneMdl = function (data, callback) {
   var cntxtDtls = "in deletedriveoneMdl";
   var QRY_TO_EXEC = `UPDATE driverone SET d_in = 1 WHERE id = '${data.id}'`;
@@ -2906,12 +2918,12 @@ exports.getexpensesMdl = function (data, callback) {
   SELECT
   t.*,
   t.id AS trip_creation_id,
-  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
-  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, t.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, t.helper_name) AS helper_name,
   COALESCE(s.fullName, t.conductor_name) AS conductor_name,
   CASE
-    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(NULLIF(d3.nickname, ''), d3.driver_name, t.paid_to_name)
     WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
     WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
     ELSE t.paid_to_name
@@ -2924,7 +2936,12 @@ exports.getexpensesMdl = function (data, callback) {
   -- The hire Journal a hired-van trip posts at creation, so the expense screen
   -- can say the charge is already on the books instead of looking empty.
   vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
-  vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name
+  vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name,
+  -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
+  dn.up_down AS up_down, dn.trip_type AS pick_drop,
+  -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
+  -- the same way the trip's own approval does.
+  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
 FROM
   trip_created t
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
@@ -2937,6 +2954,7 @@ LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
 LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
 LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+LEFT JOIN driverone dn ON dn.id = t.service_no_id
 WHERE
   t.d_in = '0' AND t.admin_status != '1'
   order by trip_date DESC;
@@ -3374,12 +3392,12 @@ exports.getexpensesfiltere = function (data, callback) {
   var QRY_TO_EXEC = `SELECT
   t.*,
   t.id AS trip_creation_id,
-  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
-  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, t.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, t.helper_name) AS helper_name,
   COALESCE(s.fullName, t.conductor_name) AS conductor_name,
   CASE
-    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(NULLIF(d3.nickname, ''), d3.driver_name, t.paid_to_name)
     WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
     WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
     ELSE t.paid_to_name
@@ -3392,7 +3410,12 @@ exports.getexpensesfiltere = function (data, callback) {
   -- The hire Journal a hired-van trip posts at creation, so the expense screen
   -- can say the charge is already on the books instead of looking empty.
   vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
-  vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name
+  vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name,
+  -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
+  dn.up_down AS up_down, dn.trip_type AS pick_drop,
+  -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
+  -- the same way the trip's own approval does.
+  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
 FROM trip_created t
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
 LEFT JOIN driver_register d2 ON t.driver2_id = d2.id
@@ -3404,6 +3427,7 @@ LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
 LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
 LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+LEFT JOIN driverone dn ON dn.id = t.service_no_id
 WHERE t.d_in = 0 AND t.trip_date BETWEEN '${data.fromdate}' AND '${data.todate}'
 ORDER BY t.id DESC`;
   if (callback && typeof callback == "function")
@@ -3417,6 +3441,21 @@ ORDER BY t.id DESC`;
       }
     );
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+};
+
+// Why a filed trip expense may no longer be edited or deleted, or '' when it
+// may: the trip is approved, or its voucher is approved in Voucher Approvals.
+exports.tripExpenseLockMdl = function (c_number, callback) {
+  sqldb.query(
+    "SELECT t.admin_status, (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status, t.voucher_number FROM trip_created t WHERE t.c_number = ? AND t.d_in = 0 LIMIT 1",
+    [String(c_number || '')], function (err, rows) {
+      if (err) return callback(err);
+      var r = rows && rows[0];
+      if (!r) return callback(null, '');
+      if (Number(r.admin_status) === 1) return callback(null, 'This trip is approved - its expense can no longer be changed');
+      if (Number(r.voucher_status) === 1) return callback(null, 'Voucher ' + r.voucher_number + ' for this trip is already approved - reopen it in Voucher Approvals before changing the expense');
+      callback(null, '');
+    });
 };
 
 exports.deleteexpenseMdl = function (data, callback) {
@@ -5118,9 +5157,15 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
   // log a trip_edit_history row if anything actually changed. Mirrors
   // updatebusnumber's history-logging pattern above.
   var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
-  var trackedFields = { bus_no: data.bus_no, driver1_name: data.driver1_name, driver2_name: data.driver2_name, helper_name: data.helper_name, conductor_name: data.conductor_name, trip_run_status: data.trip_run_status, hirer_name: data.hirer_name };
+  // Only fields the edit actually sends are compared: Trip Expenses sends no
+  // status or hirer, and diffing those against "missing" logged a false
+  // "Status: 'Running' -> '—'" on every filing.
+  var trackedFields = {};
+  ['bus_no', 'driver1_name', 'driver2_name', 'helper_name', 'conductor_name', 'trip_run_status', 'hirer_name'].forEach(function (k) {
+    if (data[k] !== undefined && String(data[k]) !== 'undefined') trackedFields[k] = data[k];
+  });
 
-  sqldb.query(`SELECT bus_no, driver1_name, driver2_name, helper_name, conductor_name, trip_run_status, hirer_name, trip_date, vehicle_type FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
+  sqldb.query(`SELECT bus_no, driver1_name, driver1_id, driver2_name, helper_name, conductor_name, trip_run_status, hirer_name, phone_number, booking_amount, opt_driver1_name, opt_driver1_mobile, trip_date, vehicle_type, status, voucher_number, c_number FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
     var before = (!selErr && rows && rows[0]) ? rows[0] : {};
 
     // A bus runs one trip a day (a van may run several), so a bus moved onto
@@ -5136,7 +5181,42 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
           next();
         });
     };
-    guardBus(function () {
+    // A van trip edited from Trip Creation: once its expense is filed, the van,
+    // the driver arrangement (registered / opting) and the Amount are what the
+    // posted voucher was built from, so changing any of them here left the
+    // voucher standing for a trip that no longer matched it (an opting pay on a
+    // hired van, a 1200 hire on a 1500 trip). The expense has to be edited or
+    // deleted in Trip Expenses first. Otherwise the same row rules as the Van
+    // grid apply. Trip Expenses' own save (source 'expense') re-posts the
+    // voucher itself, so it is not held to either check.
+    var guardVan = function (next) {
+      if (String(before.vehicle_type || '') !== 'van' || data.source === 'expense') return next();
+      var eff = function (k) { return data[k] !== undefined ? data[k] : before[k]; };
+      var isOpt = function (v) { return /^opting/i.test(String(v == null ? '' : v).trim()); };
+      var amt = function (v) { return parseFloat(v) || 0; };
+      if (Number(before.status) === 1) {
+        var moved = data.bus_no !== undefined && String(data.bus_no || '') !== String(before.bus_no || '');
+        var driverChanged = (data.driver1_id !== undefined && String(data.driver1_id || '') !== String(before.driver1_id || ''))
+          || (data.driver1_name !== undefined && isOpt(data.driver1_name) !== isOpt(before.driver1_name));
+        var amountChanged = data.booking_amount !== undefined && amt(data.booking_amount) !== amt(before.booking_amount);
+        var haltChanged = data.trip_run_status !== undefined && (String(data.trip_run_status) === 'Halt') !== (String(before.trip_run_status) === 'Halt');
+        if (moved || driverChanged || amountChanged || haltChanged) {
+          return callback(null, { affectedRows: 0, conflict: 'The expense for trip ' + (before.c_number || '') + ' is already filed' + (before.voucher_number ? ' under voucher ' + before.voucher_number : '') + '. Edit or delete it in Trip Expenses before changing the van, driver, amount or status.' });
+        }
+      }
+      var busNo = eff('bus_no');
+      sqldb.query("SELECT bus_category FROM busses WHERE bus_no = ? AND d_in = 0 LIMIT 1", [busNo || ''], function (bErr, bRows) {
+        var hired = !bErr && bRows && bRows[0] && String(bRows[0].bus_category || '') === 'hire';
+        var problem = exports.vanTripRowProblem({
+          trip_run_status: eff('trip_run_status'), bus_no: busNo, driver1_name: eff('driver1_name'),
+          opt_driver1_name: eff('opt_driver1_name'), opt_driver1_mobile: eff('opt_driver1_mobile'),
+          hirer_name: eff('hirer_name'), phone_number: eff('phone_number'), booking_amount: eff('booking_amount'),
+        }, hired);
+        if (problem) return callback(null, { affectedRows: 0, conflict: problem });
+        next();
+      });
+    };
+    guardBus(function () { guardVan(function () {
     // Only the fields actually supplied are written. A Bus edit has no
     // hirer_name and a Van edit has no service_no_id, so writing a fixed column
     // list would blank whichever the form didn't show. optreg/optreg1/optreg2
@@ -5155,7 +5235,9 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
       'driver1_paid_direct', 'driver2_paid_direct', 'helper_paid_direct', 'conductor_paid_direct',
       'updatedby_id', 'updatedby_name', 'updated_date'];
     var sets = EDITABLE
-      .filter(function (k) { return data[k] !== undefined; })
+      // The literal 'undefined' is never a value: it is what a corrupted
+      // expense row echoed back from Trip Expenses looks like.
+      .filter(function (k) { return data[k] !== undefined && String(data[k]) !== 'undefined'; })
       .map(function (k) { return '`' + k + "` = '" + esc(data[k]) + "'"; });
     if (sets.length === 0) { callback(null, { affectedRows: 0 }); return; }
     QRY_TO_EXEC = 'UPDATE trip_created SET ' + sets.join(', ') + ' WHERE id = ' + Number(data.id);
@@ -5180,8 +5262,35 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
         callback(null, results);
       });
     });
-    });
+    }); });
   });
+};
+
+// The Van grid's row rules (vanRowReady in TripCreationPage.tsx), kept on the
+// server too: the screen blocks these rows, but a stale screen or a direct call
+// used to save an own van with no driver, an opting driver with no name or a
+// bad mobile, and a hired van with no hirer or amount. Returns the reason a row
+// is incomplete, or '' when it is fine. A halted van needs nothing.
+exports.vanTripRowProblem = function (r, hired) {
+  var s = function (v) { return String(v == null ? '' : v).trim(); };
+  var validMobile = function (m) { return /^[6-9]\d{9}$/.test(s(m)); };
+  if (s(r.trip_run_status) === 'Halt') return '';
+  if (!s(r.bus_no)) return 'Pick the van';
+  var opting = /^opting/i.test(s(r.driver1_name));
+  if (hired) {
+    if (!s(r.hirer_name)) return 'A hired van needs the hirer name';
+    if (s(r.phone_number) && !validMobile(r.phone_number)) return 'The hirer mobile must be 10 digits starting 6-9';
+    if (!((parseFloat(r.booking_amount) || 0) > 0)) return 'A hired van needs the hire amount';
+    return '';
+  }
+  if (opting) {
+    if (!s(r.opt_driver1_name)) return 'An opting driver needs a name';
+    if (!validMobile(r.opt_driver1_mobile)) return 'An opting driver needs a 10-digit mobile starting 6-9';
+    if (!((parseFloat(r.booking_amount) || 0) > 0)) return 'An opting driver needs the amount';
+    return '';
+  }
+  if (!s(r.driver1_name)) return 'Pick the driver';
+  return '';
 };
 
 // ── Bulk Trip Creation (date-picker + per-service-route grid) ─────────────────
@@ -5221,7 +5330,7 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
   // And one trip per bus per day: a bus already out on a live bus trip that
   // date, or picked twice within this batch, is dropped and counted back as
   // skipped_bus. Vans are exempt - a van may run several services a day.
-  var skipped = 0, skippedBus = 0;
+  var skipped = 0, skippedBus = 0, skippedInactive = 0, skippedInvalid = 0, invalidReasons = [];
   var isVanRow = function (r) { return String(r.vehicle_type || '') === 'van'; };
   var serviceIds = toInsert.map(function (r) { return r.service_no_id; }).filter(function (v) { return v != null && v !== ''; });
   var busNos = toInsert.filter(function (r) { return !isVanRow(r) && r.bus_no; }).map(function (r) { return r.bus_no; });
@@ -5253,10 +5362,45 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
         then();
       });
     };
-    byService(function () { byBus(next); });
+    // An inactive service number (Masters > Service Numbers) takes no trips
+    // until it is reactivated; the grid hides it, a stale screen is caught here.
+    var byInactive = function (then) {
+      if (!serviceIds.length) return then();
+      // Only from the day it was switched off - an earlier date still takes trips.
+      sqldb.query('SELECT id FROM driverone WHERE is_active = 0 AND (inactive_from IS NULL OR inactive_from <= ?) AND id IN (?)', [trip_date, serviceIds], function (err, rows) {
+        if (err || !rows || !rows.length) return then();
+        var off = {};
+        rows.forEach(function (x) { off[String(x.id)] = true; });
+        toInsert = toInsert.filter(function (r) {
+          if (r.service_no_id != null && off[String(r.service_no_id)]) { skippedInactive++; return false; }
+          return true;
+        });
+        then();
+      });
+    };
+    // Van rows the grid would not have let through (see vanTripRowProblem) are
+    // dropped and counted back as skipped_invalid with their reasons.
+    var byVanRules = function (then) {
+      var vans = toInsert.filter(isVanRow);
+      if (!vans.length) return then();
+      var nos = vans.map(function (r) { return r.bus_no; }).filter(function (v) { return v; });
+      sqldb.query("SELECT bus_no, bus_category FROM busses WHERE d_in = 0 AND bus_no IN (?)", [nos.length ? nos : ['']], function (err, rows) {
+        var hire = {};
+        (rows || []).forEach(function (x) { if (String(x.bus_category || '') === 'hire') hire[String(x.bus_no)] = true; });
+        toInsert = toInsert.filter(function (r) {
+          if (!isVanRow(r)) return true;
+          var problem = exports.vanTripRowProblem(r, !!hire[String(r.bus_no || '')]);
+          if (!problem) return true;
+          skippedInvalid++; invalidReasons.push((r.service_no || '') + ': ' + problem);
+          return false;
+        });
+        then();
+      });
+    };
+    byInactive(function () { byVanRules(function () { byService(function () { byBus(next); }); }); });
   };
   dedupe(function () {
-    if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, voucherCandidates: [] });
+    if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, skipped_inactive: skippedInactive, skipped_invalid: skippedInvalid, invalid_reasons: invalidReasons, voucherCandidates: [] });
     resolveNext();
   });
 
@@ -5322,7 +5466,7 @@ exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback)
       var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver1_mobile, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, voucherCandidates: voucherCandidates });
+        callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, skipped_inactive: skippedInactive, skipped_invalid: skippedInvalid, invalid_reasons: invalidReasons, voucherCandidates: voucherCandidates });
       });
       });
     });
@@ -5375,56 +5519,47 @@ exports.updatetripcreated = function (data, callback) {
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD ");
   var QRY_TO_EXEC = ``;
 
-  QRY_TO_EXEC = `
-        UPDATE tripexpenses_data
-        SET 
-        trip_date = '${data.trip_date}',
-        bus_no = '${data.bus_no}',
-        service_no = '${data.service_no}',
-        service_no_id  = '${data.service_no_id}',
-        trip_for = '${data.trip_for}',
-        trip_for_id = '${data.trip_for_id}',
-        driveronebeta = '${data.optreg}',
-        driver1_name = '${data.driver1_name}',
-        driver1_id = '${data.driver1_id}',
-        drivertwobeta = '${data.optreg1}',
-        driver2_name = '${data.driver2_name}',
-        driver2_id = '${data.driver2_id}',
-        helperbeta = '${data.optreg2}',
-        helper_name = '${data.helper_name}',
-        helper_id = '${data.helper_id}',
-        conductor_name = '${data.conductor_name}',
-        conductor_id = '${data.conductor_id}',
-        paid_to_type = '${data.paid_to_type}',
-        paid_to_name = '${data.paid_to_name}',
-        paid_to_id = '${data.paid_to_id}',
-        remarks = '${data.remarks}'
-        WHERE trip_creation_id = '${data.id}' ;
-
-
-        UPDATE expensive_details
-        SET 
-        bus_no = '${data.bus_no}',
-        service_no = '${data.service_no}',
-        trip_date = '${data.trip_date}',
-        paid_to_type = '${data.paid_to_type}',
-        paid_to_name = '${data.paid_to_name}',
-        paid_to_id = '${data.paid_to_id}'
-        WHERE trip_creation_id = ${data.id};
-        `;
-  // console.log(QRY_TO_EXEC)
-
-  if (callback && typeof callback == "function")
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  // Only the fields the edit actually carries are copied onto the filed
+  // expense. A Van edit from Trip Creation sends no trip date, service, crew
+  // or paid-to, and writing a fixed column list turned every one of those into
+  // the text 'undefined' - which Trip Expenses then read back and saved onto
+  // the trip itself, so the trip lost its date and service.
+  var present = function (v) { return v !== undefined && v !== null && String(v) !== 'undefined'; };
+  var build = function (map) {
+    var sets = [], vals = [];
+    Object.keys(map).forEach(function (col) {
+      var key = map[col];
+      if (present(data[key])) { sets.push('`' + col + '` = ?'); vals.push(data[key]); }
+    });
+    return { sets: sets, vals: vals };
+  };
+  var te = build({
+    trip_date: 'trip_date', bus_no: 'bus_no', service_no: 'service_no', service_no_id: 'service_no_id',
+    trip_for: 'trip_for', trip_for_id: 'trip_for_id',
+    driveronebeta: 'optreg', driver1_name: 'driver1_name', driver1_id: 'driver1_id',
+    drivertwobeta: 'optreg1', driver2_name: 'driver2_name', driver2_id: 'driver2_id',
+    helperbeta: 'optreg2', helper_name: 'helper_name', helper_id: 'helper_id',
+    conductor_name: 'conductor_name', conductor_id: 'conductor_id',
+    paid_to_type: 'paid_to_type', paid_to_name: 'paid_to_name', paid_to_id: 'paid_to_id',
+    opt_driver1_name: 'opt_driver1_name',
+    remarks: 'remarks',
+  });
+  var ed = build({
+    bus_no: 'bus_no', service_no: 'service_no', trip_date: 'trip_date',
+    paid_to_type: 'paid_to_type', paid_to_name: 'paid_to_name', paid_to_id: 'paid_to_id',
+  });
+  var tripId = String(data.id);
+  var runTe = function (next) {
+    if (!te.sets.length) return next(null, null);
+    dbutil.execupdateQuery(sqldb, 'UPDATE tripexpenses_data SET ' + te.sets.join(', ') + ' WHERE trip_creation_id = ?', te.vals.concat([tripId]), cntxtDtls, next);
+  };
+  runTe(function (err, r1) {
+    if (err) { if (callback) callback(err, r1); return; }
+    if (!ed.sets.length) { if (callback) callback(null, r1 || { affectedRows: 0 }); return; }
+    dbutil.execupdateQuery(sqldb, 'UPDATE expensive_details SET ' + ed.sets.join(', ') + ' WHERE trip_creation_id = ?', ed.vals.concat([tripId]), cntxtDtls, function (err2, r2) {
+      if (callback) callback(err2, r2);
+    });
+  });
 };
 
 exports.gettripceated = function (callback) {
@@ -5453,18 +5588,23 @@ exports.gettripceated1Mdl = function (callback) {
   // assigned to one of those drivers, even though the trip was saved correctly.
   var QRY_TO_EXEC = `SELECT
   t.*,
-  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
-  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, t.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, t.helper_name) AS helper_name,
   COALESCE(s.fullName, t.conductor_name) AS conductor_name,
   CASE
-    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(NULLIF(d3.nickname, ''), d3.driver_name, t.paid_to_name)
     WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
     WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
     ELSE t.paid_to_name
   END AS paid_to_name,
   vd.expensives AS debit_ledger_name,
-  vc.expensives AS credit_ledger_name
+  vc.expensives AS credit_ledger_name,
+  -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
+  dn.up_down AS up_down, dn.trip_type AS pick_drop,
+  -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
+  -- the same way the trip's own approval does.
+  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
 FROM
   trip_created t
 LEFT JOIN
@@ -5480,6 +5620,7 @@ LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
 LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+LEFT JOIN driverone dn ON dn.id = t.service_no_id
 WHERE
   t.d_in = '0'
 ORDER BY
@@ -6229,7 +6370,7 @@ exports.updatetripadminstatusMdl = function (data, callback) {
   var cntxtDtls = "in updatetripadminstatusMdl";
   let vouchervalue = "";
   var QRY_TO_EXEC = `
-    update tripexpenses_data set status = '${data.vouchervalue}',admin_status='${data.vouchervalue}',admin_action_by='${data.user_id}',admin_action_date='${data.updated_date}',action_by_name='${data.user_nm}' where c_number='${data.voucherdata.c_number}';
+    update tripexpenses_data set admin_status='${data.vouchervalue}',admin_action_by='${data.user_id}',admin_action_date='${data.updated_date}',action_by_name='${data.user_nm}' where c_number='${data.voucherdata.c_number}';
 
     update expensive_details set admin_status='${data.vouchervalue}',admin_action_by='${data.user_id}',admin_action_date='${data.updated_date}',action_by_name='${data.user_nm}' where c_number='${data.voucherdata.c_number}';
 
@@ -6379,8 +6520,8 @@ exports.getmodaldataMdl = function (data, callback) {
     var QRY_TO_EXEC = `SELECT * from  expensive_details where d_in=0 and c_number='${data.serviceNo}';
         SELECT
   te.*,
-  COALESCE(d1.nickname, d1.driver_name, te.driver1_name) AS driver1_name,
-  COALESCE(d2.nickname, d2.driver_name, te.driver2_name) AS driver2_name,
+  COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, te.driver1_name) AS driver1_name,
+  COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, te.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, te.helper_name) AS helper_name,
   COALESCE(s.fullName, te.conductor_name) AS conductor_name,
   d1.ledger_id AS driver1_ledger_id,
@@ -6388,7 +6529,7 @@ exports.getmodaldataMdl = function (data, callback) {
   h.ledger_id AS helper_ledger_id,
   s.ledger_id AS conductor_ledger_id,
   CASE
-      WHEN te.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, te.paid_to_name)
+      WHEN te.paid_to_type = 'driver' THEN COALESCE(NULLIF(d3.nickname, ''), d3.driver_name, te.paid_to_name)
       WHEN te.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, te.paid_to_name)
       WHEN te.paid_to_type = 'staff'  THEN COALESCE(s2.fullName, te.paid_to_name)
       ELSE te.paid_to_name
@@ -10300,6 +10441,40 @@ var VALIDATION_FIELD_LABELS = {
   atp_authentication_validity: 'Authorization Validity',
 };
 
+// Validations > Drivers: the document dates edited inline, each change logged
+// to driver_edit_history like an edit from the driver form.
+var DRIVER_VALIDATION_FIELD_LABELS = {
+  dl_expiry_date: 'DL Expiry Date', transportvalidityto: 'Transport (Badge) Validity To',
+  medical_validity: 'Medical Fitness Validity',
+};
+
+exports.updateDriverValidityDateMdl = function (data, callback) {
+  var cntxtDtls = "updateDriverValidityDateMdl";
+  var field = data.field;
+  var driverId = parseInt(data.driver_id) || 0;
+  if (!DRIVER_VALIDATION_FIELD_LABELS[field] || !driverId) {
+    callback(new Error('Invalid field or driver_id'), null);
+    return;
+  }
+  sqldb.query('SELECT driver_id_number, ' + field + ' FROM driver_register WHERE id = ?', [driverId], function (selErr, rows) {
+    if (selErr) { callback(selErr, null); return; }
+    var before = (rows && rows[0]) || {};
+    var oldV = before[field] == null ? '' : String(before[field]);
+    var newV = data.value == null ? '' : String(data.value);
+    sqldb.query('UPDATE driver_register SET ' + field + ' = ?, updatedby = ?, updateduser_id = ? WHERE id = ?',
+      [newV || null, data.usrnm || null, parseInt(data.userid) || null, driverId], function (err, results) {
+        if (err) { console.log(cntxtDtls, err.message); callback(err, results); return; }
+        if (oldV === newV) { callback(null, results); return; }
+        var note = DRIVER_VALIDATION_FIELD_LABELS[field] + ": '" + (oldV || '—') + "' -> '" + (newV || '—') + "'";
+        sqldb.query('INSERT INTO driver_edit_history (driver_id, driver_id_number, changes_note, changed_by_id, changed_by_name) VALUES (?, ?, ?, ?, ?)',
+          [driverId, before.driver_id_number || '', note, data.userid || '', data.usrnm || ''], function (histErr) {
+            if (histErr) console.log('[updateDriverValidityDateMdl] history log error:', histErr.message);
+            callback(null, results);
+          });
+      });
+  });
+};
+
 exports.updateBusValidityDateMdl = function (data, callback) {
   var cntxtDtls = "updateBusValidityDateMdl";
   var esc = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
@@ -12293,12 +12468,12 @@ exports.getpdfpatchdata1Mdl = function (data, callback) {
   var cntxtDtls = "getpdfpatchdata1Mdl";
   var QRY_TO_EXEC = `SELECT
   t.*,
-  COALESCE(d1.nickname, d1.driver_name, t.driver1_name) AS driver1_name,
-  COALESCE(d2.nickname, d2.driver_name, t.driver2_name) AS driver2_name,
+  COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, t.driver1_name) AS driver1_name,
+  COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, t.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, t.helper_name) AS helper_name,
   COALESCE(s.fullName, t.conductor_name) AS conductor_name,
   CASE
-    WHEN t.paid_to_type = 'driver' THEN COALESCE(d3.nickname, d3.driver_name, t.paid_to_name)
+    WHEN t.paid_to_type = 'driver' THEN COALESCE(NULLIF(d3.nickname, ''), d3.driver_name, t.paid_to_name)
     WHEN t.paid_to_type = 'helper' THEN COALESCE(h2.helper_name, t.paid_to_name)
     WHEN t.paid_to_type = 'staff' THEN COALESCE(s2.fullName, t.paid_to_name)
     ELSE t.paid_to_name
@@ -14603,6 +14778,12 @@ exports.updateTripVoucherMdl = function (data, callback) {
   var totalAmt = rows.debit.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
   var descText = ((data.description || '') + ' [Trip: ' + (data.trip_c_number || '') + ']').trim().replace(/'/g, "''");
 
+  // The header's id, c_id and status carry onto the replacement lines: without
+  // them the new lines lost their link to the header and came in pending under
+  // a header that could still read approved.
+  dbutil.execupdateQuery(sqldb, "SELECT id, c_id, status FROM mainvoucher_t WHERE c_number = ? AND d_in = 0 ORDER BY id DESC LIMIT 1", [c_number], 'tripVoucherUpdHeader', function (hErr, hRows) {
+  if (hErr) return callback(hErr);
+  var hdr = (hRows && hRows[0]) || {};
   dbutil.execupdateQuery(sqldb,
     "UPDATE mainvoucher_subt SET d_in=1 WHERE c_number='" + c_number + "' AND d_in=0",
     [], 'tripVoucherUpdDelete',
@@ -14613,12 +14794,13 @@ exports.updateTripVoucherMdl = function (data, callback) {
         [], 'tripVoucherUpdMain',
         function (err) {
           if (err) return callback(err);
+          var link = { lastinsert_id: hdr.id != null ? String(hdr.id) : null, c_id: hdr.c_id || 0, status: Number(hdr.status) || 0 };
           var allEntries = [];
           rows.debit.forEach(function (e) {
-            allEntries.push({ account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+            allEntries.push(Object.assign({ account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 }, link));
           });
           rows.credit.forEach(function (e) {
-            allEntries.push({ account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+            allEntries.push(Object.assign({ account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 }, link));
           });
           if (allEntries.length === 0) return callback(null);
           var si = 0;
@@ -14634,6 +14816,7 @@ exports.updateTripVoucherMdl = function (data, callback) {
       );
     }
   );
+  });
 };
 
 // Replaces the debit/credit lines of a battery's existing voucher (mirrors updateJobVoucherMdl).

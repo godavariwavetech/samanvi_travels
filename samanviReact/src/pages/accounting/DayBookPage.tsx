@@ -1,12 +1,12 @@
 ﻿import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'motion/react'
-import { Search, X, FileSpreadsheet, FileText, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
+import { Search, X, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
@@ -363,7 +363,7 @@ export default function DayBookPage() {
         </div>
       </GlassCard>
 
-      {/* Summary cards + Excel button */}
+      {/* Summary cards + Export button */}
       {tableRows.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-end gap-3">
@@ -373,18 +373,7 @@ export default function DayBookPage() {
                 <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
               </span>
             )}
-            <button
-              onClick={exportExcel}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
-            >
-              <FileSpreadsheet className="w-4 h-4" /> Download Excel
-            </button>
-            <button
-              onClick={exportPDF}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors shadow-sm"
-            >
-              <FileText className="w-4 h-4" /> Download PDF
-            </button>
+            <ExportMenu onExport={(f) => f === 'excel' ? exportExcel() : exportPDF()} />
           </div>
           <ReportColumnPicker options={REPORT_EXTRA_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

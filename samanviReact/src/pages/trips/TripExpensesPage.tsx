@@ -155,7 +155,10 @@ const emptyForm = (): ExpenseForm => ({
 
 const emptyLedgerRow = (): LedgerRow => ({ ledger: null, amount: '' })
 
-const canActOnExpense = (row: any) => row.status === 1 && row.admin_status !== 1 && row.admin_status !== 2
+// An expense is open to edit or delete while it is filed and neither the trip
+// nor its voucher (Voucher Approvals) has been approved; a rejected trip goes
+// back On Review first.
+const canActOnExpense = (row: any) => row.status === 1 && row.admin_status !== 1 && row.admin_status !== 2 && Number(row.voucher_status) !== 1
 
 const toLedgerObj = (item: any): LedgerObj => ({
   ledger_id: item.ledger_id, temple_name: item.expensives ?? item.temple_name,
@@ -171,7 +174,8 @@ export default function TripExpensesPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [applied, setApplied] = useState<{ from: string; to: string } | null>(null)
-  const [vehicleTab, setVehicleTab] = useState('All')
+  // Bus or Van only - the two carry different columns, so there is no mixed list.
+  const [vehicleTab, setVehicleTab] = useState('Bus')
   // Whether the trip's expense has been filed yet (trip_created.status: 0 not
   // filed, 1 filed). The page is both the filing queue and the record of what
   // was filed, so the two are worth switching between rather than reading one
@@ -264,16 +268,13 @@ export default function TripExpensesPage() {
   const trips: any[] = listData?.data ?? []
   const isVan = (t: any) => String(t.vehicle_type ?? '').toLowerCase() === 'van'
   const isFiled = (t: any) => Number(t.status) === 1
-  const vehicleTrips = vehicleTab === 'All' ? trips
-    : vehicleTab === 'Van' ? trips.filter(isVan)
-      : trips.filter((t) => !isVan(t))
+  const vehicleTrips = vehicleTab === 'Van' ? trips.filter(isVan) : trips.filter((t) => !isVan(t))
   const filteredTrips = filedTab === 'All' ? vehicleTrips
     : filedTab === 'Filed' ? vehicleTrips.filter(isFiled)
       : vehicleTrips.filter((t) => !isFiled(t))
   // Each tab's own count: the vehicle counts are of every trip in the date
   // range, the filed counts are within the vehicle tab that is open.
   const vehicleCounts = {
-    All: trips.length,
     Bus: trips.filter((t) => !isVan(t)).length,
     Van: trips.filter(isVan).length,
   }
@@ -1114,23 +1115,32 @@ export default function TripExpensesPage() {
     }).catch(() => { rateRef.current = null })
 
     if (t) {
+      // The trip's own row wins over a saved value that is missing or the text
+      // 'undefined' (left on older expenses by a Trip Creation edit) - saving
+      // such a value back used to wipe the trip's date and service.
+      const saved = (v: any, fallback: any) => {
+        const x = String(v ?? '').trim()
+        return x && x !== 'undefined' ? x : String(fallback ?? '')
+      }
+      // Only the corrupted text falls back; a value saved blank stays blank.
+      const kept = (v: any, fallback: any) => (String(v ?? '') === 'undefined' ? String(fallback ?? '') : (v ?? ''))
       setForm((f) => ({
         ...f,
         trip_creation_id: String(t.trip_creation_id ?? row.trip_creation_id ?? ''),
-        trip_date: String(t.trip_date ?? '').split('T')[0], trip_for: t.trip_for ?? '',
-        trip_for_id: String(t.trip_for_id ?? ''), service_no_id: String(t.service_no_id ?? ''),
-        bus_no: t.bus_no ?? '', service_no: t.service_no ?? '',
+        trip_date: saved(t.trip_date, row.trip_date).split('T')[0], trip_for: saved(t.trip_for, row.trip_for),
+        trip_for_id: saved(t.trip_for_id, row.trip_for_id), service_no_id: saved(t.service_no_id, row.service_no_id),
+        bus_no: saved(t.bus_no, row.bus_no), service_no: saved(t.service_no, row.service_no),
         driver1_name: t.driver1_name ?? '', driver1_id: String(t.driver1_id ?? ''),
-        driver2_name: t.driver2_name ?? '', driver2_id: String(t.driver2_id ?? ''),
-        helper_name: t.helper_name ?? '', helper_id: String(t.helper_id ?? ''),
-        conductor_name: t.conductor_name ?? '', conductor_id: String(t.conductor_id ?? ''),
+        driver2_name: kept(t.driver2_name, row.driver2_name), driver2_id: String(t.driver2_id ?? ''),
+        helper_name: kept(t.helper_name, row.helper_name), helper_id: String(t.helper_id ?? ''),
+        conductor_name: kept(t.conductor_name, row.conductor_name), conductor_id: String(t.conductor_id ?? ''),
         opt_driver1_name: t.opt_driver1_name ?? '', opt_driver1_id: String(t.opt_driver1_id ?? ''),
         opt_driver2_name: t.opt_driver2_name ?? '', opt_driver2_id: String(t.opt_driver2_id ?? ''),
         opt_helper_name: t.opt_helper_name ?? '', opt_helper_id: String(t.opt_helper_id ?? ''),
-        paid_to_name: t.paid_to_name ?? '', paid_to_id: String(t.paid_to_id ?? ''), paid_to_type: t.paid_to_type ?? '',
-        driveronebeta: t.driveronebeta ?? '', driveronesudsalary: t.driveronesalary ?? '', driveronesalary: String(t.driver1Beta ?? ''),
-        drivertwobeta: t.drivertwobeta ?? '', drivertwosudsalary: t.drivertwosalary ?? '', drivertwosalary: String(t.driver2Beta ?? ''),
-        helperbeta: t.helperbeta ?? '', helpersudsalary: t.helpersalary ?? '', helpersalary: String(t.helpersudBeta ?? ''),
+        paid_to_name: kept(t.paid_to_name, row.paid_to_name), paid_to_id: String(t.paid_to_id ?? ''), paid_to_type: kept(t.paid_to_type, row.paid_to_type),
+        driveronebeta: kept(t.driveronebeta, row.optreg), driveronesudsalary: t.driveronesalary ?? '', driveronesalary: String(t.driver1Beta ?? ''),
+        drivertwobeta: kept(t.drivertwobeta, row.optreg1), drivertwosudsalary: t.drivertwosalary ?? '', drivertwosalary: String(t.driver2Beta ?? ''),
+        helperbeta: kept(t.helperbeta, row.optreg2), helpersudsalary: t.helpersalary ?? '', helpersalary: String(t.helpersudBeta ?? ''),
         conductorsalary: String(t.ConductorsudBeta ?? ''),
         parking_amt: String(t.parking_amt ?? ''),
         remarks: t.remarks ?? '',
@@ -1391,6 +1401,13 @@ export default function TripExpensesPage() {
     trip_date: form.trip_date, trip_for: form.trip_for, trip_for_id: form.trip_for_id,
     paid_to_type: form.paid_to_type, paid_to_name: form.paid_to_name, paid_to_id: form.paid_to_id,
     remarks: form.remarks,
+    // A van trip's Amount is the hire charge or the opting driver's pay, which
+    // is exactly what this voucher posts, so the trip follows the posted total -
+    // otherwise records kept showing 1200 for a hire re-filed at 1500.
+    ...(isVanTrip && !noVoucher ? { booking_amount: String(debitTotal) } : {}),
+    // Tells the server this save comes with its own voucher, so the Trip
+    // Creation lock on a filed van trip (van, driver, amount) does not apply.
+    source: 'expense',
     updatedby_id: localStorage.getItem('user_id'), updatedby_name: localStorage.getItem('usr_nm'), updated_date: nowStr(),
   })
 
@@ -1428,13 +1445,13 @@ export default function TripExpensesPage() {
   })
   const { mutate: submitEdit, isPending: submittingEdit } = useMutation({
     mutationFn: () => tripsService.updateExpenses(buildEditPayload()),
-    onSuccess: (res) => { if (res?.status === 200) { toast.success('Expense updated'); closeModal(); refetch() } else toast.error('Failed to update expense') },
+    onSuccess: (res) => { if (res?.status === 200) { toast.success('Expense updated'); closeModal(); refetch() } else toast.error(res?.message || 'Failed to update expense') },
     onError: () => toast.error('Server error'),
   })
   const { mutate: updateTripMutate, isPending: updatingTrip } = useMutation({
     mutationFn: () => tripsService.updateTrip(buildUpdateTripPayload()),
     onSuccess: (res) => {
-      if (res?.status !== 200) { toast.error('Failed to update trip details'); return }
+      if (res?.status !== 200) { toast.error(res?.msg || 'Failed to update trip details'); return }
       modal.mode === 'add' ? submitAdd() : submitEdit()
     },
     onError: () => toast.error('Server error updating trip'),
@@ -1449,7 +1466,7 @@ export default function TripExpensesPage() {
       delete_by_name: localStorage.getItem('usr_nm'),
       delete_by_date: nowStr(),
     }),
-    onSuccess: (res) => { if (res?.status === 200) { toast.success('Expense deleted'); refetch() } else toast.error('Failed to delete') },
+    onSuccess: (res) => { if (res?.status === 200) { toast.success('Expense deleted'); refetch() } else toast.error(res?.message || 'Failed to delete') },
     onError: () => toast.error('Server error'),
   })
 
@@ -1509,7 +1526,9 @@ export default function TripExpensesPage() {
     if (action === 'edit') {
       if (row.status === 0) { openAdd(row); return }
       if (canActOnExpense(row)) { openEdit(row); return }
-      toast.error('This expense is already approved/rejected and can no longer be edited')
+      toast.error(Number(row.voucher_status) === 1 && row.admin_status !== 1 && row.admin_status !== 2
+        ? `Voucher ${row.voucher_number ?? ''} is already approved — reopen it in Voucher Approvals before editing this expense`
+        : 'This expense is already approved/rejected and can no longer be edited')
       return
     }
     if (action === 'view') {
@@ -1545,9 +1564,8 @@ export default function TripExpensesPage() {
   }
   const columns: Column[] = [
     { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
-    { label: 'Trip Date', key: 'trip_date', render: (v) => formatDate(v) },
     {
-      label: 'Reference No', key: 'c_number',
+      label: 'Ref No', key: 'c_number',
       render: (v, row: any) => (
         <button
           type="button"
@@ -1558,9 +1576,7 @@ export default function TripExpensesPage() {
         </button>
       ),
     },
-    { label: 'Trip For', key: 'trip_for', filterable: true },
-    { label: 'Bus No', key: 'bus_no', filterable: true },
-    { label: 'Service No', key: 'service_no', filterable: true },
+    { label: 'Date', key: 'trip_date', render: (v) => formatDate(v) },
     {
       // The run status set on Trip Creation. A halted trip is priced on the
       // Halt Beta rather than the running betas, so it is worth seeing before
@@ -1569,45 +1585,19 @@ export default function TripExpensesPage() {
       filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Full Trip', value: 'Full Trip' }, { label: 'Halt', value: 'Halt' }],
       render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v || 'Running')}</Badge>,
     },
+    { label: 'Bus No', key: 'bus_no', filterable: true },
+    { label: 'Service No', key: 'service_no', filterable: true },
+    // Up/Down is set on the service route (Masters > Service Routes).
+    { label: 'Up/Down', key: 'up_down', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
     // Each person with what the filed expense pays them beneath the name: the
     // beta, plus the opting salary for an opting seat. Nothing beneath until an
-    // expense is filed. Others holds the conductor, the Paid To person when they
-    // are not already one of the crew, and parking, which has no seat of its own.
+    // expense is filed.
     { label: 'Driver 1', key: 'driver1_name', render: (v, r: any) => personCell(v, r.exp_driver1_beta, r.exp_driver1_opt, seatIsOpting(r.driver1_id, r.driver1_name, r.opt_driver1_id), !!r.exp_row_id) },
     { label: 'Driver 2', key: 'driver2_name', render: (v, r: any) => personCell(v, r.exp_driver2_beta, r.exp_driver2_opt, seatIsOpting(r.driver2_id, r.driver2_name, r.opt_driver2_id), !!r.exp_row_id, true) },
     { label: 'Helper', key: 'helper_name', render: (v, r: any) => personCell(v, r.exp_helper_beta, r.exp_helper_opt, seatIsOpting(r.helper_id, r.helper_name, r.opt_helper_id), !!r.exp_row_id, true) },
-    {
-      label: 'Others', key: 'conductor_name',
-      render: (v, r: any) => {
-        const crew = [r.driver1_name, r.driver2_name, r.helper_name, v].map((n) => String(n ?? '').trim()).filter(Boolean)
-        const paidTo = String(r.paid_to_name ?? '').trim()
-        const showPaidTo = paidTo && !crew.includes(paidTo)
-        const parking = num(r.exp_parking)
-        if (!String(v ?? '').trim() && !showPaidTo && !parking) return <span className="text-slate-300">—</span>
-        return (
-          <div className="space-y-1">
-            {String(v ?? '').trim() && (
-              <div>
-                <div className="text-[10px] font-bold uppercase text-slate-400">Conductor</div>
-                {personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true)}
-              </div>
-            )}
-            {showPaidTo && (
-              <div>
-                <div className="text-[10px] font-bold uppercase text-slate-400">Paid To</div>
-                <div className="text-slate-500 text-sm">{paidTo}</div>
-              </div>
-            )}
-            {parking > 0 && (
-              <div>
-                <div className="text-[10px] font-bold uppercase text-slate-400">Parking</div>
-                <div className="text-xs font-semibold text-slate-600">₹{parking.toLocaleString('en-IN')}</div>
-              </div>
-            )}
-          </div>
-        )
-      },
-    },
+    { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v, r: any) => personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true) },
+    // Others is the person the trip is paid to (Trip Creation's Paid To).
+    { label: 'Others', key: 'paid_to_name', filterable: true, render: (v) => String(v ?? '').trim() ? <span className="text-sm">{String(v)}</span> : <span className="text-slate-300">—</span> },
     {
       // trip_created.grantotal is a text column and comes back as the STRING
       // "0" on every trip that has no expense filed yet — truthy, so a plain
@@ -1619,7 +1609,7 @@ export default function TripExpensesPage() {
         : <span className="text-slate-300">—</span>,
     },
     {
-      label: 'Approval', key: 'admin_status',
+      label: 'Approvals', key: 'admin_status',
       render: (_v, row: any) => row.status === 1 ? (
         <select
           value={String(row.admin_status ?? 0)}
@@ -1635,21 +1625,19 @@ export default function TripExpensesPage() {
     },
   ]
 
-  // The Van tab shows what a van trip was created with - line code, hirer,
-  // the amount and the hire voucher - in place of the bus crew columns, the
-  // same shape as Trip Creation's van records. The shared columns are reused.
+  // The Van tab shows what a van trip was created with - line code, pick/drop,
+  // the one driver and whom it is paid to - in place of the bus crew columns.
+  // The shared columns are reused.
   const col = (key: string): Column => columns.find((c) => c.key === key)!
   const vanColumns: Column[] = [
-    col('_sl'), col('trip_date'), col('c_number'), col('trip_run_status'),
+    col('_sl'), col('c_number'), col('trip_date'), col('trip_run_status'),
     {
-      label: 'Van / Service', key: 'bus_no', filterable: true,
-      render: (v, r: any) => (
-        <div>
-          <div className={`font-semibold ${isHireVehicle(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</div>
-          <div className="text-xs text-slate-500">{[r.service_no, r.line_code].filter(Boolean).join(' · ') || '—'}</div>
-        </div>
-      ),
+      label: 'Van No', key: 'bus_no', filterable: true,
+      render: (v) => <span className={`font-semibold ${isHireVehicle(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</span>,
     },
+    { label: 'Line Code', key: 'line_code', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
+    // Pick/Drop is set on the van's service route (Masters > Service Routes).
+    { label: 'Pick/Drop', key: 'pick_drop', filterable: true, render: (v) => v ? <span className="capitalize">{String(v)}</span> : <span className="text-slate-300">—</span> },
     {
       label: 'Driver', key: 'driver1_name', filterable: true,
       render: (v, r: any) => (
@@ -1660,41 +1648,35 @@ export default function TripExpensesPage() {
       ),
     },
     {
-      label: 'Hirer', key: 'hirer_name', filterable: true,
-      render: (v, r: any) => (
-        <div>
-          <div className="text-sm">{String(v ?? '—')}</div>
-          {r.phone_number && <div className="text-xs text-slate-400">{r.phone_number}</div>}
-        </div>
-      ),
-    },
-    {
-      label: 'Hire / Opting Pay', key: 'booking_amount', align: 'right',
-      render: (v, r: any) => num(v) > 0
-        ? (
+      // Others is whom a van trip is paid to - the hirer entered on Trip
+      // Creation, which is the debit side of its voucher.
+      label: 'Others', key: 'hirer_name', filterable: true,
+      render: (v, r: any) => {
+        const name = String(v ?? '').trim() || String(r.paid_to_name ?? '').trim()
+        if (!name) return <span className="text-slate-300">—</span>
+        return (
           <div>
-            <span className="text-sm font-semibold">₹{num(v).toLocaleString('en-IN')}</span>
-            <div className="text-[10px] text-slate-400">{vanAmountLabel(r)}</div>
+            <div className="text-sm">{name}</div>
+            {r.phone_number && <div className="text-xs text-slate-400">{r.phone_number}</div>}
           </div>
         )
-        : <span className="text-slate-300">—</span>,
+      },
     },
     {
-      label: 'Voucher', key: 'voucher_number', filterable: true,
-      render: (v, r: any) => v
-        ? (
+      // The van's booking amount (hire charge / opting driver pay), with the
+      // filed expense beneath once there is one.
+      label: 'Amount', key: 'booking_amount', align: 'right',
+      render: (v, r: any) => {
+        const booked = num(v), filed = num(r.grantotal)
+        if (!booked && !filed) return <span className="text-slate-300">—</span>
+        return (
           <div>
-            <span className="text-xs font-semibold px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">{String(v)}</span>
-            {(r.hire_debit_ledger_name || r.hire_credit_ledger_name) && (
-              <div className="text-[11px] text-slate-400 mt-1">
-                {String(r.hire_debit_ledger_name ?? '—')} → {String(r.hire_credit_ledger_name ?? '—')}
-              </div>
-            )}
+            {booked > 0 && <div><span className="text-sm font-bold text-slate-900">₹{booked.toLocaleString('en-IN')}</span><div className="text-[10px] text-slate-400">{vanAmountLabel(r)}</div></div>}
+            {filed > 0 && <div className="text-xs text-slate-600 mt-0.5">Expense ₹{filed.toLocaleString('en-IN')}</div>}
           </div>
         )
-        : <span className="text-slate-300 text-xs">—</span>,
+      },
     },
-    { ...col('grantotal'), label: 'Expense Filed' },
     col('admin_status'),
   ]
 
@@ -1728,7 +1710,7 @@ export default function TripExpensesPage() {
       </GlassCard>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <TopNavTabs tabs={['All', 'Bus', 'Van']} activeTab={vehicleTab} onChange={setVehicleTab} counts={vehicleCounts} className="mb-0" />
+        <TopNavTabs tabs={['Bus', 'Van']} activeTab={vehicleTab} onChange={(t) => { setVehicleTab(t); setColumnFilters({}) }} counts={vehicleCounts} className="mb-0" />
         <TopNavTabs tabs={['All', 'Not Filed', 'Filed']} activeTab={filedTab} onChange={setFiledTab} counts={filedCounts} className="mb-0" />
       </div>
 
@@ -1804,11 +1786,11 @@ export default function TripExpensesPage() {
                       <Select value={isOptingRole('driver1') ? OPTING_VALUE : form.driver1_id} onChange={(e) => {
                         if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver1_id: '', driver1_name: optingNameForSeat('driver1'), opt_driver1_id: '', opt_driver1_name: '', ...seatBetaPatch('driver1', true) })); return }
                         const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
-                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname ?? d?.driver_name ?? '', opt_driver1_id: '', opt_driver1_name: '', ...seatBetaPatch('driver1', !!e.target.value) }))
+                        setForm((f) => ({ ...f, driver1_id: e.target.value, driver1_name: d?.nickname || d?.driver_name || '', opt_driver1_id: '', opt_driver1_name: '', ...seatBetaPatch('driver1', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('driver1')}</option>
-                        {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                        {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname || d.driver_name}</option>)}
                       </Select>
                       {isVanTrip && isOptingRole('driver1') && (modal.row?.opt_driver1_name || modal.row?.opt_driver1_mobile) && (
                         <p className="text-[11px] font-semibold text-slate-500 mt-1">{String(modal.row?.opt_driver1_name ?? '')}{modal.row?.opt_driver1_mobile ? ` · ${modal.row.opt_driver1_mobile}` : ''}</p>
@@ -1822,11 +1804,11 @@ export default function TripExpensesPage() {
                       <Select value={isOptingRole('driver2') ? OPTING_VALUE : form.driver2_id} onChange={(e) => {
                         if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, driver2_id: '', driver2_name: optingNameForSeat('driver2'), opt_driver2_id: '', opt_driver2_name: '', ...seatBetaPatch('driver2', true) })); return }
                         const d = drivers.find((dr: any) => String(dr.id) === e.target.value)
-                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname ?? d?.driver_name ?? '', opt_driver2_id: '', opt_driver2_name: '', ...seatBetaPatch('driver2', !!e.target.value) }))
+                        setForm((f) => ({ ...f, driver2_id: e.target.value, driver2_name: d?.nickname || d?.driver_name || '', opt_driver2_id: '', opt_driver2_name: '', ...seatBetaPatch('driver2', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('driver1')}</option>
-                        {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname ?? d.driver_name}</option>)}
+                        {drivers.map((d: any) => <option key={d.id} value={d.id}>{d.nickname || d.driver_name}</option>)}
                       </Select>
                       {seatFields('driver2')}
                     </div>
@@ -1848,11 +1830,11 @@ export default function TripExpensesPage() {
                       <Select value={isOptingRole('conductor') ? OPTING_VALUE : form.conductor_id} onChange={(e) => {
                         if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, conductor_id: '', conductor_name: optingNameForSeat('conductor'), ...seatBetaPatch('conductor', true) })); return }
                         const c = conductors.find((x: any) => String(x.id) === e.target.value)
-                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.nickName ?? c?.fullName ?? '', ...seatBetaPatch('conductor', !!e.target.value) }))
+                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.nickName || c?.fullName || '', ...seatBetaPatch('conductor', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('conductor')}</option>
-                        {conductors.map((c: any) => <option key={c.id} value={c.id}>{c.nickName ?? c.fullName}</option>)}
+                        {conductors.map((c: any) => <option key={c.id} value={c.id}>{c.nickName || c.fullName}</option>)}
                       </Select>
                       {seatFields('conductor')}
                     </div>
@@ -1963,6 +1945,16 @@ export default function TripExpensesPage() {
                     </div>
                   )}
 
+                  {/* A filed van expense whose posted total no longer matches the trip's
+                      Amount (the Amount was changed on Trip Creation before that was
+                      locked): said out loud, so the voucher is corrected on purpose. */}
+                  {modal.mode === 'edit' && isVanTrip && !noVoucher && num(modal.row?.booking_amount) > 0
+                    && Math.round(num(modal.row?.booking_amount) * 100) !== Math.round(debitTotal * 100) && (
+                    <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-2.5">
+                      <p className="text-xs font-bold text-red-700">Trip amount ₹{num(modal.row?.booking_amount).toLocaleString('en-IN')} does not match this voucher (₹{debitTotal.toLocaleString('en-IN')})</p>
+                      <p className="text-[11px] text-slate-500">Set the ledger amounts below to the right figure — saving updates the trip's amount to the voucher total.</p>
+                    </div>
+                  )}
                   {/* An opting driver's pay on our own van, stated the same way. */}
                   {vanOptingPay > 0 && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-2.5">
@@ -2239,6 +2231,8 @@ export default function TripExpensesPage() {
                   <div><p className="text-[10px] font-bold uppercase text-slate-400">{viewIsVan ? 'Driver' : 'Driver 1'}</p><p className="text-sm font-medium flex items-center gap-1.5">
                     {!viewHired && <input type="checkbox" readOnly checked={viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? ''))} className="w-3.5 h-3.5 rounded accent-blue-600 pointer-events-none" />}
                     {viewModal.row?.driver1_name || (viewHired ? 'Hired' : '—')}</p>
+                    {/* Who the opting driver actually was - the ledger is shared by every opting driver. */}
+                    {viewModal.row?.opt_driver1_name && <p className="text-[11px] font-semibold text-slate-500 pl-5">{String(viewModal.row.opt_driver1_name)}{viewModal.row?.opt_driver1_mobile ? ` · ${viewModal.row.opt_driver1_mobile}` : ''}</p>}
                     {viewPersonPaid('driver1', String(viewModal.row?.driver1_id ?? '')) && <p className="text-[11px] font-bold text-slate-400 pl-5">₹{viewPersonAmount('driver1', String(viewModal.row?.driver1_id ?? '')).toLocaleString('en-IN')}</p>}
                   </div>
                   {/* A van has one driver and no Paid To; it shows what it was created with instead. */}

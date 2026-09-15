@@ -280,6 +280,13 @@ ensureColumn('driverone', 'optHelperSalary', '`optHelperSalary` VARCHAR(50) DEFA
 // everything else), set once when the service number is created/edited, never
 // derived from fromCity/toCity.
 ensureColumn('driverone', 'up_down', "`up_down` VARCHAR(10) DEFAULT NULL");
+// Active / Inactive — an inactive service number stays on the master (and on
+// the trips it already ran) but is left out of Trip Creation until reactivated.
+ensureColumn('driverone', 'is_active', "`is_active` TINYINT(1) NOT NULL DEFAULT 1");
+// The day it was switched off: earlier dates still offer it on Trip Creation.
+ensureColumn('driverone', 'inactive_from', "`inactive_from` DATE DEFAULT NULL");
+// Validations > Drivers tracks this beside DL expiry and transport validity.
+ensureColumn('driver_register', 'medical_validity', "`medical_validity` VARCHAR(255) DEFAULT NULL");
 
 // Lubricants & Fluids — per-company change periodicities for engine oil,
 // coolant, gear oil etc., managed from Main Masters alongside Service Schedules.

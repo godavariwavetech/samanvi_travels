@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { motion } from 'motion/react'
-import { Scale, Search, FileSpreadsheet, FileText, RefreshCw } from 'lucide-react'
+import { Scale, Search, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -230,23 +230,6 @@ export default function TrialBalancePage() {
       </GlassCard>
 
       {list.length > 0 && (
-        <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={exportExcel}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Download Excel
-          </button>
-          <button
-            onClick={exportPDF}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors shadow-sm"
-          >
-            <FileText className="w-4 h-4" /> Download PDF
-          </button>
-        </div>
-      )}
-
-      {list.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: 'Opening Balance', value: `${formatCurrency(Math.abs(totalOpening))} ${totalOpening < 0 ? 'Cr' : 'Dr'}`, color: totalOpening < 0 ? 'text-emerald-600' : 'text-red-600' },
@@ -270,6 +253,8 @@ export default function TrialBalancePage() {
         columnFilters={colFilters}
         onColumnFilterChange={(key, vals) => setColFilters(f => ({ ...f, [key]: vals }))}
         onFilteredChange={(rows) => setShownRows(rows as any[])}
+        // The table's one Export button runs the trial-balance layout (with totals).
+        onExport={{ excel: exportExcel, pdf: exportPDF }}
       />
     </motion.div>
   )

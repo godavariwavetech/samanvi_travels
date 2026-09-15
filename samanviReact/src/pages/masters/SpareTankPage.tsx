@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, FormModal } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { formatDateTime } from '@/lib/utils'
@@ -43,7 +43,7 @@ export default function SpareTankPage() {
 
       <AnimatePresence>
         {showForm && (
-          <motion.div key="spare-form" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.25 }} className="overflow-hidden">
+          <FormModal key="spare-form" size="lg">
             <GlassCard className="p-6" colorBar="bg-gradient-to-r from-teal-500 to-cyan-500">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Fuel className="w-5 h-5 text-teal-500" /> Add Spare Tank</h2>
@@ -60,7 +60,7 @@ export default function SpareTankPage() {
                 <Button onClick={() => save()} disabled={isPending || !form.bus_no}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save'}</Button>
               </div>
             </GlassCard>
-          </motion.div>
+          </FormModal>
         )}
       </AnimatePresence>
 

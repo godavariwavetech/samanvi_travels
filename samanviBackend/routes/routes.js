@@ -320,8 +320,10 @@ router.get('/getlaundrybilldata', verifyToken, laundrycontroller.getlaundrybilld
 router.post('/getlaundrybillsubdata', verifyToken, laundrycontroller.getlaundrybillsubdataCtrl);
 router.post('/updatebusnumber',verifyToken,routcontroller.updatebusnumber);
 router.post('/updatebusvaliditydate',verifyToken,routcontroller.updateBusValidityDateCtrl);
+router.post('/updatedrivervaliditydate',verifyToken,routcontroller.updateDriverValidityDateCtrl);
 router.post('/updateservicenumber',verifyToken, routcontroller.updateservicenumber);
 router.post('/updateserviceno',verifyToken,routcontroller.updateservicenoCtrl);
+router.post('/setservicenoactive',verifyToken,routcontroller.setServiceNoActiveCtrl);
 router.post('/adddriveredit',verifyToken,routcontroller.adddrivereditCtrl);
 router.post('/getdriverhistory',verifyToken,routcontroller.getDriverHistoryCtrl);
 router.post('/edithelperregister',verifyToken,routcontroller.edithelperregisterCtrl);
