@@ -1,5 +1,5 @@
 import type { ElementType } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { NavLink, useLocation } from 'react-router'
 import {
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
+import { buildAccess, canAccess, type Access } from '@/lib/access'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NavLeaf {
@@ -188,6 +189,39 @@ const NAV_ITEMS: NavItem[] = [
   },
 ]
 
+// ── What this user may open ────────────────────────────────────────────────────
+// Screens the user has no permission for are dropped, and a group left with
+// nothing in it goes too, so the menu only ever lists what will open.
+function filterChildren(children: NavChild[], access: Access): NavChild[] {
+  return children.flatMap((c): NavChild[] => {
+    if (isSubGroup(c)) {
+      const kids = filterChildren(c.children, access)
+      return kids.length ? [{ ...c, children: kids }] : []
+    }
+    return canAccess(c.path, access) ? [c] : []
+  })
+}
+
+export function visibleNav(access: Access): NavItem[] {
+  return NAV_ITEMS.flatMap((item): NavItem[] => {
+    if (item.children) {
+      const kids = filterChildren(item.children, access)
+      return kids.length ? [{ ...item, children: kids }] : []
+    }
+    return item.path && canAccess(item.path, access) ? [item] : []
+  })
+}
+
+// Where to land when the requested screen is not allowed: the first menu entry.
+export function firstAllowedPath(access: Access): string | null {
+  for (const item of visibleNav(access)) {
+    if (item.path) return item.path
+    const leaf = flattenLeafs(item.children ?? [])[0]
+    if (leaf) return leaf.path
+  }
+  return null
+}
+
 // ── Sub-group (3rd level) — always visible, label is a decorative divider ─────
 function NavSubSection({
   group,
@@ -319,8 +353,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onClose, collapsed = false, onExpand }: SidebarProps) {
-  const { user, logout } = useAuthStore()
+  const { user, logout, menu } = useAuthStore()
   const location = useLocation()
+  const navItems = useMemo(() => visibleNav(buildAccess(menu)), [menu])
 
   useEffect(() => {
     onClose()
@@ -361,7 +396,7 @@ export function Sidebar({ isOpen, onClose, collapsed = false, onExpand }: Sideba
 
       {/* Nav */}
       <div className={cn('flex-1 overflow-y-auto py-6 px-4 space-y-1 scrollbar-hide', collapsed && 'lg:px-2')}>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           if (item.children) return <NavGroup key={item.id} item={item} onClose={onClose} collapsed={collapsed} onExpand={onExpand} />
           return (
             <NavLink

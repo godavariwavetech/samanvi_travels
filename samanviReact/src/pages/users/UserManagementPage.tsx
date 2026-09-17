@@ -324,6 +324,7 @@ function PermissionsPanel({ user, onClose }: { user: any; onClose: () => void })
         toast.success(`Permissions saved for ${user.name}`)
         qc.invalidateQueries({ queryKey: ['users'] })
         qc.invalidateQueries({ queryKey: ['edit-user-modules'] })
+        qc.invalidateQueries({ queryKey: ['my-menu'] })
       } else toast.error('Failed to save')
     },
     onError: (e: any) => { if (e.message !== 'No permissions selected') toast.error('Server error') },

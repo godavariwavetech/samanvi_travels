@@ -142,6 +142,7 @@ export default function RolesPage() {
       if (res?.status === 200) {
         toast.success('Permissions saved!')
         qc.invalidateQueries({ queryKey: ['edit-user-modules', selectedUserId] })
+        qc.invalidateQueries({ queryKey: ['my-menu'] })
       } else {
         toast.error('Failed to save permissions')
       }

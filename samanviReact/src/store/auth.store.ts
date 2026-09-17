@@ -37,6 +37,8 @@ interface AuthState {
   isAuthenticated: boolean
   login: (user: AuthUser, token: string, menu: MenuItem[]) => void
   logout: () => void
+  /** The menu as the server has it now (permissions may change after login). */
+  setMenu: (menu: MenuItem[]) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -59,6 +61,7 @@ export const useAuthStore = create<AuthState>()(
         localStorage.clear()
         set({ user: null, token: null, menu: [], isAuthenticated: false })
       },
+      setMenu: (menu) => set({ menu }),
     }),
     { name: 'samanvi-auth' }
   )

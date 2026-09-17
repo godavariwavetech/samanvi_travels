@@ -624,6 +624,33 @@ exports.getAllUsersCtrl = function (req, res) {
   });
 };
 
+// The signed-in user's current menu (modules + permitted sub-modules), in the
+// same shape login returns. The app re-reads it so a permission change or a
+// deactivation takes effect without signing out. The user comes from the
+// token, never from the request, so nobody can read another user's menu.
+exports.getMyMenuCtrl = function (req, res) {
+  let usid;
+  try {
+    const token = String(req.headers["authorization"] || "").split(" ")[1];
+    usid = Number(jwt.verify(token, JWT_SECRET).usid);
+  } catch (e) {
+    return res.send({ status: 401, msg: "Invalid token" });
+  }
+  if (!usid) return res.send({ status: 401, msg: "Invalid token" });
+  appmdl.getActiveUserMdl(usid, function (err, users) {
+    if (err) return res.send({ status: 500, msg: "Server Error" });
+    // Deactivated since signing in: the app treats 401 as signed out.
+    if (!users || !users.length) return res.send({ status: 401, msg: "User is inactive" });
+    appmdl.getUserDataMdl(usid, function (err2, usrMenu) {
+      if (err2) return res.send({ status: 500, msg: "Server Error" });
+      usrMenu[0].forEach((mod) => {
+        mod.submenu = usrMenu[1].filter((sub) => sub.module_id == mod.id);
+      });
+      res.send({ status: 200, data: usrMenu[0], usr_data: users });
+    });
+  });
+};
+
 // Edits an existing user's profile, role and (optionally) password. A blank
 // password keeps the current one. The mobile number is the login, so it must
 // stay unique among active users other than this one.

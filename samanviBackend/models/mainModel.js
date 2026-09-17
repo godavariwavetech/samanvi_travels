@@ -1186,6 +1186,14 @@ exports.getAllUsersMdl = function (callback) {
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
+exports.getActiveUserMdl = function (id, callback) {
+  var cntxtDtls = "in getActiveUserMdl";
+  var QRY_TO_EXEC = `SELECT id, name, number, role_type, department_id, department_name FROM users WHERE id = ? AND d_in = 0;`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [id], cntxtDtls, function (err, results) {
+    callback(err, results);
+  });
+};
+
 exports.checkUserMobileOtherMdl = function (number, id, callback) {
   var cntxtDtls = "in checkUserMobileOtherMdl";
   var QRY_TO_EXEC = `select id from users where d_in = 0 and number = ? and id <> ?;`;
