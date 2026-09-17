@@ -8,7 +8,7 @@ import autoTable from 'jspdf-autotable'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, FYSelector } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, todayISO } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
 
@@ -67,7 +67,7 @@ const cols: Column[] = [
   { label: 'Closing Balance', key: 'closing', filterable: true, filterType: 'select', render: balanceCell },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 export default function TrialBalancePage() {

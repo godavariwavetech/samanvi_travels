@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
-import { formatAmount, formatDate, withStatusLabel } from '@/lib/utils'
+import { formatAmount, formatDate, withStatusLabel, todayISO } from '@/lib/utils'
 
 // A vendor's statement: every laundry bill in the period with its vehicles,
 // amount and approval, and what the period adds up to. Built on the bills
@@ -26,7 +26,7 @@ const cols: Column[] = [
   { label: 'Remarks', key: 'remarks', render: (v) => v ? <span className="text-xs text-slate-500">{String(v)}</span> : '—' },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function LaundryStatementPage() {
   const [filter, setFilter] = useState({ vendor: '', from_date: '', to_date: '' })

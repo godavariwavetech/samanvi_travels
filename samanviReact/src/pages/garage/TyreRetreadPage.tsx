@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelec
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 const EMPTY_FORM = { tyre_id: '', retread_date: '', cost: '', remarks: '' }
 
@@ -17,7 +17,7 @@ const CREDIT_LEDGER_NAME = 'Retreading Tyres In Stock'
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function fmtDate(v: any) {
   if (!v) return '—'

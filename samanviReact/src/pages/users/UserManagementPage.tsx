@@ -1,18 +1,132 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { UserCircle, Save, Eye, EyeOff, Shield, ChevronDown, ChevronUp, Users } from 'lucide-react'
+import { UserCircle, Save, Eye, EyeOff, Shield, ChevronDown, ChevronUp, Users, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { usersService } from '@/services/users.service'
 import { useAuthStore } from '@/store/auth.store'
+import { isValidMobile } from '@/lib/utils'
 
 const DEPT_MAP: Record<string, string> = {
   '1': 'Administration', '2': 'Operations', '3': 'Accounts', '4': 'Chairman', '5': 'Supervisor',
 }
 
 const EMPTY = { name: '', number: '', email: '', password: '', role_type: '1', department_id: '1' }
+
+const ROLE_OPTIONS: [string, string][] = [
+  ['0', 'Super Admin (Full Access)'],
+  ['1', 'Admin (Full Access)'],
+  ['2', 'Officer (Permission-based)'],
+  ['3', 'Staff (Limited)'],
+]
+
+// Mobile is the login, so the field only ever holds digits.
+const digitsOnly = (v: string) => v.replace(/\D/g, '').slice(0, 10)
+
+// ── Edit user (profile, role, password) ───────────────────────────────────
+function EditUserPanel({ user, onClose }: { user: any; onClose: () => void }) {
+  const { user: authUser } = useAuthStore()
+  const qc = useQueryClient()
+  const [form, setForm] = useState({
+    name: String(user.name ?? ''),
+    number: String(user.number ?? ''),
+    email: String(user.email ?? ''),
+    role_type: String(user.role_type ?? '1'),
+    department_id: String(user.department_id ?? '1'),
+  })
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPwd, setShowPwd] = useState(false)
+  const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm({ ...form, [k]: k === 'number' ? digitsOnly(e.target.value) : e.target.value })
+
+  const isSelf = String(authUser?.id) === String(user.id)
+  const errors: string[] = []
+  if (!form.name.trim()) errors.push('Name required.')
+  if (!isValidMobile(form.number)) errors.push('Enter a valid 10-digit mobile number.')
+  if (password.trim() && password !== confirmPassword) errors.push('Passwords do not match.')
+
+  const { mutate: save, isPending } = useMutation({
+    mutationFn: () => usersService.updateUser({
+      id: user.id,
+      ...form,
+      name: form.name.trim(),
+      email: form.email.trim(),
+      department_name: DEPT_MAP[form.department_id] ?? 'Administration',
+      password: password.trim() ? password : '',
+    }),
+    onSuccess: (res: any) => {
+      if (res.status === 200) {
+        const roleChanged = String(user.role_type) !== form.role_type
+        toast.success(password.trim() ? `${form.name} updated, password changed` : `${form.name} updated`)
+        if (isSelf && (roleChanged || password.trim())) toast.info('Log out and sign in again for your changes to apply')
+        qc.invalidateQueries({ queryKey: ['users'] })
+        onClose()
+      } else toast.error(res.message ?? 'Failed to update user')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  return (
+    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+      <GlassCard className="p-6" colorBar="bg-gradient-to-r from-amber-400 to-orange-500">
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <Pencil className="w-5 h-5 text-amber-500" /> Edit User — {user.name}
+          </h2>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-red-500 rounded-xl hover:bg-slate-100 transition-colors">✕</button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div><Label>Full Name *</Label><Input value={form.name} onChange={f('name')} /></div>
+          <div><Label>Mobile Number * (10 digits)</Label>
+            <Input inputMode="numeric" maxLength={10} value={form.number} onChange={f('number')} /></div>
+          <div><Label>Email</Label><Input type="email" value={form.email} onChange={f('email')} /></div>
+          <div><Label>Role Type *</Label>
+            <Select value={form.role_type} onChange={f('role_type')}>
+              {ROLE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select></div>
+          <div><Label>Department *</Label>
+            <Select value={form.department_id} onChange={f('department_id')}>
+              {Object.entries(DEPT_MAP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select></div>
+        </div>
+
+        <div className="mt-6 pt-5 border-t border-slate-200">
+          <h3 className="font-bold text-slate-700 mb-1">Change Password</h3>
+          <p className="text-xs text-slate-500 mb-4">Leave blank to keep the current password.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div><Label>New Password</Label>
+              <div className="relative">
+                <Input type={showPwd ? 'text' : 'password'} autoComplete="new-password" placeholder="New password"
+                  value={password} onChange={(e) => setPassword(e.target.value)} />
+                <button type="button" onClick={() => setShowPwd(!showPwd)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            <div><Label>{password.trim() ? 'Confirm Password *' : 'Confirm Password'}</Label>
+              <Input type={showPwd ? 'text' : 'password'} autoComplete="new-password" placeholder="Re-enter new password"
+                value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={!password.trim()} />
+            </div>
+          </div>
+        </div>
+
+        {errors.length > 0 && (
+          <p className="text-xs text-amber-600 font-medium mt-4">{errors.map((e) => `• ${e} `)}</p>
+        )}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => save()} disabled={isPending || errors.length > 0}>
+            <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Update User'}
+          </Button>
+        </div>
+      </GlassCard>
+    </motion.div>
+  )
+}
 
 // ── Permission row type ───────────────────────────────────────────────────
 interface PermRow {
@@ -209,6 +323,7 @@ function PermissionsPanel({ user, onClose }: { user: any; onClose: () => void })
       if (res.status === 200) {
         toast.success(`Permissions saved for ${user.name}`)
         qc.invalidateQueries({ queryKey: ['users'] })
+        qc.invalidateQueries({ queryKey: ['edit-user-modules'] })
       } else toast.error('Failed to save')
     },
     onError: (e: any) => { if (e.message !== 'No permissions selected') toast.error('Server error') },
@@ -311,12 +426,13 @@ export default function UserManagementPage() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [selectedUser, setSelectedUser] = useState<any>(null)
+  const [editUser, setEditUser] = useState<any>(null)
   const [form, setForm] = useState(EMPTY)
   const [showPwd, setShowPwd] = useState(false)
   const [createPerms, setCreatePerms] = useState<PermRow[]>([])
   const [permsLoaded, setPermsLoaded] = useState(false)
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm({ ...form, [k]: e.target.value })
+    setForm({ ...form, [k]: k === 'number' ? digitsOnly(e.target.value) : e.target.value })
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
@@ -406,10 +522,33 @@ export default function UserManagementPage() {
     onError: () => toast.error('Server error'),
   })
 
+  const { mutate: deleteUser } = useMutation({
+    mutationFn: (id: number) => usersService.deleteUser(id),
+    onSuccess: (res: any) => {
+      if (res.status === 200) {
+        toast.success('User deactivated')
+        qc.invalidateQueries({ queryKey: ['users'] })
+      } else toast.error('Failed to deactivate user')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
+  const handleAction = (action: string, row: any) => {
+    if (action === 'edit') {
+      setShowCreate(false); setSelectedUser(null); setEditUser(row)
+    } else if (action === 'delete') {
+      if (String(authUser?.id) === String(row.id)) { toast.error('You cannot deactivate your own account'); return }
+      if (editUser?.id === row.id) setEditUser(null)
+      if (selectedUser?.id === row.id) setSelectedUser(null)
+      deleteUser(row.id)
+    }
+  }
+
   const userList: any[] = users?.data ?? []
-  const canSubmit = form.name.trim() && form.number.trim().length === 10 && form.password.trim()
+  const canSubmit = Boolean(form.name.trim() && isValidMobile(form.number) && form.password.trim() && enabledCreateCount > 0)
 
   const userColumns: Column[] = [
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     {
       label: 'User', key: 'name',
       render: (v, r: any) => (
@@ -441,7 +580,7 @@ export default function UserManagementPage() {
       label: 'Permissions', key: 'id',
       render: (_, row: any) => (
         <button
-          onClick={(e) => { e.stopPropagation(); setSelectedUser((u: any) => u?.id === row.id ? null : row) }}
+          onClick={(e) => { e.stopPropagation(); setEditUser(null); setSelectedUser((u: any) => u?.id === row.id ? null : row) }}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
             selectedUser?.id === row.id
               ? 'bg-violet-500 text-white'
@@ -459,7 +598,7 @@ export default function UserManagementPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
       <div className="flex justify-between items-end">
         <PageHeader title="User Management" subtitle="Manage users and their module permissions" />
-        <Button onClick={() => { setShowCreate(s => !s); setSelectedUser(null) }}>
+        <Button onClick={() => { setShowCreate(s => !s); setSelectedUser(null); setEditUser(null) }}>
           <UserCircle className="w-4 h-4" />
           {showCreate ? 'Cancel' : 'Create User'}
         </Button>
@@ -478,7 +617,7 @@ export default function UserManagementPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div><Label>Full Name *</Label><Input placeholder="e.g. Prakash" value={form.name} onChange={f('name')} /></div>
                 <div><Label>Mobile Number * (10 digits)</Label>
-                  <Input placeholder="9876543210" maxLength={10} value={form.number} onChange={f('number')} /></div>
+                  <Input placeholder="9876543210" inputMode="numeric" maxLength={10} value={form.number} onChange={f('number')} /></div>
                 <div><Label>Email</Label>
                   <Input type="email" placeholder="user@samanvitravels.in" value={form.email} onChange={f('email')} /></div>
                 <div><Label>Password *</Label>
@@ -490,27 +629,21 @@ export default function UserManagementPage() {
                     </button>
                   </div>
                 </div>
-                <div><Label>Role Type</Label>
+                <div><Label>Role Type *</Label>
                   <Select value={form.role_type} onChange={f('role_type')}>
-                    <option value="0">Super Admin (Full Access)</option>
-                    <option value="1">Admin (Full Access)</option>
-                    <option value="2">Officer (Permission-based)</option>
-                    <option value="3">Staff (Limited)</option>
+                    {ROLE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </Select></div>
-                <div><Label>Department</Label>
+                <div><Label>Department *</Label>
                   <Select value={form.department_id} onChange={f('department_id')}>
-                    <option value="1">Administration</option>
-                    <option value="2">Operations</option>
-                    <option value="3">Accounts</option>
-                    <option value="4">Chairman</option>
-                    <option value="5">Supervisor</option>
+                    {Object.entries(DEPT_MAP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </Select></div>
               </div>
               {!canSubmit && (form.name || form.number || form.password) && (
                 <p className="text-xs text-amber-600 font-medium mt-4">
                   {!form.name.trim() && '• Name required. '}
-                  {form.number.trim().length !== 10 && form.number.trim() !== '' && '• Mobile must be 10 digits. '}
+                  {form.number.trim() !== '' && !isValidMobile(form.number) && '• Enter a valid 10-digit mobile number. '}
                   {!form.password.trim() && '• Password required. '}
+                  {permsLoaded && enabledCreateCount === 0 && '• Enable at least one module. '}
                 </p>
               )}
 
@@ -571,14 +704,18 @@ export default function UserManagementPage() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {editUser && <EditUserPanel key={editUser.id} user={editUser} onClose={() => setEditUser(null)} />}
+      </AnimatePresence>
+
       {/* Users table */}
       <DataTable
         title={`System Users (${userList.length})`}
         columns={userColumns}
         data={userList}
         loading={isLoading}
-        onAction={() => {}}
-        actions={[]}
+        onAction={handleAction}
+        actions={['edit', 'delete']}
         icon={<Users className="w-5 h-5 text-blue-500" />}
       />
 

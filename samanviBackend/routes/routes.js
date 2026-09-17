@@ -25,6 +25,7 @@ router.post('/problemdone',verifyToken, routcontroller.problemdone);
 router.post('/submithelpdata', verifyToken,routcontroller.submithelpdata);
 router.post('/getdata',verifyToken, routcontroller.getdata);
 router.get('/deleteUsers/:ind',verifyToken, routcontroller.deleteUsersCtrl);
+router.post('/updateuser', verifyToken, routcontroller.updateUserCtrl);
 router.get('/getallusers', verifyToken, routcontroller.getAllUsersCtrl);
 
 

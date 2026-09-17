@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 const EMPTY_FORM = {
   from_bus: '', position_log_id: '', tyre_id: '',
@@ -29,7 +29,7 @@ const DESTINATION_STATUS_MAP: Record<string, string> = {
 // eligible as the source for Stock-to-Bus / Stock-to-Stock moves.
 const isInStock = (t: any) => t.status !== 'In Use' && t.status !== 'Sold'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function fmtDate(v: any) {
   if (!v) return '—'

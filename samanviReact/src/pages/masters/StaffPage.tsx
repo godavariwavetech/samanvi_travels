@@ -9,7 +9,7 @@ import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, 
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { excelCellToISODate, headerRowMismatch } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, todayISO } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 type DataType = string
@@ -98,7 +98,7 @@ function TerminateModal({ person, staffType, onConfirm, onClose, isPending }: {
   onConfirm: (date: string, reason: string) => void
   onClose: () => void; isPending: boolean
 }) {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(todayISO())
   const [reason, setReason] = useState('')
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -372,7 +372,7 @@ const typeColors: Record<string, string> = {
   Helper: 'bg-gradient-to-r from-orange-400 to-amber-500',
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 // dd/mm/yyyy — matches the repo-wide "human-readable dates" convention.
 function fmtDMY(v: any): string {

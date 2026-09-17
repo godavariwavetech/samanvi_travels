@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { formatDate, ledgerOption } from '@/lib/utils'
+import { formatDate, ledgerOption, todayISO } from '@/lib/utils'
 
 const STATUSES = ['Active', 'Replaced', 'Scrapped']
 
@@ -21,7 +21,7 @@ const EMPTY_FORM = {
   warranty_months: '', cost: '', status: 'Active', remarks: '', voucher_number: '',
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const statusVariant: Record<string, 'success' | 'warning' | 'danger'> = {
   Active: 'success', Replaced: 'warning', Scrapped: 'danger',

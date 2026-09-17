@@ -9,7 +9,7 @@ import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, Dua
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency, formatDate, ledgerGroupName } from '@/lib/utils'
+import { formatCurrency, formatDate, ledgerGroupName, todayISO } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
 
@@ -515,7 +515,7 @@ function ELedgerDetailCard({
   onRefreshStaff?: () => void; staffRefreshing?: boolean
 }) {
   const isDr = side === 'debit'
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = todayISO()
   return (
     <div className={`rounded-xl border-2 overflow-hidden ${isDr ? 'border-red-200' : 'border-emerald-200'}`}>
       <div className={`flex items-center justify-between px-4 py-2.5 ${isDr ? 'bg-red-50' : 'bg-emerald-50'}`}>
@@ -585,7 +585,7 @@ function groupVoucherRows(rows: any[]): any[] {
   }))
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 import ActivityHistory from '@/components/shared/ActivityHistory'
@@ -916,7 +916,7 @@ export default function VoucherApprovalsPage() {
         vouchervalue: payload.status,
         admin_status_by_id: localStorage.getItem('user_id'),
         admin_status_by_name: localStorage.getItem('usr_nm'),
-        admin_status_by_date: new Date().toISOString().split('T')[0],
+        admin_status_by_date: todayISO(),
         rejection_reason: payload.rejection_reason ?? '',
         voucherdata: { c_number: payload.row.c_number },
       }),
@@ -959,7 +959,7 @@ export default function VoucherApprovalsPage() {
 
       const userId = localStorage.getItem('user_id')
       const userName = localStorage.getItem('usr_nm')
-      const todayStr = new Date().toISOString().split('T')[0]
+      const todayStr = todayISO()
       const firstDr = allDebits[0]
       const primaryStaff = parseStaff(firstDr?.staffValue ?? '')
 
@@ -1085,7 +1085,7 @@ export default function VoucherApprovalsPage() {
     setLoading(true)
     const adminId = localStorage.getItem('user_id')
     const adminName = localStorage.getItem('usr_nm')
-    const date = new Date().toISOString().split('T')[0]
+    const date = todayISO()
     for (const row of selectedRows) {
       await accountingService.updateVoucherStatus({
         vouchervalue: status,
@@ -1118,7 +1118,7 @@ export default function VoucherApprovalsPage() {
       setBulkRejecting(true)
       const adminId = localStorage.getItem('user_id')
       const adminName = localStorage.getItem('usr_nm')
-      const date = new Date().toISOString().split('T')[0]
+      const date = todayISO()
       for (const r of selectedRows) {
         await accountingService.updateVoucherStatus({
           vouchervalue: 2,

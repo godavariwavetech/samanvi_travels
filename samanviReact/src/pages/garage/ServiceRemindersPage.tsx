@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { mainmastersService } from '@/services/mainmasters.service'
-import { scrollContentToTop } from '@/lib/utils'
+import { scrollContentToTop, todayISO } from '@/lib/utils'
 
 const REPEAT_UNITS = ['Days', 'Weeks', 'Months', 'Years']
 
@@ -110,7 +110,7 @@ type TypeRow = typeof EMPTY_TYPE_ROW
 const EMPTY_SCHEDULE_ROW = { due_date: '', due_odometer: '', last_done_odometer: '' }
 type ScheduleRow = typeof EMPTY_SCHEDULE_ROW
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const JOB_PRIORITIES = ['High', 'Medium', 'Low']
 const EMPTY_JOB_CARD_FORM = { job_date: today, odometer: '', driver: '', category: '', priority: 'Medium', technician: '', description: '' }

@@ -12,6 +12,7 @@ import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
+import { todayISO } from '@/lib/utils'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GWNode {
@@ -126,7 +127,7 @@ function fmtFileDate(d: any): string {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 export default function GroupWisePage() {

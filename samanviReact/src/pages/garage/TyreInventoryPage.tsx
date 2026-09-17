@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 const STATUSES = ['In Stock', 'In Use', 'Retreaded', 'Scrapped', 'Sold', 'Pending Retread']
 
@@ -24,7 +24,7 @@ const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger
 type TyreRow = { brand: string; size: string; serial_no: string; cost: string; remarks: string }
 const emptyTyreRow = (cost = ''): TyreRow => ({ brand: '', size: '', serial_no: '', cost, remarks: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'purple' | 'teal'> = {
   'In Stock': 'success', 'In Use': 'info', Retreaded: 'warning', Scrapped: 'danger', Sold: 'purple', 'Pending Retread': 'teal',

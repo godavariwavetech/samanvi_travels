@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, todayISO } from '@/lib/utils'
 
 function fmtDate(d: any) {
   if (!d) return '—'
@@ -55,7 +55,7 @@ const cols: Column[] = [
   { label: 'Completed', key: 'completed_date', align: 'center', render: (v) => <span className="text-sm">{fmtDate(v)}</span> },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function GarageReportsPage() {
   const [filter, setFilter] = useState({ bus_no: '', from_date: '', to_date: '', category: '' })

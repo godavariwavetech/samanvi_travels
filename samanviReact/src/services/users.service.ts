@@ -15,5 +15,8 @@ export const usersService = {
     api.post('/postusermenulist', securePayload(data)).then((r) => r.data),
   getUserMenuList: (data: unknown) =>
     api.post('/getusermoduleslist', securePayload(data)).then((r) => r.data),
-  deleteUser: (id: string) => api.delete(`/deleteUsers/${id}`).then((r) => r.data),
+  updateUser: (data: unknown) =>
+    api.post('/updateuser', securePayload(data)).then((r) => r.data),
+  // The backend route is a GET that soft-deletes (d_in = 1).
+  deleteUser: (id: string | number) => api.get(`/deleteUsers/${id}`).then((r) => r.data),
 }

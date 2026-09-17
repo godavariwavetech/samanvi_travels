@@ -5,14 +5,14 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, PageHeader, TotalsFooter } from '@/components/shared'
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
-import { formatDate, formatAmount } from '@/lib/utils'
+import { formatDate, formatAmount, todayISO, toLocalISODate } from '@/lib/utils'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function monthBounds(d = new Date()) {
   const y = d.getFullYear()
   const m = d.getMonth()
-  const iso = (dt: Date) => dt.toISOString().split('T')[0]
+  const iso = (dt: Date) => toLocalISODate(dt)
   return { fromdate: iso(new Date(y, m, 1)), todate: iso(new Date(y, m + 1, 0)) }
 }
 

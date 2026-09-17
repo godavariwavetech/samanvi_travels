@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'PNR / Seat', key: 'pnr_no', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">Seat: {r.seatnumber}</div></div> },
@@ -19,11 +19,11 @@ const cols: Column[] = [
   { label: 'Status', key: 'agentstatus', render: (v) => <Badge variant={v == 1 ? 'success' : 'warning'}>{v == 1 ? 'Assigned' : 'Pending'}</Badge> },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function BookingDataPage() {
   const qc = useQueryClient()
-  const [travelDate, setTravelDate] = useState(new Date().toISOString().split('T')[0])
+  const [travelDate, setTravelDate] = useState(todayISO())
   const [searchDate, setSearchDate] = useState(travelDate)
 
   const { data, isLoading } = useQuery({

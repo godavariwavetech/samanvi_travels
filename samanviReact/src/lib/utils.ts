@@ -171,3 +171,13 @@ export const ledgerGroupLookup = (ledgers: any[] | undefined) => {
     (idOrName.id != null && byId.get(String(idOrName.id))) ||
     byName.get(String(idOrName.name ?? '').trim().toLowerCase()) || ''
 }
+
+// A calendar date as 'YYYY-MM-DD' in the browser's own timezone. Never use
+// toISOString() for this - it is UTC, so in IST (UTC+5:30) anything between
+// midnight and 5:30 AM comes out as the previous day in every date picker.
+export const toLocalISODate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+export const todayISO = (): string => toLocalISODate(new Date())
+// 'YYYY-MM-DD HH:MM:SS' local wall-clock time, for timestamp fields sent to the API.
+export const localDateTime = (d: Date = new Date()): string =>
+  `${toLocalISODate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`

@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
 import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu } from '@/components/shared'
 import { exportRows, type ExportCell, type ExportFormat } from '@/lib/tableExport'
-import { formatDate } from '@/lib/utils'
+import { formatDate, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -313,7 +313,7 @@ function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, 
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 interface SearchItem {

@@ -9,7 +9,7 @@ import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY } from '@/lib/fy'
-import { scrollContentToTop, ledgerGroupName, ledgerOption } from '@/lib/utils'
+import { scrollContentToTop, ledgerGroupName, ledgerOption, todayISO, toLocalISODate } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -732,8 +732,8 @@ function VoucherModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Reference Number</Label><Input value={data?.c_number || refNo} readOnly className="bg-slate-50" /></div>
           <div><Label>Voucher Type</Label><Input value={vType} readOnly className="bg-slate-50" /></div>
-          <div><Label>Voucher Date</Label><Input value={vDate ? new Date(vDate).toISOString().split('T')[0] : ''} readOnly className="bg-slate-50" /></div>
-          <div><Label>Value Date</Label><Input value={valueDate ? new Date(valueDate).toISOString().split('T')[0] : ''} readOnly className="bg-slate-50" /></div>
+          <div><Label>Voucher Date</Label><Input value={vDate ? toLocalISODate(new Date(vDate)) : ''} readOnly className="bg-slate-50" /></div>
+          <div><Label>Value Date</Label><Input value={valueDate ? toLocalISODate(new Date(valueDate)) : ''} readOnly className="bg-slate-50" /></div>
           <div><Label>Vehicle No</Label><Input value={vehicleNo} readOnly className="bg-slate-50" /></div>
           <div><Label>Name</Label><Input value={name} readOnly className="bg-slate-50" /></div>
         </div>
@@ -897,7 +897,7 @@ interface CreditEntry {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 // The Payables view for one ledger. Opened as a popup over the report the
@@ -959,7 +959,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
   const [voucherForm, setVoucherForm] = useState(() => ({
     vouchertype: '' as any,
     voucher_type_id: '',
-    voucherdate: editVoucher?.voucherdate || new Date().toISOString().split('T')[0],
+    voucherdate: editVoucher?.voucherdate || todayISO(),
     valueDate: editVoucher?.valueDate || '',
     vehicleNo: editVoucher?.vehicleNo || '',
     name: editVoucher?.name || '',
@@ -1592,7 +1592,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
 
     if (editVoucher) {
       const userName = localStorage.getItem('usr_nm') || ''
-      const todayStr = new Date().toISOString().split('T')[0]
+      const todayStr = todayISO()
 
       // Lightweight diff for the audit trail — header fields plus which
       // transactions/credit ledgers are settling this voucher now.

@@ -8,7 +8,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
-import { ledgerGroupName } from '@/lib/utils'
+import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -37,7 +37,7 @@ function fmtAmt(n: number): string {
 
 export default function DayBookPage() {
   const navigate = useNavigate()
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate

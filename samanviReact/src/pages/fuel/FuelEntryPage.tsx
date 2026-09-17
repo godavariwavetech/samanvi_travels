@@ -8,7 +8,7 @@ import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
-import { formatDate, withStatusLabel, formatAmount, formatDateTime } from '@/lib/utils'
+import { formatDate, withStatusLabel, formatAmount, formatDateTime, todayISO } from '@/lib/utils'
 
 // Required-field marker, the same red asterisk every other form uses.
 const Req = () => <span className="text-red-500">*</span>
@@ -34,7 +34,7 @@ export const emptyForm = () => ({
   id: 0 as number | 0,
   c_id: '' as string,
   c_number: '' as string,
-  date: new Date().toISOString().split('T')[0],
+  date: todayISO(),
   vehicleNumber: '',
   previousOdometer: '',
   presentOdometer: '',
@@ -56,7 +56,7 @@ const toApiRows = (f: { patientsTstdts: LedgerLine<Ledger>[]; creditaddrowdts: L
 
 type FormState = ReturnType<typeof emptyForm>
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function ledgerLabel(l: Ledger) {
   return l.temple_name || l.subchildtwo || `Ledger #${l.id}`

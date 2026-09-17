@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { excelCellToISODate, headerRowMismatch, isVanVehicleType, ledgerOption } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, isVanVehicleType, ledgerOption, todayISO } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 // ── Sold Out / Service Out modal ───────────────────────────────────────────
@@ -18,7 +18,7 @@ function ServiceOutModal({ bus, onConfirm, onClose, isPending }: {
   onConfirm: (date: string, reason: string) => void
   onClose: () => void; isPending: boolean
 }) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const [date, setDate] = useState(today)
   const [reason, setReason] = useState('')
   return (
@@ -157,7 +157,7 @@ function buildCols(onServiceOut: (row: any) => void): Column[] {
   ]
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 // Column order mirrors the "Add New Vehicle" (Normal Bus) form field order exactly.
 const BUS_TEMPLATE_HEADERS = [

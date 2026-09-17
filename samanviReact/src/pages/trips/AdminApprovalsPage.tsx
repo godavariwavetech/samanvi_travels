@@ -6,9 +6,9 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { formatDate } from '@/lib/utils'
+import { formatDate, todayISO, localDateTime } from '@/lib/utils'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const firstOfMonth = today.slice(0, 8) + '01'
 
 const tabs = ['Pending', 'Approved', 'Rejected']
@@ -117,7 +117,7 @@ export default function AdminApprovalsPage() {
         voucherdata: { id: payload.id, c_number: payload.c_number },
         user_id: localStorage.getItem('user_id'),
         user_nm: localStorage.getItem('usr_nm'),
-        updated_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        updated_date: localDateTime(),
       }),
     onSuccess: (res) => {
       if (res?.status === 200) {

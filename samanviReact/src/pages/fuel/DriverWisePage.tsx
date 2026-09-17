@@ -5,10 +5,10 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter, LedgerNameWithGroup } from '@/components/shared'
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
-import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
+import { formatDate, withStatusLabel, formatAmount, todayISO, toLocalISODate } from '@/lib/utils'
 
-const today = new Date().toISOString().split('T')[0]
-const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
+const today = todayISO()
+const weekAgo = toLocalISODate(new Date(Date.now() - 7 * 86400000))
 
 export default function DriverWisePage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})

@@ -9,7 +9,7 @@ import { laundryService } from '@/services/laundry.service'
 import { mastersService } from '@/services/masters.service'
 import { tripsService } from '@/services/trips.service'
 import { accountingService } from '@/services/accounting.service'
-import { formatDate, withStatusLabel, formatAmount, formatDateTime } from '@/lib/utils'
+import { formatDate, withStatusLabel, formatAmount, formatDateTime, todayISO } from '@/lib/utils'
 
 const Req = () => <span className="text-red-500">*</span>
 
@@ -67,7 +67,7 @@ type VehicleRow = {
 }
 type LedgerRow = LedgerLine<Ledger>
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const emptyForm = () => ({
   c_number: '' as string,

@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType, formatDate, ledgerOption } from '@/lib/utils'
+import { isVanVehicleType, formatDate, ledgerOption, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 
@@ -61,7 +61,7 @@ type ExpenseForm = {
 
 type OrigMeta = { c_number: string; c_id: string; date: string; user_id: string; usr_nm: string }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const firstOfMonth = today.slice(0, 8) + '01'
 
 const num = (v: any) => Number(v) || 0

@@ -9,14 +9,14 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 const EMPTY_FORM = { vehicle_number: '', position: '', tyre_id: '', odometer_at_fitting: '', fitted_date: '', remarks: '' }
 
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function fmtDate(v: any) {
   if (!v) return '—'

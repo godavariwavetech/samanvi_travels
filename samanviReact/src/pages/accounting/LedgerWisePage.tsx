@@ -6,7 +6,7 @@ import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
 import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
-import { ledgerGroupName } from '@/lib/utils'
+import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
@@ -599,7 +599,7 @@ function LedgerSelectDropdown({ value, ledgers, onChange, onRefresh, refreshing 
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 export default function LedgerWisePage() {

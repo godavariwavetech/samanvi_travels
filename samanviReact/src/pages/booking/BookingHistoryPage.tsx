@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'PNR', key: 'pnr_no', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
@@ -18,7 +18,7 @@ const cols: Column[] = [
   { label: 'Agent', key: 'assigned_name', render: (v) => <Badge variant="info">{String(v)}</Badge> },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function BookingHistoryPage() {
   const [range, setRange] = useState({ from: '', to: '' })

@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelec
 import type { Column } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
-import { formatDate, formatAmount, ledgerGroupName } from '@/lib/utils'
+import { formatDate, formatAmount, ledgerGroupName, todayISO } from '@/lib/utils'
 
 const Req = () => <span className="text-red-500">*</span>
 
@@ -30,7 +30,7 @@ type Ledger = {
 type Product = { id: number; product_name: string }
 type ProductRow = { d_test_name: Product | null; d_test_amount: string }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 interface FormState {
   id: number | 0

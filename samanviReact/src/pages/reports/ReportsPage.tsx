@@ -8,6 +8,7 @@ import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { fuelService } from '@/services/fuel.service'
 import { payrollService } from '@/services/payroll.service'
+import { todayISO } from '@/lib/utils'
 
 const recentCols: Column[] = [
   { label: 'Report Name', key: 'name', render: (v) => <span className="font-bold">{String(v)}</span> },
@@ -28,10 +29,10 @@ const CATEGORIES = [
   { label: 'P&L Statement', desc: 'Profit and loss for the period' },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function ReportsPage() {
-  const [form, setForm] = useState({ category: 'Trip Analytics', from_date: '', to_date: new Date().toISOString().split('T')[0], format: 'PDF' })
+  const [form, setForm] = useState({ category: 'Trip Analytics', from_date: '', to_date: todayISO(), format: 'PDF' })
 
   const handleGenerate = () => {
     if (!form.from_date) { toast.error('Please select a date range'); return }

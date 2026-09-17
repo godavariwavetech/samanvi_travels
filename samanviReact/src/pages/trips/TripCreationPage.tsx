@@ -6,12 +6,12 @@ import { toast } from 'sonner'
 import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType, formatDate, isValidMobile } from '@/lib/utils'
+import { isVanVehicleType, formatDate, isValidMobile, todayISO, localDateTime } from '@/lib/utils'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 type TripRunStatus = 'Running' | 'Halt' | 'Full Trip'
 
@@ -640,7 +640,7 @@ export default function TripCreationPage() {
         opt_driver1_id: editHalted ? '' : editForm.opt_driver1_id, opt_driver1_name: editHalted ? '' : editForm.opt_driver1_name,
         updatedby_id: localStorage.getItem('user_id') ?? '',
         updatedby_name: localStorage.getItem('usr_nm') ?? '',
-        updated_date: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        updated_date: localDateTime(),
       }
       return tripsService.updateTrip(isVan
         ? { ...common, hirer_name: editHirerActive ? editForm.hirer_name : '', phone_number: editHirerActive ? editForm.phone_number : '', line_code: editForm.line_code,

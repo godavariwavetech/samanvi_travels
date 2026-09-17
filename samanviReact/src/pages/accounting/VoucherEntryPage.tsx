@@ -9,7 +9,7 @@ import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY, getFYList, type FinancialYear } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
-import { formatCurrency, formatDate, ledgerGroupName } from '@/lib/utils'
+import { formatCurrency, formatDate, ledgerGroupName, todayISO } from '@/lib/utils'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Ledger { id: number; temple_name: string; ledger_id: number; [key: string]: any }
@@ -476,7 +476,7 @@ function LedgerDetailCard({
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
-const today     = new Date().toISOString().split('T')[0]
+const today     = todayISO()
 const currentFY = getCurrentFY()
 
 export default function VoucherEntryPage() {

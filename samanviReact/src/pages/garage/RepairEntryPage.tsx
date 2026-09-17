@@ -10,7 +10,7 @@ import { accountingService } from '@/services/accounting.service'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 interface JobRow { category: string; priority: string; technician: string; description: string }
 interface PartRow { category_id: string; part_id: string; qty: string; rate: string }
@@ -20,7 +20,7 @@ const emptyPartRow = (): PartRow => ({ category_id: '', part_id: '', qty: '1', r
 export default function RepairEntryPage() {
   const qc = useQueryClient()
 
-  const [form, setForm] = useState({ job_date: new Date().toISOString().split('T')[0], bus_no: '', odometer: '', driver: '' })
+  const [form, setForm] = useState({ job_date: todayISO(), bus_no: '', odometer: '', driver: '' })
   const [jobRows, setJobRows] = useState<JobRow[]>([{ category: '', priority: 'Medium', technician: '', description: '' }])
   const [submitted, setSubmitted] = useState(false)
 
@@ -224,7 +224,7 @@ export default function RepairEntryPage() {
         const count = Array.isArray(res.data) ? res.data.length : 1
         toast.success(count > 1 ? `${count} job cards created!` : 'Job card created successfully!')
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
-        setForm({ job_date: new Date().toISOString().split('T')[0], bus_no: '', odometer: '', driver: '' })
+        setForm({ job_date: todayISO(), bus_no: '', odometer: '', driver: '' })
         setJobRows([{ category: '', priority: 'Medium', technician: '', description: '' }])
         setSubmitted(false)
       } else toast.error('Failed to create job card')
@@ -622,7 +622,7 @@ export default function RepairEntryPage() {
                     {finishRepeat && (
                       <div className="mt-3 max-w-xs">
                         <Label>Next Job Date</Label>
-                        <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                        <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
                       </div>
                     )}
                   </div>
@@ -930,7 +930,7 @@ export default function RepairEntryPage() {
                   {completeRepeat && (
                     <div className="mt-3 max-w-xs">
                       <Label>Next Job Date</Label>
-                      <Input type="date" value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                      <Input type="date" value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={todayISO()} />
                     </div>
                   )}
                 </div>

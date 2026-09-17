@@ -17,7 +17,7 @@ import {
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 
 type SimplePartRow = { part_id: string; qty: string; rate: string }
@@ -2381,7 +2381,7 @@ export default function RepairTrackingPage() {
                 {finishRepeat && (
                   <div className="mt-3 max-w-xs">
                     <Label>Next Job Date</Label>
-                    <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                    <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
                   </div>
                 )}
               </div>

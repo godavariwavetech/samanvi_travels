@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption } from '@/lib/utils'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 const LEDGER_STATUS_MAP: Record<string, string> = {
   'New Tyres In Stock': 'In Stock',
@@ -23,7 +23,7 @@ const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'danger' | 
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function TyreSalePage() {
   const qc = useQueryClient()

@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatDate } from '@/lib/utils'
+import { formatDate, todayISO } from '@/lib/utils'
 
 const tabs = ['Additional Income', 'Additional Expenses']
 
@@ -18,12 +18,12 @@ const incomeCols: Column[] = [
   { label: 'Remarks', key: 'remarks' },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function BookingExpensesPage() {
   const [tab, setTab] = useState('Additional Income')
   const qc = useQueryClient()
-  const [form, setForm] = useState({ source_name: '', amount: '', date: new Date().toISOString().split('T')[0], remarks: '' })
+  const [form, setForm] = useState({ source_name: '', amount: '', date: todayISO(), remarks: '' })
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value })
 
   const { data, isLoading } = useQuery({
@@ -33,7 +33,7 @@ export default function BookingExpensesPage() {
 
   const { mutate: save, isPending } = useMutation({
     mutationFn: () => bookingService.addAdditionalIncome({ ...form, user_id: localStorage.getItem('user_id'), usr_nm: localStorage.getItem('usr_nm') }),
-    onSuccess: (res) => { if (res.status === 200) { toast.success('Saved!'); qc.invalidateQueries({ queryKey: ['additional-income'] }); setForm({ source_name: '', amount: '', date: new Date().toISOString().split('T')[0], remarks: '' }) } else toast.error('Failed') },
+    onSuccess: (res) => { if (res.status === 200) { toast.success('Saved!'); qc.invalidateQueries({ queryKey: ['additional-income'] }); setForm({ source_name: '', amount: '', date: todayISO(), remarks: '' }) } else toast.error('Failed') },
     onError: () => toast.error('Server error'),
   })
 

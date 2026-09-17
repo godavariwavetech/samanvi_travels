@@ -6,7 +6,7 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader }
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
@@ -18,7 +18,7 @@ const cols: Column[] = [
   { label: 'Status', key: 'admin_status', render: (v) => <Badge variant={v == 1 ? 'success' : 'warning'}>{v == 1 ? 'Approved' : 'Pending'}</Badge> },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function TripReportsPage() {
   const [filter, setFilter] = useState({ bus_no: '', service_no: '', from_date: '', to_date: '' })

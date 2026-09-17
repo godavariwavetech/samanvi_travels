@@ -6,9 +6,9 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, 
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
-import { formatDate, formatAmount } from '@/lib/utils'
+import { formatDate, formatAmount, todayISO, toLocalISODate } from '@/lib/utils'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 // Default filter to the current calendar month so the target-vs-actual
 // comparison is meaningful without the user needing to pick dates.
@@ -17,7 +17,7 @@ function monthBounds(d = new Date()) {
   const m = d.getMonth()
   const first = new Date(y, m, 1)
   const last = new Date(y, m + 1, 0)
-  const iso = (dt: Date) => dt.toISOString().split('T')[0]
+  const iso = (dt: Date) => toLocalISODate(dt)
   return { fromdate: iso(first), todate: iso(last) }
 }
 

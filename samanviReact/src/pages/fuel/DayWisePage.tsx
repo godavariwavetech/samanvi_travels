@@ -5,9 +5,9 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
-import { formatDate, withStatusLabel, formatAmount } from '@/lib/utils'
+import { formatDate, withStatusLabel, formatAmount, todayISO } from '@/lib/utils'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const weekday = (isoDate: string) => {
   try { return new Date(isoDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }) }

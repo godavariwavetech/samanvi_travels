@@ -1000,14 +1000,14 @@ exports.geteditusermoduleslistMdl = function (reqdata, callback) {
     var QRY_TO_EXEC = `SELECT FALSE as check_sub_menu, sm.id,sm.module_id,m.title as module_nm,sm.path,sm.icon,sm.title,sm.id,m.icon,sm.d_in,
             module_order FROM main_modules as m 
             JOIN sub_modules as sm ON m.id=sm.module_id
-            WHERE m.d_in=0 and sm.d_in=0 ORDER BY m.order_by,sm.module_order;SELECT * FROM permissions WHERE user_id=${reqdata.user_id};`;
+            WHERE m.d_in=0 and sm.d_in=0 ORDER BY m.order_by,sm.module_order;SELECT * FROM permissions WHERE user_id=${Number(reqdata.user_id) || 0};`;
   } else {
     console.log("role2");
     var QRY_TO_EXEC = `SELECT FALSE as check_sub_menu, user_id,sm.id,sm.module_id,m.title as module_nm,sm.path,sm.icon,sm.title,sm.id,m.icon,p.d_in,
             module_order FROM permissions as p 
             JOIN main_modules as m ON m.id=p.module_id
             JOIN sub_modules as sm ON sm.id=p.sub_module_id
-            WHERE p.user_id=${reqdata.entry_by} and p.d_in=0 and m.d_in=0 and sm.d_in=0;SELECT * FROM permissions WHERE user_id=${reqdata.user_id};`;
+            WHERE p.user_id=${Number(reqdata.entry_by) || 0} and p.d_in=0 and m.d_in=0 and sm.d_in=0;SELECT * FROM permissions WHERE user_id=${Number(reqdata.user_id) || 0};`;
   }
 
   if (callback && typeof callback == "function") {
@@ -1186,14 +1186,43 @@ exports.getAllUsersMdl = function (callback) {
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
+exports.checkUserMobileOtherMdl = function (number, id, callback) {
+  var cntxtDtls = "in checkUserMobileOtherMdl";
+  var QRY_TO_EXEC = `select id from users where d_in = 0 and number = ? and id <> ?;`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [number, id], cntxtDtls, function (err, results) {
+    callback(err, results);
+  });
+};
+
+// Password is only touched when a new one was typed.
+exports.updateUserMdl = function (u, callback) {
+  var cntxtDtls = "in updateUserMdl";
+  var dta = {
+    name: u.name,
+    number: u.number,
+    email: u.email || "",
+    role_type: u.role_type,
+    department_id: u.department_id,
+    department_name: u.department_name,
+    designation: u.department_name,
+  };
+  var pwd = u.password == null ? "" : String(u.password);
+  if (pwd.trim()) dta.password = pwd;
+  var QRY_TO_EXEC = `update users set ? where id = ? and d_in = 0;`;
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [dta, u.id], cntxtDtls, function (err, results) {
+    callback(err, results);
+  });
+};
+
 exports.deleteUsersMdl = function (id, callback) {
   var cntxtDtls = "in deleteUsersMdl";
-  var QRY_TO_EXEC = `update  users set d_in = 1   where id  = '${id}' ; `;
+  var QRY_TO_EXEC = `update users set d_in = 1 where id = ?;`;
 
   if (callback && typeof callback == "function")
-    dbutil.execQuery(
+    dbutil.execupdateQuery(
       sqldb,
       QRY_TO_EXEC,
+      [id],
       cntxtDtls,
       function (err, results) {
         callback(err, results);

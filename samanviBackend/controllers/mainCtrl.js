@@ -624,6 +624,38 @@ exports.getAllUsersCtrl = function (req, res) {
   });
 };
 
+// Edits an existing user's profile, role and (optionally) password. A blank
+// password keeps the current one. The mobile number is the login, so it must
+// stay unique among active users other than this one.
+exports.updateUserCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  let u;
+  try {
+    validateSignature(encryptedPayload, signature);
+    u = decryptPayload(encryptedPayload);
+  } catch (e) {
+    return res.send({ status: 400, message: "Invalid request" });
+  }
+  const id = Number(u && u.id);
+  const name = String((u && u.name) || "").trim();
+  const number = String((u && u.number) || "").trim();
+  const roleType = Number(u && u.role_type);
+  if (!id) return res.send({ status: 400, message: "User id is required" });
+  if (!name) return res.send({ status: 400, message: "Name is required" });
+  if (!/^[6-9]\d{9}$/.test(number)) return res.send({ status: 400, message: "Enter a valid 10-digit mobile number" });
+  if (![0, 1, 2, 3].includes(roleType)) return res.send({ status: 400, message: "Invalid role" });
+
+  appmdl.checkUserMobileOtherMdl(number, id, function (err, dup) {
+    if (err) return res.send({ status: 500, message: "Server Error" });
+    if (dup && dup.length > 0) return res.send({ status: 300, message: "Mobile number already used by another user" });
+    appmdl.updateUserMdl({ ...u, id, name, number, role_type: roleType }, function (err2, results) {
+      if (err2) return res.send({ status: 500, message: "Server Error" });
+      if (!results || !results.affectedRows) return res.send({ status: 404, message: "User not found" });
+      res.send({ status: 200, data: results });
+    });
+  });
+};
+
 exports.deleteUsersCtrl = function (req, res) {
   var ind = req.params.ind;
   appmdl.deleteUsersMdl(ind, function (err, results) {
