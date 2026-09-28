@@ -11,7 +11,24 @@ var sqldb = require("../config/dbconnect");
 if (!sqldb.config.connectionConfig.dateStrings) sqldb.config.connectionConfig.dateStrings = ["DATE"];
 var dbutil = require(appRoot + "/utils/assets_dbutils");
 var refnum = require(appRoot + "/utils/refnumber");
+var ensureColumn = require(appRoot + "/utils/ensurecolumn");
 var moment = require("moment");
+
+// The Resolve-a-ticket form has always had a Remarks box, but help_desk has never
+// had the column, so every resolution note was silently thrown away. Added the
+// same guarded way as the other migrations here - the model leaves it out of its
+// SQL until the column is confirmed, so a database where the ALTER cannot run
+// still resolves tickets, just without the note.
+var helpDeskRemarks = ensureColumn(sqldb, 'help_desk', 'remarks', 'TEXT DEFAULT NULL');
+
+// app.js also asks for driver_register.medical_validity, but it runs after this
+// file loads, so the model has to ask for it itself to know whether it is there.
+// Naming the column outright made the Medical Fitness date on the Driver
+// Validations page answer 500 on any database where the ALTER had not taken -
+// exactly the case ensurecolumn exists to handle. The other two dates in the
+// whitelist (dl_expiry_date, transportvalidityto) have been in the schema from
+// the start and need no guard.
+var driverMedicalValidity = ensureColumn(sqldb, 'driver_register', 'medical_validity', 'VARCHAR(255) DEFAULT NULL');
 
 // A trip expense is written twice: its own rows in expensive_details, which
 // the trip screens work from, and a Journal voucher in mainvoucher_subt, which
@@ -1118,17 +1135,28 @@ exports.helpdeskcount = function (data, callback) {
 exports.problemdone = function (data, callback) {
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD HH:mm:ss");
   var cntxtDtls = "in problemdone";
-  var QRY_TO_EXEC = ` update help_desk set resloved_by = '${data.done_by}',status = '${data.status}',resloved_date ='${date}' where id='${data.id}' ; `;
+  var id = parseInt(data.id) || 0;
+  if (!id) { callback(new Error('A ticket id is required'), null); return; }
+  // The Resolve form is called "Resolved By", and the two frontends disagree on
+  // the key: the Angular app renames it to done_by before posting, the React app
+  // sends solved_by straight through. Reading only done_by meant every React
+  // resolution stored the literal string "undefined" as who resolved it. Accept
+  // both. The columns are misspelled in the schema (resloved_*), so they can only
+  // be reached under those exact names.
+  var resolvedBy = data.done_by != null ? data.done_by : data.solved_by;
+  var QRY_TO_EXEC = ` update help_desk set resloved_by = ?, status = ?, resloved_date = ?${helpDeskRemarks.present ? ', remarks = ?' : ''} where id = ? ; `;
+  var m = [String(resolvedBy == null ? '' : resolvedBy), String(data.status || ''), date]
+    .concat(helpDeskRemarks.present ? [String(data.remarks || '')] : [])
+    .concat([id]);
   if (callback && typeof callback == "function") {
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
+    dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, function (err, results) {
+      if (err) { callback(err, results); return; }
+      if (results && results.affectedRows === 0) {
+        callback(new Error('No help desk ticket with id ' + id), results);
         return;
       }
-    );
+      callback(null, results);
+    });
   } else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
@@ -1467,24 +1495,33 @@ exports.getdriveone = function (callback) {
 
 exports.checknameMdl = function (data, callback) {
   var cntxtDtls = "in checknameMdl";
-  var conditions = [`driver_name='${data.driver_name}'`];
-  if (data.nickname) conditions.push(`nickname='${data.nickname}'`);
-  if (data.mobile_number) conditions.push(`mobile_number='${data.mobile_number}'`);
-  if (data.alternate_number) conditions.push(`alternate_number='${data.alternate_number}'`);
-  if (data.aadhar_number) conditions.push(`aadhar_number='${data.aadhar_number}'`);
-  if (data.dl_number) conditions.push(`dl_number='${data.dl_number}'`);
-  const QRY_TO_EXEC = `
-    select * from  driver_register where d_in=0 and (${conditions.join(" or ")})`;
+  // Bind the values instead of splicing them into the SQL. These are the names
+  // and numbers a user just typed, and a name carrying an apostrophe - O'Brien -
+  // used to close the quote and turn the whole duplicate check into a syntax
+  // error, which reached the UI as an unexplained "Server error" on submit.
+  var columns = [
+    "driver_name",
+    "nickname",
+    "mobile_number",
+    "alternate_number",
+    "aadhar_number",
+    "dl_number",
+  ];
+  var values = [];
+  var conditions = [];
+  columns.forEach(function (col) {
+    if (data[col] === undefined || data[col] === null || data[col] === "") return;
+    conditions.push(`${col} = ?`);
+    values.push(data[col]);
+  });
+  if (!conditions.length) return callback(null, []);
+
+  var QRY_TO_EXEC = `select * from  driver_register where d_in=0 and (${conditions.join(" or ")})`;
   if (callback && typeof callback == "function") {
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
+    sqldb.query(QRY_TO_EXEC, values, function (err, results) {
+      callback(err, err ? null : results);
+      return;
+    });
   } else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 exports.checkhelpername = function (data, callback) {
@@ -1728,7 +1765,12 @@ exports.adddriverregisterMdl = function (
       transportvalidityfrom: data.transportvalidityfrom || "",
       transportvalidityto: data.transportvalidityto || "",
       dl_issued_by: data.dl_issued_by || "",
-      dl_dob: data.dl_dob || "",
+      // dl_dob is a native DATE column (app.js adds it), unlike dldateofbirth and the
+      // transport dates around it, which are all varchar. An empty string is not a
+      // valid DATE, so a driver saved without a DL Date of Birth - a field the form
+      // does not mark required - failed the INSERT and the controller answered a
+      // bare 500. NULL is what "not filled in" has to be here.
+      dl_dob: data.dl_dob || null,
       dl_linked_mobile: data.dl_linked_mobile || "",
     };
     const QRY_TO_EXEC = `INSERT INTO driver_register SET ?;`;
@@ -6667,6 +6709,53 @@ exports.getlaundrytypemainmastersMdl = function (data, callback) {
   } else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
+// Renames a laundry product in laundryproduct_t. This used to be routed to
+// editvouchernamemdl, which updates `voucher_type` - a different table with its
+// own id sequence. Renaming product #3 renamed voucher type #3, so the product
+// name never changed while every voucher, approval and report reading that type
+// silently showed the new name. Same story for the delete.
+exports.editlaundrytypemainmastersMdl = function (data, callback) {
+  var cntxtDtls = "in editlaundrytypemainmastersMdl";
+  var id = parseInt(data.id) || 0;
+  if (!id || !String(data.vouchertype || "").trim()) {
+    callback(new Error("A product id and name are both required"), null);
+    return;
+  }
+  dbutil.execupdateQuery(
+    sqldb,
+    `update laundryproduct_t set product_name = ? where id = ? and d_in = 0`,
+    [String(data.vouchertype).trim(), id],
+    cntxtDtls,
+    function (err, results) {
+      if (err) { callback(err, results); return; }
+      if (results && results.affectedRows === 0) {
+        callback(new Error("No laundry product with id " + id), results);
+        return;
+      }
+      callback(null, results);
+    }
+  );
+};
+exports.dellaundrytypemainmastersMdl = function (data, callback) {
+  var cntxtDtls = "in dellaundrytypemainmastersMdl";
+  var id = parseInt(data.id) || 0;
+  if (!id) { callback(new Error("A product id is required"), null); return; }
+  dbutil.execupdateQuery(
+    sqldb,
+    `update laundryproduct_t set d_in = 1 where id = ? and d_in = 0`,
+    [id],
+    cntxtDtls,
+    function (err, results) {
+      if (err) { callback(err, results); return; }
+      if (results && results.affectedRows === 0) {
+        callback(new Error("No laundry product with id " + id), results);
+        return;
+      }
+      callback(null, results);
+    }
+  );
+};
+
 ////////laundry post code starts
 exports.submitlaundrydataMdlreferencenumber = function (callback) {
   var cntxtDtls = "in submitlaundrydataMdlreferencenumber";
@@ -10410,10 +10499,17 @@ exports.updatebusnumber = function (data, callback) {
     chassis_make: 'chassismake', body_made: 'bodymade', chassis_model: 'chassismodel',
     mfg_year: 'mfgyear', reg_date: 'regdate',
   };
+  // reg_date and seating_capacity are this table's only native DATE/INT columns -
+  // every other field diffed below is varchar. MySQL refuses an empty string for
+  // a DATE or an INT, so saving a vehicle whose Reg Date or Seating Capacity the
+  // form left blank came back as a bare 500. Write NULL for a blank typed column
+  // and '' for a blank text one, which is what an untouched field should store.
+  var TYPED_COLUMNS = { reg_date: 1, seating_capacity: 1 };
   var fieldValues = {};
   Object.keys(FIELD_KEYS).forEach(function (col) {
     var v = data[FIELD_KEYS[col]];
     if (v === undefined) return;
+    if (TYPED_COLUMNS[col]) { fieldValues[col] = v === null || v === '' ? null : v; return; }
     fieldValues[col] = v === null ? '' : v;
   });
   if (fieldValues.bus_category === '') fieldValues.bus_category = 'normal';
@@ -10425,7 +10521,10 @@ exports.updatebusnumber = function (data, callback) {
   sqldb.query(`SELECT *, DATE_FORMAT(reg_date, '%Y-%m-%d') as reg_date FROM busses WHERE id = ?`, [data.id], function (selErr, rows) {
     var before = (!selErr && rows && rows[0]) ? rows[0] : {};
 
-    var setClauses = Object.keys(fieldValues).map(function (k) { return `${k}='${esc(fieldValues[k])}'`; }).join(',');
+    var setClauses = Object.keys(fieldValues).map(function (k) {
+      var v = fieldValues[k];
+      return k + '=' + (v === null ? 'NULL' : "'" + esc(v) + "'");
+    }).join(',');
     var QRY_TO_EXEC = `update busses set ${setClauses},user_id='${esc(data.user_id)}',usr_nm='${esc(data.usrnm)}',updated_by='${esc(data.usrnm)}',updated_userid='${esc(data.userid)}' WHERE id = '${data.id}'`;
 
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
@@ -10494,6 +10593,13 @@ exports.updateDriverValidityDateMdl = function (data, callback) {
     callback(new Error('Invalid field or driver_id'), null);
     return;
   }
+  if (field === 'medical_validity' && !driverMedicalValidity.present) {
+    // Answer the specific reason rather than letting the SELECT below fail with
+    // "Unknown column", which read as a server error on the page.
+    callback(new Error('The medical_validity column is not available on this database yet'
+      + (driverMedicalValidity.error ? ' (' + driverMedicalValidity.error + ')' : '')), null);
+    return;
+  }
   sqldb.query('SELECT driver_id_number, ' + field + ' FROM driver_register WHERE id = ?', [driverId], function (selErr, rows) {
     if (selErr) { callback(selErr, null); return; }
     var before = (rows && rows[0]) || {};
@@ -10548,35 +10654,72 @@ exports.updateBusValidityDateMdl = function (data, callback) {
 exports.updateservicenumber = function (data, callback) {
   console.log(data, 6260);
   var cntxtDtls = "in updateservicenumber";
-  var QRY_TO_EXEC = ` update service_number set  name='${data.serviceno}',updated_by='${data.usrnm}',updated_userid='${data.userid}' WHERE  id = '${data.id}'`;
-  if (callback && typeof callback == "function")
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
+  var id = parseInt(data.id) || 0;
+  if (!id || !String(data.serviceno || '').trim()) {
+    callback(new Error('A service number id and name are both required'), null);
+    return;
+  }
+  // Was built by splicing the values into the SQL: an apostrophe in the name was a
+  // syntax error, and a missing id matched nothing while the caller still showed
+  // a success toast. Bound parameters, and 0 rows affected is now an error.
+  dbutil.execupdateQuery(
+    sqldb,
+    `update service_number set name = ?, updated_by = ?, updated_userid = ? where id = ?`,
+    [String(data.serviceno).trim(), data.usrnm || '', String(data.userid || ''), id],
+    cntxtDtls,
+    function (err, results) {
+      if (err) { callback(err, results); return; }
+      if (results && results.affectedRows === 0) {
+        callback(new Error('No service number with id ' + id), results);
         return;
       }
-    );
-  else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+      callback(null, results);
+    }
+  );
 };
 
 exports.updateservicenoMdl = function (data, callback) {
   // console.log(data)
   var cntxtDtls = "in updateservicenoMdl";
-  var QRY_TO_EXEC = ` update driverone set  distance='${data.distance}',driverOneBeta='${data.driverOneBeta}',driverTwoBeta='${data.driverTwoBeta}',fromCity='${data.fromCity}',helperBeta='${data.helperBeta}',optDriver='${data.optDriver}',optHelper='${data.optHelper}',optDriverSalary='${data.optDriverSalary}',optHelperSalary='${data.optHelperSalary}',parkingAmount='${data.parkingAmount}',remarks='${data.remarks}',serviceFor='${data.serviceFor}',serviceNo='${data.serviceNo}',toCity='${data.toCity}',viaPlaces='${data.viaPlaces}',conductorBeta='${data.conductorBeta}',updated_by='${data.usrnm}',updated_userid='${data.userid}',service_for_id = ${data.service_for_id},line_code='${data.line_code || ''}',route_id='${data.route_id || ''}',start_boarding_point='${data.start_boarding_point || ''}',start_boarding_time='${data.start_boarding_time || ''}',end_boarding_point='${data.end_boarding_point || ''}',end_boarding_time='${data.end_boarding_time || ''}',vehicle_type='${data.vehicle_type || 'bus'}',bus_operator_id='${data.bus_operator_id || ''}',bus_operator_name='${data.bus_operator_name || ''}',trip_type='${data.trip_type || ''}',up_down='${data.up_down || ''}' WHERE  id = '${data.id}'`;
-  //console.log()QRY_TO_EXEC, 10136)
+  var id = parseInt(data.id) || 0;
+  if (!id) { callback(new Error('A route id is required'), null); return; }
+  // Two defects here. service_for_id was interpolated UNQUOTED, so a route saved
+  // with no service-for produced `service_for_id = , line_code=...` - a syntax
+  // error, i.e. an unexplained server error over a field the form never marks
+  // required. And every other value was spliced in too, so an apostrophe anywhere
+  // in the route broke the statement. Bound parameters fix both.
+  var m = [
+    data.distance || '', data.driverOneBeta || '', data.driverTwoBeta || '',
+    data.fromCity || '', data.helperBeta || '', data.optDriver || '', data.optHelper || '',
+    data.optDriverSalary || '', data.optHelperSalary || '', data.parkingAmount || '',
+    data.remarks || '', data.serviceFor || '', data.serviceNo || '', data.toCity || '',
+    data.viaPlaces || '', data.conductorBeta || '', data.usrnm || '', data.userid || '',
+    parseInt(data.service_for_id) || null, data.line_code || '', data.route_id || '',
+    data.start_boarding_point || '', data.start_boarding_time || '',
+    data.end_boarding_point || '', data.end_boarding_time || '',
+    data.vehicle_type || 'bus', data.bus_operator_id || '', data.bus_operator_name || '',
+    data.trip_type || '', data.up_down || '', id,
+  ];
+  var QRY_TO_EXEC = `update driverone set
+    distance = ?, driverOneBeta = ?, driverTwoBeta = ?, fromCity = ?, helperBeta = ?,
+    optDriver = ?, optHelper = ?, optDriverSalary = ?, optHelperSalary = ?,
+    parkingAmount = ?, remarks = ?, serviceFor = ?, serviceNo = ?, toCity = ?,
+    viaPlaces = ?, conductorBeta = ?, updated_by = ?, updated_userid = ?,
+    service_for_id = ?, line_code = ?, route_id = ?,
+    start_boarding_point = ?, start_boarding_time = ?,
+    end_boarding_point = ?, end_boarding_time = ?,
+    vehicle_type = ?, bus_operator_id = ?, bus_operator_name = ?,
+    trip_type = ?, up_down = ?
+    where id = ?`;
   if (callback && typeof callback == "function")
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
+    dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, function (err, results) {
+      if (err) { callback(err, results); return; }
+      if (results && results.affectedRows === 0) {
+        callback(new Error('No route with id ' + id), results);
         return;
       }
-    );
+      callback(null, results);
+    });
   else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
@@ -10630,7 +10773,10 @@ exports.adddrivereditMdl = function (
     dl_number: data.dl_number,
     dl_expiry_date: data.dl_expiry_date,
     address: data.address || "",
-    i_ts: date,
+    // i_ts is when the driver was REGISTERED. Writing today's date here turned it
+    // into the last-edited date, so the original registration date was lost the
+    // first time anyone corrected a spelling. The edit's own timestamp belongs in
+    // driver_edit_history, which this function already writes.
     user_id: data.entryby,
     usr_nm: data.usrnm,
     dldateofbirth: data.dldateofbirth || "",
@@ -10639,7 +10785,12 @@ exports.adddrivereditMdl = function (
     transportvalidityfrom: data.transportvalidityfrom || "",
     transportvalidityto: data.transportvalidityto || "",
     dl_issued_by: data.dl_issued_by || "",
-    dl_dob: data.dl_dob || "",
+    // dl_dob is a native DATE column (app.js adds it), unlike dldateofbirth and the
+    // transport dates around it, which are all varchar. An empty string is not a
+    // valid DATE, so a driver saved without a DL Date of Birth - a field the form
+    // does not mark required - failed the INSERT and the controller answered a
+    // bare 500. NULL is what "not filled in" has to be here.
+    dl_dob: data.dl_dob || null,
     dl_linked_mobile: data.dl_linked_mobile || "",
     updatedby: data.usrnm,
     updateduser_id: data.entryby,
@@ -10845,10 +10996,8 @@ exports.edithelperregisterMdl = function (
   callback
 ) {
   const cntxtDtls = "in edithelperregisterMdl";
-  const date = moment().utcOffset("+05:30").format("YYYY-MM-DD");
 
   const dta = {
-    helper_id_number: data.helper_id_number,
     helper_name: data.helper_name,
     mobile_number: data.mobile_number,
     alternate_number: data.alternate_number || "",
@@ -10863,17 +11012,35 @@ exports.edithelperregisterMdl = function (
     date_of_joining: data.date_of_joining,
     date_of_leaving: data.date_of_leaving || null,
     remarks: data.remarks || "",
-    adhar_card_front: adharFront,
-    adhar_card_back: adharBack,
-    upi_scanner: upiScanner,
-    nickname: data.nickname || "",
     emergencymobilenumber: data.emergency_mobile_number || "",
     dob: data.dob || null,
     address: data.address || "",
-    i_ts: date,
     user_id: data.entryby,
     usr_nm: data.usrnm,
   };
+
+  // Only write columns the caller actually supplied. `UPDATE ... SET ?` touches
+  // exactly the keys in this object, so an omitted key keeps its stored value.
+  //
+  // i_ts is deliberately absent: it's when the helper was REGISTERED, and writing
+  // today's date here turned it into the last-edited date. (Same bug the driver and
+  // staff edit models had.)
+  //
+  // helper_id_number is NOT NULL, auto-assigned as H#### on insert and shown in the
+  // register but not editable in the form, so it has to come back in on every edit.
+  if (data.helper_id_number) dta.helper_id_number = data.helper_id_number;
+
+  // The helper form has no nickname input, so this column can only ever arrive empty
+  // from the UI. Writing data.nickname || "" unconditionally blanked every helper's
+  // stored nickname the first time anybody edited their phone number.
+  if (data.nickname) dta.nickname = data.nickname;
+
+  // These three used to be written unconditionally, so the controller's "no new
+  // image" case (processImage returns null) silently blanked the helper's stored
+  // Aadhaar and UPI scans every time anybody corrected a phone number.
+  if (adharFront) dta.adhar_card_front = adharFront;
+  if (adharBack) dta.adhar_card_back = adharBack;
+  if (upiScanner) dta.upi_scanner = upiScanner;
 
   const updateQuery = `UPDATE helper_register SET ? WHERE id = ?`;
 
@@ -10921,11 +11088,9 @@ exports.addstaffeditMdl = function (
   callback
 ) {
   var cntxtDtls = "in addstaffeditMdl";
-  var date = moment().utcOffset("+05:30").format("YYYY-MM-DD");
 
   var dta = {
     designation: data.designation,
-    idNumber: data.idNumber || "",
     fullName: data.fullName,
     mobile: data.mobile,
     emergencyContact: data.emergencyContact,
@@ -10935,16 +11100,12 @@ exports.addstaffeditMdl = function (
     bankName: data.bankName,
     ifscCode: data.ifscCode,
     upiId: data.upiId,
-    aadhaarCardFront: imageuploadlao,
-    aadhaarCardBack: imageuploadlaotwo,
-    upiScanner: imageuploadlaothree,
     dateOfJoining: data.dateOfJoining,
     dateOfLeaving: data.dateOfLeaving || null,
     remarks: data.remarks || "",
     alternativemobilenumber: data.alternativemobilenumber || "",
     referencename: data.referencename || "",
     branchname: data.branchname || "",
-    i_ts: date,
     user_id: data.entryby,
     usr_nm: data.usrnm,
     nickName: data.nickName,
@@ -10954,30 +11115,19 @@ exports.addstaffeditMdl = function (
     updateduser_id: data.entryby,
   };
 
-  // var dta = {
-  //     designation: data.designation,
-  //     idNumber: data.idNumber,
-  //     fullName: data.fullName,
-  //     mobile: data.mobile,
-  //     emergencyContact: data.emergencyContact,
-  //     aadhaar: data.aadhaar,
-  //     accountHolderName: data.accountHolderName,
-  //     accountNumber: data.accountNumber,
-  //     bankName: data.bankName,
-  //     ifscCode: data.ifscCode,
-  //     upiId: data.upiId,
-  //     dateOfJoining: data.dateOfJoining,
-  //     dateOfLeaving: data.dateOfLeaving || null,
-  //     remarks: data.remarks || '',
-  //     alternativemobilenumber: data.alternativemobilenumber || '',
-  //     referencename: data.referencename || '',
-  //     branchname: data.branchname || '',
-  //     i_ts: date,
-  //     updateduser_id: data.entryby,
-  //     updatedby: data.usr_nm,
-  //     nickName: data.nickName,
-  //     id: data.id
-  // };
+  // Only write the columns the form can't supply or the user didn't re-upload.
+  // `UPDATE ... SET ?` touches exactly the keys present in this object, so leaving a
+  // key out keeps the stored value instead of blanking it.
+  //
+  // i_ts is deliberately absent: it's when the staff member was REGISTERED, and
+  // writing today's date here turned it into the last-edited date. (Same bug the
+  // driver and helper edit models had.) Who did the edit is already recorded by
+  // updatedby / updateduser_id above.
+  //
+  // idNumber is NOT NULL in the schema and the staff form has no field for it, so
+  // writing data.idNumber || "" on every edit erased the staff member's ID number
+  // as soon as anyone corrected a spelling.
+  if (data.idNumber) dta.idNumber = data.idNumber;
 
   if (imageuploadlao) dta.aadhaarCardFront = imageuploadlao;
   if (imageuploadlaotwo) dta.aadhaarCardBack = imageuploadlaotwo;
@@ -14981,7 +15131,9 @@ exports.editBatteryMdl = function (data, callback) {
       });
       var logHistory = function (next) {
         if (changes.length === 0) return next();
-        var histQ = `INSERT INTO battery_edit_history (battery_id, battery_code, changes_note, changed_by_id, changed_by_name) VALUES ('${batteryId}', '${esc(fieldValues.battery_code)}', '${esc(changes.join('\n'))}', '${esc(data.userid || data.user_id)}', '${esc(data.usrnm)}')`;
+        // The page sends the editor under `usr_nm`, not `usrnm` - reading the
+        // wrong key logged every battery edit with a blank "changed by".
+        var histQ = `INSERT INTO battery_edit_history (battery_id, battery_code, changes_note, changed_by_id, changed_by_name) VALUES ('${batteryId}', '${esc(fieldValues.battery_code)}', '${esc(changes.join('\n'))}', '${esc(data.userid || data.user_id)}', '${esc(data.usrnm || data.usr_nm)}')`;
         sqldb.query(histQ, function (histErr) {
           if (histErr) console.log('[editBatteryMdl] history log error:', histErr.message);
           next();

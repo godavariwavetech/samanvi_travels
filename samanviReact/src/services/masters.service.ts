@@ -97,7 +97,11 @@ export const mastersService = {
   getActiveStaff: () => api.post('/gethelper', securePayload({ staffreports: 'Staff' })).then((r) => r.data),
   getActiveHelpers: () => api.post('/gethelper', securePayload({ staffreports: 'Helper' })).then((r) => r.data),
   addStaff: (data: unknown) => api.post('/addstaffregister', data).then((r) => r.data),
-  editStaff: (data: unknown) => api.post('/addstaffedit', securePayload(data)).then((r) => r.data),
+  // addstaffeditCtrl reads req.body straight off the request (its decrypt call is
+  // commented out), so this has to post the plain object like addStaff does.
+  // securePayload() would wrap it in {encryptedPayload, signature} and every
+  // field would arrive undefined.
+  editStaff: (data: unknown) => api.post('/addstaffedit', data).then((r) => r.data),
   deleteStaff: (data: unknown) => api.post('/deletestaffdata', securePayload(data)).then((r) => r.data),
 
   // ── Staff Types (Designation master) ──────────────────────
@@ -124,7 +128,8 @@ export const mastersService = {
   // ── Helpers ──────────────────────────────────────────────
   getHelper: (data: unknown) => api.post('/gethelper', securePayload(data)).then((r) => r.data),
   addHelper: (data: unknown) => api.post('/addhelperregister', data).then((r) => r.data),
-  editHelper: (data: unknown) => api.post('/edithelperregister', securePayload(data)).then((r) => r.data),
+  // Same as editStaff above: edithelperregisterCtrl reads req.body directly.
+  editHelper: (data: unknown) => api.post('/edithelperregister', data).then((r) => r.data),
   deleteHelper: (data: unknown) => api.post('/deletehelperdata', securePayload(data)).then((r) => r.data),
 
   // ── Departments ──────────────────────────────────────────

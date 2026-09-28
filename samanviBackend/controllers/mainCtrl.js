@@ -722,7 +722,7 @@ exports.addNewbusnumCtrl = function (req, res) {
     }
     appmdl.addNewbusnumMdl(reqdata, function (err, results) {
       if (err) {
-        res.send({ status: 500, data: results });
+        res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
         return;
       }
       res.send({ status: 200, data: results });
@@ -1287,7 +1287,10 @@ exports.adddriverregisterCtrl = function (req, res) {
         function (err, results) {
           if (err) {
             // res.send(500, "Server Error");
-            res.status(500).send({ status: 500 });
+            // The reason travels with the response. A bare 500 here showed up in
+            // the UI as a bare "Server error", which is no way to tell a duplicate
+            // key from a bad value on a column the form never even shows.
+            res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
             return;
           }
           res.send({ status: 200, data: results });
@@ -3807,12 +3810,48 @@ exports.submitlaundrytypemainmastersCtrl = function (req, res) {
 
 exports.getlaundrytypemainmastersCtrl = function (req, res) {
   appmdl.getlaundrytypemainmastersMdl(req.body, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
-    }
-    res.send({ status: 200, data: results });
+  if (err) {
+  res.send({ status: 500, data: results });
+  return;
+  }
+  res.send({ status: 200, data: results });
   });
+};
+
+// Laundry products live in laundryproduct_t, NOT voucher_type. These two used to
+// share editvouchernamectrl / deletevouchernamectrl, which renamed and
+// soft-deleted rows in voucher_type - see the note on the models.
+exports.editlaundrytypemainmastersCtrl = function (req, res) {
+  try {
+    const { encryptedPayload, signature } = req.body;
+    validateSignature(encryptedPayload, signature);
+    const data = decryptPayload(encryptedPayload);
+    appmdl.editlaundrytypemainmastersMdl(data, function (err, results) {
+      if (err) {
+        res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
+  } catch (e) {
+    res.status(400).send({ status: 400, message: e.message || "Invalid request" });
+  }
+};
+exports.dellaundrytypemainmastersCtrl = function (req, res) {
+  try {
+    const { encryptedPayload, signature } = req.body;
+    validateSignature(encryptedPayload, signature);
+    const data = decryptPayload(encryptedPayload);
+    appmdl.dellaundrytypemainmastersMdl(data, function (err, results) {
+      if (err) {
+        res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
+  } catch (e) {
+    res.status(400).send({ status: 400, message: e.message || "Invalid request" });
+  }
 };
 
 exports.deletefueldataCtrl1 = function (req, res) {
@@ -4915,8 +4954,6 @@ exports.edithelperregisterCtrl = function (req, res) {
   //   validateSignature(encryptedPayload, signature);
   //   const payload = decryptPayload(encryptedPayload);
   const data = req.body;
-
-  console.log(data, 3347);
 
   const processImage = (imgData) => {
     if (!imgData || !imgData.reviewimg) return null;

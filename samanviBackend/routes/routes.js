@@ -244,6 +244,11 @@ router.post("/submitvouchertype",verifyToken,routcontroller.submitvouchertypectr
 router.post("/editvouchername",verifyToken,routcontroller.editvouchernamectrl);
 router.post("/deletevouchername",verifyToken,routcontroller.deletevouchernamectrl);
 
+// Laundry products are a separate master (laundryproduct_t). They must not share
+// the vouchertype edit/delete above - see the note on those models.
+router.post("/editlaundrytype",verifyToken,routcontroller.editlaundrytypemainmastersCtrl);
+router.post("/deletelaundrytype",verifyToken,routcontroller.dellaundrytypemainmastersCtrl);
+
 router.post("/updatevoucherentrystatus",verifyToken,routcontroller.updatevoucherentrystatusCtrl);
 router.get("/getvoucheraudit/:c_number",verifyToken,routcontroller.getVoucherAuditCtrl);
 router.post("/updatetripadminstatus",verifyToken,routcontroller.updatetripadminstatusCtrl);

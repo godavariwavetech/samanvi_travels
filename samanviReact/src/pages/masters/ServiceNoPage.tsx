@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, 
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { headerRowMismatch, formatDate } from '@/lib/utils'
+import { headerRowMismatch, formatDate, serverError } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 const EMPTY: Record<string, string> = {
@@ -269,7 +269,7 @@ export default function ServiceNoPage() {
         closeForm()
       } else toast.error(res.message ?? 'Failed to save')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e) => toast.error(serverError(e)),
   })
 
   const handleEdit = (row: any) => {

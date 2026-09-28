@@ -38,8 +38,11 @@ export const mainmastersService = {
   // ── Laundry Products ─────────────────────────────────────
   getLaundryProducts: () => api.post('/getlaundrytypemainmasters', securePayload({})).then((r) => r.data),
   addLaundryProduct: (data: unknown) => api.post('/submitlaundrytypemainmasters', securePayload(data)).then((r) => r.data),
-  editLaundryProduct: (data: unknown) => api.post('/editvouchername', securePayload(data)).then((r) => r.data),
-  deleteLaundryProduct: (data: unknown) => api.post('/deletevouchername', securePayload(data)).then((r) => r.data),
+  // Laundry products live in laundryproduct_t. These used to point at
+  // /editvouchername and /deletevouchername, which edit voucher_type - renaming
+  // or soft-deleting an accounting voucher type instead of the product.
+  editLaundryProduct: (data: unknown) => api.post('/editlaundrytype', securePayload(data)).then((r) => r.data),
+  deleteLaundryProduct: (data: unknown) => api.post('/deletelaundrytype', securePayload(data)).then((r) => r.data),
 
   // ── Garage: Service Reminder Types ────────────────────────
   getReminderTypes: () => api.get('/reminder-types/getall').then((r) => r.data),

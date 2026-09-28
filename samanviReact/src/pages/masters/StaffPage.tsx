@@ -9,7 +9,7 @@ import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, 
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { excelCellToISODate, headerRowMismatch, todayISO } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, todayISO, serverError } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 type DataType = string
@@ -435,6 +435,8 @@ export default function StaffPage() {
   const [terminatePerson, setTerminatePerson] = useState<{ person: any; staffType: string } | null>(null)
   const [viewPerson, setViewPerson] = useState<{ person: any; staffType: 'driver' | 'staff' | 'helper' } | null>(null)
   const [editingDriverRow, setEditingDriverRow] = useState<any | null>(null)
+  const [editingStaffRow, setEditingStaffRow] = useState<any | null>(null)
+  const [editingHelperRow, setEditingHelperRow] = useState<any | null>(null)
   const [driverHistoryFor, setDriverHistoryFor] = useState<any | null>(null)
   const [staffForm, setStaffForm] = useState(emptyStaff)
   const [driverForm, setDriverForm] = useState(emptyDriver)
@@ -445,6 +447,20 @@ export default function StaffPage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const uploadRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
+
+  // Which person the open form is editing, if any. Drives the heading, the Save
+  // button's label, and whether it calls the edit or the add mutation.
+  const editingRow = dataType === 'Driver' ? editingDriverRow : dataType === 'Staff' ? editingStaffRow : dataType === 'Helper' ? editingHelperRow : null
+
+  // Closing the form has to clear the edit target and all three forms, otherwise
+  // reopening it for an Add shows the previously edited person still filled in.
+  const closeForm = () => {
+    setShowForm(false)
+    setEditingDriverRow(null); setEditingStaffRow(null); setEditingHelperRow(null)
+    setDriverForm(emptyDriver); setDriverImages(emptyDriverImages)
+    setStaffForm(emptyStaff); setStaffImages(emptyStaffImages)
+    setHelperForm(emptyHelper); setHelperImages(emptyHelperImages)
+  }
 
   const sf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setStaffForm((f) => ({ ...f, [k]: e.target.value }))
   const df = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDriverForm((f) => ({ ...f, [k]: e.target.value }))
@@ -472,10 +488,45 @@ export default function StaffPage() {
     onSuccess: (res) => { if (res.status === 200) { toast.success('Staff added!'); qc.invalidateQueries({ queryKey: ['active-staff'] }); setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
+  // Only newly-picked images are sent (staffImages holds the ImageValue objects for
+  // slots the user actually changed). addstaffeditMdl only writes an image column when
+  // it receives a new URL, so leaving a slot untouched keeps the scan already on file -
+  // and existingUrl below is what shows the user that stored image in the form.
+  const { mutate: editStaffMutate, isPending: editingStaffPending } = useMutation({
+    mutationFn: () => mastersService.editStaff({
+      ...staffForm,
+      ...staffImages,
+      id: editingStaffRow?.id,
+      idNumber: editingStaffRow?.idNumber,
+      entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res) => {
+      if (res.status === 200) {
+        toast.success('Staff updated!')
+        qc.invalidateQueries({ queryKey: ['active-staff'] })
+        setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setEditingStaffRow(null); setShowForm(false)
+      } else toast.error(res.message ?? 'Failed')
+    },
+    onError: (e) => toast.error(serverError(e)),
+  })
+  const startEditStaff = (row: any) => {
+    setStaffForm({
+      fullName: row.fullName ?? '', mobile: row.mobile ?? '', designation: row.designation ?? '',
+      emergencyContact: row.emergencyContact ?? '', alternativemobilenumber: row.alternativemobilenumber ?? '',
+      dateOfJoining: toDateInput(row.dateOfJoining), aadhaar: row.aadhaar ?? '',
+      accountHolderName: row.accountHolderName ?? '', accountNumber: row.accountNumber ?? '', ifscCode: row.ifscCode ?? '',
+      bankName: row.bankName ?? '', referencename: row.referencename ?? '', branchname: row.branchname ?? '',
+      nickName: row.nickName ?? '', upiId: row.upiId ?? '', remarks: row.remarks ?? '',
+      dob: toDateInput(row.dob), address: row.address ?? '',
+    })
+    setStaffImages(emptyStaffImages)
+    setEditingStaffRow(row)
+    setShowForm(true)
+  }
   const { mutate: addDriver, isPending: addingDriver } = useMutation({
     mutationFn: () => mastersService.addDriver({ ...driverForm, ...driverImages, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0 }),
     onSuccess: (res) => { if (res.status === 200) { toast.success('Driver added!'); qc.invalidateQueries({ queryKey: ['drivers'] }); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
-    onError: () => toast.error('Server error'),
+    onError: (e) => toast.error(serverError(e)),
   })
   // New-upload images fall back to the row's existing URL (already-saved
   // string, not an ImageValue object) so an untouched image slot doesn't get
@@ -499,7 +550,7 @@ export default function StaffPage() {
         setDriverForm(emptyDriver); setDriverImages(emptyDriverImages); setEditingDriverRow(null); setShowForm(false)
       } else toast.error(res.message ?? 'Failed')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e) => toast.error(serverError(e)),
   })
   const startEditDriver = (row: any) => {
     setDriverForm({
@@ -527,6 +578,41 @@ export default function StaffPage() {
     onSuccess: (res) => { if (res.status === 200) { toast.success('Helper added!'); qc.invalidateQueries({ queryKey: ['active-helpers'] }); setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
+  // Mirrors editStaffMutate: helperImages only carries slots the user re-picked, and
+  // edithelperregisterMdl leaves the others alone. helper_id_number is NOT NULL and
+  // has no form field, so it has to ride along from the row.
+  const { mutate: editHelperMutate, isPending: editingHelperPending } = useMutation({
+    mutationFn: () => mastersService.editHelper({
+      ...helperForm,
+      ...helperImages,
+      id: editingHelperRow?.id,
+      helper_id_number: editingHelperRow?.helper_id_number,
+      entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res) => {
+      if (res.status === 200) {
+        toast.success('Helper updated!')
+        qc.invalidateQueries({ queryKey: ['active-helpers'] })
+        setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setEditingHelperRow(null); setShowForm(false)
+      } else toast.error(res.message ?? 'Failed')
+    },
+    onError: (e) => toast.error(serverError(e)),
+  })
+  const startEditHelper = (row: any) => {
+    setHelperForm({
+      helper_name: row.helper_name ?? '', mobile_number: row.mobile_number ?? '',
+      adhar_number: row.adhar_number ?? '', account_number: row.account_number ?? '',
+      ifsc_code: row.ifsc_code ?? '', bank_name: row.bank_name ?? '',
+      emergency_mobile_number: row.emergencymobilenumber ?? '',
+      alternate_number: row.alternate_number ?? '', reference: row.reference ?? '',
+      account_holder_name: row.account_holder_name ?? '', branch_name: row.branch_name ?? '',
+      upi_id: row.upi_id ?? '', date_of_joining: toDateInput(row.date_of_joining),
+      remarks: row.remarks ?? '', dob: toDateInput(row.dob), address: row.address ?? '',
+    })
+    setHelperImages(emptyHelperImages)
+    setEditingHelperRow(row)
+    setShowForm(true)
+  }
   const { mutate: terminate, isPending: terminating } = useMutation({
     mutationFn: ({ date, reason }: { date: string; reason: string }) =>
       mastersService.terminateStaff({ id: terminatePerson!.person.id, staff_type: terminatePerson!.staffType, termination_date: date, termination_reason: reason }),
@@ -561,6 +647,9 @@ export default function StaffPage() {
   const handleTypeChange = (type: string) => {
     setDataType(type)
     setShowForm(false)
+    setEditingDriverRow(null)
+    setEditingStaffRow(null)
+    setEditingHelperRow(null)
     setColumnFilters({})
   }
 
@@ -831,7 +920,7 @@ export default function StaffPage() {
       <div className="flex justify-between items-end">
         <PageHeader title="Staff Register" subtitle="Manage drivers, staff, helpers and terminations" />
         {dataType && dataType !== 'Terminated' && !showForm && (
-          <Button onClick={() => { setEditingDriverRow(null); setShowForm(true) }}>
+          <Button onClick={() => { setEditingDriverRow(null); setEditingStaffRow(null); setEditingHelperRow(null); setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setShowForm(true) }}>
             <Users className="w-4 h-4" /> Add {dataType}
           </Button>
         )}
@@ -905,9 +994,9 @@ export default function StaffPage() {
             <GlassCard className="p-6" colorBar={typeColors[dataType] ?? 'bg-gradient-to-r from-slate-400 to-slate-600'}>
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Users className="w-5 h-5" /> {editingDriverRow ? 'Edit Driver' : `Register ${dataType}`}
+                  <Users className="w-5 h-5" /> {editingRow ? `Edit ${dataType}` : `Register ${dataType}`}
                 </h2>
-                <button onClick={() => { setShowForm(false); setEditingDriverRow(null); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages) }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
+                <button onClick={closeForm} className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
               </div>
 
               {/* Driver form */}
@@ -981,8 +1070,8 @@ export default function StaffPage() {
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={staffForm.address} onChange={sf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                     </div>
-                    <ImageUploadField label="Aadhar Card Front" value={staffImages.aadhaarCardFront} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardFront: v }))} />
-                    <ImageUploadField label="Aadhar Card Back" value={staffImages.aadhaarCardBack} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardBack: v }))} />
+                    <ImageUploadField label="Aadhar Card Front" value={staffImages.aadhaarCardFront} existingUrl={editingStaffRow?.aadhaarCardFront} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardFront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={staffImages.aadhaarCardBack} existingUrl={editingStaffRow?.aadhaarCardBack} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardBack: v }))} />
                   </SectionBox>
 
                   <SectionBox title="Bank Details">
@@ -992,7 +1081,7 @@ export default function StaffPage() {
                     <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={staffForm.branchname} onChange={sf('branchname')} /></div>
                     <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={staffForm.ifscCode} onChange={sf('ifscCode')} /></div>
                     <div><Label>UPI ID</Label><Input value={staffForm.upiId} onChange={sf('upiId')} /></div>
-                    <ImageUploadField label="UPI / Passbook Scan" value={staffImages.upiScanner} onChange={(v) => setStaffImages((s) => ({ ...s, upiScanner: v }))} />
+                    <ImageUploadField label="UPI / Passbook Scan" value={staffImages.upiScanner} existingUrl={editingStaffRow?.upiScanner} onChange={(v) => setStaffImages((s) => ({ ...s, upiScanner: v }))} />
                   </SectionBox>
 
                   <div><Label>Remarks</Label>
@@ -1016,8 +1105,8 @@ export default function StaffPage() {
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={helperForm.address} onChange={hf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                     </div>
-                    <ImageUploadField label="Aadhar Card Front" value={helperImages.adharcardfront} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardfront: v }))} />
-                    <ImageUploadField label="Aadhar Card Back" value={helperImages.adharcardback} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardback: v }))} />
+                    <ImageUploadField label="Aadhar Card Front" value={helperImages.adharcardfront} existingUrl={editingHelperRow?.adhar_card_front} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardfront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={helperImages.adharcardback} existingUrl={editingHelperRow?.adhar_card_back} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardback: v }))} />
                   </SectionBox>
 
                   <SectionBox title="Bank Details">
@@ -1027,7 +1116,7 @@ export default function StaffPage() {
                     <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={helperForm.branch_name} onChange={hf('branch_name')} /></div>
                     <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={helperForm.ifsc_code} onChange={hf('ifsc_code')} /></div>
                     <div><Label>UPI ID</Label><Input value={helperForm.upi_id} onChange={hf('upi_id')} /></div>
-                    <ImageUploadField label="UPI / Passbook Scan" value={helperImages.upiscanner} onChange={(v) => setHelperImages((s) => ({ ...s, upiscanner: v }))} />
+                    <ImageUploadField label="UPI / Passbook Scan" value={helperImages.upiscanner} existingUrl={editingHelperRow?.upi_scanner} onChange={(v) => setHelperImages((s) => ({ ...s, upiscanner: v }))} />
                   </SectionBox>
 
                   <div><Label>Remarks</Label><Input value={helperForm.remarks} onChange={hf('remarks')} /></div>
@@ -1035,7 +1124,15 @@ export default function StaffPage() {
               )}
 
               <div className="flex gap-3 mt-6">
-                {dataType === 'Staff' && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
+                {dataType === 'Staff' && (
+                  <Button
+                    onClick={() => editingStaffRow ? editStaffMutate() : addStaff()}
+                    disabled={(editingStaffRow ? editingStaffPending : addingStaff) || !staffForm.fullName}
+                  >
+                    <Save className="w-4 h-4" />
+                    {(editingStaffRow ? editingStaffPending : addingStaff) ? 'Saving…' : editingStaffRow ? `Update ${dataType}` : `Save ${dataType}`}
+                  </Button>
+                )}
                 {dataType === 'Driver' && (
                   <Button
                     onClick={() => editingDriverRow ? editDriverMutate() : addDriver()}
@@ -1045,8 +1142,16 @@ export default function StaffPage() {
                     {(editingDriverRow ? editingDriverPending : addingDriver) ? 'Saving…' : editingDriverRow ? 'Update Driver' : 'Save Driver'}
                   </Button>
                 )}
-                {dataType === 'Helper' && <Button onClick={() => addHelper()} disabled={addingHelper || !helperForm.helper_name}><Save className="w-4 h-4" />{addingHelper ? 'Saving…' : 'Save Helper'}</Button>}
-                <Button variant="ghost" onClick={() => { setShowForm(false); setEditingDriverRow(null); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages) }}><X className="w-4 h-4" /> Cancel</Button>
+                {dataType === 'Helper' && (
+                  <Button
+                    onClick={() => editingHelperRow ? editHelperMutate() : addHelper()}
+                    disabled={(editingHelperRow ? editingHelperPending : addingHelper) || !helperForm.helper_name}
+                  >
+                    <Save className="w-4 h-4" />
+                    {(editingHelperRow ? editingHelperPending : addingHelper) ? 'Saving…' : editingHelperRow ? 'Update Helper' : 'Save Helper'}
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
               </div>
             </GlassCard>
           </FormModal>
@@ -1079,10 +1184,14 @@ export default function StaffPage() {
                 const staffType = dataType === 'Driver' ? 'driver' : dataType === 'Helper' ? 'helper' : 'staff'
                 setViewPerson({ person: row, staffType })
               }
-              if (action === 'edit' && dataType === 'Driver') startEditDriver(row)
+              if (action === 'edit') {
+                if (dataType === 'Driver') startEditDriver(row)
+                if (dataType === 'Staff') startEditStaff(row)
+                if (dataType === 'Helper') startEditHelper(row)
+              }
               if (action === 'history' && dataType === 'Driver') setDriverHistoryFor(row)
             }}
-            actions={dataType === 'Terminated' ? [] : dataType === 'Driver' ? ['view', 'edit', 'history'] : ['view']}
+            actions={dataType === 'Terminated' ? [] : dataType === 'Driver' ? ['view', 'edit', 'history'] : ['view', 'edit']}
             onExport={['Driver', 'Staff', 'Helper'].includes(dataType) ? { excel: (rows) => downloadData(rows) } : undefined}
             columnFilters={columnFilters}
             onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}

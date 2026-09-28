@@ -29,6 +29,14 @@ export const formatDateTime = (date: string | Date | null | undefined): string =
   return `${formatDate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+// What to say when a save fails. A rejected request used to surface as a flat
+// "Server error" on every form, which told the user nothing about which of their
+// thirty fields the API objected to. The reason now rides along on the 500
+// response body, so prefer it and fall back to the generic line only when the
+// request never reached the API (offline, blocked, CORS).
+export const serverError = (err: any, fallback = 'Server error'): string =>
+  err?.response?.data?.message || err?.response?.data?.msg || err?.message || fallback
+
 // Converts a raw Excel cell into a 'YYYY-MM-DD' string for date columns.
 // Callers must read the workbook WITHOUT `cellDates: true` so date cells arrive
 // as raw serial numbers — SheetJS's cellDates conversion builds the JS Date using

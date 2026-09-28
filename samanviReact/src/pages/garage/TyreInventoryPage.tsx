@@ -43,6 +43,9 @@ export default function TyreInventoryPage() {
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [editCode, setEditCode] = useState('')
+  // Not shown on the edit form, but the model writes it, so it has to be carried
+  // from the row or every save orphans the tyre from its vendor.
+  const [editingVendorId, setEditingVendorId] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
@@ -137,6 +140,11 @@ export default function TyreInventoryPage() {
   const buildPayload = () => ({
     ...form,
     id: editId,
+    // vendor_id and tyre_code are not on the edit form, but the model writes
+    // both: omitting vendor_id nulled it out on every save, and an empty
+    // tyre_code left the scrap voucher unattributable. Carry the row's values.
+    vendor_id: editingVendorId,
+    tyre_code: editCode,
     ledger_description: ledgerDescription,
     debit_ledgers: debit.filter(e => e.ledger_id && e.amount),
     credit_ledgers: credit.filter(e => e.ledger_id && e.amount),
@@ -231,6 +239,12 @@ export default function TyreInventoryPage() {
       remarks: row.remarks ?? '',
     })
     setEditCode(row.tyre_code ?? '')
+    setEditingVendorId(row.vendor_id ?? null)
+    // Clear the ledger rows. The model raises a scrap voucher from whatever
+    // debit/credit rows arrive, and this form is the same component used for
+    // adding - so whatever ledgers were last typed stayed in state and an edit
+    // re-posted them as a second voucher.
+    setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
     setIsEdit(true); setEditId(row.id); setShowForm(true)
   }
 
@@ -242,13 +256,13 @@ export default function TyreInventoryPage() {
   }
 
   const openAdd = () => {
-    setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setShowForm(true)
+    setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setEditingVendorId(null); setShowForm(true)
     setEntryMode('new'); setBusNumber(''); setBusPurchaseDate(''); setBusOdometer(''); setSelectedPositions([]); setPositionRows({})
     setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
     setTyreRows([emptyTyreRow()]); setSameCost(false)
   }
   const closeForm = () => {
-    setShowForm(false); setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode('')
+    setShowForm(false); setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setEditingVendorId(null)
     setEntryMode('new'); setBusNumber(''); setBusPurchaseDate(''); setBusOdometer(''); setSelectedPositions([]); setPositionRows({})
     setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
     setTyreRows([emptyTyreRow()]); setSameCost(false)

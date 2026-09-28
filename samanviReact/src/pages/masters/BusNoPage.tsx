@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { excelCellToISODate, headerRowMismatch, isVanVehicleType, ledgerOption, todayISO } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, isVanVehicleType, ledgerOption, serverError, todayISO } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 // ── Sold Out / Service Out modal ───────────────────────────────────────────
@@ -367,7 +367,7 @@ export default function BusNoPage() {
         closeForm()
       } else toast.error(res.message ?? 'Failed to save')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e) => toast.error(serverError(e)),
   })
 
   const handleEdit = (row: any) => {
