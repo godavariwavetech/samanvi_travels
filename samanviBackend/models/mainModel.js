@@ -5321,11 +5321,29 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
       'hirer_name', 'phone_number', 'line_code', 'booking_amount', 'remarks',
       'driver1_paid_direct', 'driver2_paid_direct', 'helper_paid_direct', 'conductor_paid_direct',
       'updatedby_id', 'updatedby_name', 'updated_date'];
+    // An unset numeric field arrives as '' (the form's empty string), and
+    // '' is not a valid INT: MySQL rejects the whole statement with
+    // "Incorrect integer value: '' for column trip_created.opt_driver1_id",
+    // so saving any trip with no opting driver failed outright. Write NULL
+    // for those instead, which is what "not chosen" means here.
+    var INT_COLUMNS = ['service_no_id', 'trip_for_id', 'paid_to_id', 'driver1_id',
+      'driver2_id', 'helper_id', 'conductor_id', 'opt_driver1_id', 'opt_driver2_id',
+      'opt_helper_id', 'booking_amount', 'driver1_paid_direct', 'driver2_paid_direct',
+      'helper_paid_direct', 'conductor_paid_direct'];
     var sets = EDITABLE
       // The literal 'undefined' is never a value: it is what a corrupted
       // expense row echoed back from Trip Expenses looks like.
       .filter(function (k) { return data[k] !== undefined && String(data[k]) !== 'undefined'; })
-      .map(function (k) { return '`' + k + "` = '" + esc(data[k]) + "'"; });
+      .map(function (k) {
+        var v = data[k];
+        if (INT_COLUMNS.indexOf(k) !== -1) {
+          if (v === null || String(v).trim() === '') return '`' + k + '` = NULL';
+          if (!/^-?\d+(\.\d+)?$/.test(String(v).trim())) {
+            return callback(new Error('`trip_created`.`' + k + '` expects a number, got "' + v + '"'), null);
+          }
+        }
+        return '`' + k + "` = '" + esc(v) + "'";
+      });
     if (sets.length === 0) { callback(null, { affectedRows: 0 }); return; }
     QRY_TO_EXEC = 'UPDATE trip_created SET ' + sets.join(', ') + ' WHERE id = ' + Number(data.id);
 
