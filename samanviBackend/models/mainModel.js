@@ -5246,7 +5246,14 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
   });
 
   sqldb.query(`SELECT bus_no, driver1_name, driver1_id, driver2_name, helper_name, conductor_name, trip_run_status, hirer_name, phone_number, booking_amount, opt_driver1_name, opt_driver1_mobile, trip_date, vehicle_type, status, voucher_number, c_number FROM trip_created WHERE id = ?`, [data.id], function (selErr, rows) {
-    var before = (!selErr && rows && rows[0]) ? rows[0] : {};
+    // A column this server's trip_created does not have (an older table than the
+    // van work added to) used to be swallowed here into `before = {}`. That did
+    // two bad things at once: the filed-van lock below read an empty `before`,
+    // saw no vehicle_type, and waved the edit through; then the UPDATE died on
+    // the same missing column and the screen got a bare 500 with the reason
+    // visible only in this process's log. Report it instead.
+    if (selErr) { callback(selErr, null); return; }
+    var before = (rows && rows[0]) ? rows[0] : {};
 
     // A bus runs one trip a day (a van may run several), so a bus moved onto
     // this trip must not already be on another live bus trip the same date.

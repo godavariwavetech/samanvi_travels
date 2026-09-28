@@ -3288,7 +3288,10 @@ exports.tripcreated = function (req, res) {
     appmdl.tripcreated(c_id, c_number, data, function (err, results) {
       if (err) {
         console.log(err);
-        res.send({ status: 500, data: results });
+        // The screen reads .msg, so the MySQL reason (an unknown column on this
+        // server, a bad value) has to travel back with the 500. "data: null" on
+        // its own left nothing to act on.
+        res.send({ status: 500, data: results, msg: err.sqlMessage || err.message || "Server error" });
         return;
       }
       // The model answers a bus already out that day as a conflict, not an
