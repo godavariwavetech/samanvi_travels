@@ -158,7 +158,7 @@ const DRIVER_VIEW_IMAGES: ViewField[] = [
 ]
 
 const STAFF_VIEW_FIELDS: ViewField[] = [
-  ['Designation', 'designation'], ['Nick Name', 'nickName'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
+  ['Designation', 'designation'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
   ['Date of Birth', 'dob'], ['Mobile Number', 'mobile'], ['Alternative Mobile', 'alternativemobilenumber'],
   ['Emergency Contact', 'emergencyContact'], ['Date of Joining', 'dateOfJoining'], ['Referred By', 'referencename'],
   ['Address', 'address'], ['Account Holder Name', 'accountHolderName'], ['Account Number', 'accountNumber'],
@@ -334,7 +334,7 @@ function SectionBox({ title, children }: { title: string; children: React.ReactN
 const emptyStaff = {
   fullName: '', mobile: '', designation: '', emergencyContact: '', alternativemobilenumber: '',
   dateOfJoining: '', aadhaar: '', accountHolderName: '', accountNumber: '', ifscCode: '',
-  bankName: '', referencename: '', branchname: '', nickName: '', upiId: '', remarks: '',
+  bankName: '', referencename: '', branchname: '', upiId: '', remarks: '',
   dob: '', address: '',
 }
 const emptyDriver = {
@@ -403,7 +403,7 @@ const DRIVER_TEMPLATE_HEADERS = [
   'Remarks',
 ]
 const STAFF_TEMPLATE_HEADERS = [
-  'Designation*', 'Nick Name', 'Full Name*', 'Aadhar Number*', 'Date of Birth',
+  'Designation*', 'Full Name*', 'Aadhar Number*', 'Date of Birth',
   'Mobile Number*', 'Alternative Mobile', 'Emergency Contact', 'Date of Joining*',
   'Referred By', 'Address', 'Account Holder Name*', 'Account Number*',
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
@@ -516,7 +516,7 @@ export default function StaffPage() {
       dateOfJoining: toDateInput(row.dateOfJoining), aadhaar: row.aadhaar ?? '',
       accountHolderName: row.accountHolderName ?? '', accountNumber: row.accountNumber ?? '', ifscCode: row.ifscCode ?? '',
       bankName: row.bankName ?? '', referencename: row.referencename ?? '', branchname: row.branchname ?? '',
-      nickName: row.nickName ?? '', upiId: row.upiId ?? '', remarks: row.remarks ?? '',
+      upiId: row.upiId ?? '', remarks: row.remarks ?? '',
       dob: toDateInput(row.dob), address: row.address ?? '',
     })
     setStaffImages(emptyStaffImages)
@@ -693,7 +693,7 @@ export default function StaffPage() {
       downloadExcel([HELPER_TEMPLATE_HEADERS, ...rows], `Helpers_${Date.now()}.xlsx`)
     } else {
       rows = (shown ?? staffList).map(r => [
-        r.designation ?? '', r.nickName ?? '', r.fullName ?? '', r.aadhaar ?? '', r.dob ?? '',
+        r.designation ?? '', r.fullName ?? '', r.aadhaar ?? '', r.dob ?? '',
         r.mobile ?? '', r.alternativemobilenumber ?? '', r.emergencyContact ?? '',
         r.dateOfJoining ?? '', r.referencename ?? '', r.address ?? '',
         r.accountHolderName ?? '', r.accountNumber ?? '', r.bankName ?? '', r.branchname ?? '',
@@ -763,26 +763,25 @@ export default function StaffPage() {
           return { payload, key: payload.driver_name }
         })
       } else if (dataType === 'Staff') {
-        rows = dataRows.filter(r => r && String(r[2] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => {
           const payload = {
             designation: String(r[0] ?? '').trim() || 'Staff',
-            nickName: String(r[1] ?? '').trim() || null,
-            fullName: String(r[2] ?? '').trim(),
-            aadhaar: String(r[3] ?? '').trim() || null,
-            dob: excelCellToISODate(r[4]) || null,
-            mobile: String(r[5] ?? '').trim(),
-            alternativemobilenumber: String(r[6] ?? '').trim() || null,
-            emergencyContact: String(r[7] ?? '').trim() || null,
-            dateOfJoining: excelCellToISODate(r[8]) || null,
-            referencename: String(r[9] ?? '').trim() || null,
-            address: String(r[10] ?? '').trim() || null,
-            accountHolderName: String(r[11] ?? '').trim() || null,
-            accountNumber: String(r[12] ?? '').trim() || null,
-            bankName: String(r[13] ?? '').trim() || null,
-            branchname: String(r[14] ?? '').trim() || null,
-            ifscCode: String(r[15] ?? '').trim() || null,
-            upiId: String(r[16] ?? '').trim() || null,
-            remarks: String(r[17] ?? '').trim() || null,
+            fullName: String(r[1] ?? '').trim(),
+            aadhaar: String(r[2] ?? '').trim() || null,
+            dob: excelCellToISODate(r[3]) || null,
+            mobile: String(r[4] ?? '').trim(),
+            alternativemobilenumber: String(r[5] ?? '').trim() || null,
+            emergencyContact: String(r[6] ?? '').trim() || null,
+            dateOfJoining: excelCellToISODate(r[7]) || null,
+            referencename: String(r[8] ?? '').trim() || null,
+            address: String(r[9] ?? '').trim() || null,
+            accountHolderName: String(r[10] ?? '').trim() || null,
+            accountNumber: String(r[11] ?? '').trim() || null,
+            bankName: String(r[12] ?? '').trim() || null,
+            branchname: String(r[13] ?? '').trim() || null,
+            ifscCode: String(r[14] ?? '').trim() || null,
+            upiId: String(r[15] ?? '').trim() || null,
+            remarks: String(r[16] ?? '').trim() || null,
           }
           return { payload, key: payload.fullName }
         })
@@ -1055,7 +1054,6 @@ export default function StaffPage() {
                       <Label>Designation <span className="text-red-500">*</span></Label>
                       <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
                     </div>
-                    <div><Label>Nick Name</Label><Input value={staffForm.nickName} onChange={sf('nickName')} /></div>
                   </div>
 
                   <SectionBox title="Personal Details">

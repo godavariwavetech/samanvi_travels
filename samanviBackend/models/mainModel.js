@@ -1600,7 +1600,6 @@ exports.addstaffregisterMdl = function (
     i_ts: date,
     user_id: data.entryby,
     usr_nm: data.usrnm,
-    nickName: data.nickName,
   };
   //console.log()dta, 400);
   var QRY_TO_EXEC = `INSERT INTO staff_register SET ?;`;
@@ -11133,7 +11132,6 @@ exports.addstaffeditMdl = function (
     branchname: data.branchname || "",
     user_id: data.entryby,
     usr_nm: data.usrnm,
-    nickName: data.nickName,
     dob: data.dob || null,
     address: data.address || "",
     updatedby: data.usrnm,
@@ -15671,7 +15669,7 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       var blank = function (v) { return v == null || v === '' ? '' : v; };
       var updateStaff = function (r, next) {
         var rec = {
-          designation: blank(r.designation) || 'Staff', nickName: r.nickName || null, mobile: blank(r.mobile),
+          designation: blank(r.designation) || 'Staff', mobile: blank(r.mobile),
           emergencyContact: blank(r.emergencyContact), alternativemobilenumber: r.alternativemobilenumber || null,
           dateOfJoining: r.dateOfJoining || null, aadhaar: blank(r.aadhaar), accountHolderName: blank(r.accountHolderName),
           accountNumber: blank(r.accountNumber), ifscCode: blank(r.ifscCode), bankName: blank(r.bankName),
@@ -15685,14 +15683,14 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
       };
       if (toInsert.length === 0) return afterInsert(null);
       var vals = toInsert.map(function (r) {
-        return [blank(r.designation) || 'Staff', '', r.fullName, r.nickName || null, blank(r.mobile),
+        return [blank(r.designation) || 'Staff', '', r.fullName, blank(r.mobile),
           blank(r.emergencyContact), r.alternativemobilenumber || null, r.dateOfJoining || null,
           blank(r.aadhaar), blank(r.accountHolderName), blank(r.accountNumber),
           blank(r.ifscCode), blank(r.bankName), r.referencename || null, r.branchname || null,
           r.upiId || null, r.remarks || null, r.dob || null, r.address || null,
           userId, usrNm, date, 0];
       });
-      var QRY = 'INSERT INTO staff_register (designation, idNumber, fullName, nickName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
+      var QRY = 'INSERT INTO staff_register (designation, idNumber, fullName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         // staff_register has no generated id number, so the ledger is keyed on

@@ -1831,11 +1831,11 @@ export default function TripExpensesPage() {
                       <Select value={isOptingRole('conductor') ? OPTING_VALUE : form.conductor_id} onChange={(e) => {
                         if (e.target.value === OPTING_VALUE) { setForm((f) => ({ ...f, conductor_id: '', conductor_name: optingNameForSeat('conductor'), ...seatBetaPatch('conductor', true) })); return }
                         const c = conductors.find((x: any) => String(x.id) === e.target.value)
-                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.nickName || c?.fullName || '', ...seatBetaPatch('conductor', !!e.target.value) }))
+                        setForm((f) => ({ ...f, conductor_id: e.target.value, conductor_name: c?.fullName || c?.nickName || '', ...seatBetaPatch('conductor', !!e.target.value) }))
                       }}>
                         <option value="">— Select —</option>
                         <option value={OPTING_VALUE}>{optingNameForSeat('conductor')}</option>
-                        {conductors.map((c: any) => <option key={c.id} value={c.id}>{c.nickName || c.fullName}</option>)}
+                        {conductors.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.nickName}</option>)}
                       </Select>
                       {seatFields('conductor')}
                     </div>
