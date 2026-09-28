@@ -330,9 +330,14 @@ export default function TripCreationPage() {
 
   const driverOptions = withOpting(OPTING_DRIVER, drivers, driverName, (d) => d.driver_type)
   const helperOptions = withOpting(OPTING_HELPER, helpers, helperName)
+  // Conductors come from staff_register, where fullName is the Aadhar name and
+  // nickName is a separate short name (driver_register's `nickname` is the Aadhar
+  // name instead, which is why driverName() below reads that one). Show the
+  // Aadhar name here, matching the Staff Register.
+  const conductorName = (c: any) => String(c?.fullName || c?.nickName || '')
   const conductorOptions = [NA_OPTION, optingOption(OPTING_CONDUCTOR), ...conductors.map((c: any) => ({
     value: String(c.id),
-    label: withSuffix(String(c.nickName || c.fullName || ''), c.designation),
+    label: withSuffix(conductorName(c), c.designation),
   }))]
   const paidToOptions = paidToList.map((p: any) => ({
     value: p.paid_to_id + '_' + p.paid_to_type, label: p.paid_to_name + ' (' + p.paid_to_type + ')',
@@ -1055,7 +1060,7 @@ export default function TripCreationPage() {
                                   onChange={(v) => {
                                     if (isOptingName(v)) { updateRow(r.id, { conductor_id: '', conductor_name: v }); return }
                                     const c = conductors.find((x) => String(x.id) === v)
-                                    updateRow(r.id, { conductor_id: v, conductor_name: c?.nickName || c?.fullName || '' })
+                                    updateRow(r.id, { conductor_id: v, conductor_name: conductorName(c) })
                                   }}
                                   onClear={() => updateRow(r.id, { conductor_id: '', conductor_name: '' })} />
                               </div>
@@ -1271,7 +1276,7 @@ export default function TripCreationPage() {
                           onChange={(v) => {
                             if (isOptingName(v)) { patchEdit({ conductor_id: '', conductor_name: v }); return }
                             const c = conductors.find((x: any) => String(x.id) === v)
-                            patchEdit({ conductor_id: v, conductor_name: c?.nickName || c?.fullName || '' })
+                            patchEdit({ conductor_id: v, conductor_name: conductorName(c) })
                           }}
                           onClear={() => patchEdit({ conductor_id: '', conductor_name: '' })} />
                       </div>
