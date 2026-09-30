@@ -170,6 +170,7 @@ export default function TyreSalePage() {
                       <div className="flex-[3] min-w-0">
                         <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                           onChange={v => { const nm = stockLedgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                          onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                           options={stockLedgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                       </div>
                       <div className="flex-[2] min-w-0">
@@ -195,6 +196,7 @@ export default function TyreSalePage() {
                       <div className="flex-[3] min-w-0">
                         <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                           onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                          onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                           options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                       </div>
                       <div className="flex-[2] min-w-0">

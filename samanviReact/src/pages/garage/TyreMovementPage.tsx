@@ -178,6 +178,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.from_bus}
                     onChange={(v) => setForm((s) => ({ ...s, from_bus: v, position_log_id: '' }))}
+                    onClear={() => setForm((s) => ({ ...s, from_bus: '', position_log_id: '' }))}
                     options={busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Select Bus"
                     onReload={() => reloadBuses()}
@@ -187,6 +188,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.position_log_id}
                     onChange={setField('position_log_id')}
+                    onClear={() => setField('position_log_id')('')}
                     options={tyresOnFromBus.map((p: any) => ({ value: String(p.id), label: `${p.tyre_code} — ${p.brand} (${p.position})` }))}
                     placeholder={form.from_bus ? 'Select Tyre' : 'Select a bus first'}
                     onReload={() => reloadActive()}
@@ -198,6 +200,7 @@ export default function TyreMovementPage() {
                 <SearchableSelect
                   value={form.tyre_id}
                   onChange={setField('tyre_id')}
+                  onClear={() => setField('tyre_id')('')}
                   options={stockTyreList.map((t: any) => ({ value: String(t.id), label: `${t.tyre_code} — ${t.brand} (${t.status})` }))}
                   placeholder="Select Tyre from Store"
                   onReload={() => reloadTyres()}
@@ -233,6 +236,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.to_bus}
                     onChange={setField('to_bus')}
+                    onClear={() => setField('to_bus')('')}
                     options={busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Select Bus"
                     onReload={() => reloadBuses()}
@@ -242,6 +246,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.to_position}
                     onChange={setField('to_position')}
+                    onClear={() => setField('to_position')('')}
                     options={positionList.map((p: any) => ({ value: p.position_name, label: p.position_name }))}
                     placeholder="Select Position"
                     onReload={() => reloadPositions()}
@@ -259,6 +264,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.destination_ledger_id}
                     onChange={setField('destination_ledger_id')}
+                    onClear={() => setField('destination_ledger_id')('')}
                     options={destinationOptions}
                     placeholder="Good stock, pending retread, or scrap?"
                     onReload={() => reloadLedgers()}

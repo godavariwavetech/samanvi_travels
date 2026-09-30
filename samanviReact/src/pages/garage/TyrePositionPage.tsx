@@ -80,6 +80,14 @@ export default function TyrePositionPage() {
     setCredit((rows) => rows.length === 1 ? [{ ...rows[0], amount }] : rows)
   }
 
+  // Dropping the tyre drops the amount it filled in too - left behind, it would
+  // read as a deliberate figure for a tyre that is no longer on the form.
+  const clearTyre = () => {
+    setField('tyre_id')('')
+    setDebit((rows) => rows.map((r) => ({ ...r, amount: '' })))
+    setCredit((rows) => rows.map((r) => ({ ...r, amount: '' })))
+  }
+
   const { mutate: assign, isPending } = useMutation({
     mutationFn: () => {
       if (hasLedgerEntry && !isBalanced) return Promise.reject(new Error('ledger mismatch'))
@@ -181,7 +189,8 @@ export default function TyrePositionPage() {
                     <div key={i} className="flex gap-2 items-center">
                       <div className="flex-[3] min-w-0">
                         <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
-                          onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                           options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                       </div>
                       <div className="flex-[2] min-w-0">
@@ -206,7 +215,8 @@ export default function TyrePositionPage() {
                     <div key={i} className="flex gap-2 items-center">
                       <div className="flex-[3] min-w-0">
                         <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
-                          onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                           options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                       </div>
                       <div className="flex-[2] min-w-0">
@@ -233,6 +243,7 @@ export default function TyrePositionPage() {
             <SearchableSelect
               value={form.tyre_id}
               onChange={pickTyre}
+              onClear={clearTyre}
               options={inStockTyres.map((t) => ({ value: String(t.id), label: `${t.serial_no || 'No Serial'} — ${t.tyre_code} (${t.brand})` }))}
               placeholder="Select Tyre Serial Number"
               onReload={() => reloadTyres()}
@@ -243,6 +254,7 @@ export default function TyrePositionPage() {
             <SearchableSelect
               value={form.vehicle_number}
               onChange={setField('vehicle_number')}
+              onClear={() => setField('vehicle_number')('')}
               options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
               placeholder="Select Bus"
               onReload={() => reloadBuses()}
@@ -253,6 +265,7 @@ export default function TyrePositionPage() {
             <SearchableSelect
               value={form.position}
               onChange={setField('position')}
+              onClear={() => setField('position')('')}
               options={positionList.map((p) => ({ value: p.position_name, label: p.position_name }))}
               placeholder="Select Position"
               onReload={() => reloadPositions()}

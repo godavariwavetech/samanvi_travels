@@ -205,6 +205,7 @@ export default function TyreStockAvailabilityPage() {
                     <SearchableSelect
                       value={debitLedgerId}
                       onChange={setDebitLedgerId}
+                      onClear={() => setDebitLedgerId('')}
                       options={ledgerOptions}
                       placeholder="Select ledger"
                       onReload={() => reloadLedgers()}
@@ -214,6 +215,7 @@ export default function TyreStockAvailabilityPage() {
                     <SearchableSelect
                       value={creditLedgerId}
                       onChange={setCreditLedgerId}
+                      onClear={() => setCreditLedgerId('')}
                       options={ledgerOptions}
                       placeholder="Select ledger"
                       onReload={() => reloadLedgers()}

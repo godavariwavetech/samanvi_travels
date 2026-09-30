@@ -469,6 +469,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={form.vehicle_number}
                     onChange={setField('vehicle_number')}
+                    onClear={() => setField('vehicle_number')('')}
                     options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Select Bus"
                     onReload={() => reloadBuses()}
@@ -479,6 +480,7 @@ export default function ServiceRemindersPage() {
                     <SearchableSelect
                       value={form.reminder_type}
                       onChange={setField('reminder_type')}
+                      onClear={() => setField('reminder_type')('')}
                       options={reminderTypeList.map((t) => ({ value: t.type_name, label: t.type_name }))}
                       placeholder="Select Type"
                       onReload={() => reloadTypes()}
@@ -689,6 +691,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.driver}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, driver: v }))}
+                    onClear={() => setJobCardForm((s) => ({ ...s, driver: '' }))}
                     options={driverList.map((d) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))}
                     placeholder="Select driver"
                     onReload={() => reloadDrivers()}
@@ -698,6 +701,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.category}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, category: v }))}
+                    onClear={() => setJobCardForm((s) => ({ ...s, category: '' }))}
                     options={catList.map((c) => ({ value: String(c.id), label: c.name }))}
                     placeholder="Select category"
                     onReload={() => reloadCats()}
@@ -711,6 +715,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.technician}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, technician: v }))}
+                    onClear={() => setJobCardForm((s) => ({ ...s, technician: '' }))}
                     options={staffList.map((s) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))}
                     placeholder="Select technician"
                     onReload={() => reloadStaff()}

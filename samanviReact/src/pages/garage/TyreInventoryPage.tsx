@@ -195,6 +195,14 @@ export default function TyreInventoryPage() {
     setBusOdometer(bus?.odometer != null ? String(bus.odometer) : '')
   }
 
+  // Clearing the bus drops everything chosen to go on it — the date and odometer
+  // were read off the bus just picked, and the per-position rows are that bus's
+  // alone.
+  const clearBus = () => {
+    setBusNumber(''); setBusPurchaseDate(''); setBusOdometer('')
+    setSelectedPositions([]); setPositionRows({})
+  }
+
   const togglePosition = (posName: string) => {
     setSelectedPositions((prev) => prev.includes(posName) ? prev.filter((p) => p !== posName) : [...prev, posName])
     setPositionRows((rows) => {
@@ -372,6 +380,7 @@ export default function TyreInventoryPage() {
                     <SearchableSelect
                       value={form.brand}
                       onChange={(v) => setForm((s) => ({ ...s, brand: v }))}
+                      onClear={() => setForm((s) => ({ ...s, brand: '' }))}
                       options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
                       placeholder="Select make"
                       onReload={() => reloadMakes()}
@@ -383,6 +392,7 @@ export default function TyreInventoryPage() {
                     <SearchableSelect
                       value={form.size}
                       onChange={(v) => setForm((s) => ({ ...s, size: v }))}
+                      onClear={() => setForm((s) => ({ ...s, size: '' }))}
                       options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
                       placeholder="Select size"
                       onReload={() => reloadSizes()}
@@ -441,12 +451,14 @@ export default function TyreInventoryPage() {
                         <div className="flex-[1.5] min-w-0">
                           <SearchableSelect value={row.brand}
                             onChange={(v) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, brand: v }))}
+                            onClear={() => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, brand: '' }))}
                             options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
                             placeholder="Make" onReload={() => reloadMakes()} reloading={loadingMakes} />
                         </div>
                         <div className="flex-[1.5] min-w-0">
                           <SearchableSelect value={row.size}
                             onChange={(v) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, size: v }))}
+                            onClear={() => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, size: '' }))}
                             options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
                             placeholder="Size" onReload={() => reloadSizes()} reloading={loadingSizes} />
                         </div>
@@ -494,6 +506,7 @@ export default function TyreInventoryPage() {
                               <div className="flex-[3] min-w-0">
                                 <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                                   onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                                  onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                                   options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                               </div>
                               <div className="flex-[2] min-w-0">
@@ -520,6 +533,7 @@ export default function TyreInventoryPage() {
                               <div className="flex-[3] min-w-0">
                                 <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                                   onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                                  onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                                   options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                               </div>
                               <div className="flex-[2] min-w-0">
@@ -547,6 +561,7 @@ export default function TyreInventoryPage() {
                       <SearchableSelect
                         value={busNumber}
                         onChange={selectBus}
+                        onClear={clearBus}
                         options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                         placeholder="Select Bus"
                         onReload={() => reloadBuses()}
@@ -600,6 +615,7 @@ export default function TyreInventoryPage() {
                                 <SearchableSelect
                                   value={row.brand}
                                   onChange={setPositionSelect(pos, 'brand')}
+                                  onClear={() => setPositionSelect(pos, 'brand')('')}
                                   options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
                                   placeholder="Select make"
                                   onReload={() => reloadMakes()}
@@ -611,6 +627,7 @@ export default function TyreInventoryPage() {
                                 <SearchableSelect
                                   value={row.size}
                                   onChange={setPositionSelect(pos, 'size')}
+                                  onClear={() => setPositionSelect(pos, 'size')('')}
                                   options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
                                   placeholder="Select size"
                                   onReload={() => reloadSizes()}

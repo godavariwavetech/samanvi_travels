@@ -142,6 +142,7 @@ export default function TyreRepairPage() {
             <SearchableSelect
               value={form.vehicle_number}
               onChange={setField('vehicle_number')}
+              onClear={() => setField('vehicle_number')('')}
               options={busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))}
               placeholder="Select Bus"
               onReload={() => reloadBuses()}
@@ -152,6 +153,7 @@ export default function TyreRepairPage() {
             <SearchableSelect
               value={form.tyre_id}
               onChange={setField('tyre_id')}
+              onClear={() => setField('tyre_id')('')}
               options={tyreList.map((t: any) => ({ value: String(t.id), label: `${t.tyre_code} — ${t.brand}` }))}
               placeholder="Select Tyre"
               onReload={() => reloadTyres()}
@@ -180,6 +182,7 @@ export default function TyreRepairPage() {
                 <SearchableSelect
                   value={form.vendor_id}
                   onChange={setField('vendor_id')}
+                  onClear={() => setField('vendor_id')('')}
                   options={vendorList.map((v: any) => ({ value: String(v.id), label: v.vendor_name }))}
                   placeholder="Select vendor"
                   onReload={() => reloadVendors()}
@@ -219,6 +222,7 @@ export default function TyreRepairPage() {
                         <div className="flex-[3] min-w-0">
                           <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                             onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                             options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                         </div>
                         <div className="flex-[2] min-w-0">
@@ -244,6 +248,7 @@ export default function TyreRepairPage() {
                         <div className="flex-[3] min-w-0">
                           <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                             onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                             options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                         </div>
                         <div className="flex-[2] min-w-0">

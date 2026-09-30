@@ -356,6 +356,7 @@ export default function RepairEntryPage() {
                 <SearchableSelect
                   value={form.bus_no}
                   onChange={setField('bus_no')}
+                  onClear={() => setField('bus_no')('')}
                   options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                   placeholder="Select Bus"
                   onReload={() => reloadBuses()}
@@ -372,6 +373,7 @@ export default function RepairEntryPage() {
                 <SearchableSelect
                   value={form.driver}
                   onChange={setField('driver')}
+                  onClear={() => setField('driver')('')}
                   options={driverList.map((d) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))}
                   placeholder="Select Driver"
                   onReload={() => reloadDrivers()}
@@ -401,6 +403,7 @@ export default function RepairEntryPage() {
                     <SearchableSelect
                       value={r.category}
                       onChange={updateJobRow(i, 'category')}
+                      onClear={() => updateJobRow(i, 'category')('')}
                       options={catOptions}
                       placeholder="Select Category"
                       onReload={() => reloadCats()}
@@ -417,6 +420,7 @@ export default function RepairEntryPage() {
                     <SearchableSelect
                       value={r.technician}
                       onChange={updateJobRow(i, 'technician')}
+                      onClear={() => updateJobRow(i, 'technician')('')}
                       options={staffList.map((s) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))}
                       placeholder="Select Technician"
                       onReload={() => reloadStaff()}
@@ -582,6 +586,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={finishDebitLedgerId}
                             onChange={setFinishDebitLedgerId}
+                            onClear={() => setFinishDebitLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Debit Ledger"
                             onReload={() => reloadLedgers()}
@@ -597,6 +602,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={finishCreditLedgerId}
                             onChange={setFinishCreditLedgerId}
+                            onClear={() => setFinishCreditLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Credit Ledger"
                             onReload={() => reloadLedgers()}
@@ -740,6 +746,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={debitLedgerId}
                             onChange={setDebitLedgerId}
+                            onClear={() => setDebitLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Debit Ledger"
                             onReload={() => reloadLedgers()}
@@ -758,6 +765,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={creditLedgerId}
                             onChange={setCreditLedgerId}
+                            onClear={() => setCreditLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Credit Ledger"
                             onReload={() => reloadLedgers()}
@@ -800,12 +808,18 @@ export default function RepairEntryPage() {
                                 placeholder="Category"
                                 onReload={() => reloadCats()}
                                 reloading={loadingCats}
+                                onClear={() => setCompleteParts(prev => prev.map((row, idx) =>
+                                  idx === i ? { ...row, category_id: '', part_id: '', rate: '' } : row
+                                ))}
                               />
                             </div>
                             <div className="flex-[2.5] min-w-0">
                               <SearchableSelect
                                 value={r.part_id}
                                 onChange={(v) => handlePartSelect(i, v)}
+                                onClear={() => setCompleteParts(prev => prev.map((row, idx) =>
+                                  idx === i ? { ...row, part_id: '', rate: '' } : row
+                                ))}
                                 options={rowPartsOptions}
                                 placeholder="Select Part"
                                 onReload={() => reloadParts()}
@@ -869,6 +883,7 @@ export default function RepairEntryPage() {
                             <SearchableSelect
                               value={newPart.category_id}
                               onChange={(v) => setNewPart(s => ({ ...s, category_id: v }))}
+                              onClear={() => setNewPart(s => ({ ...s, category_id: '' }))}
                               options={catOptions}
                               placeholder="Select Category"
                               onReload={() => reloadCats()}

@@ -105,6 +105,7 @@ export default function GarageReportsPage() {
             <SearchableSelect
               value={filter.bus_no}
               onChange={(v) => setFilter({ ...filter, bus_no: v })}
+              onClear={() => setFilter({ ...filter, bus_no: '' })}
               options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
               placeholder="All Buses"
               onReload={() => reloadBuses()}
@@ -114,6 +115,7 @@ export default function GarageReportsPage() {
             <SearchableSelect
               value={filter.category}
               onChange={(v) => setFilter({ ...filter, category: v })}
+              onClear={() => setFilter({ ...filter, category: '' })}
               options={catList.map((c) => ({ value: c.name, label: c.name }))}
               placeholder="All Categories"
               onReload={() => reloadCats()}
