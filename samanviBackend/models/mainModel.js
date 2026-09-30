@@ -12655,17 +12655,33 @@ exports.getadminrejectedMdl = function (data, callback) {
 };
 
 
-exports.getservicenumMdl = function (data, callback) {
-  var cntxtDtls = "getservicenumMdl";
-  var QRY_TO_EXEC = `SELECT * FROM trip_created WHERE bus_no = '${data.busNo}' ORDER BY trip_date DESC LIMIT 1;`;
-
-  let m = [];
+// The most recent trip a bus ran, so Trip Creation can prefill that bus's usual
+// crew when it is picked. Deleted trips are excluded - d_in=1 is a bookkeeping
+// correction (wrong date, duplicate), not a run to copy a crew from.
+// Ordered by trip_date rather than id because trips can be entered for a past
+// date, so the newest row is not always the last one to run; id breaks ties
+// within a day. Only the crew columns are selected - this feeds a form, and
+// SELECT * would drag the whole trip row across the wire for nothing.
+exports.getBusLastTripMdl = function (data, callback) {
+  var cntxtDtls = "getBusLastTripMdl";
+  var QRY_TO_EXEC = `SELECT
+  driver1_id, driver1_name, opt_driver1_id, opt_driver1_name,
+  driver2_id, driver2_name, opt_driver2_id, opt_driver2_name,
+  helper_id, helper_name, opt_helper_id, opt_helper_name,
+  conductor_id, conductor_name
+FROM
+  trip_created
+WHERE
+  d_in = 0 AND bus_no = ?
+ORDER BY
+  trip_date DESC, id DESC
+LIMIT 1;`;
 
   if (callback && typeof callback == "function")
     dbutil.execupdateQuery(
       sqldb,
       QRY_TO_EXEC,
-      m,
+      [String(data.bus_no ?? '')],
       cntxtDtls,
       function (err, results) {
         callback(err, results);
@@ -14380,12 +14396,18 @@ exports.linkJobCardToReminderMdl = function (data, callback) {
 };
 
 // ── Tyre Inventory ───────────────────────────────────────────────────────────
+// voucher_status is the approval state of the purchase voucher raised for the
+// tyre: 0 pending, 1 approved, 2 rejected. NULL when the tyre was saved without
+// any ledger lines, which raises no voucher at all (see addTyreInventoryMdl) -
+// those tyres stay usable, so callers must treat NULL as "not blockable", not as
+// "rejected". Same subquery shape as the trip_created listings use.
 exports.getTyreInventoryMdl = function (data, callback) {
   var cntxtDtls = "getTyreInventoryMdl";
   var QRY_TO_EXEC = `
     SELECT tm.*, tv.vendor_name,
       (SELECT GROUP_CONCAT(CONCAT(mvs.account_type, ': ', mvs.expensives, ' ₹', mvs.amount) SEPARATOR ' | ')
-       FROM mainvoucher_subt mvs WHERE mvs.c_number = tm.voucher_number AND mvs.d_in=0) AS ledger_summary
+       FROM mainvoucher_subt mvs WHERE mvs.c_number = tm.voucher_number AND mvs.d_in=0) AS ledger_summary,
+      (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = tm.voucher_number AND mv.d_in=0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
     FROM tyre_master tm
     LEFT JOIN tyre_vendors tv ON tv.id = tm.vendor_id
     WHERE tm.d_in=0 ORDER BY tm.id DESC`;
