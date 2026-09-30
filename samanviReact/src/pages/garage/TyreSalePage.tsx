@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO } from '@/lib/utils'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const LEDGER_STATUS_MAP: Record<string, string> = {
   'New Tyres In Stock': 'In Stock',
@@ -58,7 +58,7 @@ export default function TyreSalePage() {
 
   const availableTyres = useMemo(() => {
     if (!stockLedgerId) return []
-    return list.filter((t: any) => t.status !== 'Sold' && (mappedStatus ? t.status === mappedStatus : true))
+    return list.filter((t: any) => isApprovedTyre(t) && t.status !== 'Sold' && (mappedStatus ? t.status === mappedStatus : true))
   }, [list, stockLedgerId, mappedStatus])
 
   useEffect(() => {

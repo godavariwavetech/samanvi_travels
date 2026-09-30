@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO } from '@/lib/utils'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const EMPTY_FORM = {
   from_bus: '', position_log_id: '', tyre_id: '',
@@ -26,8 +26,9 @@ const DESTINATION_STATUS_MAP: Record<string, string> = {
 }
 
 // A tyre not currently mounted and not sold off is "in stock" somewhere —
-// eligible as the source for Stock-to-Bus / Stock-to-Stock moves.
-const isInStock = (t: any) => t.status !== 'In Use' && t.status !== 'Sold'
+// eligible as the source for Stock-to-Bus / Stock-to-Stock moves. One still
+// awaiting voucher approval cannot be moved at all, so it never reaches here.
+const isInStock = (t: any) => isApprovedTyre(t) && t.status !== 'In Use' && t.status !== 'Sold'
 
 const today = todayISO()
 

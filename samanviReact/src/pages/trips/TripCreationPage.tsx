@@ -443,6 +443,55 @@ export default function TripCreationPage() {
   const updateRow = (routeId: number, patch: Partial<GridRow>) =>
     setGridRows((g) => ({ ...g, [routeId]: { ...(g[routeId] ?? makeEmptyGridRow()), ...patch } }))
 
+  // A bus keeps much the same crew trip after trip, so picking a bus loads the
+  // crew from the last trip it ran - four pickers already filled instead of four
+  // blank ones. A slot is only filled when its person is still on the register
+  // (or is an Opting name, which is stored as a name with no id and so survives
+  // a register change): a driver deleted since that trip would otherwise write
+  // an id no longer behind any option, leaving a cell that reads as blank with
+  // no way to tell it was ever filled.
+  const crewSlot = (last: any, list: any[], idKey: string, nameKey: string, optKeys?: [string, string]) => {
+    const id = String(last?.[idKey] ?? '')
+    const name = String(last?.[nameKey] ?? '').trim()
+    // An Opting seat is stored as a bare name with no id, so it is filled from
+    // the name alone. Anything else needs an id that still resolves to a person
+    // on the register - a name on its own points at no option, so the picker
+    // would show the cell blank with no sign it was ever filled.
+    if (!isOptingName(name) && !(id && list.some((x: any) => String(x.id) === id))) return {}
+    return { [idKey]: isOptingName(name) ? '' : id, [nameKey]: name, ...(optKeys ? { [optKeys[0]]: '', [optKeys[1]]: '' } : {}) }
+  }
+
+  // A bus with no trip history is left alone rather than cleared - a row the
+  // user has already filled in should not be emptied because the bus they
+  // switched to happens to be a new one.
+  const { mutate: loadLastCrew } = useMutation({
+    mutationFn: ({ busNo }: { routeId: number; busNo: string }) =>
+      tripsService.getLastTripForBus(busNo).then((r: any) => r?.data?.[0] ?? null),
+    onSuccess: (last, { routeId, busNo }) => {
+      if (!last) return
+      const patch = {
+        ...crewSlot(last, drivers, 'driver1_id', 'driver1_name', ['opt_driver1_id', 'opt_driver1_name']),
+        ...crewSlot(last, drivers, 'driver2_id', 'driver2_name', ['opt_driver2_id', 'opt_driver2_name']),
+        ...crewSlot(last, helpers, 'helper_id', 'helper_name', ['opt_helper_id', 'opt_helper_name']),
+        // The conductor has no Opting id/name pair on the row, so it fills from
+        // the register alone.
+        ...crewSlot(last, conductors, 'conductor_id', 'conductor_name'),
+      }
+      setGridRows((g) => {
+        const cur = g[routeId] ?? makeEmptyGridRow()
+        // Picking a second bus before the first lookup lands would otherwise let
+        // the stale response write the previous bus's crew onto the row.
+        if (String(cur.bus_no) !== String(busNo)) return g
+        return { ...g, [routeId]: { ...cur, ...patch } }
+      })
+    },
+  })
+
+  const pickBus = (routeId: number, busNo: string) => {
+    updateRow(routeId, { bus_no: busNo })
+    if (busNo) loadLastCrew({ routeId, busNo })
+  }
+
   // A running row needs a bus before it counts as filled. A Halt row is the
   // opposite: nothing ran, so it has no bus and no crew to enter — but it still
   // has to be saved, otherwise the day's sheet silently loses the fact that the
@@ -1026,7 +1075,7 @@ export default function TripCreationPage() {
                             </td>
                             <td className="py-2 px-3">
                               <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptionsForRoute(r.id)}
-                                value={row.bus_no} onChange={(v) => updateRow(r.id, { bus_no: v })} onClear={() => updateRow(r.id, { bus_no: '' })} />
+                                value={row.bus_no} onChange={(v) => pickBus(r.id, v)} onClear={() => updateRow(r.id, { bus_no: '' })} />
                             </td>
                             <td className="py-2 px-3">
                               <div className="flex items-center gap-2">

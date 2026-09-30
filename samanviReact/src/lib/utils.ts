@@ -133,6 +133,17 @@ export const withStatusLabel = <T extends Record<string, unknown>>(rows: T[]): (
 // as it is typed, so this only has to judge the finished value.
 export const isValidMobile = (v: unknown): boolean => /^[6-9]\d{9}$/.test(String(v ?? '').trim())
 
+// Whether a tyre may be picked for an action - mounted, retreaded, moved,
+// repaired or sold. A purchase still sitting in Voucher Approvals is not a
+// sanctioned purchase yet, so a pending or rejected voucher blocks the tyre.
+// A tyre saved with no ledger lines raises no voucher at all (voucher_status
+// comes back NULL), and those are real stock, so they pass: there is nothing to
+// be blocked by. The read-only screens (Inventory, Stock Availability, Reports)
+// deliberately do NOT use this - they are where an unapproved tyre stays
+// visible, so it can be chased up for approval.
+export const isApprovedTyre = (t: { voucher_status?: unknown } | null | undefined): boolean =>
+  !!t && (t.voucher_status == null || Number(t.voucher_status) === 1)
+
 // Money the Indian way - 1,23,456.00 - for every rupee figure the app shows.
 // Takes what the API hands back (a number, or a numeric string), and reads
 // 0.00 rather than NaN for anything blank.

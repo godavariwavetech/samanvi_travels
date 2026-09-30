@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelec
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO } from '@/lib/utils'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const EMPTY_FORM = { tyre_id: '', retread_date: '', cost: '', remarks: '' }
 
@@ -40,7 +40,9 @@ export function TyreRetreadPanel() {
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
 
   const list: any[] = data?.data ?? []
-  const tyreList: any[] = tyres?.data ?? []
+  // A tyre whose purchase voucher is pending or rejected is not a sanctioned
+  // purchase, so it is not offered for retreading.
+  const tyreList: any[] = (tyres?.data ?? []).filter(isApprovedTyre)
   const ledgerList: any[] = (ledgersData?.data ?? []).filter((l: any) => /tyre/i.test(l.temple_name || l.name || ''))
   const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 

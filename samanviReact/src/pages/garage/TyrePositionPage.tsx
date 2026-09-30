@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO } from '@/lib/utils'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const EMPTY_FORM = { vehicle_number: '', position: '', tyre_id: '', odometer_at_fitting: '', fitted_date: '', remarks: '' }
 
@@ -46,7 +46,9 @@ export default function TyrePositionPage() {
   // Cross-check against active position-log rows, not just tyre_master.status —
   // a tyre already mounted must never reappear here even if status drifts out of sync.
   const mountedTyreIds = new Set(list.map((p: any) => p.tyre_id))
-  const inStockTyres: any[] = (tyres?.data ?? []).filter((t: any) => t.status === 'In Stock' && !mountedTyreIds.has(t.id))
+  // Approval on top of that: a tyre whose purchase voucher is still pending or
+  // rejected has not been sanctioned, so it must not go on a bus.
+  const inStockTyres: any[] = (tyres?.data ?? []).filter((t: any) => isApprovedTyre(t) && t.status === 'In Stock' && !mountedTyreIds.has(t.id))
   const ledgerList: any[] = (ledgersData?.data ?? []).filter((l: any) => /tyre/i.test(l.temple_name || l.name || ''))
   const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
@@ -60,6 +62,23 @@ export default function TyrePositionPage() {
   const isBalanced = debitTotal > 0 && Math.round(debitTotal * 100) === Math.round(creditTotal * 100)
 
   const resetLedgers = () => { setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()]) }
+
+  // Mounting a tyre moves its book value out of the stock ledger and onto the
+  // bus, so both sides of the journal default to the picked tyre's own cost
+  // instead of making the user read it off the row they just selected. Done on
+  // the pick itself rather than from an effect keyed on the tyre: a background
+  // refetch of the tyre list hands back a new array, and an effect would then
+  // re-fire and overwrite an amount the user has typed since. Still editable,
+  // and only while the entry is a single debit/credit line — once someone splits
+  // it across rows the split is deliberate and the amounts are theirs to enter.
+  const pickTyre = (tyreId: string) => {
+    setForm((s) => ({ ...s, tyre_id: tyreId }))
+    const cost = inStockTyres.find((t: any) => String(t.id) === tyreId)?.cost
+    if (cost == null) return
+    const amount = String(cost)
+    setDebit((rows) => rows.length === 1 ? [{ ...rows[0], amount }] : rows)
+    setCredit((rows) => rows.length === 1 ? [{ ...rows[0], amount }] : rows)
+  }
 
   const { mutate: assign, isPending } = useMutation({
     mutationFn: () => {
@@ -213,7 +232,7 @@ export default function TyrePositionPage() {
           <div><Label>Select Tyre Serial Number *</Label>
             <SearchableSelect
               value={form.tyre_id}
-              onChange={setField('tyre_id')}
+              onChange={pickTyre}
               options={inStockTyres.map((t) => ({ value: String(t.id), label: `${t.serial_no || 'No Serial'} — ${t.tyre_code} (${t.brand})` }))}
               placeholder="Select Tyre Serial Number"
               onReload={() => reloadTyres()}

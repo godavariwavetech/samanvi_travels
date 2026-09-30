@@ -12,6 +12,12 @@ export const tripsService = {
   // expense has already been filed for it).
   updateTrip: (data: Record<string, unknown>) => api.post('/tripcreated', { ...data, type: 'edit' }).then((r) => r.data),
   getTripHistory: (data: unknown) => api.post('/gettriphistory', data).then((r) => r.data),
+  // The last trip a bus ran, crew only. Trip Creation calls this when a bus is
+  // picked so the row opens with that bus's usual driver/helper/conductor
+  // instead of four blank pickers. Plain JSON, not securePayload - the
+  // controller reads req.body directly.
+  getLastTripForBus: (busNo: string) =>
+    api.post('/getbusslasttrip', { bus_no: busNo }).then((r) => r.data),
   bulkCreateTrips: (data: unknown) => api.post('/bulkcreatetrips', data).then((r) => r.data),
   deleteTrip: (data: unknown) => api.post('/deletetripcreated', data).then((r) => r.data),
 

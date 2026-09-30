@@ -372,7 +372,7 @@ router.post('/getadminstatuscount', verifyToken,routcontroller.getadminstatuscou
 router.post('/getadminrejected', verifyToken,routcontroller.getadminrejectedCtrl);
 router.post('/getadminapproved', verifyToken,routcontroller.getadminapprovedCtrl);
 
-router.post('/getservicenum', verifyToken,routcontroller.getservicenumCtrl);
+router.post('/getbusslasttrip', verifyToken,routcontroller.getBusLastTripCtrl);
 router.post('/getpdfpatchdata1', verifyToken,routcontroller.getpdfpatchdata1Ctrl);
 router.post('/getbetadata', verifyToken,routcontroller.getbetadataCtrl);
 router.post('/submitpayablesvoucherentry',verifyToken, routcontroller.submitpayablesvoucherentryCtrl);

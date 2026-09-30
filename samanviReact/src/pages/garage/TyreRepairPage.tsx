@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO } from '@/lib/utils'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const EMPTY_FORM = { repair_date: '', vehicle_number: '', odometer: '', tyre_id: '', repair_type: '', has_cost: true, cost: '', vendor_id: '', remarks: '' }
 
@@ -43,7 +43,9 @@ export default function TyreRepairPage() {
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
 
   const list: any[] = data?.data ?? []
-  const tyreList: any[] = tyres?.data ?? []
+  // A tyre whose purchase voucher is pending or rejected is not a sanctioned
+  // purchase, so it is not offered for repair.
+  const tyreList: any[] = (tyres?.data ?? []).filter(isApprovedTyre)
   const vendorList: any[] = vendors?.data ?? []
   const busList: any[] = buses?.data ?? []
   const ledgerList: any[] = ledgersData?.data ?? []

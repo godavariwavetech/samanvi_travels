@@ -5486,9 +5486,9 @@ exports.getadminrejectedCtrl = function (req, res) {
   });
 };
 
-exports.getservicenumCtrl = function (req, res) {
+exports.getBusLastTripCtrl = function (req, res) {
   var data = req.body;
-  appmdl.getservicenumMdl(data, function (err, results) {
+  appmdl.getBusLastTripMdl(data, function (err, results) {
     if (err) {
       res.send(500, "Server Error");
       return;
