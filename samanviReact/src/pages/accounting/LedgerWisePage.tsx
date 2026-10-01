@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { BookMarked, Search, X, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
@@ -694,19 +694,23 @@ export default function LedgerWisePage() {
     let running = openingBalance
     const rows = transactions.map(tx => {
       const amount = Math.abs(Number(tx.amount ?? 0))
-      const isDebit = tx.amount_type === 'Debit Account' || tx.account_type === 'Debit Account'
-      const isCredit = tx.amount_type === 'Credit Account' || tx.account_type === 'Credit Account'
+      // Use the selected ledger line's side, rather than a voucher-level field.
+      const accountType = tx.source_table === 'expensive_details'
+        ? (tx.amount_type || tx.account_type)
+        : (tx.account_type || tx.amount_type)
+      const isDebit = accountType === 'Debit Account'
+      const isCredit = accountType === 'Credit Account'
       if (isDebit) running += amount
       else if (isCredit) running -= amount
-      return { ...tx, debit: isDebit ? amount : 0, credit: isCredit ? amount : 0, runningBalance: running }
+      return { ...tx, isDebit, isCredit, debit: isDebit ? amount : 0, credit: isCredit ? amount : 0, runningBalance: running }
     })
     return { rows, closingBalance: running }
   }, [transactions, openingBalance])
 
   const txDebit = rows.reduce((s, r) => s + r.debit, 0)
   const txCredit = rows.reduce((s, r) => s + r.credit, 0)
-  const debitCount = rows.filter(r => r.debit > 0).length
-  const creditCount = rows.filter(r => r.credit > 0).length
+  const debitCount = rows.filter(r => r.isDebit).length
+  const creditCount = rows.filter(r => r.isCredit).length
   const totalDebit = txDebit
   const totalCredit = txCredit
   const grandDebit = (openingBalance > 0 ? openingBalance : 0) + txDebit + (closingBalance < 0 ? Math.abs(closingBalance) : 0)
