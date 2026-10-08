@@ -158,7 +158,7 @@ const DRIVER_VIEW_IMAGES: ViewField[] = [
 ]
 
 const STAFF_VIEW_FIELDS: ViewField[] = [
-  ['Designation', 'designation'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
+  ['Staff ID', 'idNumber'], ['Designation', 'designation'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
   ['Date of Birth', 'dob'], ['Mobile Number', 'mobile'], ['Alternative Mobile', 'alternativemobilenumber'],
   ['Emergency Contact', 'emergencyContact'], ['Date of Joining', 'dateOfJoining'], ['Referred By', 'referencename'],
   ['Address', 'address'], ['Account Holder Name', 'accountHolderName'], ['Account Number', 'accountNumber'],
@@ -877,6 +877,7 @@ export default function StaffPage() {
   ]
   const staffCols: Column[] = [
     slNoCol,
+    { label: 'Staff ID', key: 'idNumber', filterable: true },
     { label: 'Full Name', key: 'fullName', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
     { label: 'Mobile', key: 'mobile', filterable: true },
     { label: 'Designation', key: 'designation', filterable: true, render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },

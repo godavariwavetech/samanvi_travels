@@ -1574,59 +1574,70 @@ exports.addstaffregisterMdl = function (
   var cntxtDtls = "in addstaffregisterMdl";
   var date = moment().utcOffset("+05:30").format("YYYY-MM-DD");
 
-  var dta = {
-    designation: data.designation,
-    idNumber: data.idNumber || "",
-    fullName: data.fullName,
-    mobile: data.mobile,
-    emergencyContact: data.emergencyContact,
-    aadhaar: data.aadhaar,
-    accountHolderName: data.accountHolderName,
-    accountNumber: data.accountNumber,
-    bankName: data.bankName,
-    ifscCode: data.ifscCode,
-    upiId: data.upiId,
-    aadhaarCardFront: imageuploadlao,
-    aadhaarCardBack: imageuploadlaotwo,
-    upiScanner: imageuploadlaothree,
-    dateOfJoining: data.dateOfJoining,
-    dateOfLeaving: data.dateOfLeaving || null,
-    remarks: data.remarks || "",
-    alternativemobilenumber: data.alternativemobilenumber || "",
-    referencename: data.referencename || "",
-    branchname: data.branchname || "",
-    dob: data.dob || null,
-    address: data.address || "",
-    i_ts: date,
-    user_id: data.entryby,
-    usr_nm: data.usrnm,
-  };
-  //console.log()dta, 400);
-  var QRY_TO_EXEC = `INSERT INTO staff_register SET ?;`;
-  if (callback && typeof callback === "function") {
-    dbutil.execupdateQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      dta,
-      cntxtDtls,
-      function (err, results) {
-        if (err) { callback(err, results); return; }
-        var disambiguator = data.idNumber || ("#" + results.insertId);
-        module.exports.ensurePersonLedger("Staff", data.fullName, disambiguator, data.entryby, function (ledgerErr, ledgerId) {
-          if (ledgerErr) {
-            console.error("[ensurePersonLedger] failed for staff " + results.insertId + ":", ledgerErr.message);
-            callback(err, results);
-            return;
-          }
-          dbutil.execupdateQuery(sqldb, `UPDATE staff_register SET ledger_id = ? WHERE id = ?`, [ledgerId, results.insertId], cntxtDtls, function () {
-            callback(err, results);
+  // Staff IDs follow the same stable serial pattern as drivers/helpers. The
+  // React form does not contain an editable ID field, so generating it here is
+  // the source of truth (and also keeps API/bulk imports consistent).
+  var genIdQry = `SELECT COALESCE(MAX(CAST(SUBSTRING(idNumber, 2) AS UNSIGNED)), 0) + 1 AS nextid FROM staff_register WHERE idNumber REGEXP '^S[0-9]+$'`;
+  dbutil.execQuery(sqldb, genIdQry, cntxtDtls, function (idErr, idRows) {
+    if (idErr) {
+      if (callback && typeof callback === "function") callback(idErr, null);
+      return;
+    }
+    var nextId = idRows && idRows[0] ? idRows[0].nextid : 1;
+    var staffIdNumber = "S" + String(nextId).padStart(4, "0");
+
+    var dta = {
+      designation: data.designation,
+      idNumber: staffIdNumber,
+      fullName: data.fullName,
+      mobile: data.mobile,
+      emergencyContact: data.emergencyContact,
+      aadhaar: data.aadhaar,
+      accountHolderName: data.accountHolderName,
+      accountNumber: data.accountNumber,
+      bankName: data.bankName,
+      ifscCode: data.ifscCode,
+      upiId: data.upiId,
+      aadhaarCardFront: imageuploadlao,
+      aadhaarCardBack: imageuploadlaotwo,
+      upiScanner: imageuploadlaothree,
+      dateOfJoining: data.dateOfJoining,
+      dateOfLeaving: data.dateOfLeaving || null,
+      remarks: data.remarks || "",
+      alternativemobilenumber: data.alternativemobilenumber || "",
+      referencename: data.referencename || "",
+      branchname: data.branchname || "",
+      dob: data.dob || null,
+      address: data.address || "",
+      i_ts: date,
+      user_id: data.entryby,
+      usr_nm: data.usrnm,
+    };
+    var QRY_TO_EXEC = `INSERT INTO staff_register SET ?;`;
+    if (callback && typeof callback === "function") {
+      dbutil.execupdateQuery(
+        sqldb,
+        QRY_TO_EXEC,
+        dta,
+        cntxtDtls,
+        function (err, results) {
+          if (err) { callback(err, results); return; }
+          module.exports.ensurePersonLedger("Staff", data.fullName, staffIdNumber, data.entryby, function (ledgerErr, ledgerId) {
+            if (ledgerErr) {
+              console.error("[ensurePersonLedger] failed for staff " + staffIdNumber + ":", ledgerErr.message);
+              callback(err, results);
+              return;
+            }
+            dbutil.execupdateQuery(sqldb, `UPDATE staff_register SET ledger_id = ? WHERE id = ?`, [ledgerId, results.insertId], cntxtDtls, function () {
+              callback(err, results);
+            });
           });
-        });
-      }
-    );
-  } else {
-    return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
-  }
+        }
+      );
+    } else {
+      return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+    }
+  });
 };
 
 exports.addhelperregisterMdl = function (
@@ -15706,25 +15717,28 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
         runUpdates(toUpdate, updateStaff, function () { finish(toInsert.length, toUpdate.length, extra); });
       };
       if (toInsert.length === 0) return afterInsert(null);
-      var vals = toInsert.map(function (r) {
-        return [blank(r.designation) || 'Staff', '', r.fullName, blank(r.mobile),
+      nextSerialIds('staff_register', 'idNumber', 'S', toInsert.length, function (idErr, ids) {
+        if (idErr) return callback(idErr, null);
+        var vals = toInsert.map(function (r, i) {
+        return [blank(r.designation) || 'Staff', ids[i], r.fullName, blank(r.mobile),
           blank(r.emergencyContact), r.alternativemobilenumber || null, r.dateOfJoining || null,
           blank(r.aadhaar), blank(r.accountHolderName), blank(r.accountNumber),
           blank(r.ifscCode), blank(r.bankName), r.referencename || null, r.branchname || null,
           r.upiId || null, r.remarks || null, r.dob || null, r.address || null,
           userId, usrNm, date, 0];
-      });
+        });
       var QRY = 'INSERT INTO staff_register (designation, idNumber, fullName, mobile, emergencyContact, alternativemobilenumber, dateOfJoining, aadhaar, accountHolderName, accountNumber, ifscCode, bankName, referencename, branchname, upiId, remarks, dob, address, user_id, usr_nm, i_ts, d_in) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         // staff_register has no generated id number, so the ledger is keyed on
         // the name — which is also what the dedupe above guarantees is unique.
-        var people = toInsert.map(function (r) {
-          return { name: r.fullName, disambiguator: null, key: r.fullName };
+        var people = toInsert.map(function (r, i) {
+          return { name: r.fullName, disambiguator: ids[i], key: ids[i] };
         });
-        createLedgersForImport('Staff', people, 'staff_register', 'fullName', userId, cntxtDtls, function (made, failed) {
+        createLedgersForImport('Staff', people, 'staff_register', 'idNumber', userId, cntxtDtls, function (made, failed) {
           afterInsert({ made: made, failed: failed });
         });
+      });
       });
     });
 
