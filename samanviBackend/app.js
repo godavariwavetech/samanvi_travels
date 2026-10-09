@@ -237,6 +237,59 @@ ensureColumn('tyre_retread_log', 'cost', '`cost` DECIMAL(10,2) DEFAULT 0');
 ensureColumn('tyre_position_log', 'voucher_number', '`voucher_number` VARCHAR(30) DEFAULT NULL');
 ensureColumn('staff_register', 'dob', '`dob` DATE NULL');
 ensureColumn('staff_register', 'address', '`address` TEXT NULL');
+
+// Older Staff records were created before the backend started generating
+// S#### IDs, so their idNumber is an empty string. Fill only missing IDs,
+// preserving any existing/custom IDs and keeping the next number monotonic.
+function backfillStaffIds() {
+    sqldb_init.query(`
+        SELECT id
+        FROM staff_register
+        WHERE idNumber IS NULL OR TRIM(idNumber) = ''
+        ORDER BY id
+    `, function(err, blankRows) {
+        if (err) {
+            console.error('[Staff IDs] Could not find blank staff IDs:', err.message);
+            return;
+        }
+        if (!blankRows.length) return;
+
+        sqldb_init.query(`
+            SELECT COALESCE(MAX(CAST(SUBSTRING(idNumber, 2) AS UNSIGNED)), 0) AS maxid
+            FROM staff_register
+            WHERE idNumber REGEXP '^S[0-9]+$'
+        `, function(maxErr, maxRows) {
+            if (maxErr) {
+                console.error('[Staff IDs] Could not calculate next staff ID:', maxErr.message);
+                return;
+            }
+            var nextId = Number(maxRows[0] && maxRows[0].maxid) || 0;
+            var i = 0;
+            function assignNext() {
+                if (i >= blankRows.length) {
+                    console.log('[Staff IDs] Backfilled ' + blankRows.length + ' staff record(s)');
+                    return;
+                }
+                nextId += 1;
+                var staffId = 'S' + String(nextId).padStart(4, '0');
+                sqldb_init.query(
+                    `UPDATE staff_register SET idNumber = ? WHERE id = ? AND (idNumber IS NULL OR TRIM(idNumber) = '')`,
+                    [staffId, blankRows[i].id],
+                    function(updateErr) {
+                        if (updateErr) {
+                            console.error('[Staff IDs] Could not assign ' + staffId + ':', updateErr.message);
+                            return;
+                        }
+                        i += 1;
+                        assignNext();
+                    }
+                );
+            }
+            assignNext();
+        });
+    });
+}
+backfillStaffIds();
 ensureColumn('driver_register', 'address', '`address` TEXT NULL');
 ensureColumn('driver_register', 'dl_issued_by', '`dl_issued_by` VARCHAR(150) NULL');
 ensureColumn('driver_register', 'dl_dob', '`dl_dob` DATE NULL');
