@@ -1,16 +1,18 @@
 ﻿import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, FileDown, FileText, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
+import { ChevronDown, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu } from '@/components/shared'
+import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
+import { todayISO } from '@/lib/utils'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface GWNode {
@@ -20,6 +22,13 @@ interface GWNode {
   parentId: number | null
   amount: number
   totalAmount: number
+  // Opening balance at the From date, the period's debit and credit totals,
+  // and the closing balance (opening plus the period's net). A ledger's own;
+  // a group's the roll-up of everything under it (see calcTotals).
+  opening: number
+  debit: number
+  credit: number
+  closing: number
   children: GWNode[]
   nodeType: 'group' | 'ledger'
   district_id: string
@@ -40,7 +49,13 @@ interface TableRow {
   name: string
   type: 'Group' | 'Ledger'
   total: number
+  opening: number
+  debit: number
+  credit: number
+  closing: number
   group: string   // immediate parent group name
+  // Section the row sits in (masters district id): decides what a sign means.
+  district_id: string
 }
 
 interface SearchItem {
@@ -62,8 +77,30 @@ const SECTIONS = [
 function calcTotals(node: GWNode): number {
   if (node.nodeType === 'ledger') { node.totalAmount = node.amount; return node.totalAmount }
   node.totalAmount = node.children.reduce((s, c) => s + calcTotals(c), 0)
+  node.opening = node.children.reduce((s, c) => s + c.opening, 0)
+  node.debit = node.children.reduce((s, c) => s + c.debit, 0)
+  node.credit = node.children.reduce((s, c) => s + c.credit, 0)
+  node.closing = node.children.reduce((s, c) => s + c.closing, 0)
   return node.totalAmount
 }
+
+// Raw debit / credit of one transaction row, before the section's sign
+// convention is applied - what the Debit and Credit columns add up.
+function parseTxDrCr(r: any): { debit: number; credit: number } {
+  const raw = Math.abs(Number(r.amount ?? r.debit_amount ?? r.credit_amount ?? 0))
+  if (!raw || isNaN(raw)) return { debit: 0, credit: 0 }
+  const acct = String(r.account_type ?? r.amount_type ?? '').trim().toUpperCase()
+  return { debit: acct === 'DEBIT ACCOUNT' ? raw : 0, credit: acct === 'CREDIT ACCOUNT' ? raw : 0 }
+}
+
+// The day before a yyyy-mm-dd date, for the "everything before From" query.
+function dayBefore(iso: string): string {
+  const d = new Date(iso + 'T00:00:00')
+  d.setDate(d.getDate() - 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+// Where "before" starts: early enough to take in every entry ever posted.
+const EPOCH = '2000-01-01'
 
 function parseTxAmt(r: any): number {
   const raw = Math.abs(Number(r.amount ?? r.debit_amount ?? r.credit_amount ?? 0))
@@ -90,7 +127,7 @@ function fmtFileDate(d: any): string {
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 export default function GroupWisePage() {
@@ -136,26 +173,63 @@ export default function GroupWisePage() {
     }),
   })
 
-  const isLoading = l1 || l2 || l3 || l4 || l5 || l6
-  const isRefreshing = f1 || f2 || f3 || f4 || f5 || f6
-  const refreshAll = () => { r1(); r2(); r3(); r4(); r5(); r6() }
+  // Everything posted before the From date, for the opening balance. Same
+  // endpoint and sign rules as the period itself, so opening + period = closing
+  // without any second convention.
+  const { data: openRes, isLoading: l7, isFetching: f7, refetch: r7 } = useQuery({
+    queryKey: ['gw-opening', applied.fromdate],
+    queryFn: () => accountingService.getTransactionsReport({
+      fromdate: EPOCH,
+      todate: dayBefore(applied.fromdate),
+      ledger_name: '',
+      ledger_id: null,
+      user_id: userId,
+    }),
+    enabled: !!applied.fromdate,
+  })
 
-  // ── Build ledger_id → net amount map ─────────────────────────────────────
+  const isLoading = l1 || l2 || l3 || l4 || l5 || l6 || l7
+  const isRefreshing = f1 || f2 || f3 || f4 || f5 || f6 || f7
+  const refreshAll = () => { r1(); r2(); r3(); r4(); r5(); r6(); r7() }
+
+  // ── Build ledger_id → figures map ────────────────────────────────────────
+  type Figures = { opening: number; debit: number; credit: number; net: number }
+  const txRows = (res: any): any[][] => {
+    if (!res?.data) return []
+    const allData = res.data
+    return (Array.isArray(allData) ? allData : Object.values(allData)).filter(v => Array.isArray(v)) as any[][]
+  }
+  const ledgerIdOf = (r: any): number => Number(r.ledger_id ?? r.ledgerid ?? r.ledgerId ?? NaN)
   const amountMap = useMemo(() => {
-    const map = new Map<number, number>()
-    if (!txRes?.data) return map
-    const allData = txRes.data
-    const arrays: any[][] = (Array.isArray(allData) ? allData : Object.values(allData)).filter(v => Array.isArray(v)) as any[][]
-    for (const arr of arrays) {
+    const map = new Map<number, Figures>()
+    const at = (lid: number): Figures => {
+      let f = map.get(lid)
+      if (!f) { f = { opening: 0, debit: 0, credit: 0, net: 0 }; map.set(lid, f) }
+      return f
+    }
+    for (const arr of txRows(openRes)) {
       for (const r of arr) {
         const amt = parseTxAmt(r)
-        if (!amt) continue
-        const lid = Number(r.ledger_id ?? r.ledgerid ?? r.ledgerId ?? NaN)
-        if (!isNaN(lid)) map.set(lid, (map.get(lid) ?? 0) + amt)
+        const lid = ledgerIdOf(r)
+        if (!amt || isNaN(lid)) continue
+        at(lid).opening += amt
+      }
+    }
+    for (const arr of txRows(txRes)) {
+      for (const r of arr) {
+        const lid = ledgerIdOf(r)
+        if (isNaN(lid)) continue
+        const { debit, credit } = parseTxDrCr(r)
+        const amt = parseTxAmt(r)
+        if (!debit && !credit && !amt) continue
+        const f = at(lid)
+        f.debit += debit
+        f.credit += credit
+        f.net += amt
       }
     }
     return map
-  }, [txRes])
+  }, [txRes, openRes])
 
   // ── Build complete hierarchy ──────────────────────────────────────────────
   const { roots, sectionMap } = useMemo(() => {
@@ -173,7 +247,7 @@ export default function GroupWisePage() {
     const allRoots: GWNode[] = mastersList.map((m: any) => {
       const root: GWNode = {
         id: m.id, name: m.districtnm, level: 1, parentId: null,
-        amount: 0, totalAmount: 0, children: [], nodeType: 'group',
+        amount: 0, totalAmount: 0, opening: 0, debit: 0, credit: 0, closing: 0, children: [], nodeType: 'group',
         district_id: String(m.id),
         tableKey: `masters_${m.id}`,
       }
@@ -187,7 +261,7 @@ export default function GroupWisePage() {
       if (!parent) continue
       const n: GWNode = {
         id: g.id, name: g.mandal_name, level: 2, parentId: parent.id,
-        amount: 0, totalAmount: 0, children: [], nodeType: 'group',
+        amount: 0, totalAmount: 0, opening: 0, debit: 0, credit: 0, closing: 0, children: [], nodeType: 'group',
         district_id: parent.district_id, mandal_id: String(g.id),
         tableKey: `master_groups_${g.id}`,
       }
@@ -201,7 +275,7 @@ export default function GroupWisePage() {
       if (!parent) continue
       const n: GWNode = {
         id: sg.id, name: sg.village_name, level: 3, parentId: parent.id,
-        amount: 0, totalAmount: 0, children: [], nodeType: 'group',
+        amount: 0, totalAmount: 0, opening: 0, debit: 0, credit: 0, closing: 0, children: [], nodeType: 'group',
         district_id: parent.district_id, mandal_id: parent.mandal_id, village_id: sg.id,
         tableKey: `sub_groups_${sg.id}`,
       }
@@ -225,7 +299,7 @@ export default function GroupWisePage() {
         if (!parent) continue
         const n: GWNode = {
           id: c.id, name: c.temple_name, level: parent.level + 1, parentId: parent.id,
-          amount: 0, totalAmount: 0, children: [], nodeType: 'group',
+          amount: 0, totalAmount: 0, opening: 0, debit: 0, credit: 0, closing: 0, children: [], nodeType: 'group',
           district_id: parent.district_id, mandal_id: parent.mandal_id, village_id: parent.village_id,
           tableKey: `child_${c.id}`,
         }
@@ -248,10 +322,13 @@ export default function GroupWisePage() {
         : `master_groups_${led.mandal_id}`
       const parent = nodeByKey.get(parentKey)
       if (!parent) continue
-      const net = amountMap.get(Number(led.id)) ?? 0
+      const fig = amountMap.get(Number(led.id)) ?? { opening: 0, debit: 0, credit: 0, net: 0 }
+      const net = fig.net
       const n: GWNode = {
         id: led.id, name: led.temple_name, level: parent.level + 1, parentId: parent.id,
-        amount: net, totalAmount: net, children: [], nodeType: 'ledger',
+        amount: net, totalAmount: net,
+        opening: fig.opening, debit: fig.debit, credit: fig.credit, closing: fig.opening + net,
+        children: [], nodeType: 'ledger',
         district_id: parent.district_id, mandal_id: parent.mandal_id, village_id: parent.village_id,
         tableKey: `ledgers_${led.id}`,
       }
@@ -267,14 +344,18 @@ export default function GroupWisePage() {
     const totalIncome  = incomeRoots.reduce((s, r) => s + r.totalAmount, 0)
     const totalExpenses = expenseRoots.reduce((s, r) => s + r.totalAmount, 0)
     const netPL = totalIncome - totalExpenses
+    // The surplus brought forward: income less expenses posted before the From
+    // date, so the virtual ledger opens with it and closes with the period's
+    // result added on.
+    const openingPL = incomeRoots.reduce((s, r) => s + r.opening, 0) - expenseRoots.reduce((s, r) => s + r.opening, 0)
 
     const liabRoot = allRoots.find(r => r.district_id === '2')
-    if (liabRoot && netPL !== 0) {
+    if (liabRoot && (netPL !== 0 || openingPL !== 0)) {
       let capitalGroup = liabRoot.children.find(c => c.name.toLowerCase().includes('capital'))
       if (!capitalGroup) {
         capitalGroup = {
           id: -997, name: 'Capital', level: 2, parentId: liabRoot.id,
-          amount: 0, totalAmount: 0, children: [], nodeType: 'group',
+          amount: 0, totalAmount: 0, opening: 0, debit: 0, credit: 0, closing: 0, children: [], nodeType: 'group',
           district_id: '2', tableKey: 'virtual_capital',
         }
         liabRoot.children.push(capitalGroup)
@@ -283,7 +364,9 @@ export default function GroupWisePage() {
       capitalGroup.children = capitalGroup.children.filter(c => c.id !== -999)
       capitalGroup.children.push({
         id: -999, name: 'Reserve & Surplus (P&L)', level: capitalGroup.level + 1, parentId: capitalGroup.id,
-        amount: netPL, totalAmount: netPL, children: [], nodeType: 'ledger',
+        amount: netPL, totalAmount: netPL,
+        opening: openingPL, debit: netPL < 0 ? -netPL : 0, credit: netPL > 0 ? netPL : 0, closing: openingPL + netPL,
+        children: [], nodeType: 'ledger',
         district_id: '2', tableKey: 'virtual_rs',
       })
       calcTotals(capitalGroup)
@@ -321,6 +404,17 @@ export default function GroupWisePage() {
   const [selections, setSelections] = useState<(string | number)[]>([])
   const [tableRows, setTableRows] = useState<TableRow[]>([])
   const tableTotal = useMemo(() => tableRows.reduce((s, r) => s + r.total, 0), [tableRows])
+  const tableTotals = useMemo(() => tableRows.reduce(
+    (t, r) => ({ opening: t.opening + r.opening, debit: t.debit + r.debit, credit: t.credit + r.credit, closing: t.closing + r.closing }),
+    { opening: 0, debit: 0, credit: 0, closing: 0 }), [tableRows])
+  const rowOf = (n: GWNode, group: string): TableRow => ({
+    id: n.id, name: n.name, type: n.nodeType === 'group' ? 'Group' : 'Ledger',
+    total: n.totalAmount, opening: n.opening, debit: n.debit, credit: n.credit, closing: n.closing, group,
+    district_id: String(n.district_id ?? ''),
+  })
+  // Every row on the table comes from the one section picked above, so the
+  // totals row reads its signs the same way the rows do.
+  const tableDistrict = tableRows[0]?.district_id ?? ''
 
   // Selecting a financial year refetches the transaction totals (sectionMap
   // recomputes from the new amounts), but tableRows is only ever set by
@@ -338,12 +432,23 @@ export default function GroupWisePage() {
   // ── Column filters (Name / Type) + Total Amount range filter ─────────────
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
-  const FILTER_KEYS = ['name', 'type', 'amount'] as const
+  const FILTER_KEYS = ['name', 'type', 'opening', 'debit', 'credit', 'closing'] as const
+  // parseTxAmt makes a positive figure the section's natural balance - a debit
+  // for Assets and Expenses, a CREDIT for Liabilities and Income - so the Dr/Cr
+  // tag has to read the sign the way the section does. Tagging every positive
+  // figure Dr showed a Payables credit balance as Dr and its debit as Cr, the
+  // opposite of what Ledger Wise and the voucher screens say for the same money.
+  const isCreditSection = (did: string) => did === '2' || did === '3'
+  const balanceTag = (n: number, did: string) => ((n < 0) !== isCreditSection(did) ? 'Cr' : 'Dr')
+  const drCr = (n: number, did: string) => `${n < 0 ? '(' : ''}₹${fmtAmt(n)}${n < 0 ? ')' : ''} ${balanceTag(n, did)}`
   const colValue = useCallback((row: TableRow, key: string): string => {
     switch (key) {
       case 'name': return row.name || '-'
       case 'type': return row.type || '-'
-      case 'amount': return `${row.total < 0 ? '(' : ''}₹${fmtAmt(row.total)}${row.total < 0 ? ')' : ''} ${row.total < 0 ? 'Cr' : 'Dr'}`
+      case 'opening': return drCr(row.opening, row.district_id)
+      case 'debit': return `₹${fmtAmt(row.debit)}`
+      case 'credit': return `₹${fmtAmt(row.credit)}`
+      case 'closing': return drCr(row.closing, row.district_id)
       default: return ''
     }
   }, [])
@@ -359,8 +464,10 @@ export default function GroupWisePage() {
 
   const displayRows = useMemo(() => {
     let out = tableRows
-    if (amountFilter === 'zero') out = out.filter(r => r.total === 0)
-    else if (amountFilter === 'above') out = out.filter(r => r.total !== 0)
+    // "With 0" / "Without 0" go by the closing balance, the figure the table
+    // now ends on.
+    if (amountFilter === 'zero') out = out.filter(r => r.closing === 0)
+    else if (amountFilter === 'above') out = out.filter(r => r.closing !== 0)
     if (activeFilterCount) {
       out = out.filter(row => {
         for (const [key, vals] of Object.entries(colFilters)) {
@@ -395,34 +502,20 @@ export default function GroupWisePage() {
   }, [flatSearchItems, searchQuery])
 
   const showAll = (children: GWNode[], parent: GWNode | null = null) => {
-    setTableRows(children.map(c => ({
-      id: c.id,
-      name: c.name,
-      type: c.nodeType === 'group' ? 'Group' : 'Ledger',
-      total: c.totalAmount,
-      group: parent?.name ?? '',
-    })))
+    setTableRows(children.map(c => rowOf(c, parent?.name ?? '')))
   }
 
   const showSingle = (node: GWNode, parent: GWNode | null = null) => {
-    setTableRows([{
-      id: node.id, name: node.name, type: node.nodeType === 'group' ? 'Group' : 'Ledger',
-      total: node.totalAmount, group: parent?.name ?? '',
-    }])
+    setTableRows([rowOf(node, parent?.name ?? '')])
   }
 
   const handleLedgerClick = (row: TableRow) => {
     navigate('/accounting/ledger-wise', { state: { ledgerId: row.id } })
   }
 
-  const handlePayables = (row: TableRow) => {
-    localStorage.setItem('reportViewData', JSON.stringify({
-      groupName: row.name,
-      entries: [{ id: row.id, name: row.name, temple_name: row.name }],
-    }))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    window.open('/accounting/payables-view', '_blank')
-  }
+  // Payables opens as a popup over this report rather than in another tab.
+  const [payablesFor, setPayablesFor] = useState<{ id: number; name: string } | null>(null)
+  const handlePayables = (row: TableRow) => setPayablesFor({ id: row.id, name: row.name })
 
   const jumpToNode = useCallback((item: SearchItem) => {
     setSearchQuery('')
@@ -503,7 +596,7 @@ export default function GroupWisePage() {
     roots.forEach(r => level2Groups.push(...r.children.filter(c => c.nodeType === 'group')))
 
     if (!level2Groups.length) {
-      setTableRows(roots.map(r => ({ id: r.id, name: r.name, type: 'Group' as const, total: r.totalAmount, group: '' })))
+      setTableRows(roots.map(r => rowOf(r, '')))
       return
     }
 
@@ -603,13 +696,23 @@ export default function GroupWisePage() {
   }
 
   // ── Export Excel ──────────────────────────────────────────────────────────
+  // Downloads carry exactly the rows on the table - the column and amount
+  // filters applied - numbered from 1, with the total of those rows.
+  const shownTotals = useMemo(() => displayRows.reduce(
+    (t, r) => ({ opening: t.opening + r.opening, debit: t.debit + r.debit, credit: t.credit + r.credit, closing: t.closing + r.closing }),
+    { opening: 0, debit: 0, credit: 0, closing: 0 }), [displayRows])
+
   const exportExcel = () => {
-    if (!tableRows.length) { toast.warning('No data to export'); return }
+    if (!displayRows.length) { toast.warning('No data to export'); return }
     const sectionLabel = SECTIONS.find(s => s.key === selectedSection)?.label ?? 'Report'
-    const ws = XLSX.utils.json_to_sheet(tableRows.map(r => ({
-      'Name': r.name, 'Type': r.type, 'Total Amount': r.total,
+    const ws = XLSX.utils.json_to_sheet(displayRows.map((r, i) => ({
+      'Sl No': i + 1, 'Name': r.name, 'Group': r.group || '', 'Type': r.type,
+      'Opening Balance': r.opening, 'Debit': r.debit, 'Credit': r.credit, 'Closing Balance': r.closing,
     })))
-    XLSX.utils.sheet_add_json(ws, [{ 'Name': 'Grand Total', 'Type': '', 'Total Amount': tableTotal }], { skipHeader: true, origin: -1 })
+    XLSX.utils.sheet_add_json(ws, [{
+      'Sl No': '', 'Name': 'Grand Total', 'Group': '', 'Type': '',
+      'Opening Balance': shownTotals.opening, 'Debit': shownTotals.debit, 'Credit': shownTotals.credit, 'Closing Balance': shownTotals.closing,
+    }], { skipHeader: true, origin: -1 })
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sectionLabel)
     XLSX.writeFile(wb, `${fileBaseName(sectionLabel)}_${downloadDate()}.xlsx`)
@@ -617,7 +720,7 @@ export default function GroupWisePage() {
 
   // ── Export PDF ────────────────────────────────────────────────────────────
   const exportPDF = () => {
-    if (!tableRows.length) { toast.warning('No data to export'); return }
+    if (!displayRows.length) { toast.warning('No data to export'); return }
     const sectionLabel = SECTIONS.find(s => s.key === selectedSection)?.label ?? 'Report'
     const subtitle = lastParentLabel(sectionLabel)
 
@@ -636,10 +739,14 @@ export default function GroupWisePage() {
     // body/columnStyles alignment below (autoTable doesn't otherwise carry
     // columnStyles' halign over to the head row).
     const headers = [
+      { content: 'Sl No', styles: { halign: 'center' as const } },
       { content: 'Name', styles: { halign: 'left' as const } },
       { content: 'Group', styles: { halign: 'left' as const } },
       { content: 'Type', styles: { halign: 'left' as const } },
-      { content: 'Total Amount', styles: { halign: 'right' as const } },
+      { content: 'Opening Balance', styles: { halign: 'right' as const } },
+      { content: 'Debit', styles: { halign: 'right' as const } },
+      { content: 'Credit', styles: { halign: 'right' as const } },
+      { content: 'Closing Balance', styles: { halign: 'right' as const } },
     ]
 
     // The ₹ glyph isn't in jsPDF's default font — it measures as the wrong
@@ -652,21 +759,39 @@ export default function GroupWisePage() {
     autoTable(doc, {
       startY: 28,
       head: [headers],
-      body: tableRows.map(r => [r.name, r.group || '-', r.type, amt(r.total)]),
+      body: displayRows.map((r, i) => [String(i + 1), r.name, r.group || '-', r.type, amt(r.opening), fmtAmt(r.debit), fmtAmt(r.credit), amt(r.closing)]),
       // Foot cells need the same explicit per-column halign as the head —
       // columnStyles' halign doesn't carry over to head/foot rows, only body.
       foot: [[
-        '', '',
+        '', '', '',
         { content: 'Grand Total', styles: { halign: 'right' as const } },
-        { content: amt(tableTotal), styles: { halign: 'right' as const } },
+        { content: amt(shownTotals.opening), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownTotals.debit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownTotals.credit), styles: { halign: 'right' as const } },
+        { content: amt(shownTotals.closing), styles: { halign: 'right' as const } },
       ]],
+      // One Grand Total, under the last row - not repeated on every page.
+      showFoot: 'lastPage',
       headStyles: { fillColor: [37, 99, 235] },
       footStyles: { fillColor: [254, 243, 199], textColor: [180, 83, 9], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 250, 252] },
-      columnStyles: { 3: { halign: 'right' } },
+      columnStyles: { 0: { halign: 'center', cellWidth: 14 }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
     })
     doc.save(`${fileBaseName(sectionLabel)}_${downloadDate()}.pdf`)
   }
+
+  // A balance shown the way the Total Amount column always was: brackets and
+  // red for a credit figure, Dr / Cr tagged on.
+  const balanceText = (n: number, did: string) => (
+    <>
+      {n < 0 ? '(' : ''}₹{fmtAmt(n)}{n < 0 ? ')' : ''}
+      <span className="ml-1 text-[10px] font-bold align-middle">{balanceTag(n, did)}</span>
+    </>
+  )
+  const balanceCell = (n: number, did: string) => (
+    n === 0 ? <span className="text-slate-300 font-normal">—</span>
+      : <span className={n < 0 ? 'text-red-500' : 'text-slate-800'}>{balanceText(n, did)}</span>
+  )
 
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
     <th className={`sticky top-0 z-10 px-4 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 ${cls}`}>
@@ -714,18 +839,7 @@ export default function GroupWisePage() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={exportExcel}
-              disabled={!tableRows.length}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors shadow-sm">
-              <FileDown className="w-4 h-4" /> Excel
-            </button>
-            <button
-              onClick={exportPDF}
-              disabled={!tableRows.length}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-40 transition-colors shadow-sm">
-              <FileText className="w-4 h-4" /> PDF
-            </button>
+            <ExportMenu disabled={!tableRows.length} onExport={(f) => f === 'excel' ? exportExcel() : exportPDF()} />
           </div>
         </div>
       </GlassCard>
@@ -848,7 +962,7 @@ export default function GroupWisePage() {
           {/* Total Amount range filter */}
           {tableRows.length > 0 && (
             <div className="min-w-[180px] ml-auto">
-              <Label>Total Amount</Label>
+              <Label>Closing Balance</Label>
               <div className="relative">
                 <select
                   value={amountFilter}
@@ -904,24 +1018,29 @@ export default function GroupWisePage() {
               </button>
             </div>
           )}
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
+                  <TH cls="text-center">Sl No</TH>
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="type">Type</TH>
-                  <TH cls="text-right" filterKey="amount">Total Amount</TH>
+                  <TH cls="text-right" filterKey="opening">Opening Balance</TH>
+                  <TH cls="text-right" filterKey="debit">Debit</TH>
+                  <TH cls="text-right" filterKey="credit">Credit</TH>
+                  <TH cls="text-right" filterKey="closing">Closing Balance</TH>
                 </tr>
               </thead>
               <tbody>
                 {displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">
                       No rows match the active filters.
                     </td>
                   </tr>
                 ) : displayRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                    <td className="px-4 py-2.5 border-b border-slate-100 text-center text-slate-500">{idx + 1}</td>
                     <td className="px-4 py-2.5 border-b border-slate-100 font-medium text-slate-800">
                       {row.type === 'Ledger' ? (
                         <div className="flex items-center gap-2 flex-wrap">
@@ -952,30 +1071,39 @@ export default function GroupWisePage() {
                         {row.type}
                       </span>
                     </td>
+                    {/* Opening and closing keep the section's Dr/Cr reading;
+                        debit and credit are the plain period totals. */}
+                    <td className="px-4 py-2.5 border-b border-slate-100 text-right font-semibold tabular-nums">
+                      {balanceCell(row.opening, row.district_id)}
+                    </td>
+                    <td className="px-4 py-2.5 border-b border-slate-100 text-right tabular-nums text-slate-700">
+                      {row.debit ? `₹${fmtAmt(row.debit)}` : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 border-b border-slate-100 text-right tabular-nums text-slate-700">
+                      {row.credit ? `₹${fmtAmt(row.credit)}` : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="px-4 py-2.5 border-b border-slate-100 text-right font-bold tabular-nums">
-                      <span className={row.total < 0 ? 'text-red-500' : 'text-slate-800'}>
-                        {row.total < 0 ? '(' : ''}₹{fmtAmt(row.total)}{row.total < 0 ? ')' : ''}
-                        <span className="ml-1 text-[10px] font-bold align-middle">{row.total < 0 ? 'Cr' : 'Dr'}</span>
-                      </span>
+                      {balanceCell(row.closing, row.district_id)}
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="bg-amber-50 border-t-2 border-amber-200">
-                  <td colSpan={2} className="px-4 py-3 text-right text-xs font-bold text-amber-700 uppercase tracking-wide">
-                    Grand Total
+                  <td colSpan={3} className="px-4 py-3 text-right text-xs font-bold text-amber-700 uppercase tracking-wide">
+                    Grand Total{displayRows.length !== tableRows.length ? ` (${displayRows.length} of ${tableRows.length} rows)` : ''}
                   </td>
-                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">
-                    {tableTotal < 0 ? '(' : ''}₹{fmtAmt(tableTotal)}{tableTotal < 0 ? ')' : ''}
-                    <span className="ml-1 text-[10px] font-bold align-middle">{tableTotal < 0 ? 'Cr' : 'Dr'}</span>
-                  </td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(shownTotals.opening, tableDistrict)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(shownTotals.debit)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">₹{fmtAmt(shownTotals.credit)}</td>
+                  <td className="px-4 py-3 text-right font-extrabold tabular-nums text-amber-700">{balanceText(shownTotals.closing, tableDistrict)}</td>
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
       )}
+      {payablesFor && <PayablesPopup ledger={payablesFor} onClose={() => setPayablesFor(null)} />}
     </motion.div>
   )
 }

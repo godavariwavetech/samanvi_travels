@@ -10,12 +10,28 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+  // Lists are fetched with GET (fuel entries, laundry bills, trips...). A
+  // browser or the server's proxy may hand back a cached copy of a GET, so a
+  // record just saved never showed until a hard refresh. A unique stamp per
+  // request means no cache has a copy of that URL to hand back, and the API
+  // answers every /nodeapp call with Cache-Control: no-store (see app.js).
+  //
+  // The stamp alone does it: a `Cache-Control` REQUEST header would make the
+  // call non-simple, and the API's Access-Control-Allow-Headers never listed
+  // it, so the browser failed the preflight and every GET list on staging came
+  // back empty while the same URL answered fine outside a browser.
+  if ((config.method ?? 'get').toLowerCase() === 'get') {
+    config.params = { ...(config.params ?? {}), _ts: Date.now() }
+  }
   return config
 })
 
 function redirectToLogin() {
   localStorage.clear()
-  window.location.href = '/auth/login'
+  // Full page load, so it bypasses the router and needs the deployment's base
+  // ('/' in production, '/staging/' in the subfolder build) spelled out —
+  // otherwise an expired session on staging lands on production's login page.
+  window.location.href = `${import.meta.env.BASE_URL}auth/login`
 }
 
 api.interceptors.response.use(

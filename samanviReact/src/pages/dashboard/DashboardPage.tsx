@@ -1,7 +1,7 @@
 ﻿import { motion } from 'motion/react'
 import { Map, Bus, Fuel, Wrench, Users, FileText, Shirt, CheckCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Badge, PageHeader, DualScrollTable } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
 import { tripsService } from '@/services/trips.service'
 import { fuelService } from '@/services/fuel.service'
@@ -9,6 +9,7 @@ import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
 import { useAuthStore } from '@/store/auth.store'
 import { useFYStore } from '@/store/fy.store'
+import { formatDate } from '@/lib/utils'
 
 function KpiCard({ label, value, icon: Icon, color, bg, loading }: {
   label: string; value: string | number; icon: React.ElementType
@@ -102,7 +103,7 @@ export default function DashboardPage() {
         ) : recentTrips.length === 0 ? (
           <div className="p-8 text-center text-slate-400">No trip records yet. Start by creating a trip in Trip Management.</div>
         ) : (
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-left">
               <thead>
                 <tr className="sticky top-0 z-10 bg-slate-50/60 border-b border-slate-100">
@@ -115,7 +116,7 @@ export default function DashboardPage() {
                 {recentTrips.map((t: any, i) => (
                   <tr key={t.id ?? i} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-5 py-3 font-bold text-blue-600 text-sm">{t.c_number ?? `#${t.id}`}</td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{String(t.trip_date ?? t.cts ?? '—').split('T')[0]}</td>
+                    <td className="px-5 py-3 text-sm text-slate-600">{formatDate(t.trip_date ?? t.cts)}</td>
                     <td className="px-5 py-3 text-sm font-medium">{t.bus_no ?? '—'}</td>
                     <td className="px-5 py-3 text-sm">{t.service_no ?? '—'}</td>
                     <td className="px-5 py-3 text-sm text-slate-600">{t.driver1_name ?? '—'}</td>
@@ -128,7 +129,7 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         )}
       </GlassCard>
 

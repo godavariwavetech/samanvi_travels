@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { BarChart3, X, Bus, Wrench, Recycle, ShoppingCart, Gauge } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { DataTable, Badge, PageHeader } from '@/components/shared'
+import { DataTable, Badge, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 
@@ -27,7 +28,7 @@ function fmtDate(v: any) {
   if (!v) return '—'
   const d = new Date(v)
   if (isNaN(d.getTime())) return String(v)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 type TimelineEvent = {
@@ -237,12 +238,27 @@ export default function TyreReportsPage() {
 
                 {/* Bus history */}
                 <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">Bus History ({detailBusCount} bus{detailBusCount !== 1 ? 'es' : ''})</h4>
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Bus History ({detailBusCount} bus{detailBusCount !== 1 ? 'es' : ''})</h4>
+                    <ExportMenu
+                      disabled={detailPositions.length === 0}
+                      onExport={(format) => exportRows({
+                        title: `Tyre ${detailTyre.tyre_code} Bus History`,
+                        headers: ['Sl No', 'Vehicle', 'Position', 'Fitted', 'Odometer (km)', 'Removed'],
+                        rows: detailPositions.map((p, i) => [
+                          i + 1, p.vehicle_number ?? '', p.position ?? '', fmtDate(p.fitted_date),
+                          p.odometer_at_fitting ? Number(p.odometer_at_fitting) || p.odometer_at_fitting : '',
+                          p.removed_date ? fmtDate(p.removed_date) : 'Active',
+                        ]),
+                        format,
+                      })}
+                    />
+                  </div>
                   {detailPositions.length === 0 ? (
                     <p className="text-sm text-slate-400 italic">Never mounted on a bus yet.</p>
                   ) : (
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="overflow-auto max-h-64">
+                      <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-left text-sm">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -267,7 +283,7 @@ export default function TyreReportsPage() {
                           ))}
                         </tbody>
                       </table>
-                      </div>
+                      </DualScrollTable>
                     </div>
                   )}
                 </div>

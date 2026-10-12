@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { Route, Plus, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { mastersService } from '@/services/masters.service'
 
 export default function RouteIdPage() {
@@ -72,9 +73,15 @@ export default function RouteIdPage() {
       </GlassCard>
 
       <GlassCard className="p-6">
-        <h3 className="font-bold text-slate-700 mb-4">
-          Current Route IDs ({routeIds.length})
-        </h3>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="font-bold text-slate-700">
+            Current Route IDs ({routeIds.length})
+          </h3>
+          <ExportMenu
+            disabled={routeIds.length === 0}
+            onExport={(format) => exportRows({ title: 'Route IDs', headers: ['Sl No', 'Route ID'], rows: routeIds.map((r, i) => [i + 1, r.route_id_name ?? '']), format })}
+          />
+        </div>
 
         {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

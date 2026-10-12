@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Bell, Search, ChevronRight, CalendarDays, ChevronDown, Check, Menu } from 'lucide-react'
+import { Bell, Search, ChevronRight, CalendarDays, ChevronDown, Check, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useLocation } from 'react-router'
 import { useFYStore } from '@/store/fy.store'
 import { getFYList } from '@/lib/fy'
@@ -72,9 +72,11 @@ const fyList = getFYList(4)
 
 interface TopHeaderProps {
   onMenuToggle: () => void
+  sidebarCollapsed?: boolean
+  onSidebarToggle?: () => void
 }
 
-export function TopHeader({ onMenuToggle }: TopHeaderProps) {
+export function TopHeader({ onMenuToggle, sidebarCollapsed = false, onSidebarToggle }: TopHeaderProps) {
   const { pathname } = useLocation()
   const label = ROUTE_LABELS[pathname] ?? pathname.split('/').pop() ?? 'Dashboard'
   const { selectedFY, setFY } = useFYStore()
@@ -115,6 +117,16 @@ export function TopHeader({ onMenuToggle }: TopHeaderProps) {
         >
           <Menu className="w-5 h-5" />
         </button>
+        {/* Desktop: fold the side menu away / bring it back */}
+        {onSidebarToggle && (
+          <button
+            type="button" onClick={onSidebarToggle}
+            className="hidden lg:inline-flex flex-shrink-0 p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
+            aria-label={sidebarCollapsed ? 'Expand side menu' : 'Fold side menu to icons'} title={sidebarCollapsed ? 'Expand side menu' : 'Fold side menu to icons'}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+          </button>
+        )}
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 sm:gap-3 text-xs sm:text-sm font-bold text-slate-500 uppercase tracking-wider min-w-0">

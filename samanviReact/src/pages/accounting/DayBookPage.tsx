@@ -1,12 +1,14 @@
 ﻿import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'motion/react'
-import { Search, X, FileSpreadsheet, FileText, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
+import { Search, X, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag } from '@/components/shared'
+import { PayablesPopup } from './PayablesPopup'
+import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -17,7 +19,7 @@ function fmt(dateStr: any): string {
   if (!dateStr) return '—'
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return '—'
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`
 }
 
 // dd-mm-yyyy, hyphen-separated — used in export filenames, which can't contain slashes
@@ -35,7 +37,7 @@ function fmtAmt(n: number): string {
 
 export default function DayBookPage() {
   const navigate = useNavigate()
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
@@ -65,7 +67,7 @@ export default function DayBookPage() {
   const ledgerIdToGroup = useMemo(() => {
     const m = new Map<number, string>()
     const list: any[] = ledgersRes?.data ?? []
-    list.forEach(l => { const id = Number(l.id ?? l.ledger_id); if (id) m.set(id, l.child || '') })
+    list.forEach(l => { const id = Number(l.id ?? l.ledger_id); if (id) m.set(id, ledgerGroupName(l)) })
     return m
   }, [ledgersRes])
 
@@ -101,6 +103,13 @@ export default function DayBookPage() {
           expensives:  item.expensives  || '—',
           valueDate:   item.valuedate   || item.valueDate || '',
           bus_no:      item.vehicleNo   || item.bus_no    || '—',
+          // Optional columns: the trip behind a trip expense or its voucher,
+          // and the litres / price per litre behind a fuel fill (pieces on a
+          // laundry bill).
+          trip_date:   item.trip_date   || '',
+          quantity:    item.quantity    ?? null,
+          rate:        item.rate        ?? null,
+          quantity_unit: item.quantity_unit || '',
           name:        item.name        || '—',
           description: item.description || '—',
           debit,
@@ -120,7 +129,13 @@ export default function DayBookPage() {
     )
   }, [tableRows, search])
 
-  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'name', 'description', 'debit', 'credit'] as const
+  // Trip Date, Quantity and Rate, ticked on and off above the table the way
+  // Voucher Approvals' "Show columns" works; all three start visible.
+  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(REPORT_EXTRA_COLS))
+  const showCol = (c: string) => extraCols.has(c)
+  const extraCount = extraCols.size
+
+  const FILTER_KEYS = ['c_number', 'vouchertype', 'date', 'amount_type', 'expensives', 'valueDate', 'bus_no', 'tripDate', 'quantity', 'rate', 'name', 'description', 'debit', 'credit'] as const
 
   const colValue = (row: any, key: string): string => {
     switch (key) {
@@ -131,6 +146,9 @@ export default function DayBookPage() {
       case 'expensives': return row.expensives
       case 'valueDate': return fmt(row.valueDate)
       case 'bus_no': return row.bus_no
+      case 'tripDate': return row.trip_date ? fmt(row.trip_date) : '—'
+      case 'quantity': return reportQuantity(row) || '—'
+      case 'rate': return reportRate(row) || '—'
       case 'name': return row.name
       case 'description': return row.description
       case 'debit': return row.debit ? fmtAmt(row.debit) : '—'
@@ -166,21 +184,31 @@ export default function DayBookPage() {
   const totalDebit  = tableRows.reduce((s, r) => s + r.debit,  0)
   const totalCredit = tableRows.reduce((s, r) => s + r.credit, 0)
   const difference  = totalDebit - totalCredit
+  // The table footer and both downloads sum the rows actually shown - the
+  // search and column filters applied - and number them from 1. The cards
+  // above keep the whole date range.
+  const shownDebit  = displayRows.reduce((s, r) => s + r.debit,  0)
+  const shownCredit = displayRows.reduce((s, r) => s + r.credit, 0)
+  const shownDifference = shownDebit - shownCredit
 
   const exportExcel = () => {
-    const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', 'Name', 'Description', 'Debit', 'Credit', 'Balance']
-    const body = displayRows.map(r => [
-      r.i, r.c_number, r.vouchertype, fmt(r.i_ts),
+    // The ticked optional columns go out too, after Vehicle No as on screen.
+    const extras = REPORT_EXTRA_COLS.filter(showCol)
+    const pad = extras.map(() => '')
+    const extraValues = (r: any) => extras.map((c) => c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '') : c === 'Quantity' ? reportQuantity(r) : reportRate(r))
+    const header = ['S.No', 'Ref No', 'Voucher Type', 'Date', 'Account Type', 'Ledger Name', 'Group', 'Value Date', 'Vehicle No', ...extras, 'Name', 'Description', 'Debit', 'Credit', 'Balance']
+    const body = displayRows.map((r, i) => [
+      i + 1, r.c_number, r.vouchertype, fmt(r.i_ts),
       r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
-      r.expensives, r.group, fmt(r.valueDate), r.bus_no, r.name, r.description,
+      r.expensives, r.group, fmt(r.valueDate), r.bus_no, ...extraValues(r), r.name, r.description,
       r.debit || '', r.credit || '',
       r.balance >= 0 ? `${r.balance.toFixed(2)} Dr` : `${Math.abs(r.balance).toFixed(2)} Cr`,
     ])
-    body.push(['', '', '', '', '', '', '', '', '', '', 'Total', totalDebit || '', totalCredit || '', ''])
-    body.push(['', '', '', '', '', '', '', '', '', '', 'Difference (Dr - Cr)',
-      difference >= 0 ? difference : '',
-      difference < 0 ? Math.abs(difference) : '',
-      difference === 0 ? 'Balanced' : difference > 0 ? `${difference.toFixed(2)} Dr` : `${Math.abs(difference).toFixed(2)} Cr`,
+    body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Total', shownDebit || '', shownCredit || '', ''])
+    body.push(['', '', '', '', '', '', '', '', '', ...pad, '', 'Difference (Dr - Cr)',
+      shownDifference >= 0 ? shownDifference : '',
+      shownDifference < 0 ? Math.abs(shownDifference) : '',
+      shownDifference === 0 ? 'Balanced' : shownDifference > 0 ? `${shownDifference.toFixed(2)} Dr` : `${Math.abs(shownDifference).toFixed(2)} Cr`,
     ])
     const ws = XLSX.utils.aoa_to_sheet([header, ...body])
     ws['!cols'] = header.map((_, ci) => ({ wch: Math.max(...[header, ...body].map(r => String(r[ci] ?? '').length)) + 2 }))
@@ -214,8 +242,8 @@ export default function DayBookPage() {
     // width, which throws off right-alignment. Plain numbers render correctly.
     const balStr = (b: number) => b >= 0 ? `${fmtAmt(b)} Dr` : `${fmtAmt(Math.abs(b))} Cr`
 
-    const body = displayRows.map(r => [
-      String(r.i), r.c_number, r.vouchertype, fmt(r.i_ts),
+    const body = displayRows.map((r, i) => [
+      String(i + 1), r.c_number, r.vouchertype, fmt(r.i_ts),
       r.amount_type === 'Debit Account' ? 'DR' : r.amount_type === 'Credit Account' ? 'CR' : r.amount_type,
       r.expensives, r.group || '-', fmt(r.valueDate), r.bus_no, r.name, r.description,
       { content: r.debit ? fmtAmt(r.debit) : '-', styles: { halign: 'right' as const } },
@@ -233,16 +261,18 @@ export default function DayBookPage() {
       foot: [[
         '', '', '', '', '', '', '', '', '', '',
         { content: 'Total', styles: { halign: 'right' as const } },
-        { content: fmtAmt(totalDebit), styles: { halign: 'right' as const } },
-        { content: fmtAmt(totalCredit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownDebit), styles: { halign: 'right' as const } },
+        { content: fmtAmt(shownCredit), styles: { halign: 'right' as const } },
         { content: '', styles: { halign: 'right' as const } },
       ], [
         '', '', '', '', '', '', '', '', '', '',
         { content: 'Difference (Dr − Cr)', styles: { halign: 'right' as const } },
-        { content: difference > 0 ? fmtAmt(difference) : '-', styles: { halign: 'right' as const } },
-        { content: difference < 0 ? fmtAmt(Math.abs(difference)) : '-', styles: { halign: 'right' as const } },
-        { content: difference === 0 ? 'Balanced' : balStr(difference), styles: { halign: 'right' as const } },
+        { content: shownDifference > 0 ? fmtAmt(shownDifference) : '-', styles: { halign: 'right' as const } },
+        { content: shownDifference < 0 ? fmtAmt(Math.abs(shownDifference)) : '-', styles: { halign: 'right' as const } },
+        { content: shownDifference === 0 ? 'Balanced' : balStr(shownDifference), styles: { halign: 'right' as const } },
       ]],
+      // Totals once, under the last row - not repeated on every page.
+      showFoot: 'lastPage',
       theme: 'grid',
       margin: { left: marginX, right: marginX },
       tableWidth: TABLE_WIDTH_MM,
@@ -266,14 +296,11 @@ export default function DayBookPage() {
     navigate('/accounting/ledger-wise', { state: { ledgerId: row.ledger_id } })
   }
 
+  // Payables opens as a popup over this report rather than in another tab.
+  const [payablesFor, setPayablesFor] = useState<{ id: number; name: string } | null>(null)
   const handlePayables = (row: { ledger_id: number | null; expensives: string }) => {
     if (!row.ledger_id) return
-    localStorage.setItem('reportViewData', JSON.stringify({
-      groupName: row.expensives,
-      entries: [{ id: row.ledger_id, name: row.expensives, temple_name: row.expensives }],
-    }))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    window.open('/accounting/payables-view', '_blank')
+    setPayablesFor({ id: row.ledger_id, name: row.expensives })
   }
 
   const TH = ({ children, cls = '', filterKey }: { children: React.ReactNode; cls?: string; filterKey?: string }) => (
@@ -337,7 +364,7 @@ export default function DayBookPage() {
         </div>
       </GlassCard>
 
-      {/* Summary cards + Excel button */}
+      {/* Summary cards + Export button */}
       {tableRows.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-end gap-3">
@@ -347,19 +374,9 @@ export default function DayBookPage() {
                 <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
               </span>
             )}
-            <button
-              onClick={exportExcel}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
-            >
-              <FileSpreadsheet className="w-4 h-4" /> Download Excel
-            </button>
-            <button
-              onClick={exportPDF}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors shadow-sm"
-            >
-              <FileText className="w-4 h-4" /> Download PDF
-            </button>
+            <ExportMenu onExport={(f) => f === 'excel' ? exportExcel() : exportPDF()} />
           </div>
+          <ReportColumnPicker options={REPORT_EXTRA_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <GlassCard className="p-5">
               <p className="text-xs font-bold text-slate-500 uppercase">Total Entries</p>
@@ -398,7 +415,7 @@ export default function DayBookPage() {
         </GlassCard>
       ) : (
         <GlassCard className="overflow-hidden">
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
@@ -410,6 +427,9 @@ export default function DayBookPage() {
                   <TH filterKey="expensives">Ledger Name</TH>
                   <TH filterKey="valueDate">Value Date</TH>
                   <TH filterKey="bus_no">Vehicle No</TH>
+                  {showCol('Trip Date') && <TH filterKey="tripDate">Trip Date</TH>}
+                  {showCol('Quantity') && <TH cls="text-right" filterKey="quantity">Quantity</TH>}
+                  {showCol('Rate') && <TH cls="text-right" filterKey="rate">Rate</TH>}
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="description">Description</TH>
                   <TH cls="text-right" filterKey="debit">Debit</TH>
@@ -420,7 +440,7 @@ export default function DayBookPage() {
               <tbody>
                 {displayRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{row.i}</td>
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{idx + 1}</td>
                     <td className="px-3 py-2 border-b border-slate-100 font-medium text-blue-600 whitespace-nowrap">{row.c_number}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 whitespace-nowrap">{row.vouchertype}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.i_ts)}</td>
@@ -441,7 +461,7 @@ export default function DayBookPage() {
                             title="View in Ledger Wise"
                             className="inline-flex items-center gap-1 text-blue-600 font-medium hover:text-blue-800 hover:underline truncate"
                           >
-                            <span className="truncate">{row.expensives}</span>
+                            <span className="truncate">{row.expensives}<LedgerGroupTag group={row.group} /></span>
                             <ExternalLink className="w-3 h-3 opacity-60 flex-shrink-0" />
                           </button>
                           <button
@@ -453,11 +473,14 @@ export default function DayBookPage() {
                           </button>
                         </div>
                       ) : (
-                        <span className="text-slate-700 truncate">{row.expensives}</span>
+                        <span className="text-slate-700 truncate">{row.expensives}<LedgerGroupTag group={row.group} /></span>
                       )}
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.valueDate)}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.bus_no}</td>
+                    {showCol('Trip Date') && <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.trip_date ? fmt(row.trip_date) : '—'}</td>}
+                    {showCol('Quantity') && <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportQuantity(row) || '—'}</td>}
+                    {showCol('Rate') && <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportRate(row) || '—'}</td>}
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.name}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 max-w-[200px] truncate">{row.description}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-right font-medium text-red-600 tabular-nums whitespace-nowrap">
@@ -479,37 +502,38 @@ export default function DayBookPage() {
               {/* Totals + Difference rows */}
               <tfoot>
                 <tr className="bg-blue-50 font-bold border-t-2 border-blue-200">
-                  <td colSpan={10} className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase tracking-wide">
-                    Total
+                  <td colSpan={10 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-600 uppercase tracking-wide">
+                    Total{displayRows.length !== tableRows.length ? ` (${displayRows.length} of ${tableRows.length} rows)` : ''}
                   </td>
-                  <td className="px-3 py-2.5 text-right text-red-600 tabular-nums">{fmtAmt(totalDebit)}</td>
-                  <td className="px-3 py-2.5 text-right text-emerald-600 tabular-nums">{fmtAmt(totalCredit)}</td>
-                  <td className={`px-3 py-2.5 text-right tabular-nums ${tableRows[tableRows.length - 1]?.balance >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
+                  <td className="px-3 py-2.5 text-right text-red-600 tabular-nums">{fmtAmt(shownDebit)}</td>
+                  <td className="px-3 py-2.5 text-right text-emerald-600 tabular-nums">{fmtAmt(shownCredit)}</td>
+                  <td className={`px-3 py-2.5 text-right tabular-nums ${displayRows[displayRows.length - 1]?.balance >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
                     {(() => {
-                      const b = tableRows[tableRows.length - 1]?.balance ?? 0
+                      const b = displayRows[displayRows.length - 1]?.balance ?? 0
                       return b >= 0 ? `${fmtAmt(b)} Dr` : `${fmtAmt(Math.abs(b))} Cr`
                     })()}
                   </td>
                 </tr>
-                <tr className={`font-bold border-t border-dashed ${difference === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
-                  <td colSpan={10} className={`px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wide ${difference === 0 ? 'text-green-700' : 'text-amber-700'}`}>
+                <tr className={`font-bold border-t border-dashed ${shownDifference === 0 ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <td colSpan={10 + extraCount} className={`px-3 py-2.5 text-right text-xs font-bold uppercase tracking-wide ${shownDifference === 0 ? 'text-green-700' : 'text-amber-700'}`}>
                     Difference (Dr − Cr)
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-red-600">
-                    {difference > 0 ? fmtAmt(difference) : '—'}
+                    {shownDifference > 0 ? fmtAmt(shownDifference) : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600">
-                    {difference < 0 ? fmtAmt(Math.abs(difference)) : '—'}
+                    {shownDifference < 0 ? fmtAmt(Math.abs(shownDifference)) : '—'}
                   </td>
-                  <td className={`px-3 py-2.5 text-right tabular-nums font-extrabold ${difference === 0 ? 'text-green-600' : difference > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {difference === 0 ? '✓ Balanced' : difference > 0 ? `${fmtAmt(difference)} Dr` : `${fmtAmt(Math.abs(difference))} Cr`}
+                  <td className={`px-3 py-2.5 text-right tabular-nums font-extrabold ${shownDifference === 0 ? 'text-green-600' : shownDifference > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {shownDifference === 0 ? '✓ Balanced' : shownDifference > 0 ? `${fmtAmt(shownDifference)} Dr` : `${fmtAmt(Math.abs(shownDifference))} Cr`}
                   </td>
                 </tr>
               </tfoot>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
       )}
+      {payablesFor && <PayablesPopup ledger={payablesFor} onClose={() => setPayablesFor(null)} />}
     </motion.div>
   )
 }

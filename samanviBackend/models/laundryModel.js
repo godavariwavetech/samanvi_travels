@@ -1,5 +1,13 @@
 var sqldb = require('../config/dbconnect');
 var moment = require('moment');
+var ensureColumn = require('../utils/ensurecolumn');
+
+// Laundry bills are reviewed the way vouchers are, and a rejection there
+// always carries a reason; this is its home on a bill (one value per bill,
+// stamped on every vehicle row of it). Through ensureColumn, so a database
+// where the ALTER cannot run still lists and reviews bills - the list simply
+// reports no reason.
+var rejectionReason = ensureColumn(sqldb, 'laundrybill_maint', 'rejection_reason', 'TEXT DEFAULT NULL');
 
 // Reference number is minted from MAX(c_id) inside mainlaundry_t — same pattern
 // as fuel entries. Not concurrency-safe on paper; the create flow runs inside a
@@ -335,7 +343,7 @@ function insertBillAccountRows(connection, params, cb) {
     (parent_subgroup_id, parent_subchild_id, account_type, amount, child, staticname,
      district_id, mandal_name, mandal_id, subchildtwo, subchildtwo_id, expensives,
      village_id, i_ts, lastinsert_id, c_number, c_id, entry_by, user_id,
-     debit_amount, credit_amount, d_in, status)
+     debit_amount, credit_amount, d_in, status, ledger_id, parent_grp_level)
     VALUES ?`;
   var now = moment().format('YYYY-MM-DD HH:mm:ss');
   var values = rows.map(function (r) {
@@ -355,6 +363,11 @@ function insertBillAccountRows(connection, params, cb) {
       accountType === 'Debit Account' ? String(r.amount || 0) : '0',
       accountType === 'Credit Account' ? String(r.amount || 0) : '0',
       0, 0,
+      // Ledger Wise, Payables and the edit screen all find a row by its
+      // ledger_id (the fuel rows carry it); without it a laundry bill's
+      // ledgers never appeared on any ledger report.
+      l.id ? String(l.id) : (l.ledger_id ? String(l.ledger_id) : null),
+      l.parent_grp_level || null,
     ];
   });
   connection.query(sql, [values], cb);
@@ -408,7 +421,21 @@ exports.createLaundryBillMdl = function (data, callback) {
   });
 };
 
+// Same lock as the fuel entry: an approved or rejected bill is on the books,
+// so the API refuses to edit or delete it (the page hides those actions).
+var lockedError = function () { var e = new Error('Approved / rejected bills cannot be edited or deleted'); e.code = 'LOCKED'; return e; };
+function whenBillOpen(c_number, callback, run) {
+  sqldb.query('SELECT MIN(admin_status) AS s FROM laundrybill_maint WHERE c_number = ? AND d_in = 0', [c_number], function (err, rows) {
+    if (err) return callback(err);
+    if (rows.length && rows[0].s != null && Number(rows[0].s) !== 0) return callback(lockedError());
+    run();
+  });
+}
+
 exports.updateLaundryBillMdl = function (data, callback) {
+  whenBillOpen(data.c_number, callback, function () { updateLaundryBillOpen(data, callback); });
+};
+function updateLaundryBillOpen(data, callback) {
   sqldb.getConnection(function (err, connection) {
     if (err) return callback(err);
     connection.beginTransaction(function (err) {
@@ -458,6 +485,9 @@ exports.updateLaundryBillMdl = function (data, callback) {
 };
 
 exports.deleteLaundryBillMdl = function (data, callback) {
+  whenBillOpen(data.c_number, callback, function () { deleteLaundryBillOpen(data, callback); });
+};
+function deleteLaundryBillOpen(data, callback) {
   var now = moment().format('YYYY-MM-DD HH:mm:ss');
   sqldb.query(
     `UPDATE laundrybill_maint SET d_in=1, delete_by_id=?, delete_by_name=?, delete_by_date=? WHERE c_number=?;
@@ -476,6 +506,7 @@ exports.listLaundryBillsMdl = function (callback) {
             MIN(admin_action_id) AS admin_action_id,
             MIN(admin_action_name) AS admin_action_name,
             MIN(admin_action_date) AS admin_action_date,
+            ${rejectionReason.present ? 'MIN(rejection_reason)' : 'NULL'} AS rejection_reason,
             COUNT(*) AS vehicle_count,
             SUM(CAST(totalamount AS DECIMAL(15,2))) AS total_amount
      FROM laundrybill_maint
@@ -510,10 +541,18 @@ exports.getLaundryBillDetailsMdl = function (data, callback) {
 exports.updateLaundryBillAdminStatusMdl = function (data, callback) {
   var now = moment().format('YYYY-MM-DD HH:mm:ss');
   sqldb.query(
+    // Ledger Wise reads the approval off the ledger rows (l.admin_status on
+    // laundrybill_subt), as it does for fuel, so both tables are stamped -
+    // an approved bill used to stay invisible on every ledger report.
     `UPDATE laundrybill_maint
-     SET admin_status = ?, admin_action_id = ?, admin_action_name = ?, admin_action_date = ?
-     WHERE c_number = ?`,
-    [Number(data.admin_status), String(data.user_id || 0), data.named || '', now, data.c_number],
+     SET admin_status = ?, admin_action_id = ?, admin_action_name = ?, admin_action_date = ?${rejectionReason.present ? ', rejection_reason = ?' : ''}
+     WHERE c_number = ?;
+     UPDATE laundrybill_subt SET admin_status = ? WHERE c_number = ?`,
+    // The reason travels with a rejection only; approving or reopening the
+    // bill clears it, as it does on a voucher.
+    [Number(data.admin_status), String(data.user_id || 0), data.named || '', now].concat(
+      rejectionReason.present ? [Number(data.admin_status) === 2 ? String(data.rejection_reason || '') : ''] : [],
+      [data.c_number, Number(data.admin_status), data.c_number]),
     callback
   );
 };

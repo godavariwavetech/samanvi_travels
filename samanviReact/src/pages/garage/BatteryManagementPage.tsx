@@ -9,6 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
+import { formatDate, ledgerOption, todayISO } from '@/lib/utils'
 
 const STATUSES = ['Active', 'Replaced', 'Scrapped']
 
@@ -20,7 +21,7 @@ const EMPTY_FORM = {
   warranty_months: '', cost: '', status: 'Active', remarks: '', voucher_number: '',
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const statusVariant: Record<string, 'success' | 'warning' | 'danger'> = {
   Active: 'success', Replaced: 'warning', Scrapped: 'danger',
@@ -30,7 +31,7 @@ function fmtDateTime(d: any) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return String(d)
-  return dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+  return dt.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })
 }
 
 export default function BatteryManagementPage() {
@@ -73,7 +74,7 @@ export default function BatteryManagementPage() {
 
   const brandOptions = brandList.map((b: any) => ({ value: b.brand_name, label: b.brand_name }))
   const capacityOptions = capacityList.map((c: any) => ({ value: c.capacity_ah, label: c.capacity_ah }))
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   // Prefill debit/credit rows from the battery's linked voucher once it loads (edit mode)
   useEffect(() => {
@@ -166,7 +167,7 @@ export default function BatteryManagementPage() {
     { label: 'Brand', key: 'brand', filterable: true },
     { label: 'Capacity', key: 'capacity_ah', filterable: true },
     { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => v ? <span className="font-medium">{String(v)}</span> : <span className="text-slate-300">—</span> },
-    { label: 'Installed', key: 'install_date', align: 'center', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
+    { label: 'Installed', key: 'install_date', align: 'center', render: (v) => <span className="text-sm">{formatDate(v)}</span> },
     { label: 'Warranty (mo)', key: 'warranty_months', align: 'right', render: (v) => <span className="text-sm">{v ?? '—'}</span> },
     { label: 'Status', key: 'status', filterable: true, render: (v) => <Badge variant={statusVariant[String(v)] ?? 'default'}>{String(v)}</Badge> },
     { label: 'Cost', key: 'cost', align: 'right', render: (v) => <span className="font-medium">₹{v}</span> },
@@ -231,15 +232,16 @@ export default function BatteryManagementPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div><Label>Battery Code *</Label><Input placeholder="e.g. BAT-1001" value={form.battery_code} onChange={f('battery_code')} /></div>
                 <div><Label>Brand</Label>
-                  <SearchableSelect value={form.brand} onChange={setField('brand')} options={brandOptions} placeholder="Select Brand" onReload={() => reloadBrands()} reloading={loadingBrands} /></div>
+                  <SearchableSelect value={form.brand} onChange={setField('brand')} onClear={() => setField('brand')('')} options={brandOptions} placeholder="Select Brand" onReload={() => reloadBrands()} reloading={loadingBrands} /></div>
                 <div><Label>Capacity</Label>
-                  <SearchableSelect value={form.capacity_ah} onChange={setField('capacity_ah')} options={capacityOptions} placeholder="Select Capacity" onReload={() => reloadCapacities()} reloading={loadingCapacities} /></div>
+                  <SearchableSelect value={form.capacity_ah} onChange={setField('capacity_ah')} onClear={() => setField('capacity_ah')('')} options={capacityOptions} placeholder="Select Capacity" onReload={() => reloadCapacities()} reloading={loadingCapacities} /></div>
 
                 <div><Label>Warranty (months)</Label><Input type="number" value={form.warranty_months} onChange={f('warranty_months')} /></div>
                 <div><Label>Vehicle Number{!isEdit && entryMode === 'with_bus' && <span className="text-red-500"> *</span>}</Label>
                   <SearchableSelect
                     value={form.vehicle_number}
                     onChange={setField('vehicle_number')}
+                    onClear={() => setField('vehicle_number')('')}
                     options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Unassigned"
                     onReload={() => reloadBuses()}
@@ -287,6 +289,7 @@ export default function BatteryManagementPage() {
                             <div className="flex-[3] min-w-0">
                               <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                                 onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                                onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                                 options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                             </div>
                             <div className="flex-[2] min-w-0">
@@ -312,6 +315,7 @@ export default function BatteryManagementPage() {
                             <div className="flex-[3] min-w-0">
                               <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                                 onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                                onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                                 options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                             </div>
                             <div className="flex-[2] min-w-0">

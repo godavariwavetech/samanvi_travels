@@ -1,15 +1,15 @@
 ﻿import { useState, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
-import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, FileSpreadsheet, FileText, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
+import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY } from '@/lib/fy'
-import { scrollContentToTop } from '@/lib/utils'
+import { scrollContentToTop, ledgerGroupName, ledgerOption, todayISO, toLocalISODate } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -20,7 +20,7 @@ function fmt(d: any): string {
   if (!d) return '-'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '-'
-  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`
+  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
 }
 
 function fmtAmt(n: number): string {
@@ -35,6 +35,34 @@ function resolveDateStr(e: any): string {
     laundrybill_subt: e.i_ts,
   }
   return map[e.source_table] || e.i_ts || e.voucherdate || e.trip_date || ''
+}
+
+// A row that came from a trip. Trip expenses filed with a voucher reach this
+// screen as the voucher, dated the day it was posted rather than the day the
+// trip ran, so the trip's own date is worth showing beside it — but only when
+// the two actually differ, otherwise it is noise on every line.
+function tripDateOf(e: any): string {
+  if (!e?.trip_c_number || !e?.trip_date) return ''
+  const shown = String(resolveDateStr(e)).slice(0, 10)
+  const trip = String(e.trip_date).slice(0, 10)
+  return trip && trip !== shown ? e.trip_date : ''
+}
+
+// Run status of the trip a row came from, in the same colours the Trip
+// Creation and Trip Expenses screens use for it.
+function TripStatusBadge({ status }: { status: string }) {
+  const s = String(status || '').trim()
+  if (!s) return null
+  const tone = s === 'Halt'
+    ? 'bg-red-50 text-red-700 border-red-200'
+    : s === 'Full Trip'
+      ? 'bg-sky-50 text-sky-700 border-sky-200'
+      : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  return (
+    <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${tone}`}>
+      {s}
+    </span>
+  )
 }
 
 // ─── InlineRefresh — small icon inside a dropdown trigger that re-hits the
@@ -62,7 +90,8 @@ function InlineRefresh({ onRefresh, refreshing, title }: {
 // inline reload button, for plain string-value option lists ────────────────
 function SimpleDropdown({ value, options, placeholder = 'Select…', searchable, onChange, onRefresh, refreshing }: {
   value: string
-  options: { label: string; value: string }[]
+  // hint: muted secondary text (a ledger's parent group) - searchable, display only
+  options: { label: string; value: string; hint?: string }[]
   placeholder?: string
   searchable?: boolean
   onChange: (v: string) => void
@@ -103,8 +132,9 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 0
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
   const filtered = searchable
-    ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
+    ? options.filter(o => `${o.label} ${o.hint ?? ''}`.toLowerCase().includes(search.toLowerCase()))
     : options
+  const selectedOpt = options.find(o => o.value === value)
 
   const panel = open && rect && createPortal(
     <div id="payables-simple-portal-panel" style={{
@@ -127,7 +157,7 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
           <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch('') }}
             className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
               value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
-            }`}>{opt.label}</div>
+            }`}>{opt.label}<LedgerGroupTag group={opt.hint} /></div>
         ))}
       </div>
     </div>,
@@ -139,7 +169,8 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
       <button ref={btnRef} type="button" onClick={openDropdown}
         className="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/30">
         <span className={value ? 'text-slate-900 font-medium truncate' : 'text-slate-400 truncate'}>
-          {options.find(o => o.value === value)?.label || placeholder}
+          {selectedOpt?.label || placeholder}
+          <LedgerGroupTag group={selectedOpt?.hint} />
         </span>
         <span className="flex items-center gap-1 flex-shrink-0">
           {onRefresh && <InlineRefresh onRefresh={onRefresh} refreshing={refreshing} title="Refresh options" />}
@@ -152,10 +183,16 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
 }
 
 // ─── Modal primitives ─────────────────────────────────────────────────────────
+// Portalled to <body> on purpose: this view also runs inside the Payables
+// popup, whose backdrop-blur makes it the containing block for anything
+// `fixed` inside it — a modal opened from a scrolled-down row would then be
+// pinned to the top of the sheet's scrolled content instead of the viewport,
+// i.e. off screen. From <body> it is always centred on the viewport.
 function ModalOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+      data-payables-inner-modal
+      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -164,7 +201,8 @@ function ModalOverlay({ onClose, children }: { onClose: () => void; children: Re
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -252,9 +290,46 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
   })
 
   // Net paid = settled amounts minus reversed amounts (reversed cancel out settled)
-  const totalPaid = safeData.reduce((s, e) => e.action === 'settled' ? s + e.payment : e.action === 'reversed' ? s - e.payment : s, 0)
+  const netPaid = (entries: PaymentHistoryEntry[]) =>
+    entries.reduce((s, e) => e.action === 'settled' ? s + e.payment : e.action === 'reversed' ? s - e.payment : s, 0)
+  const totalPaid = netPaid(safeData)
   const currentBalance = safeData.length > 0 ? safeData[safeData.length - 1].balance_after : Number(row.amount) || 0
-  const editCount = timeline.filter(t => t.kind === 'edited').length
+
+  // One payable can be settled through several vouchers, each with its own
+  // reference number, and their events interleave on the one timeline. Picking
+  // a reference - from the strip below or by clicking its badge on any event -
+  // shows that voucher's history on its own: its payments, edits and approvals,
+  // and what it paid.
+  //
+  // The modal opens on the reference that was clicked in the table, so it reads
+  // as that one reference's history and nothing else. That is the payable's own
+  // voucher, which is only ever a reference here when the same voucher also
+  // settled this row - otherwise the timeline is empty and says so, with every
+  // reference that DID pay this row one click away.
+  const [selectedRef, setSelectedRef] = useState<string | null>(row.c_number || null)
+  const itemRef = (item: PaymentTimelineItem): string =>
+    item.kind === 'edited' ? item.resettlement.c_number : 'entry' in item ? item.entry.c_number : item.c_number
+  const refNumbers = [...new Set(safeData.map(e => e.c_number).filter(Boolean))]
+  // Every reference that paid this row but is not the one clicked — named in
+  // the empty state so a blank timeline is never a dead end.
+  const otherRefs = refNumbers.filter(cn => cn !== selectedRef)
+  const shownTimeline = selectedRef ? timeline.filter(t => itemRef(t) === selectedRef) : timeline
+  const refPaid = selectedRef ? netPaid(safeData.filter(e => e.c_number === selectedRef)) : totalPaid
+  const editCount = shownTimeline.filter(t => t.kind === 'edited').length
+  const pickRef = (cn: string) => setSelectedRef(prev => (prev === cn ? null : cn))
+  // The reference badge on an event: click to see that reference alone, click
+  // again to go back to everything.
+  const refBadge = (cn: string) => (
+    <button
+      type="button" onClick={() => pickRef(cn)}
+      title={selectedRef === cn ? 'Show all references' : 'Show only ' + cn}
+      className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border transition-colors ${
+        selectedRef === cn ? 'bg-blue-600 text-white border-blue-600' : 'text-slate-500 bg-white border-slate-200 hover:border-blue-400 hover:text-blue-700'
+      }`}
+    >
+      {cn}
+    </button>
+  )
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -281,14 +356,48 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
             <p className="text-lg font-extrabold text-slate-800 tabular-nums">₹{fmtAmt(row.amount)}</p>
           </div>
           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3 text-center">
-            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-1">Net Paid</p>
-            <p className="text-lg font-extrabold text-emerald-700 tabular-nums">₹{fmtAmt(totalPaid)}</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-1">{selectedRef ? 'Paid via ' + selectedRef : 'Net Paid'}</p>
+            <p className="text-lg font-extrabold text-emerald-700 tabular-nums">₹{fmtAmt(refPaid)}</p>
+            {selectedRef && refPaid !== totalPaid && (
+              <p className="text-[10px] text-emerald-600/80 mt-0.5">of ₹{fmtAmt(totalPaid)} across all references</p>
+            )}
           </div>
           <div className={`rounded-xl border-2 p-3 text-center ${currentBalance > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
             <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${currentBalance > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>Balance Left</p>
             <p className={`text-lg font-extrabold tabular-nums ${currentBalance > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>₹{fmtAmt(currentBalance)}</p>
           </div>
         </div>
+
+        {/* The strip is up whenever this row has any history at all — the modal
+            now opens on one reference, so the way back to the rest must always
+            be on screen. The clicked reference is listed even when it paid
+            nothing, so the current selection is never an invisible filter. */}
+        {refNumbers.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-1">References</span>
+            <button
+              type="button" onClick={() => setSelectedRef(null)}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
+                selectedRef === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}
+            >
+              All ({timeline.length})
+            </button>
+            {(refNumbers.includes(row.c_number) || !row.c_number ? refNumbers : [row.c_number, ...refNumbers]).map(cn => {
+              const count = timeline.filter(t => itemRef(t) === cn).length
+              return (
+                <button
+                  key={cn} type="button" onClick={() => pickRef(cn)}
+                  className={`text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                    selectedRef === cn ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:text-blue-700'
+                  }`}
+                >
+                  {cn} <span className={selectedRef === cn ? 'text-white/70' : 'text-slate-400'}>({count})</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         {editCount > 0 && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-700">
@@ -312,13 +421,52 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
               <p className="text-xs text-slate-300 mt-0.5">Payments will appear here once this transaction is settled</p>
             </div>
           </div>
+        ) : shownTimeline.length === 0 ? (
+          // The row has history, but none of it under the reference that was
+          // clicked — say which references hold it rather than showing a blank.
+          <div className="flex flex-col items-center gap-3 py-10 text-center border-2 border-dashed border-slate-200 rounded-xl px-4">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
+              <History className="w-6 h-6 text-slate-300" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-500">Nothing recorded under {selectedRef}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                This transaction was paid through {otherRefs.length} other reference{otherRefs.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              {otherRefs.map(cn => (
+                <button
+                  key={cn} type="button" onClick={() => setSelectedRef(cn)}
+                  className="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:border-blue-400 hover:text-blue-700 transition-colors"
+                >
+                  {cn}
+                </button>
+              ))}
+              <button
+                type="button" onClick={() => setSelectedRef(null)}
+                className="text-[11px] font-bold px-2.5 py-1 rounded-full border border-slate-300 bg-slate-800 text-white hover:bg-slate-700 transition-colors"
+              >
+                Show all
+              </button>
+            </div>
+          </div>
         ) : (
           <>
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Payment Timeline</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+                Payment Timeline{selectedRef ? <span className="text-blue-600"> · {selectedRef}</span> : ''}
+              </p>
+              {selectedRef && (
+                <button type="button" onClick={() => setSelectedRef(null)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 underline underline-offset-2">
+                  Show all references
+                </button>
+              )}
+            </div>
             <div className="relative pl-10">
               <div className="absolute left-[14px] top-3 bottom-3 w-0.5 bg-gradient-to-b from-emerald-300 via-amber-200 to-slate-200 rounded-full" />
               <div className="space-y-4">
-                {timeline.map((item, idx) => {
+                {shownTimeline.map((item, idx) => {
 
                   /* ── EDITED entry ─────────────────────────────────────── */
                   if (item.kind === 'edited') {
@@ -340,9 +488,7 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
                               <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border bg-amber-100 text-amber-700 border-amber-300 flex-shrink-0">
                                 Edited
                               </span>
-                              <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                                {resettlement.c_number}
-                              </span>
+                              {refBadge(resettlement.c_number)}
                             </div>
                             {/* Before → After amounts */}
                             <div className="flex items-center gap-1.5 tabular-nums">
@@ -432,9 +578,7 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
                               }`}>
                                 {isApproved ? 'Approved' : 'Rejected'}
                               </span>
-                              <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                                {item.c_number}
-                              </span>
+                              {refBadge(item.c_number)}
                             </div>
                           </div>
                           <div className="px-4 py-3 bg-white grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -482,9 +626,7 @@ function PaymentHistoryModal({ row, data, auditMap, loading, onClose }: {
                             }`}>
                               {isPaid ? 'Paid' : 'Reversed'}
                             </span>
-                            <span className="text-[11px] font-mono font-semibold text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded">
-                              {entry.c_number}
-                            </span>
+                            {refBadge(entry.c_number)}
                           </div>
                           <span className={`text-xl font-extrabold tabular-nums ${isPaid ? 'text-emerald-700' : 'text-red-600'}`}>
                             {isPaid ? '+' : '−'}₹{fmtAmt(entry.payment)}
@@ -534,6 +676,7 @@ function DebitCreditCards({ entries }: { entries: any[] }) {
   const debitTotal = debitEntries.reduce((s, e) => s + Number(e.amount || 0), 0)
   const creditTotal = creditEntries.reduce((s, e) => s + Number(e.amount || 0), 0)
   const getLedgerName = (e: any) => e.temple_name || e.expensives || 'Unknown'
+  const groupOf = useLedgerGroupOf()
 
   return (
     <div className="grid grid-cols-2 gap-4">
@@ -547,7 +690,7 @@ function DebitCreditCards({ entries }: { entries: any[] }) {
             ? <p className="text-xs text-slate-400 text-center py-3">No debit entries</p>
             : debitEntries.map((e, i) => (
               <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
-                <span className="text-sm text-slate-700">{getLedgerName(e)}</span>
+                <span className="text-sm text-slate-700">{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                 <span className="text-sm text-slate-700 ml-2">₹{fmtAmt(Number(e.amount))}</span>
               </div>
             ))}
@@ -563,7 +706,7 @@ function DebitCreditCards({ entries }: { entries: any[] }) {
             ? <p className="text-xs text-slate-400 text-center py-3">No credit entries</p>
             : creditEntries.map((e, i) => (
               <div key={i} className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
-                <span className="text-sm text-slate-700">{getLedgerName(e)}</span>
+                <span className="text-sm text-slate-700">{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                 <span className="text-sm text-slate-700 ml-2">₹{fmtAmt(Number(e.amount))}</span>
               </div>
             ))}
@@ -589,8 +732,8 @@ function VoucherModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Reference Number</Label><Input value={data?.c_number || refNo} readOnly className="bg-slate-50" /></div>
           <div><Label>Voucher Type</Label><Input value={vType} readOnly className="bg-slate-50" /></div>
-          <div><Label>Voucher Date</Label><Input value={vDate ? new Date(vDate).toISOString().split('T')[0] : ''} readOnly className="bg-slate-50" /></div>
-          <div><Label>Value Date</Label><Input value={valueDate ? new Date(valueDate).toISOString().split('T')[0] : ''} readOnly className="bg-slate-50" /></div>
+          <div><Label>Voucher Date</Label><Input value={vDate ? toLocalISODate(new Date(vDate)) : ''} readOnly className="bg-slate-50" /></div>
+          <div><Label>Value Date</Label><Input value={valueDate ? toLocalISODate(new Date(valueDate)) : ''} readOnly className="bg-slate-50" /></div>
           <div><Label>Vehicle No</Label><Input value={vehicleNo} readOnly className="bg-slate-50" /></div>
           <div><Label>Name</Label><Input value={name} readOnly className="bg-slate-50" /></div>
         </div>
@@ -646,6 +789,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
   const debitEntries = entries.filter((e: any) => e.account_type === 'Debit Account' || e.amount_type === 'Debit Account')
   const creditEntries = entries.filter((e: any) => e.account_type === 'Credit Account' || e.amount_type === 'Credit Account')
   const getLedgerName = (e: any) => e.temple_name || e.expensives || 'Unknown'
+  const groupOf = useLedgerGroupOf()
   return (
     <ModalOverlay onClose={onClose}>
       <div className="px-6 py-4 rounded-t-2xl flex items-center justify-between" style={{ background: 'linear-gradient(90deg,#7b5bf2,#5ac8fa)' }}>
@@ -655,7 +799,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
       <div className="p-6 space-y-4">
         <div className="bg-sky-50 rounded-xl overflow-hidden">
           <div className="bg-sky-500 text-white px-4 py-2 text-sm font-bold">Vehicle Details</div>
-          <div className="overflow-auto max-h-64">
+          <DualScrollTable tableClassName="overflow-auto max-h-64">
             <table className="w-full text-sm">
               <thead><tr className="sticky top-0 z-10 bg-sky-100">{['Vehicle No', 'Blankets', 'Pillows', 'Whites', 'Covers', 'Curtains', 'Total'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-bold text-sky-700">{h}</th>)}</tr></thead>
               <tbody>
@@ -670,7 +814,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 </tr>
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="rounded-xl overflow-hidden shadow-sm">
@@ -681,7 +825,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
               {debitEntries.length === 0 ? <p className="text-xs text-slate-400 text-center py-2">No debit entries</p>
                 : debitEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span><span>₹{fmtAmt(Number(e.amount))}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span><span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
             </div>
@@ -694,7 +838,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
               {creditEntries.length === 0 ? <p className="text-xs text-slate-400 text-center py-2">No credit entries</p>
                 : creditEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span><span>₹{fmtAmt(Number(e.amount))}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span><span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
             </div>
@@ -726,6 +870,10 @@ interface TxRow {
   description?: string
   source_table?: string
   opp_ledgers?: string
+  // Set only for a row that came from a trip: the trip's own date and run
+  // status, which the voucher this row belongs to does not carry itself.
+  trip_status?: string
+  trip_c_number?: string
   valueDate?: string
   name?: string
   payablesremarks: string
@@ -749,27 +897,34 @@ interface CreditEntry {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
-export default function PayablesViewPage() {
+// The Payables view for one ledger. Opened as a popup over the report the
+// user is on (Group Wise, Day Book, Balance Sheet, Voucher Approvals) through
+// PayablesPopup, which passes the ledger - and, for an edit, the voucher - in
+// as `initialData` and gives it `onClose`. The route page below still exists
+// for a direct link and reads the same shape off localStorage instead.
+export function PayablesView({ initialData, onClose }: { initialData?: any; onClose?: () => void }) {
   const qc = useQueryClient()
   const userId = localStorage.getItem('user_id') ?? ''
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
-  const isFromBalanceSheet = localStorage.getItem('bs_ledger_name') === 'balacesheeet'
 
   const [ledgerData] = useState(() => {
+    if (initialData) return initialData
     try { return JSON.parse(localStorage.getItem('reportViewData') || 'null') } catch { return null }
   })
 
-  const ledgerId: number = isFromBalanceSheet
-    ? (ledgerData?.entries?.[0]?.id ?? null)
-    : (ledgerData?.entries?.id ?? null)
-  const ledgerName: string = isFromBalanceSheet
-    ? (ledgerData?.entries?.[0]?.name ?? ledgerData?.entries?.[0]?.temple_name ?? '')
-    : (ledgerData?.entries?.name ?? ledgerData?.entries?.temple_name ?? '')
+  // entries arrives as a one-element list from the reports and as a single
+  // object from older callers; either way it is the one ledger to show.
+  const entry = Array.isArray(ledgerData?.entries) ? ledgerData.entries[0] : ledgerData?.entries
+  const ledgerId: number = entry?.id ?? null
+  const ledgerName: string = entry?.name ?? entry?.temple_name ?? ''
+  // Leaving: back to the report underneath when opened as a popup, otherwise
+  // this is its own tab and closes it.
+  const leave = () => { if (onClose) onClose(); else window.close() }
 
   // Set when arriving via "Edit in Payables" from an existing voucher in
   // Voucher Approvals — pre-fills the form below with that voucher's own
@@ -804,7 +959,7 @@ export default function PayablesViewPage() {
   const [voucherForm, setVoucherForm] = useState(() => ({
     vouchertype: '' as any,
     voucher_type_id: '',
-    voucherdate: editVoucher?.voucherdate || new Date().toISOString().split('T')[0],
+    voucherdate: editVoucher?.voucherdate || todayISO(),
     valueDate: editVoucher?.valueDate || '',
     vehicleNo: editVoucher?.vehicleNo || '',
     name: editVoucher?.name || '',
@@ -1054,6 +1209,8 @@ export default function PayablesViewPage() {
           description: r.description ?? '',
           source_table: r.source_table ?? '',
           opp_ledgers: r.opp_ledgers ?? '',
+          trip_status: r.trip_status ?? '',
+          trip_c_number: r.trip_c_number ?? '',
           valueDate: r.valueDate ?? '',
           name: r.name ?? '',
           payablesremarks: r.payablesremarks ?? '',
@@ -1385,8 +1542,8 @@ export default function PayablesViewPage() {
         qc.invalidateQueries({ queryKey: ['payables-voucher-audit', editVoucher?.c_number] })
         setEditReason('')
         if (editSource.current === 'external') {
-          // Opened in a new tab via VoucherApprovals — close tab to return user there.
-          setTimeout(() => window.close(), 900)
+          // Opened from Voucher Approvals for this one edit - go back there.
+          if (onClose) onClose(); else setTimeout(() => window.close(), 900)
         } else {
           // Triggered in-page via Pencil button — just clear edit mode.
           setEditVoucher(null)
@@ -1435,7 +1592,7 @@ export default function PayablesViewPage() {
 
     if (editVoucher) {
       const userName = localStorage.getItem('usr_nm') || ''
-      const todayStr = new Date().toISOString().split('T')[0]
+      const todayStr = todayISO()
 
       // Lightweight diff for the audit trail — header fields plus which
       // transactions/credit ledgers are settling this voucher now.
@@ -1487,12 +1644,14 @@ export default function PayablesViewPage() {
   const title = ledgerName ? `${ledgerName} — Payables Report` : 'Payables Report'
 
   const exportToExcel = () => {
-    const headers = ['Sl No', 'Date', 'Ref No', 'Voucher Type', 'Vehicle No', 'Description', 'Amount', 'Payment', 'Balance', 'Remarks']
+    const headers = ['Sl No', 'Date', 'Trip Date', 'Ref No', 'Voucher Type', 'Trip Status', 'Vehicle No', 'Description', 'Amount', 'Payment', 'Balance', 'Remarks']
     const dataRows = rows.map((r, i) => [
       i + 1,
       fmt(resolveDateStr(r)),
+      r.trip_date && r.trip_c_number ? fmt(r.trip_date) : '-',
       r.c_number || '-',
       r.vouchertype || '-',
+      r.trip_status || '-',
       r.vehicleNo || r.bus_no || '-',
       r.description || '-',
       displayAmt(r).toFixed(2),
@@ -1500,7 +1659,7 @@ export default function PayablesViewPage() {
       isCreditAcct(r) ? (r.tempbalance || 0).toFixed(2) : '-',
       r.payablesremarks || '',
     ])
-    const totalRow = ['', '', '', '', '', 'Grand Total', grandAmount.toFixed(2), grandPayment.toFixed(2), grandBalance.toFixed(2), '']
+    const totalRow = ['', '', '', '', '', '', '', 'Grand Total', grandAmount.toFixed(2), grandPayment.toFixed(2), grandBalance.toFixed(2), '']
     const data = [headers, ...dataRows, totalRow]
     const ws = XLSX.utils.aoa_to_sheet(data)
     ws['!cols'] = data[0].map((_: any, i: number) => ({ wch: Math.max(...data.map(r => String(r[i] ?? '').length)) + 2 }))
@@ -1517,12 +1676,14 @@ export default function PayablesViewPage() {
     const doc = new jsPDF('landscape')
     doc.setFontSize(14)
     doc.text(title, 14, 15)
-    const headers = ['Sl No', 'Date', 'Ref No', 'Voucher Type', 'Vehicle No', 'Description', 'Amount', 'Payment', 'Balance', 'Remarks']
+    const headers = ['Sl No', 'Date', 'Trip Date', 'Ref No', 'Voucher Type', 'Trip Status', 'Vehicle No', 'Description', 'Amount', 'Payment', 'Balance', 'Remarks']
     const body: any[][] = rows.map((r, i) => [
       (i + 1).toString(),
       fmt(resolveDateStr(r)),
+      r.trip_date && r.trip_c_number ? fmt(r.trip_date) : '-',
       r.c_number || '-',
       r.vouchertype || '-',
+      r.trip_status || '-',
       r.vehicleNo || r.bus_no || '-',
       r.description || '-',
       { content: displayAmt(r).toFixed(2), styles: { halign: 'right' as const } },
@@ -1530,7 +1691,7 @@ export default function PayablesViewPage() {
       { content: isCreditAcct(r) ? (r.tempbalance || 0).toFixed(2) : '-', styles: { halign: 'right' as const } },
       r.payablesremarks || '',
     ])
-    body.push(['', '', '', '', '', { content: 'Grand Total', styles: { fontStyle: 'bold' as const, halign: 'right' as const } },
+    body.push(['', '', '', '', '', '', '', { content: 'Grand Total', styles: { fontStyle: 'bold' as const, halign: 'right' as const } },
       { content: grandAmount.toFixed(2), styles: { fontStyle: 'bold' as const, halign: 'right' as const } },
       { content: grandPayment.toFixed(2), styles: { fontStyle: 'bold' as const, halign: 'right' as const } },
       { content: grandBalance.toFixed(2), styles: { fontStyle: 'bold' as const, halign: 'right' as const } },
@@ -1543,17 +1704,21 @@ export default function PayablesViewPage() {
       theme: 'grid',
       headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: 'bold', halign: 'center' },
       styles: { fontSize: 8, cellPadding: 2 },
+      // 12 columns must still fit A4 landscape's 269mm of printable width:
+      // Description and Remarks give up the room the two trip columns take.
       columnStyles: {
         0: { cellWidth: 12, halign: 'center' },
-        1: { cellWidth: 22 },
-        2: { cellWidth: 22 },
-        3: { cellWidth: 24 },
-        4: { cellWidth: 24 },
-        5: { cellWidth: 50 },
-        6: { cellWidth: 22, halign: 'right' },
-        7: { cellWidth: 22, halign: 'right' },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 22 },
+        4: { cellWidth: 22 },
+        5: { cellWidth: 20 },
+        6: { cellWidth: 24 },
+        7: { cellWidth: 33 },
         8: { cellWidth: 22, halign: 'right' },
-        9: { cellWidth: 30 },
+        9: { cellWidth: 22, halign: 'right' },
+        10: { cellWidth: 22, halign: 'right' },
+        11: { cellWidth: 22 },
       },
     })
     doc.save(`${title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`)
@@ -1594,7 +1759,7 @@ export default function PayablesViewPage() {
       {/* Header */}
       <div className="flex items-center gap-4 flex-wrap">
         <button
-          onClick={() => window.close()}
+          onClick={leave}
           className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Close
@@ -1604,20 +1769,7 @@ export default function PayablesViewPage() {
           subtitle="Track and record outstanding payable transactions"
         />
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={exportToExcel}
-            disabled={rows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-40"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Excel
-          </button>
-          <button
-            onClick={exportToPDF}
-            disabled={rows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-40"
-          >
-            <FileText className="w-4 h-4" /> PDF
-          </button>
+          <ExportMenu disabled={rows.length === 0} onExport={(f) => f === 'excel' ? exportToExcel() : exportToPDF()} />
         </div>
       </div>
 
@@ -1714,7 +1866,7 @@ export default function PayablesViewPage() {
             </GlassCard>
           ) : (
             <GlassCard className="overflow-hidden">
-              <div className="overflow-auto max-h-[70vh]">
+              <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr>
@@ -1780,6 +1932,11 @@ export default function PayablesViewPage() {
                           </td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600 text-sm">
                             {fmt(resolveDateStr(row))}
+                            {tripDateOf(row) && (
+                              <div className="text-[11px] font-semibold text-slate-400" title={`Trip ${row.trip_c_number} ran on this date`}>
+                                Trip {fmt(tripDateOf(row))}
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
                             {row.c_number && row.c_number !== '-' ? (
@@ -1816,7 +1973,17 @@ export default function PayablesViewPage() {
                               <span className="text-slate-400 text-sm">-</span>
                             )}
                           </td>
-                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700 text-sm">{row.vouchertype || 'Journal'}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700 text-sm">
+                            {row.vouchertype || 'Journal'}
+                            {row.trip_status && (
+                              <div className="mt-1 flex items-center gap-1.5">
+                                <TripStatusBadge status={row.trip_status} />
+                                {row.trip_c_number && row.trip_c_number !== row.c_number && (
+                                  <span className="text-[10px] font-mono text-slate-400">{row.trip_c_number}</span>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600 text-sm">{row.vehicleNo || row.bus_no || '-'}</td>
                           <td className="px-3 py-3 border-b border-slate-100 max-w-[200px] truncate text-slate-500 text-sm">{row.description || '-'}</td>
                           <td className="px-3 py-3 border-b border-slate-100 text-right tabular-nums text-slate-800 text-sm">
@@ -1894,7 +2061,7 @@ export default function PayablesViewPage() {
                     </tr>
                   </tfoot>
                 </table>
-              </div>
+              </DualScrollTable>
             </GlassCard>
           )}
 
@@ -1969,7 +2136,7 @@ export default function PayablesViewPage() {
                       Enter a payment amount and select a transaction row above to auto-populate debit entries.
                     </p>
                   ) : (
-                    <div className="overflow-auto max-h-64">
+                    <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-100">
@@ -1982,13 +2149,13 @@ export default function PayablesViewPage() {
                           {debitEntries.map((d, i) => (
                             <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
                               <td className="px-3 py-2 text-xs text-slate-600">{i + 1}</td>
-                              <td className="px-3 py-2 text-xs text-slate-800">{d.ledger?.temple_name}</td>
+                              <td className="px-3 py-2 text-xs text-slate-800">{d.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(d.ledger)} /></td>
                               <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">₹{fmtAmt(d.amount)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                    </DualScrollTable>
                   )}
                 </div>
 
@@ -2004,7 +2171,7 @@ export default function PayablesViewPage() {
                       value={creditAddForm.ledger_id}
                       placeholder="Select Ledger"
                       searchable
-                      options={creditLedgerOptions.map((e: any) => ({ label: e.temple_name ?? e.name, value: String(e.id) }))}
+                      options={creditLedgerOptions.map((e: any) => ledgerOption(e))}
                       onChange={v => setCreditAddForm(f => ({ ...f, ledger_id: v }))}
                       onRefresh={() => refetchExpenseLedgers()}
                       refreshing={expenseLedgersFetching}
@@ -2025,7 +2192,7 @@ export default function PayablesViewPage() {
                   {effectiveCreditEntries.length === 0 ? (
                     <p className="text-sm text-slate-400 italic py-2">No credit entries added yet.</p>
                   ) : (
-                    <div className="overflow-auto max-h-64">
+                    <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-100">
@@ -2047,10 +2214,10 @@ export default function PayablesViewPage() {
                                       value={editingCreditForm.ledger_id}
                                       placeholder="Select Ledger"
                                       searchable
-                                      options={creditLedgerOptions.map((e: any) => ({ label: e.temple_name ?? e.name, value: String(e.id) }))}
+                                      options={creditLedgerOptions.map((e: any) => ledgerOption(e))}
                                       onChange={v => setEditingCreditForm(f => ({ ...f, ledger_id: v }))}
                                     />
-                                  ) : c.ledger?.temple_name}
+                                  ) : <>{c.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(c.ledger)} /></>}
                                 </td>
                                 <td className="px-3 py-2 text-xs text-right tabular-nums text-slate-800">
                                   {isEditing ? (
@@ -2118,7 +2285,7 @@ export default function PayablesViewPage() {
                             <tr className="bg-emerald-50/60 italic">
                               <td className="px-3 py-2 text-xs text-slate-400">{creditEntries.length + 1}</td>
                               <td className="px-3 py-2 text-xs text-emerald-700">
-                                {pendingCreditEntry.ledger?.temple_name}
+                                {pendingCreditEntry.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(pendingCreditEntry.ledger)} />
                                 <span className="ml-1.5 text-[10px] font-semibold not-italic text-emerald-500 bg-emerald-100 px-1.5 py-0.5 rounded">pending</span>
                               </td>
                               <td className="px-3 py-2 text-xs text-right tabular-nums text-emerald-700">₹{fmtAmt(pendingCreditEntry.amount)}</td>
@@ -2135,7 +2302,7 @@ export default function PayablesViewPage() {
                           )}
                         </tbody>
                       </table>
-                    </div>
+                    </DualScrollTable>
                   )}
                 </div>
               </div>
@@ -2178,4 +2345,10 @@ export default function PayablesViewPage() {
       )}
     </motion.div>
   )
+}
+
+// The /accounting/payables-view route: the same view, fed from localStorage
+// the way a direct link or an older caller hands the ledger over.
+export default function PayablesViewPage() {
+  return <PayablesView />
 }

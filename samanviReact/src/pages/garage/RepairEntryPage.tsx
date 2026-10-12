@@ -1,15 +1,16 @@
 import { useState, useMemo } from 'react'
 import { motion } from 'motion/react'
-import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, FileSpreadsheet, FileText, History, Clock } from 'lucide-react'
+import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 interface JobRow { category: string; priority: string; technician: string; description: string }
 interface PartRow { category_id: string; part_id: string; qty: string; rate: string }
@@ -19,7 +20,7 @@ const emptyPartRow = (): PartRow => ({ category_id: '', part_id: '', qty: '1', r
 export default function RepairEntryPage() {
   const qc = useQueryClient()
 
-  const [form, setForm] = useState({ job_date: new Date().toISOString().split('T')[0], bus_no: '', odometer: '', driver: '' })
+  const [form, setForm] = useState({ job_date: todayISO(), bus_no: '', odometer: '', driver: '' })
   const [jobRows, setJobRows] = useState<JobRow[]>([{ category: '', priority: 'Medium', technician: '', description: '' }])
   const [submitted, setSubmitted] = useState(false)
 
@@ -77,7 +78,7 @@ export default function RepairEntryPage() {
   const entryList: any[] = entries?.data ?? []
   const ledgerList: any[] = ledgersData?.data ?? []
 
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
   const partsOptions = partsList.map((p: any) => ({ value: String(p.part_id), label: p.part_name }))
   const catOptions = catList.map((c: any) => ({ value: String(c.id), label: c.name }))
 
@@ -191,7 +192,7 @@ export default function RepairEntryPage() {
     if (!d) return '-'
     const dt = new Date(d)
     if (isNaN(dt.getTime())) return '-'
-    return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`
+    return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
   }
 
   const dueDays = (d: any) => {
@@ -223,7 +224,7 @@ export default function RepairEntryPage() {
         const count = Array.isArray(res.data) ? res.data.length : 1
         toast.success(count > 1 ? `${count} job cards created!` : 'Job card created successfully!')
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
-        setForm({ job_date: new Date().toISOString().split('T')[0], bus_no: '', odometer: '', driver: '' })
+        setForm({ job_date: todayISO(), bus_no: '', odometer: '', driver: '' })
         setJobRows([{ category: '', priority: 'Medium', technician: '', description: '' }])
         setSubmitted(false)
       } else toast.error('Failed to create job card')
@@ -355,6 +356,7 @@ export default function RepairEntryPage() {
                 <SearchableSelect
                   value={form.bus_no}
                   onChange={setField('bus_no')}
+                  onClear={() => setField('bus_no')('')}
                   options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                   placeholder="Select Bus"
                   onReload={() => reloadBuses()}
@@ -371,7 +373,8 @@ export default function RepairEntryPage() {
                 <SearchableSelect
                   value={form.driver}
                   onChange={setField('driver')}
-                  options={driverList.map((d) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))}
+                  onClear={() => setField('driver')('')}
+                  options={driverList.map((d) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))}
                   placeholder="Select Driver"
                   onReload={() => reloadDrivers()}
                   reloading={loadingDrivers}
@@ -400,6 +403,7 @@ export default function RepairEntryPage() {
                     <SearchableSelect
                       value={r.category}
                       onChange={updateJobRow(i, 'category')}
+                      onClear={() => updateJobRow(i, 'category')('')}
                       options={catOptions}
                       placeholder="Select Category"
                       onReload={() => reloadCats()}
@@ -416,6 +420,7 @@ export default function RepairEntryPage() {
                     <SearchableSelect
                       value={r.technician}
                       onChange={updateJobRow(i, 'technician')}
+                      onClear={() => updateJobRow(i, 'technician')('')}
                       options={staffList.map((s) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))}
                       placeholder="Select Technician"
                       onReload={() => reloadStaff()}
@@ -452,12 +457,7 @@ export default function RepairEntryPage() {
                 </span>
               </h3>
               <div className="flex gap-1.5">
-                <button onClick={downloadExcel} className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
-                  <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
-                </button>
-                <button onClick={downloadPdf} className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors">
-                  <FileText className="w-3.5 h-3.5" /> PDF
-                </button>
+                <ExportMenu onExport={(f) => f === 'excel' ? downloadExcel() : downloadPdf()} />
                 {activeFilterCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
                     {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active ·{' '}
@@ -466,7 +466,7 @@ export default function RepairEntryPage() {
                 )}
               </div>
             </div>
-            <div className="overflow-auto max-h-[70vh]">
+            <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr>
@@ -546,7 +546,7 @@ export default function RepairEntryPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </DualScrollTable>
           </GlassCard>
 
           {/* ── Finish Job Modal ───────────────────────────────────────────── */}
@@ -586,6 +586,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={finishDebitLedgerId}
                             onChange={setFinishDebitLedgerId}
+                            onClear={() => setFinishDebitLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Debit Ledger"
                             onReload={() => reloadLedgers()}
@@ -601,6 +602,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={finishCreditLedgerId}
                             onChange={setFinishCreditLedgerId}
+                            onClear={() => setFinishCreditLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Credit Ledger"
                             onReload={() => reloadLedgers()}
@@ -626,7 +628,7 @@ export default function RepairEntryPage() {
                     {finishRepeat && (
                       <div className="mt-3 max-w-xs">
                         <Label>Next Job Date</Label>
-                        <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                        <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
                       </div>
                     )}
                   </div>
@@ -744,6 +746,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={debitLedgerId}
                             onChange={setDebitLedgerId}
+                            onClear={() => setDebitLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Debit Ledger"
                             onReload={() => reloadLedgers()}
@@ -762,6 +765,7 @@ export default function RepairEntryPage() {
                           <SearchableSelect
                             value={creditLedgerId}
                             onChange={setCreditLedgerId}
+                            onClear={() => setCreditLedgerId('')}
                             options={ledgerOptions}
                             placeholder="Select Credit Ledger"
                             onReload={() => reloadLedgers()}
@@ -804,12 +808,18 @@ export default function RepairEntryPage() {
                                 placeholder="Category"
                                 onReload={() => reloadCats()}
                                 reloading={loadingCats}
+                                onClear={() => setCompleteParts(prev => prev.map((row, idx) =>
+                                  idx === i ? { ...row, category_id: '', part_id: '', rate: '' } : row
+                                ))}
                               />
                             </div>
                             <div className="flex-[2.5] min-w-0">
                               <SearchableSelect
                                 value={r.part_id}
                                 onChange={(v) => handlePartSelect(i, v)}
+                                onClear={() => setCompleteParts(prev => prev.map((row, idx) =>
+                                  idx === i ? { ...row, part_id: '', rate: '' } : row
+                                ))}
                                 options={rowPartsOptions}
                                 placeholder="Select Part"
                                 onReload={() => reloadParts()}
@@ -873,6 +883,7 @@ export default function RepairEntryPage() {
                             <SearchableSelect
                               value={newPart.category_id}
                               onChange={(v) => setNewPart(s => ({ ...s, category_id: v }))}
+                              onClear={() => setNewPart(s => ({ ...s, category_id: '' }))}
                               options={catOptions}
                               placeholder="Select Category"
                               onReload={() => reloadCats()}
@@ -934,7 +945,7 @@ export default function RepairEntryPage() {
                   {completeRepeat && (
                     <div className="mt-3 max-w-xs">
                       <Label>Next Job Date</Label>
-                      <Input type="date" value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                      <Input type="date" value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={todayISO()} />
                     </div>
                   )}
                 </div>

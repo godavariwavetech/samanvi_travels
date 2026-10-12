@@ -9,6 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const EMPTY_FORM = {
   from_bus: '', position_log_id: '', tyre_id: '',
@@ -25,16 +26,17 @@ const DESTINATION_STATUS_MAP: Record<string, string> = {
 }
 
 // A tyre not currently mounted and not sold off is "in stock" somewhere —
-// eligible as the source for Stock-to-Bus / Stock-to-Stock moves.
-const isInStock = (t: any) => t.status !== 'In Use' && t.status !== 'Sold'
+// eligible as the source for Stock-to-Bus / Stock-to-Stock moves. One still
+// awaiting voucher approval cannot be moved at all, so it never reaches here.
+const isInStock = (t: any) => isApprovedTyre(t) && t.status !== 'In Use' && t.status !== 'Sold'
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function fmtDate(v: any) {
   if (!v) return '—'
   const d = new Date(v)
   if (isNaN(d.getTime())) return String(v)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 export default function TyreMovementPage() {
@@ -63,7 +65,7 @@ export default function TyreMovementPage() {
   // (Retread Tyre Entry), not by this move.
   const destinationOptions = ledgerList
     .filter((l: any) => Object.prototype.hasOwnProperty.call(DESTINATION_STATUS_MAP, l.temple_name))
-    .map((l: any) => ({ value: String(l.id), label: l.temple_name }))
+    .map((l: any) => ledgerOption(l))
 
   const destinationName = ledgerList.find((l: any) => String(l.id) === form.destination_ledger_id)?.temple_name || ''
   const destinationStatus = DESTINATION_STATUS_MAP[destinationName]
@@ -146,7 +148,6 @@ export default function TyreMovementPage() {
       <GlassCard className="p-6" colorBar="bg-gradient-to-r from-indigo-500 to-blue-500">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ArrowLeftRight className="w-5 h-5 text-indigo-500" /> Move Tyre</h2>
-          <Button onClick={() => move()} disabled={isPending || !canMove}><Save className="w-4 h-4" />{isPending ? 'Moving…' : 'Submit'}</Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -177,6 +178,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.from_bus}
                     onChange={(v) => setForm((s) => ({ ...s, from_bus: v, position_log_id: '' }))}
+                    onClear={() => setForm((s) => ({ ...s, from_bus: '', position_log_id: '' }))}
                     options={busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Select Bus"
                     onReload={() => reloadBuses()}
@@ -186,6 +188,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.position_log_id}
                     onChange={setField('position_log_id')}
+                    onClear={() => setField('position_log_id')('')}
                     options={tyresOnFromBus.map((p: any) => ({ value: String(p.id), label: `${p.tyre_code} — ${p.brand} (${p.position})` }))}
                     placeholder={form.from_bus ? 'Select Tyre' : 'Select a bus first'}
                     onReload={() => reloadActive()}
@@ -197,6 +200,7 @@ export default function TyreMovementPage() {
                 <SearchableSelect
                   value={form.tyre_id}
                   onChange={setField('tyre_id')}
+                  onClear={() => setField('tyre_id')('')}
                   options={stockTyreList.map((t: any) => ({ value: String(t.id), label: `${t.tyre_code} — ${t.brand} (${t.status})` }))}
                   placeholder="Select Tyre from Store"
                   onReload={() => reloadTyres()}
@@ -232,6 +236,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.to_bus}
                     onChange={setField('to_bus')}
+                    onClear={() => setField('to_bus')('')}
                     options={busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Select Bus"
                     onReload={() => reloadBuses()}
@@ -241,6 +246,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.to_position}
                     onChange={setField('to_position')}
+                    onClear={() => setField('to_position')('')}
                     options={positionList.map((p: any) => ({ value: p.position_name, label: p.position_name }))}
                     placeholder="Select Position"
                     onReload={() => reloadPositions()}
@@ -258,6 +264,7 @@ export default function TyreMovementPage() {
                   <SearchableSelect
                     value={form.destination_ledger_id}
                     onChange={setField('destination_ledger_id')}
+                    onClear={() => setField('destination_ledger_id')('')}
                     options={destinationOptions}
                     placeholder="Good stock, pending retread, or scrap?"
                     onReload={() => reloadLedgers()}
@@ -268,6 +275,10 @@ export default function TyreMovementPage() {
               </>
             )}
           </div>
+        </div>
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => move()} disabled={isPending || !canMove}><Save className="w-4 h-4" />{isPending ? 'Moving…' : 'Submit'}</Button>
         </div>
       </GlassCard>
 

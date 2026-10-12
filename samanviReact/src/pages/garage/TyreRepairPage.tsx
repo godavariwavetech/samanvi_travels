@@ -9,6 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const EMPTY_FORM = { repair_date: '', vehicle_number: '', odometer: '', tyre_id: '', repair_type: '', has_cost: true, cost: '', vendor_id: '', remarks: '' }
 
@@ -17,13 +18,13 @@ const DEBIT_LEDGER_NAME = 'Tyre Maintenance'
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 function fmtDate(v: any) {
   if (!v) return '—'
   const d = new Date(v)
   if (isNaN(d.getTime())) return String(v)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 export default function TyreRepairPage() {
@@ -42,11 +43,13 @@ export default function TyreRepairPage() {
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
 
   const list: any[] = data?.data ?? []
-  const tyreList: any[] = tyres?.data ?? []
+  // A tyre whose purchase voucher is pending or rejected is not a sanctioned
+  // purchase, so it is not offered for repair.
+  const tyreList: any[] = (tyres?.data ?? []).filter(isApprovedTyre)
   const vendorList: any[] = vendors?.data ?? []
   const busList: any[] = buses?.data ?? []
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   const selectedTyre = tyreList.find((t: any) => String(t.id) === form.tyre_id)
 
@@ -132,7 +135,6 @@ export default function TyreRepairPage() {
       <GlassCard className="p-6" colorBar="bg-gradient-to-r from-rose-500 to-red-500">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Wrench className="w-5 h-5 text-rose-500" /> New Repair Entry</h2>
-          <Button onClick={() => save()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Entry'}</Button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div><Label>Repair Date</Label><Input type="date" max={today} value={form.repair_date} onChange={f('repair_date')} /></div>
@@ -140,6 +142,7 @@ export default function TyreRepairPage() {
             <SearchableSelect
               value={form.vehicle_number}
               onChange={setField('vehicle_number')}
+              onClear={() => setField('vehicle_number')('')}
               options={busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))}
               placeholder="Select Bus"
               onReload={() => reloadBuses()}
@@ -150,6 +153,7 @@ export default function TyreRepairPage() {
             <SearchableSelect
               value={form.tyre_id}
               onChange={setField('tyre_id')}
+              onClear={() => setField('tyre_id')('')}
               options={tyreList.map((t: any) => ({ value: String(t.id), label: `${t.tyre_code} — ${t.brand}` }))}
               placeholder="Select Tyre"
               onReload={() => reloadTyres()}
@@ -178,6 +182,7 @@ export default function TyreRepairPage() {
                 <SearchableSelect
                   value={form.vendor_id}
                   onChange={setField('vendor_id')}
+                  onClear={() => setField('vendor_id')('')}
                   options={vendorList.map((v: any) => ({ value: String(v.id), label: v.vendor_name }))}
                   placeholder="Select vendor"
                   onReload={() => reloadVendors()}
@@ -217,6 +222,7 @@ export default function TyreRepairPage() {
                         <div className="flex-[3] min-w-0">
                           <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                             onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                             options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                         </div>
                         <div className="flex-[2] min-w-0">
@@ -242,6 +248,7 @@ export default function TyreRepairPage() {
                         <div className="flex-[3] min-w-0">
                           <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                             onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                            onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                             options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                         </div>
                         <div className="flex-[2] min-w-0">
@@ -263,6 +270,10 @@ export default function TyreRepairPage() {
             )}
           </div>
         )}
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => save()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save Entry'}</Button>
+        </div>
       </GlassCard>
 
       <DataTable

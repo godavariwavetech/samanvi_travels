@@ -8,7 +8,8 @@ import {
 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { exportRows, type ExportFormat } from '@/lib/tableExport'
 import { accountingService } from '@/services/accounting.service'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -577,9 +578,24 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
   const filteredSearchItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return []
+    // Items whose own name matches come first (exact, then starts-with, then
+    // contains); items only matched through a parent's name come last. With the
+    // path matches mixed in tree order, a query that is also a group's name
+    // ("Staff", "Fuel") filled the list with that group's contents and pushed the
+    // ledger actually searched for past the cut-off.
+    const rank = (item: FlatGroup) => {
+      const name = item.node.name.toLowerCase()
+      if (name === q) return 0
+      if (name.startsWith(q)) return 1
+      if (name.includes(q)) return 2
+      return item.path.toLowerCase().includes(q) ? 3 : -1
+    }
     return allSearchItems
-      .filter(item => item.node.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q))
-      .slice(0, 25)
+      .map(item => ({ item, r: rank(item) }))
+      .filter(x => x.r >= 0)
+      .sort((a, b) => a.r - b.r)
+      .slice(0, 100)
+      .map(x => x.item)
   }, [allSearchItems, searchQuery])
 
   const jumpToSearchResult = (item: FlatGroup) => {
@@ -606,6 +622,32 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
     }
     return result
   }, [sectionRoots, viewLevel, isLoading])
+
+  // ── Export ────────────────────────────────────────────────
+  // One row per group / ledger with the path above it. The tree view exports
+  // the whole hierarchy (collapsed or not); a level view exports its own list.
+  const handleExport = (format: ExportFormat) => {
+    const rows: [string, string, string][] = []
+    const walk = (n: HNode, path: string) => {
+      rows.push([n.name, n.nodeType === 'ledger' ? 'Ledger' : LEVEL_LABELS[n.level] || 'Group', path])
+      n.children.forEach(c => walk(c, `${path} › ${n.name}`))
+    }
+    if (viewLevel) {
+      levelNodes.forEach(({ node, path, ledgers }) => {
+        rows.push([node.name, LEVEL_LABELS[node.level] || 'Group', path])
+        ledgers.forEach(l => rows.push([l.name, 'Ledger', `${path} › ${node.name}`]))
+      })
+    } else {
+      for (const sec of SECTIONS) sectionRoots[sec.key]?.children.forEach(c => walk(c, sec.label))
+    }
+    exportRows({
+      title: viewLevel ? LEVEL_META[viewLevel]?.title ?? 'Groups' : 'Group Management',
+      headers: ['Sl No', 'Name', 'Type', 'Path'],
+      // '›' is not in the PDF's built-in font.
+      rows: rows.map(([name, type, path], i) => [i + 1, name, type, path.replace(/›/g, '>')]),
+      format,
+    })
+  }
 
   // ── Flat group list for move modal ────────────────────────
   const allFlatGroups = useMemo<FlatGroup[]>(() => {
@@ -789,6 +831,10 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
           </GlassCard>
         ) : (
           <GlassCard className="overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 bg-white/40 flex items-center justify-between gap-3">
+              <span className="text-xs text-slate-500 font-medium">{levelNodes.length} {levelMeta?.title.toLowerCase() ?? 'groups'}</span>
+              <ExportMenu onExport={handleExport} />
+            </div>
             {levelNodes.map(({ node, path, ledgers }) => (
               <div key={node.id}>
                 {/* Group row */}
@@ -895,6 +941,7 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                 )}
               </AnimatePresence>
             </div>
+            <ExportMenu onExport={handleExport} disabled={isLoading} />
           </div>
 
           {/* Sections */}

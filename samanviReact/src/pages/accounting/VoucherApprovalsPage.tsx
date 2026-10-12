@@ -2,14 +2,14 @@
 import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, ledgerGroupName, todayISO } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
 
@@ -72,8 +72,8 @@ function LedgerDropdown({ value, ledgers, onChange, onRefresh, refreshing }: {
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
-  const filtered = ledgers.filter(l => l.temple_name?.toLowerCase().includes(search.toLowerCase()))
-  const groupOf = (l: any) => l?.subchildtwo || l?.child || ''
+  const filtered = ledgers.filter(l => `${l.temple_name ?? ''} ${ledgerGroupName(l)}`.toLowerCase().includes(search.toLowerCase()))
+  const groupOf = (l: any) => ledgerGroupName(l)
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
   const panel = open && rect && createPortal(
@@ -203,15 +203,17 @@ interface FilterOpts {
   busList: { label: string; value: string }[]
   staffOptions: { label: string; value: string }[]
   entryByOpts: { label: string; value: string }[]
+  // Parent group of a ledger by name, shown muted beside the Dr/Cr ledger names.
+  ledgerGroupOf?: (l: { id?: unknown; name?: unknown }) => string
 }
 
 // Required columns — always visible, no checkbox in the picker.
 const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Voucher Date', 'Dr. Ledger', 'Cr. Ledger', 'Amount'] as const
 // Optional columns — user can toggle visibility via checkboxes.
-const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
+const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
 const ALL_VOUCHER_COLS = [...REQUIRED_VOUCHER_COLS, ...OPTIONAL_VOUCHER_COLS] as const
 type VoucherColId = typeof ALL_VOUCHER_COLS[number]
-const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Bus / Vehicle', 'Driver'])
+const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver'])
 
 const buildCols = (
   onApprove: (row: any) => void,
@@ -268,6 +270,11 @@ const buildCols = (
             <CircleDot className="w-2.5 h-2.5" /> Tyre
           </span>
         )}
+        {(row.source_type === 'trip' || row.trip_c_number) && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
+            <Map className="w-2.5 h-2.5" /> Trip
+          </span>
+        )}
       </div>
     ),
   })
@@ -291,6 +298,13 @@ const buildCols = (
       : <span className="text-slate-300">—</span>,
   })
 
+  if (show('Trip Ref')) cols.push({
+    label: 'Trip Ref', key: 'trip_c_number', filterable: true, filterType: 'text',
+    render: (v: any) => v
+      ? <span className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded whitespace-nowrap">{String(v)}</span>
+      : <span className="text-slate-300">—</span>,
+  })
+
   if (show('Bus / Vehicle')) cols.push({
     label: 'Bus / Vehicle', key: 'vehicleNo', filterable: true, filterType: 'select',
     filterOptions: fOpts.busList,
@@ -307,7 +321,7 @@ const buildCols = (
     render: (v: any) => {
       const items: string[] = Array.isArray(v) ? v : []
       return items.length
-        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}</span>)}</div>
+        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-red-700 whitespace-nowrap">{l}<LedgerGroupTag group={fOpts.ledgerGroupOf?.({ name: l })} /></span>)}</div>
         : <span className="text-slate-300">—</span>
     },
   })
@@ -317,7 +331,7 @@ const buildCols = (
     render: (v: any) => {
       const items: string[] = Array.isArray(v) ? v : []
       return items.length
-        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}</span>)}</div>
+        ? <div className="flex flex-col gap-0.5">{items.map((l, i) => <span key={i} className="text-xs font-medium text-emerald-700 whitespace-nowrap">{l}<LedgerGroupTag group={fOpts.ledgerGroupOf?.({ name: l })} /></span>)}</div>
         : <span className="text-slate-300">—</span>
     },
   })
@@ -436,7 +450,7 @@ function ELedgerTable({ rows, side, offset = 0, ledgers, onRemove, onUpdate, onR
                   <LedgerDropdown value={draftLedger} ledgers={ledgersFor(row)} onChange={setDraftLedger}
                     onRefresh={onRefreshLedgers} refreshing={ledgersRefreshing} />
                 ) : (
-                  <span className="font-medium text-slate-800 truncate max-w-[160px] block">{row.ledger?.temple_name}</span>
+                  <span className="font-medium text-slate-800 truncate max-w-[200px] block">{row.ledger?.temple_name}<LedgerGroupTag group={ledgerGroupName(row.ledger)} /></span>
                 )}
               </td>
               <td className="py-2 pr-1 align-middle text-right">
@@ -501,7 +515,7 @@ function ELedgerDetailCard({
   onRefreshStaff?: () => void; staffRefreshing?: boolean
 }) {
   const isDr = side === 'debit'
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = todayISO()
   return (
     <div className={`rounded-xl border-2 overflow-hidden ${isDr ? 'border-red-200' : 'border-emerald-200'}`}>
       <div className={`flex items-center justify-between px-4 py-2.5 ${isDr ? 'bg-red-50' : 'bg-emerald-50'}`}>
@@ -510,6 +524,7 @@ function ELedgerDetailCard({
           <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide flex-shrink-0 ${isDr ? 'text-red-500 bg-red-100 border border-red-200' : 'text-emerald-600 bg-emerald-100 border border-emerald-200'}`}>{isDr ? 'DR' : 'CR'}</span>
           <span className="font-semibold text-slate-800 text-sm truncate min-w-0">
             {item.ledger?.temple_name ?? <span className="text-slate-400 italic text-xs">Ledger not selected</span>}
+            {item.ledger && <LedgerGroupTag group={ledgerGroupName(item.ledger)} />}
           </span>
           {isPending && <span className="text-[10px] text-slate-400 italic bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">pending</span>}
         </div>
@@ -570,10 +585,11 @@ function groupVoucherRows(rows: any[]): any[] {
   }))
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 import ActivityHistory from '@/components/shared/ActivityHistory'
+import { PayablesPopup } from './PayablesPopup'
 
 export default function VoucherApprovalsPage() {
   const navigate = useNavigate()
@@ -628,6 +644,7 @@ export default function VoucherApprovalsPage() {
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
   })
+  const ledgerGroupOf = useLedgerGroupOf()
 
   const { data: voucherTypesRes } = useQuery({
     queryKey: ['voucher-types'],
@@ -860,18 +877,16 @@ export default function VoucherApprovalsPage() {
     }
   }, [modalData, ledgerList])
 
-  // Reload when returning from "Edit in Payables" tab
-  useEffect(() => {
-    const handleFocus = () => {
-      const payableReturn = localStorage.getItem('payables_edit_return')
-      if (payableReturn) {
-        localStorage.removeItem('payables_edit_return')
-        window.location.reload()
-      }
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [])
+  // "Edit in Payables" opens the Payables view as a popup over this page with
+  // the voucher pre-filled; closing it refreshes the lists here.
+  const [payablesEdit, setPayablesEdit] = useState<{ ledger: { id: number; name: string }; editVoucher: any } | null>(null)
+  const closePayablesEdit = () => {
+    setPayablesEdit(null)
+    qc.invalidateQueries({ queryKey: ['voucher-pending'] })
+    qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
+    qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
+    qc.invalidateQueries({ queryKey: ['voucher-search'] })
+  }
 
   // Sync viewModal header fields when modalData refetches (e.g. after editing via Payables tab)
   useEffect(() => {
@@ -887,6 +902,7 @@ export default function VoucherApprovalsPage() {
       status: fresh.status ?? v.status,
       source_type: fresh.source_type ?? v.source_type,
       job_card_number: fresh.job_card_number ?? v.job_card_number,
+      trip_c_number: fresh.trip_c_number ?? v.trip_c_number,
       driver_name: fresh.driver_name ?? v.driver_name,
     } : v)
   }, [modalData])
@@ -900,7 +916,7 @@ export default function VoucherApprovalsPage() {
         vouchervalue: payload.status,
         admin_status_by_id: localStorage.getItem('user_id'),
         admin_status_by_name: localStorage.getItem('usr_nm'),
-        admin_status_by_date: new Date().toISOString().split('T')[0],
+        admin_status_by_date: todayISO(),
         rejection_reason: payload.rejection_reason ?? '',
         voucherdata: { c_number: payload.row.c_number },
       }),
@@ -943,7 +959,7 @@ export default function VoucherApprovalsPage() {
 
       const userId = localStorage.getItem('user_id')
       const userName = localStorage.getItem('usr_nm')
-      const todayStr = new Date().toISOString().split('T')[0]
+      const todayStr = todayISO()
       const firstDr = allDebits[0]
       const primaryStaff = parseStaff(firstDr?.staffValue ?? '')
 
@@ -1069,7 +1085,7 @@ export default function VoucherApprovalsPage() {
     setLoading(true)
     const adminId = localStorage.getItem('user_id')
     const adminName = localStorage.getItem('usr_nm')
-    const date = new Date().toISOString().split('T')[0]
+    const date = todayISO()
     for (const row of selectedRows) {
       await accountingService.updateVoucherStatus({
         vouchervalue: status,
@@ -1102,7 +1118,7 @@ export default function VoucherApprovalsPage() {
       setBulkRejecting(true)
       const adminId = localStorage.getItem('user_id')
       const adminName = localStorage.getItem('usr_nm')
-      const date = new Date().toISOString().split('T')[0]
+      const date = todayISO()
       for (const r of selectedRows) {
         await accountingService.updateVoucherStatus({
           vouchervalue: 2,
@@ -1161,9 +1177,9 @@ export default function VoucherApprovalsPage() {
   const openInPayables = () => {
     const ledgerRow = debitRows[0]
     if (!ledgerRow?.ledger_id) { toast.error('Could not determine the ledger for this voucher'); return }
-    localStorage.setItem('reportViewData', JSON.stringify({
-      groupName: ledgerRow.expensives,
-      entries: [{ id: ledgerRow.ledger_id, name: ledgerRow.expensives, temple_name: ledgerRow.expensives }],
+    setViewModal(null)
+    setPayablesEdit({
+      ledger: { id: ledgerRow.ledger_id, name: ledgerRow.expensives },
       editVoucher: {
         c_number: viewModal.c_number,
         voucherdate: viewModal.voucherdate ? String(viewModal.voucherdate).split('T')[0] : '',
@@ -1180,10 +1196,7 @@ export default function VoucherApprovalsPage() {
         entry_by: viewModal.entry_by || '',
         i_ts: viewModal.i_ts || '',
       },
-    }))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    localStorage.setItem('payables_edit_return', viewModal?.c_number ?? '')
-    window.open('/accounting/payables-view', '_blank')
+    })
   }
 
   return (
@@ -1260,6 +1273,7 @@ export default function VoucherApprovalsPage() {
           busList,
           staffOptions: staffFilterOpts,
           entryByOpts,
+          ledgerGroupOf,
         }, optionalCols) as any}
         data={getList()}
         loading={loadSearch}
@@ -1424,6 +1438,25 @@ export default function VoucherApprovalsPage() {
                   </div>
                 )}
 
+                {/* Trip voucher banner */}
+                {(viewModal.source_type === 'trip' || viewModal.trip_c_number) && (
+                  <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
+                      <Map className="w-3 h-3" /> TRIP
+                    </span>
+                    <p className="text-sm text-blue-800 flex-1">
+                      This voucher was generated from trip{' '}
+                      <span className="font-bold">{viewModal.trip_c_number || '—'}</span>.
+                    </p>
+                    <button
+                      onClick={() => navigate('/trips/expenses')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+                    >
+                      Open Trip Expenses
+                    </button>
+                  </div>
+                )}
+
                 {/* Payables banner — this voucher was created by settling a
                     payable, so editing/inspecting it properly happens on the
                     real Payables page rather than the generic editor below. */}
@@ -1457,7 +1490,7 @@ export default function VoucherApprovalsPage() {
                           : <span className="ml-auto text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">⚠ Unbalanced</span>
                         }
                       </div>
-                      <div className="overflow-auto max-h-64">
+                      <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
@@ -1473,7 +1506,7 @@ export default function VoucherApprovalsPage() {
                               <td className="px-4 py-2.5 text-xs text-slate-400">{i + 1}</td>
                               <td className="px-4 py-2.5">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}</span>
+                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}<LedgerGroupTag group={ledgerGroupOf({ id: r.ledger_id, name: r.expensives })} /></span>
                                   <span className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded tracking-wide">DR</span>
                                 </div>
                               </td>
@@ -1487,7 +1520,7 @@ export default function VoucherApprovalsPage() {
                               <td className="px-4 py-2.5">
                                 <div className="flex items-center gap-2 pl-6">
                                   <span className="text-slate-400 text-xs italic mr-1">To</span>
-                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}</span>
+                                  <span className="font-semibold text-slate-800">{r.expensives || '—'}<LedgerGroupTag group={ledgerGroupOf({ id: r.ledger_id, name: r.expensives })} /></span>
                                   <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded tracking-wide">CR</span>
                                 </div>
                               </td>
@@ -1508,7 +1541,7 @@ export default function VoucherApprovalsPage() {
                           </tr>
                         </tfoot>
                       </table>
-                      </div>
+                      </DualScrollTable>
                     </div>
 
                     {/* Transaction details — one card per ledger */}
@@ -1522,7 +1555,7 @@ export default function VoucherApprovalsPage() {
                               <div className={`flex items-center justify-between px-4 py-2.5 ${isDr ? 'bg-red-50' : 'bg-emerald-50'}`}>
                                 <div className="flex items-center gap-2.5 min-w-0">
                                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide flex-shrink-0 ${isDr ? 'text-red-500 bg-red-100 border border-red-200' : 'text-emerald-600 bg-emerald-100 border border-emerald-200'}`}>{isDr ? 'DR' : 'CR'}</span>
-                                  <span className="font-semibold text-slate-800 text-sm truncate">{r.expensives || '—'}</span>
+                                  <span className="font-semibold text-slate-800 text-sm truncate">{r.expensives || '—'}<LedgerGroupTag group={ledgerGroupOf({ id: r.ledger_id, name: r.expensives })} /></span>
                                 </div>
                                 <span className={`font-bold text-sm tabular-nums flex-shrink-0 ml-2 ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
                                   ₹{Number(r.amount||0).toLocaleString('en-IN',{minimumFractionDigits:2})}
@@ -1931,6 +1964,7 @@ export default function VoucherApprovalsPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {payablesEdit && <PayablesPopup ledger={payablesEdit.ledger} editVoucher={payablesEdit.editVoucher} onClose={closePayablesEdit} />}
     </motion.div>
   )
 }

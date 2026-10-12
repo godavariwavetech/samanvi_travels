@@ -4,14 +4,15 @@ import { Trash2 } from 'lucide-react'
 import { GlassCard, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
+import { formatDate, formatDateTime } from '@/lib/utils'
 
 const cols: Column[] = [
-  { label: 'Trip No / Date', key: 'c_number', render: (v, r: any) => <div><div className="font-bold text-red-600">{String(v ?? r.id)}</div><div className="text-xs text-slate-500">{r.trip_date ?? r.i_ts}</div></div> },
+  { label: 'Trip No / Date', key: 'c_number', render: (v, r: any) => <div><div className="font-bold text-red-600">{String(v ?? r.id)}</div><div className="text-xs text-slate-500">{formatDate(r.trip_date ?? r.i_ts)}</div></div> },
   { label: 'Bus', key: 'bus_no' },
   { label: 'Route', key: 'service_no', render: (v, r: any) => <div><div className="font-medium">{String(v ?? '—')}</div><div className="text-xs text-slate-500">{r.trip_for}</div></div> },
   { label: 'Driver', key: 'driver1_name' },
   { label: 'Deleted By', key: 'deleted_by' },
-  { label: 'Deleted At', key: 'deleted_at' },
+  { label: 'Deleted At', key: 'deleted_at', render: (v) => formatDateTime(v) },
   { label: 'Status', key: 'd_in', render: () => <Badge variant="danger">Deleted</Badge> },
 ]
 

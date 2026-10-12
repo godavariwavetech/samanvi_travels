@@ -1,43 +1,28 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Plus, Settings, Upload, Download, FileSpreadsheet, ImagePlus, History, Clock } from 'lucide-react'
+import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Upload, Download, ImagePlus, History, Clock } from 'lucide-react'
 import ChangeNote from '@/components/shared/ChangeNote'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
-import { excelCellToISODate } from '@/lib/utils'
+import { excelCellToISODate, headerRowMismatch, todayISO, serverError } from '@/lib/utils'
 import * as XLSX from 'xlsx'
 
 type DataType = string
 
-// ── Staff Type picker with inline "add new" ────────────────────────────────
+// ── Designation picker ─────────────────────────────────────────────────────
+// Pick only: designations are added and removed under Main Masters > Designation.
 function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const qc = useQueryClient()
   const [open, setOpen] = useState(false)
-  const [newType, setNewType] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
   const { data } = useQuery({ queryKey: ['staff-types'], queryFn: () => mastersService.getStaffTypes() })
   const types: any[] = data?.data ?? []
-
-  const { mutate: add, isPending } = useMutation({
-    mutationFn: () => mastersService.addStaffType({ type_name: newType.trim() }),
-    onSuccess: (res) => {
-      if (res.status === 200) {
-        toast.success('Staff type added!')
-        qc.invalidateQueries({ queryKey: ['staff-types'] })
-        onChange(newType.trim())
-        setNewType('')
-        setOpen(false)
-      }
-    },
-    onError: () => toast.error('Server error'),
-  })
 
   const openDropdown = () => {
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
@@ -49,7 +34,7 @@ function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: str
     const close = (e: MouseEvent) => {
       if (document.getElementById('st-panel')?.contains(e.target as Node) ||
           btnRef.current?.contains(e.target as Node)) return
-      setOpen(false); setNewType('')
+      setOpen(false)
     }
     const onScroll = (e: Event) => {
       if (document.getElementById('st-panel')?.contains(e.target as Node)) return
@@ -86,22 +71,9 @@ function StaffTypePicker({ value, onChange }: { value: string; onChange: (v: str
           </li>
         ))}
       </ul>
-      <div className="border-t border-slate-100 p-2 flex gap-2 flex-shrink-0">
-        <input
-          value={newType}
-          onChange={e => setNewType(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && newType.trim() && add()}
-          placeholder="Add new type…"
-          className="flex-1 text-sm px-3 py-1.5 rounded-lg border border-slate-200 outline-none focus:border-blue-400"
-        />
-        <button
-          onMouseDown={() => newType.trim() && add()}
-          disabled={isPending || !newType.trim()}
-          className="px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
+      {types.length === 0 && (
+        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-400">No designations yet - add them under Main Masters &gt; Designation.</p>
+      )}
     </div>,
     document.body
   )
@@ -126,7 +98,7 @@ function TerminateModal({ person, staffType, onConfirm, onClose, isPending }: {
   onConfirm: (date: string, reason: string) => void
   onClose: () => void; isPending: boolean
 }) {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(todayISO())
   const [reason, setReason] = useState('')
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -186,7 +158,7 @@ const DRIVER_VIEW_IMAGES: ViewField[] = [
 ]
 
 const STAFF_VIEW_FIELDS: ViewField[] = [
-  ['Designation', 'designation'], ['Nick Name', 'nickName'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
+  ['Staff ID', 'idNumber'], ['Designation', 'designation'], ['Aadhar Name', 'fullName'], ['Aadhar Number', 'aadhaar'],
   ['Date of Birth', 'dob'], ['Mobile Number', 'mobile'], ['Alternative Mobile', 'alternativemobilenumber'],
   ['Emergency Contact', 'emergencyContact'], ['Date of Joining', 'dateOfJoining'], ['Referred By', 'referencename'],
   ['Address', 'address'], ['Account Holder Name', 'accountHolderName'], ['Account Number', 'accountNumber'],
@@ -362,7 +334,7 @@ function SectionBox({ title, children }: { title: string; children: React.ReactN
 const emptyStaff = {
   fullName: '', mobile: '', designation: '', emergencyContact: '', alternativemobilenumber: '',
   dateOfJoining: '', aadhaar: '', accountHolderName: '', accountNumber: '', ifscCode: '',
-  bankName: '', referencename: '', branchname: '', nickName: '', upiId: '', remarks: '',
+  bankName: '', referencename: '', branchname: '', upiId: '', remarks: '',
   dob: '', address: '',
 }
 const emptyDriver = {
@@ -394,38 +366,13 @@ const emptyHelperImages: Record<'adharcardfront' | 'adharcardback' | 'upiscanner
 
 const FIXED_TYPES = ['Driver', 'Staff', 'Helper', 'Terminated']
 
-// ── Inline "Add new type" input ────────────────────────────────────────────
-function AddCustomTypeInline({ onAdd, isPending }: { onAdd: (name: string) => void; isPending: boolean }) {
-  const [value, setValue] = useState('')
-  const submit = () => {
-    const trimmed = value.trim()
-    if (!trimmed) return
-    onAdd(trimmed)
-    setValue('')
-  }
-  return (
-    <div className="flex items-center gap-2">
-      <Input
-        placeholder="Add new type…"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-        className="w-44 h-11"
-      />
-      <Button onClick={submit} disabled={isPending || !value.trim()} variant="primary">
-        <Plus className="w-4 h-4" /> Add
-      </Button>
-    </div>
-  )
-}
-
 const typeColors: Record<string, string> = {
   Driver: 'bg-gradient-to-r from-emerald-500 to-teal-500',
   Staff: 'bg-gradient-to-r from-blue-500 to-violet-500',
   Helper: 'bg-gradient-to-r from-orange-400 to-amber-500',
 }
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 // dd/mm/yyyy — matches the repo-wide "human-readable dates" convention.
 function fmtDMY(v: any): string {
@@ -433,7 +380,7 @@ function fmtDMY(v: any): string {
   const s = String(v).split('T')[0]
   const d = new Date(s)
   if (isNaN(d.getTime())) return s
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`
 }
 // Raw DB value -> 'YYYY-MM-DD' for pre-filling <input type="date">.
 const toDateInput = (v: any) => (v ? String(v).split('T')[0] : '')
@@ -443,7 +390,9 @@ const DRIVER_DATE_KEYS = new Set([
   'dl_expiry_date', 'transportoneissuedate', 'transportvalidityfrom', 'transportvalidityto',
 ])
 
-// Column order mirrors each type's Add-form field order exactly.
+// Column order mirrors each type's Add-form field order exactly. Driver and
+// Helper IDs are not on the sheet: the server gives each new person the next
+// serial ID (D0001 / H0001), the same as adding one from the form.
 const DRIVER_TEMPLATE_HEADERS = [
   'Aadhar Name*', 'Aadhar Number*', 'Date of Birth', 'Mobile Number*', 'Alternate Mobile',
   'Emergency Number', 'Date of Joining*', 'Referred By', 'Address',
@@ -454,7 +403,7 @@ const DRIVER_TEMPLATE_HEADERS = [
   'Remarks',
 ]
 const STAFF_TEMPLATE_HEADERS = [
-  'Designation*', 'Nick Name', 'Full Name*', 'Aadhar Number*', 'Date of Birth',
+  'Designation*', 'Full Name*', 'Aadhar Number*', 'Date of Birth',
   'Mobile Number*', 'Alternative Mobile', 'Emergency Contact', 'Date of Joining*',
   'Referred By', 'Address', 'Account Holder Name*', 'Account Number*',
   'Bank Name*', 'Branch Name*', 'IFSC Code*', 'UPI ID', 'Remarks',
@@ -486,6 +435,8 @@ export default function StaffPage() {
   const [terminatePerson, setTerminatePerson] = useState<{ person: any; staffType: string } | null>(null)
   const [viewPerson, setViewPerson] = useState<{ person: any; staffType: 'driver' | 'staff' | 'helper' } | null>(null)
   const [editingDriverRow, setEditingDriverRow] = useState<any | null>(null)
+  const [editingStaffRow, setEditingStaffRow] = useState<any | null>(null)
+  const [editingHelperRow, setEditingHelperRow] = useState<any | null>(null)
   const [driverHistoryFor, setDriverHistoryFor] = useState<any | null>(null)
   const [staffForm, setStaffForm] = useState(emptyStaff)
   const [driverForm, setDriverForm] = useState(emptyDriver)
@@ -497,6 +448,20 @@ export default function StaffPage() {
   const uploadRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
 
+  // Which person the open form is editing, if any. Drives the heading, the Save
+  // button's label, and whether it calls the edit or the add mutation.
+  const editingRow = dataType === 'Driver' ? editingDriverRow : dataType === 'Staff' ? editingStaffRow : dataType === 'Helper' ? editingHelperRow : null
+
+  // Closing the form has to clear the edit target and all three forms, otherwise
+  // reopening it for an Add shows the previously edited person still filled in.
+  const closeForm = () => {
+    setShowForm(false)
+    setEditingDriverRow(null); setEditingStaffRow(null); setEditingHelperRow(null)
+    setDriverForm(emptyDriver); setDriverImages(emptyDriverImages)
+    setStaffForm(emptyStaff); setStaffImages(emptyStaffImages)
+    setHelperForm(emptyHelper); setHelperImages(emptyHelperImages)
+  }
+
   const sf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setStaffForm((f) => ({ ...f, [k]: e.target.value }))
   const df = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setDriverForm((f) => ({ ...f, [k]: e.target.value }))
   const hf = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setHelperForm((f) => ({ ...f, [k]: e.target.value }))
@@ -506,37 +471,16 @@ export default function StaffPage() {
     (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value.replace(/\D/g, '').slice(0, max) }))
 
-  const isCustomType = dataType !== '' && !FIXED_TYPES.includes(dataType)
-
   // Queries
-  const { data: staffTypesData } = useQuery({ queryKey: ['staff-types'], queryFn: () => mastersService.getStaffTypes() })
-  const { data: staffData, isLoading: loadStaff } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff(), enabled: dataType === 'Staff' || isCustomType })
+  const { data: staffData, isLoading: loadStaff } = useQuery({ queryKey: ['active-staff'], queryFn: () => mastersService.getActiveStaff(), enabled: dataType === 'Staff' })
   const { data: driverData, isLoading: loadDrivers } = useQuery({ queryKey: ['drivers'], queryFn: () => mastersService.getDrivers(), enabled: dataType === 'Driver' })
   const { data: helperData, isLoading: loadHelpers } = useQuery({ queryKey: ['active-helpers'], queryFn: () => mastersService.getActiveHelpers(), enabled: dataType === 'Helper' })
   const { data: terminatedData, isLoading: loadTerminated } = useQuery({ queryKey: ['terminated-staff'], queryFn: () => mastersService.getTerminatedStaff(), enabled: dataType === 'Terminated' })
 
-  const customTypes: any[] = staffTypesData?.data ?? []
-  const allStaffList: any[]    = staffData?.data ?? []
-  const staffList: any[]       = isCustomType
-    ? allStaffList.filter((s: any) => s.designation === dataType)
-    : allStaffList
+  const staffList: any[]       = staffData?.data ?? []
   const driverList: any[]     = driverData?.data ?? []
   const helperList: any[]     = helperData?.data ?? []
   const terminatedList: any[] = terminatedData?.data ?? []
-
-  // Add / delete custom type
-  const { mutate: addCustomType, isPending: addingCustomType } = useMutation({
-    mutationFn: (name: string) => mastersService.addStaffType({ type_name: name }),
-    onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Type added!'); qc.invalidateQueries({ queryKey: ['staff-types'] }) }
-      else toast.error('Failed')
-    },
-    onError: () => toast.error('Server error'),
-  })
-  const { mutate: delCustomType } = useMutation({
-    mutationFn: (id: number) => mastersService.deleteStaffType({ id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['staff-types'] }),
-  })
 
   // Mutations
   const { mutate: addStaff, isPending: addingStaff } = useMutation({
@@ -544,10 +488,45 @@ export default function StaffPage() {
     onSuccess: (res) => { if (res.status === 200) { toast.success('Staff added!'); qc.invalidateQueries({ queryKey: ['active-staff'] }); setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
+  // Only newly-picked images are sent (staffImages holds the ImageValue objects for
+  // slots the user actually changed). addstaffeditMdl only writes an image column when
+  // it receives a new URL, so leaving a slot untouched keeps the scan already on file -
+  // and existingUrl below is what shows the user that stored image in the form.
+  const { mutate: editStaffMutate, isPending: editingStaffPending } = useMutation({
+    mutationFn: () => mastersService.editStaff({
+      ...staffForm,
+      ...staffImages,
+      id: editingStaffRow?.id,
+      idNumber: editingStaffRow?.idNumber,
+      entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res) => {
+      if (res.status === 200) {
+        toast.success('Staff updated!')
+        qc.invalidateQueries({ queryKey: ['active-staff'] })
+        setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setEditingStaffRow(null); setShowForm(false)
+      } else toast.error(res.message ?? 'Failed')
+    },
+    onError: (e) => toast.error(serverError(e)),
+  })
+  const startEditStaff = (row: any) => {
+    setStaffForm({
+      fullName: row.fullName ?? '', mobile: row.mobile ?? '', designation: row.designation ?? '',
+      emergencyContact: row.emergencyContact ?? '', alternativemobilenumber: row.alternativemobilenumber ?? '',
+      dateOfJoining: toDateInput(row.dateOfJoining), aadhaar: row.aadhaar ?? '',
+      accountHolderName: row.accountHolderName ?? '', accountNumber: row.accountNumber ?? '', ifscCode: row.ifscCode ?? '',
+      bankName: row.bankName ?? '', referencename: row.referencename ?? '', branchname: row.branchname ?? '',
+      upiId: row.upiId ?? '', remarks: row.remarks ?? '',
+      dob: toDateInput(row.dob), address: row.address ?? '',
+    })
+    setStaffImages(emptyStaffImages)
+    setEditingStaffRow(row)
+    setShowForm(true)
+  }
   const { mutate: addDriver, isPending: addingDriver } = useMutation({
     mutationFn: () => mastersService.addDriver({ ...driverForm, ...driverImages, entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'), uploadind: 0 }),
     onSuccess: (res) => { if (res.status === 200) { toast.success('Driver added!'); qc.invalidateQueries({ queryKey: ['drivers'] }); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
-    onError: () => toast.error('Server error'),
+    onError: (e) => toast.error(serverError(e)),
   })
   // New-upload images fall back to the row's existing URL (already-saved
   // string, not an ImageValue object) so an untouched image slot doesn't get
@@ -571,7 +550,7 @@ export default function StaffPage() {
         setDriverForm(emptyDriver); setDriverImages(emptyDriverImages); setEditingDriverRow(null); setShowForm(false)
       } else toast.error(res.message ?? 'Failed')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e) => toast.error(serverError(e)),
   })
   const startEditDriver = (row: any) => {
     setDriverForm({
@@ -599,6 +578,41 @@ export default function StaffPage() {
     onSuccess: (res) => { if (res.status === 200) { toast.success('Helper added!'); qc.invalidateQueries({ queryKey: ['active-helpers'] }); setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setShowForm(false) } else toast.error(res.message ?? 'Failed') },
     onError: () => toast.error('Server error'),
   })
+  // Mirrors editStaffMutate: helperImages only carries slots the user re-picked, and
+  // edithelperregisterMdl leaves the others alone. helper_id_number is NOT NULL and
+  // has no form field, so it has to ride along from the row.
+  const { mutate: editHelperMutate, isPending: editingHelperPending } = useMutation({
+    mutationFn: () => mastersService.editHelper({
+      ...helperForm,
+      ...helperImages,
+      id: editingHelperRow?.id,
+      helper_id_number: editingHelperRow?.helper_id_number,
+      entryby: localStorage.getItem('user_id'), usrnm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res) => {
+      if (res.status === 200) {
+        toast.success('Helper updated!')
+        qc.invalidateQueries({ queryKey: ['active-helpers'] })
+        setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setEditingHelperRow(null); setShowForm(false)
+      } else toast.error(res.message ?? 'Failed')
+    },
+    onError: (e) => toast.error(serverError(e)),
+  })
+  const startEditHelper = (row: any) => {
+    setHelperForm({
+      helper_name: row.helper_name ?? '', mobile_number: row.mobile_number ?? '',
+      adhar_number: row.adhar_number ?? '', account_number: row.account_number ?? '',
+      ifsc_code: row.ifsc_code ?? '', bank_name: row.bank_name ?? '',
+      emergency_mobile_number: row.emergencymobilenumber ?? '',
+      alternate_number: row.alternate_number ?? '', reference: row.reference ?? '',
+      account_holder_name: row.account_holder_name ?? '', branch_name: row.branch_name ?? '',
+      upi_id: row.upi_id ?? '', date_of_joining: toDateInput(row.date_of_joining),
+      remarks: row.remarks ?? '', dob: toDateInput(row.dob), address: row.address ?? '',
+    })
+    setHelperImages(emptyHelperImages)
+    setEditingHelperRow(row)
+    setShowForm(true)
+  }
   const { mutate: terminate, isPending: terminating } = useMutation({
     mutationFn: ({ date, reason }: { date: string; reason: string }) =>
       mastersService.terminateStaff({ id: terminatePerson!.person.id, staff_type: terminatePerson!.staffType, termination_date: date, termination_reason: reason }),
@@ -633,11 +647,10 @@ export default function StaffPage() {
   const handleTypeChange = (type: string) => {
     setDataType(type)
     setShowForm(false)
+    setEditingDriverRow(null)
+    setEditingStaffRow(null)
+    setEditingHelperRow(null)
     setColumnFilters({})
-    // Pre-fill designation for custom types
-    if (type && !FIXED_TYPES.includes(type)) {
-      setStaffForm(f => ({ ...f, designation: type }))
-    }
   }
 
   const downloadTemplate = () => {
@@ -647,16 +660,18 @@ export default function StaffPage() {
     const sample = dataType === 'Driver'
       ? ['Raju', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Venkata Raju', 'DL-AP123', '1990-01-01', '9876543210', '2015-06-01', 'RTA Hyderabad', '2030-06-01', '2015-06-01', '2015-06-01', '2025-06-01', 'Venkata Raju', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : dataType === 'Helper'
-      ? ['Ramesh', 'Ramesh Kumar', '123456789012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
+      ? ['Ramesh Kumar', '123456789012', '1990-01-01', '9876543210', '', '', '2020-01-01', 'Reference', '', 'Ramesh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
       : ['Manager', 'Suresh', 'Suresh Kumar', '987654321012', '', '9876543210', '', '', '2020-01-01', 'Ref Name', '', 'Suresh Kumar', '1234567890', 'SBI', 'Hyderabad', 'SBIN0001234', '', '']
     downloadExcel([headers, sample], `${dataType}_Upload_Template_${Date.now()}.xlsx`)
   }
 
-  const downloadData = () => {
+  // The table's Export > Excel: the rows it shows, in the upload sheet's layout,
+  // so the file can be edited and imported back.
+  const downloadData = (shown?: any[]) => {
     if (!dataType || dataType === 'Terminated') return
     let rows: any[][] = []
     if (dataType === 'Driver') {
-      rows = driverList.map(r => [
+      rows = (shown ?? driverList).map(r => [
         r.nickname ?? '', r.aadhar_number ?? '', r.dldateofbirth ?? '', r.mobile_number ?? '',
         r.alternate_number ?? '', r.emergency_mobile_number ?? '', r.date_of_joining ?? '',
         r.reference ?? '', r.address ?? '', r.driver_name ?? '', r.dl_number ?? '',
@@ -668,7 +683,7 @@ export default function StaffPage() {
       ])
       downloadExcel([DRIVER_TEMPLATE_HEADERS, ...rows], `Drivers_${Date.now()}.xlsx`)
     } else if (dataType === 'Helper') {
-      rows = helperList.map(r => [
+      rows = (shown ?? helperList).map(r => [
         r.helper_name ?? '', r.adhar_number ?? '', r.dob ?? '',
         r.mobile_number ?? '', r.alternate_number ?? '', r.emergency_mobile_number ?? '',
         r.date_of_joining ?? '', r.reference ?? '', r.address ?? '',
@@ -677,8 +692,8 @@ export default function StaffPage() {
       ])
       downloadExcel([HELPER_TEMPLATE_HEADERS, ...rows], `Helpers_${Date.now()}.xlsx`)
     } else {
-      rows = staffList.map(r => [
-        r.designation ?? '', r.nickName ?? '', r.fullName ?? '', r.aadhaar ?? '', r.dob ?? '',
+      rows = (shown ?? staffList).map(r => [
+        r.designation ?? '', r.fullName ?? '', r.aadhaar ?? '', r.dob ?? '',
         r.mobile ?? '', r.alternativemobilenumber ?? '', r.emergencyContact ?? '',
         r.dateOfJoining ?? '', r.referencename ?? '', r.address ?? '',
         r.accountHolderName ?? '', r.accountNumber ?? '', r.bankName ?? '', r.branchname ?? '',
@@ -703,83 +718,92 @@ export default function StaffPage() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
       if (raw.length < 2) { toast.error('No data rows found'); return }
+      // The sheet must be the current template: an older Driver / Helper sheet
+      // that still opens with an ID column would parse cleanly with every value
+      // one field to the right, and nothing would say so until the records were wrong.
+      const expectedHeaders = dataType === 'Driver' ? DRIVER_TEMPLATE_HEADERS : dataType === 'Helper' ? HELPER_TEMPLATE_HEADERS : STAFF_TEMPLATE_HEADERS
+      const mismatch = headerRowMismatch(raw[0] ?? [], expectedHeaders)
+      if (mismatch) {
+        toast.error(`This does not look like the ${dataType} sheet. ${mismatch}. Download the latest template and fill that in.`)
+        return
+      }
       const [, ...dataRows] = raw
       let rows: { payload: Record<string, any>; key: string }[]
+      const cell = (r: any[], i: number) => String(r[i] ?? '').trim()
       if (dataType === 'Driver') {
-        rows = dataRows.filter(r => r && String(r[0] ?? '').trim() && String(r[9] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => r && cell(r, 0) && cell(r, 9)).map(r => {
           const payload = {
-            nickname: String(r[0] ?? '').trim(),
-            aadhar_number: String(r[1] ?? '').trim() || null,
+            nickname: cell(r, 0),
+            aadhar_number: cell(r, 1) || null,
             dldateofbirth: excelCellToISODate(r[2]) || null,
-            mobile_number: String(r[3] ?? '').trim(),
-            alternate_number: String(r[4] ?? '').trim() || null,
-            emergency_mobile_number: String(r[5] ?? '').trim() || null,
+            mobile_number: cell(r, 3),
+            alternate_number: cell(r, 4) || null,
+            emergency_mobile_number: cell(r, 5) || null,
             date_of_joining: excelCellToISODate(r[6]) || null,
-            reference: String(r[7] ?? '').trim() || null,
-            address: String(r[8] ?? '').trim() || null,
-            driver_name: String(r[9] ?? '').trim(),
-            dl_number: String(r[10] ?? '').trim() || null,
+            reference: cell(r, 7) || null,
+            address: cell(r, 8) || null,
+            driver_name: cell(r, 9),
+            dl_number: cell(r, 10) || null,
             dl_dob: excelCellToISODate(r[11]) || null,
-            dl_linked_mobile: String(r[12] ?? '').trim() || null,
+            dl_linked_mobile: cell(r, 12) || null,
             drivinglicense_joining_date: excelCellToISODate(r[13]) || null,
-            dl_issued_by: String(r[14] ?? '').trim() || null,
+            dl_issued_by: cell(r, 14) || null,
             dl_expiry_date: excelCellToISODate(r[15]) || null,
             transportoneissuedate: excelCellToISODate(r[16]) || null,
             transportvalidityfrom: excelCellToISODate(r[17]) || null,
             transportvalidityto: excelCellToISODate(r[18]) || null,
-            account_holder_name: String(r[19] ?? '').trim() || null,
-            account_number: String(r[20] ?? '').trim() || null,
-            bank_name: String(r[21] ?? '').trim() || null,
-            branch_name: String(r[22] ?? '').trim() || null,
-            ifsc_code: String(r[23] ?? '').trim() || null,
-            upi_id: String(r[24] ?? '').trim() || null,
-            remarks: String(r[25] ?? '').trim() || null,
+            account_holder_name: cell(r, 19) || null,
+            account_number: cell(r, 20) || null,
+            bank_name: cell(r, 21) || null,
+            branch_name: cell(r, 22) || null,
+            ifsc_code: cell(r, 23) || null,
+            upi_id: cell(r, 24) || null,
+            remarks: cell(r, 25) || null,
           }
           return { payload, key: payload.driver_name }
         })
       } else if (dataType === 'Staff') {
-        rows = dataRows.filter(r => r && String(r[2] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => r && String(r[1] ?? '').trim()).map(r => {
           const payload = {
             designation: String(r[0] ?? '').trim() || 'Staff',
-            nickName: String(r[1] ?? '').trim() || null,
-            fullName: String(r[2] ?? '').trim(),
-            aadhaar: String(r[3] ?? '').trim() || null,
-            dob: excelCellToISODate(r[4]) || null,
-            mobile: String(r[5] ?? '').trim(),
-            alternativemobilenumber: String(r[6] ?? '').trim() || null,
-            emergencyContact: String(r[7] ?? '').trim() || null,
-            dateOfJoining: excelCellToISODate(r[8]) || null,
-            referencename: String(r[9] ?? '').trim() || null,
-            address: String(r[10] ?? '').trim() || null,
-            accountHolderName: String(r[11] ?? '').trim() || null,
-            accountNumber: String(r[12] ?? '').trim() || null,
-            bankName: String(r[13] ?? '').trim() || null,
-            branchname: String(r[14] ?? '').trim() || null,
-            ifscCode: String(r[15] ?? '').trim() || null,
-            upiId: String(r[16] ?? '').trim() || null,
-            remarks: String(r[17] ?? '').trim() || null,
+            fullName: String(r[1] ?? '').trim(),
+            aadhaar: String(r[2] ?? '').trim() || null,
+            dob: excelCellToISODate(r[3]) || null,
+            mobile: String(r[4] ?? '').trim(),
+            alternativemobilenumber: String(r[5] ?? '').trim() || null,
+            emergencyContact: String(r[6] ?? '').trim() || null,
+            dateOfJoining: excelCellToISODate(r[7]) || null,
+            referencename: String(r[8] ?? '').trim() || null,
+            address: String(r[9] ?? '').trim() || null,
+            accountHolderName: String(r[10] ?? '').trim() || null,
+            accountNumber: String(r[11] ?? '').trim() || null,
+            bankName: String(r[12] ?? '').trim() || null,
+            branchname: String(r[13] ?? '').trim() || null,
+            ifscCode: String(r[14] ?? '').trim() || null,
+            upiId: String(r[15] ?? '').trim() || null,
+            remarks: String(r[16] ?? '').trim() || null,
           }
           return { payload, key: payload.fullName }
         })
       } else {
-        rows = dataRows.filter(r => r && String(r[0] ?? '').trim()).map(r => {
+        rows = dataRows.filter(r => r && cell(r, 0)).map(r => {
           const payload = {
-            helper_name: String(r[0] ?? '').trim(),
-            adhar_number: String(r[1] ?? '').trim() || null,
+            helper_name: cell(r, 0),
+            adhar_number: cell(r, 1) || null,
             dob: excelCellToISODate(r[2]) || null,
-            mobile_number: String(r[3] ?? '').trim(),
-            alternate_number: String(r[4] ?? '').trim() || null,
-            emergency_mobile_number: String(r[5] ?? '').trim() || null,
+            mobile_number: cell(r, 3),
+            alternate_number: cell(r, 4) || null,
+            emergency_mobile_number: cell(r, 5) || null,
             date_of_joining: excelCellToISODate(r[6]) || null,
-            reference: String(r[7] ?? '').trim() || null,
-            address: String(r[8] ?? '').trim() || null,
-            account_holder_name: String(r[9] ?? '').trim() || null,
-            account_number: String(r[10] ?? '').trim() || null,
-            bank_name: String(r[11] ?? '').trim() || null,
-            branch_name: String(r[12] ?? '').trim() || null,
-            ifsc_code: String(r[13] ?? '').trim() || null,
-            upi_id: String(r[14] ?? '').trim() || null,
-            remarks: String(r[15] ?? '').trim() || null,
+            reference: cell(r, 7) || null,
+            address: cell(r, 8) || null,
+            account_holder_name: cell(r, 9) || null,
+            account_number: cell(r, 10) || null,
+            bank_name: cell(r, 11) || null,
+            branch_name: cell(r, 12) || null,
+            ifsc_code: cell(r, 13) || null,
+            upi_id: cell(r, 14) || null,
+            remarks: cell(r, 15) || null,
           }
           return { payload, key: payload.helper_name }
         })
@@ -807,12 +831,15 @@ export default function StaffPage() {
       const unm = localStorage.getItem('usr_nm') ?? ''
       const res = await mastersService.bulkUploadStaff({ type: previewType, rows, user_id: uid, usr_nm: unm })
       if (res.status === 200) {
-        const { inserted, skipped, total } = res.data
+        // A server-side refusal stops the whole import before anything is
+        // written; the preview stays up.
+        if (res.data?.error) { toast.error(res.data.error); return }
+        const { inserted, updated = 0, total } = res.data
         qc.invalidateQueries({ queryKey: ['active-staff'] })
         qc.invalidateQueries({ queryKey: ['drivers'] })
         qc.invalidateQueries({ queryKey: ['active-helpers'] })
-        if (skipped.length > 0) {
-          toast.success(`Inserted ${inserted} of ${total}. ${skipped.length} duplicates skipped: ${skipped.slice(0, 5).join(', ')}${skipped.length > 5 ? '…' : ''}`)
+        if (updated > 0) {
+          toast.success(`Inserted ${inserted} new and updated ${updated} existing ${previewType} record${updated !== 1 ? 's' : ''} (${total} total)`)
         } else {
           toast.success(`Successfully inserted ${inserted} ${previewType} records!`)
         }
@@ -850,6 +877,7 @@ export default function StaffPage() {
   ]
   const staffCols: Column[] = [
     slNoCol,
+    { label: 'Staff ID', key: 'idNumber', filterable: true },
     { label: 'Full Name', key: 'fullName', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
     { label: 'Mobile', key: 'mobile', filterable: true },
     { label: 'Designation', key: 'designation', filterable: true, render: (v) => <Badge variant="info">{String(v ?? '—')}</Badge> },
@@ -868,7 +896,7 @@ export default function StaffPage() {
     { label: 'Name', key: 'name', filterable: true, render: (v) => <span className="font-bold">{String(v ?? '—')}</span> },
     { label: 'Role', key: 'role', filterable: true, render: (v, r: any) => <div><Badge variant="purple">{String(v ?? '—')}</Badge><div className="text-xs text-slate-400 mt-0.5 capitalize">{r.staff_type}</div></div> },
     { label: 'Mobile', key: 'mobile', filterable: true },
-    { label: 'Left On', key: 'leaving_date', render: (v) => <span className="text-sm text-red-500 font-medium">{String(v ?? '—')}</span> },
+    { label: 'Left On', key: 'leaving_date', render: (v) => <span className="text-sm text-red-500 font-medium">{fmtDMY(v)}</span> },
     { label: 'Reason', key: 'termination_reason', render: (v) => <span className="text-xs text-slate-500 max-w-[200px] block truncate" title={String(v ?? '')}>{String(v ?? '—')}</span> },
     { label: 'Action', key: 'id', render: (_, row: any) => <Button variant="success" size="sm" onClick={() => rejoin(row)}><RotateCcw className="w-3.5 h-3.5" /> Rejoin</Button> },
   ]
@@ -877,22 +905,22 @@ export default function StaffPage() {
     : dataType === 'Staff' ? staffList
     : dataType === 'Helper' ? helperList
     : dataType === 'Terminated' ? terminatedList
-    : staffList  // custom type — filtered by designation
+    : staffList
   const currentLoading = dataType === 'Driver' ? loadDrivers
     : dataType === 'Helper' ? loadHelpers
     : dataType === 'Terminated' ? loadTerminated
-    : loadStaff  // Staff + custom types all use staffData
+    : loadStaff
   const currentCols = dataType === 'Driver' ? driverCols
     : dataType === 'Helper' ? helperCols
     : dataType === 'Terminated' ? terminatedCols
-    : staffCols  // Staff + custom types show same columns
+    : staffCols
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
       <div className="flex justify-between items-end">
         <PageHeader title="Staff Register" subtitle="Manage drivers, staff, helpers and terminations" />
         {dataType && dataType !== 'Terminated' && !showForm && (
-          <Button onClick={() => { setEditingDriverRow(null); setShowForm(true) }}>
+          <Button onClick={() => { setEditingDriverRow(null); setEditingStaffRow(null); setEditingHelperRow(null); setStaffForm(emptyStaff); setStaffImages(emptyStaffImages); setHelperForm(emptyHelper); setHelperImages(emptyHelperImages); setShowForm(true) }}>
             <Users className="w-4 h-4" /> Add {dataType}
           </Button>
         )}
@@ -912,40 +940,11 @@ export default function StaffPage() {
             >
               <option value="">Select Type</option>
               {FIXED_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              {customTypes.length > 0 && (
-                <optgroup label="── Custom Types ──">
-                  {customTypes.map((t) => <option key={t.id} value={t.type_name}>{t.type_name}</option>)}
-                </optgroup>
-              )}
             </select>
             <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
           </div>
-
-          {/* Add new type inline */}
-          <AddCustomTypeInline
-            onAdd={(name) => addCustomType(name)}
-            isPending={addingCustomType}
-          />
         </div>
 
-        {/* Custom types chips */}
-        {customTypes.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-slate-100">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider self-center">Custom Types:</span>
-            {customTypes.map((t) => (
-              <span key={t.id}
-                className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full border border-blue-200">
-                {t.type_name}
-                <button
-                  onClick={() => delCustomType(t.id)}
-                  className="text-blue-400 hover:text-red-500 transition-colors ml-0.5"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
 
         {/* Excel actions — only for Driver / Staff / Helper */}
         {['Driver', 'Staff', 'Helper'].includes(dataType) && (
@@ -956,12 +955,6 @@ export default function StaffPage() {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors"
             >
               <Download className="w-3.5 h-3.5" /> Template
-            </button>
-            <button
-              onClick={downloadData}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" /> Export
             </button>
             <label className="cursor-pointer">
               <span className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${uploading ? 'border-blue-200 bg-blue-50 text-blue-400' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
@@ -981,6 +974,8 @@ export default function StaffPage() {
         submitting={uploading}
         onCancel={() => setPreviewOpen(false)}
         onConfirm={confirmImport}
+        duplicateHint="Duplicates are checked by default — they'll update the existing record with this row's values. Untick to leave that record unchanged."
+        duplicatesSelectedByDefault
       />
 
       {/* Empty state */}
@@ -988,20 +983,20 @@ export default function StaffPage() {
         <GlassCard className="p-12 text-center">
           <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h5 className="text-slate-500 font-semibold">Please select a data type to view records</h5>
-          <p className="text-sm text-slate-400 mt-1">Choose from the dropdown above or add a new custom type</p>
+          <p className="text-sm text-slate-400 mt-1">Choose Driver, Staff, Helper or Terminated from the dropdown above</p>
         </GlassCard>
       )}
 
-      {/* Add form */}
+      {/* Add / edit form (popup) */}
       <AnimatePresence>
         {showForm && dataType && dataType !== 'Terminated' && (
-          <motion.div key={`form-${dataType}`} initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }}>
+          <FormModal key={`form-${dataType}`}>
             <GlassCard className="p-6" colorBar={typeColors[dataType] ?? 'bg-gradient-to-r from-slate-400 to-slate-600'}>
               <div className="flex justify-between items-center mb-5">
                 <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Users className="w-5 h-5" /> {editingDriverRow ? 'Edit Driver' : `Register ${dataType}`}
+                  <Users className="w-5 h-5" /> {editingRow ? `Edit ${dataType}` : `Register ${dataType}`}
                 </h2>
-                <button onClick={() => { setShowForm(false); setEditingDriverRow(null); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages) }} className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
+                <button onClick={closeForm} className="p-2 text-slate-400 hover:text-red-500 hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5" /></button>
               </div>
 
               {/* Driver form */}
@@ -1052,18 +1047,14 @@ export default function StaffPage() {
                 </div>
               )}
 
-              {/* Staff form — also used for custom types */}
-              {(dataType === 'Staff' || isCustomType) && (
+              {/* Staff form */}
+              {dataType === 'Staff' && (
                 <div className="space-y-5">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                     <div>
                       <Label>Designation <span className="text-red-500">*</span></Label>
-                      {isCustomType
-                        ? <Input value={staffForm.designation} readOnly className="bg-slate-50 text-slate-500 cursor-not-allowed" />
-                        : <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
-                      }
+                      <StaffTypePicker value={staffForm.designation} onChange={(v) => setStaffForm(f => ({ ...f, designation: v }))} />
                     </div>
-                    <div><Label>Nick Name</Label><Input value={staffForm.nickName} onChange={sf('nickName')} /></div>
                   </div>
 
                   <SectionBox title="Personal Details">
@@ -1078,8 +1069,8 @@ export default function StaffPage() {
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={staffForm.address} onChange={sf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                     </div>
-                    <ImageUploadField label="Aadhar Card Front" value={staffImages.aadhaarCardFront} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardFront: v }))} />
-                    <ImageUploadField label="Aadhar Card Back" value={staffImages.aadhaarCardBack} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardBack: v }))} />
+                    <ImageUploadField label="Aadhar Card Front" value={staffImages.aadhaarCardFront} existingUrl={editingStaffRow?.aadhaarCardFront} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardFront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={staffImages.aadhaarCardBack} existingUrl={editingStaffRow?.aadhaarCardBack} onChange={(v) => setStaffImages((s) => ({ ...s, aadhaarCardBack: v }))} />
                   </SectionBox>
 
                   <SectionBox title="Bank Details">
@@ -1089,7 +1080,7 @@ export default function StaffPage() {
                     <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={staffForm.branchname} onChange={sf('branchname')} /></div>
                     <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={staffForm.ifscCode} onChange={sf('ifscCode')} /></div>
                     <div><Label>UPI ID</Label><Input value={staffForm.upiId} onChange={sf('upiId')} /></div>
-                    <ImageUploadField label="UPI / Passbook Scan" value={staffImages.upiScanner} onChange={(v) => setStaffImages((s) => ({ ...s, upiScanner: v }))} />
+                    <ImageUploadField label="UPI / Passbook Scan" value={staffImages.upiScanner} existingUrl={editingStaffRow?.upiScanner} onChange={(v) => setStaffImages((s) => ({ ...s, upiScanner: v }))} />
                   </SectionBox>
 
                   <div><Label>Remarks</Label>
@@ -1113,8 +1104,8 @@ export default function StaffPage() {
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={helperForm.address} onChange={hf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
                     </div>
-                    <ImageUploadField label="Aadhar Card Front" value={helperImages.adharcardfront} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardfront: v }))} />
-                    <ImageUploadField label="Aadhar Card Back" value={helperImages.adharcardback} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardback: v }))} />
+                    <ImageUploadField label="Aadhar Card Front" value={helperImages.adharcardfront} existingUrl={editingHelperRow?.adhar_card_front} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardfront: v }))} />
+                    <ImageUploadField label="Aadhar Card Back" value={helperImages.adharcardback} existingUrl={editingHelperRow?.adhar_card_back} onChange={(v) => setHelperImages((s) => ({ ...s, adharcardback: v }))} />
                   </SectionBox>
 
                   <SectionBox title="Bank Details">
@@ -1124,7 +1115,7 @@ export default function StaffPage() {
                     <div><Label>Branch Name <span className="text-red-500">*</span></Label><Input value={helperForm.branch_name} onChange={hf('branch_name')} /></div>
                     <div><Label>IFSC Code <span className="text-red-500">*</span></Label><Input value={helperForm.ifsc_code} onChange={hf('ifsc_code')} /></div>
                     <div><Label>UPI ID</Label><Input value={helperForm.upi_id} onChange={hf('upi_id')} /></div>
-                    <ImageUploadField label="UPI / Passbook Scan" value={helperImages.upiscanner} onChange={(v) => setHelperImages((s) => ({ ...s, upiscanner: v }))} />
+                    <ImageUploadField label="UPI / Passbook Scan" value={helperImages.upiscanner} existingUrl={editingHelperRow?.upi_scanner} onChange={(v) => setHelperImages((s) => ({ ...s, upiscanner: v }))} />
                   </SectionBox>
 
                   <div><Label>Remarks</Label><Input value={helperForm.remarks} onChange={hf('remarks')} /></div>
@@ -1132,7 +1123,15 @@ export default function StaffPage() {
               )}
 
               <div className="flex gap-3 mt-6">
-                {(dataType === 'Staff' || isCustomType) && <Button onClick={() => addStaff()} disabled={addingStaff || !staffForm.fullName}><Save className="w-4 h-4" />{addingStaff ? 'Saving…' : `Save ${dataType}`}</Button>}
+                {dataType === 'Staff' && (
+                  <Button
+                    onClick={() => editingStaffRow ? editStaffMutate() : addStaff()}
+                    disabled={(editingStaffRow ? editingStaffPending : addingStaff) || !staffForm.fullName}
+                  >
+                    <Save className="w-4 h-4" />
+                    {(editingStaffRow ? editingStaffPending : addingStaff) ? 'Saving…' : editingStaffRow ? `Update ${dataType}` : `Save ${dataType}`}
+                  </Button>
+                )}
                 {dataType === 'Driver' && (
                   <Button
                     onClick={() => editingDriverRow ? editDriverMutate() : addDriver()}
@@ -1142,11 +1141,19 @@ export default function StaffPage() {
                     {(editingDriverRow ? editingDriverPending : addingDriver) ? 'Saving…' : editingDriverRow ? 'Update Driver' : 'Save Driver'}
                   </Button>
                 )}
-                {dataType === 'Helper' && <Button onClick={() => addHelper()} disabled={addingHelper || !helperForm.helper_name}><Save className="w-4 h-4" />{addingHelper ? 'Saving…' : 'Save Helper'}</Button>}
-                <Button variant="ghost" onClick={() => { setShowForm(false); setEditingDriverRow(null); setDriverForm(emptyDriver); setDriverImages(emptyDriverImages) }}><X className="w-4 h-4" /> Cancel</Button>
+                {dataType === 'Helper' && (
+                  <Button
+                    onClick={() => editingHelperRow ? editHelperMutate() : addHelper()}
+                    disabled={(editingHelperRow ? editingHelperPending : addingHelper) || !helperForm.helper_name}
+                  >
+                    <Save className="w-4 h-4" />
+                    {(editingHelperRow ? editingHelperPending : addingHelper) ? 'Saving…' : editingHelperRow ? 'Update Helper' : 'Save Helper'}
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
               </div>
             </GlassCard>
-          </motion.div>
+          </FormModal>
         )}
       </AnimatePresence>
 
@@ -1167,7 +1174,7 @@ export default function StaffPage() {
             </div>
           )}
           <DataTable
-            title={`${dataType === 'Terminated' ? 'Terminated Staff' : `Active ${dataType}s`} (${currentData.length})${isCustomType ? ` — filtered by designation: ${dataType}` : ''}`}
+            title={`${dataType === 'Terminated' ? 'Terminated Staff' : `Active ${dataType}s`} (${currentData.length})`}
             columns={currentCols}
             data={currentData}
             loading={currentLoading}
@@ -1176,10 +1183,15 @@ export default function StaffPage() {
                 const staffType = dataType === 'Driver' ? 'driver' : dataType === 'Helper' ? 'helper' : 'staff'
                 setViewPerson({ person: row, staffType })
               }
-              if (action === 'edit' && dataType === 'Driver') startEditDriver(row)
+              if (action === 'edit') {
+                if (dataType === 'Driver') startEditDriver(row)
+                if (dataType === 'Staff') startEditStaff(row)
+                if (dataType === 'Helper') startEditHelper(row)
+              }
               if (action === 'history' && dataType === 'Driver') setDriverHistoryFor(row)
             }}
-            actions={dataType === 'Terminated' ? [] : dataType === 'Driver' ? ['view', 'edit', 'history'] : ['view']}
+            actions={dataType === 'Terminated' ? [] : dataType === 'Driver' ? ['view', 'edit', 'history'] : ['view', 'edit']}
+            onExport={['Driver', 'Staff', 'Helper'].includes(dataType) ? { excel: (rows) => downloadData(rows) } : undefined}
             columnFilters={columnFilters}
             onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
           />
@@ -1234,7 +1246,7 @@ export default function StaffPage() {
                       <span className="absolute -left-[7px] w-3 h-3 rounded-full bg-amber-400 border-2 border-white" />
                       <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
                         <Clock className="w-3.5 h-3.5" />
-                        {new Date(h.changed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
+                        {new Date(h.changed_at).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} · {h.changed_by_name || 'Unknown'}
                       </div>
                       <ChangeNote note={h.changes_note ?? ''} />
                     </li>

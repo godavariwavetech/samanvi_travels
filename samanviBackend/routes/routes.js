@@ -25,6 +25,8 @@ router.post('/problemdone',verifyToken, routcontroller.problemdone);
 router.post('/submithelpdata', verifyToken,routcontroller.submithelpdata);
 router.post('/getdata',verifyToken, routcontroller.getdata);
 router.get('/deleteUsers/:ind',verifyToken, routcontroller.deleteUsersCtrl);
+router.post('/updateuser', verifyToken, routcontroller.updateUserCtrl);
+router.get('/getmymenu', verifyToken, routcontroller.getMyMenuCtrl);
 router.get('/getallusers', verifyToken, routcontroller.getAllUsersCtrl);
 
 
@@ -59,6 +61,7 @@ router.post('/bulkuploadstaff', verifyToken, routcontroller.bulkUploadStaffCtrl)
 router.get('/getstafftypes', verifyToken, routcontroller.getStaffTypesCtrl);
 router.post('/addstafftype', verifyToken, routcontroller.addStaffTypeCtrl);
 router.post('/deletestafftype', verifyToken, routcontroller.deleteStaffTypeCtrl);
+router.post('/updatestafftype', verifyToken, routcontroller.updateStaffTypeCtrl);
 // Vehicle Types
 router.get('/getvehicletypes', verifyToken, routcontroller.getVehicleTypesCtrl);
 router.post('/addvehicletype', verifyToken, routcontroller.addVehicleTypeCtrl);
@@ -241,6 +244,11 @@ router.post("/submitvouchertype",verifyToken,routcontroller.submitvouchertypectr
 router.post("/editvouchername",verifyToken,routcontroller.editvouchernamectrl);
 router.post("/deletevouchername",verifyToken,routcontroller.deletevouchernamectrl);
 
+// Laundry products are a separate master (laundryproduct_t). They must not share
+// the vouchertype edit/delete above - see the note on those models.
+router.post("/editlaundrytype",verifyToken,routcontroller.editlaundrytypemainmastersCtrl);
+router.post("/deletelaundrytype",verifyToken,routcontroller.dellaundrytypemainmastersCtrl);
+
 router.post("/updatevoucherentrystatus",verifyToken,routcontroller.updatevoucherentrystatusCtrl);
 router.get("/getvoucheraudit/:c_number",verifyToken,routcontroller.getVoucherAuditCtrl);
 router.post("/updatetripadminstatus",verifyToken,routcontroller.updatetripadminstatusCtrl);
@@ -248,6 +256,8 @@ router.post('/updatefueladminstatus', verifyToken, fuelcontroller.updatefueladmi
 router.post('/updatelaundryadminstatus', verifyToken, laundrycontroller.updatelaundryadminstatusCtrl);
 router.post('/deletelaundrybill', verifyToken, laundrycontroller.deletelaundrybillCtrl);
 router.post("/getbeta",verifyToken,routcontroller.getbetaCtrl);
+router.post("/gethaltbeta", verifyToken, routcontroller.gethaltbetaCtrl);
+router.post("/savehaltbeta", verifyToken, routcontroller.savehaltbetaCtrl);
 router.post("/getmodaldata",verifyToken,routcontroller.getmodaldataCtrl);
 router.post("/gettripdeletedmodaldata",verifyToken,routcontroller.gettripdeletedmodaldataCtrl);
 router.post("/submitlaundrytypemainmasters",verifyToken,routcontroller.submitlaundrytypemainmastersCtrl);
@@ -317,8 +327,10 @@ router.get('/getlaundrybilldata', verifyToken, laundrycontroller.getlaundrybilld
 router.post('/getlaundrybillsubdata', verifyToken, laundrycontroller.getlaundrybillsubdataCtrl);
 router.post('/updatebusnumber',verifyToken,routcontroller.updatebusnumber);
 router.post('/updatebusvaliditydate',verifyToken,routcontroller.updateBusValidityDateCtrl);
+router.post('/updatedrivervaliditydate',verifyToken,routcontroller.updateDriverValidityDateCtrl);
 router.post('/updateservicenumber',verifyToken, routcontroller.updateservicenumber);
 router.post('/updateserviceno',verifyToken,routcontroller.updateservicenoCtrl);
+router.post('/setservicenoactive',verifyToken,routcontroller.setServiceNoActiveCtrl);
 router.post('/adddriveredit',verifyToken,routcontroller.adddrivereditCtrl);
 router.post('/getdriverhistory',verifyToken,routcontroller.getDriverHistoryCtrl);
 router.post('/edithelperregister',verifyToken,routcontroller.edithelperregisterCtrl);
@@ -360,7 +372,7 @@ router.post('/getadminstatuscount', verifyToken,routcontroller.getadminstatuscou
 router.post('/getadminrejected', verifyToken,routcontroller.getadminrejectedCtrl);
 router.post('/getadminapproved', verifyToken,routcontroller.getadminapprovedCtrl);
 
-router.post('/getservicenum', verifyToken,routcontroller.getservicenumCtrl);
+router.post('/getbusslasttrip', verifyToken,routcontroller.getBusLastTripCtrl);
 router.post('/getpdfpatchdata1', verifyToken,routcontroller.getpdfpatchdata1Ctrl);
 router.post('/getbetadata', verifyToken,routcontroller.getbetadataCtrl);
 router.post('/submitpayablesvoucherentry',verifyToken, routcontroller.submitpayablesvoucherentryCtrl);

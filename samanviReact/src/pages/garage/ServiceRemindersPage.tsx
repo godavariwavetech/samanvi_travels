@@ -9,7 +9,7 @@ import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { mainmastersService } from '@/services/mainmasters.service'
-import { scrollContentToTop } from '@/lib/utils'
+import { scrollContentToTop, todayISO } from '@/lib/utils'
 
 const REPEAT_UNITS = ['Days', 'Weeks', 'Months', 'Years']
 
@@ -110,7 +110,7 @@ type TypeRow = typeof EMPTY_TYPE_ROW
 const EMPTY_SCHEDULE_ROW = { due_date: '', due_odometer: '', last_done_odometer: '' }
 type ScheduleRow = typeof EMPTY_SCHEDULE_ROW
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const JOB_PRIORITIES = ['High', 'Medium', 'Low']
 const EMPTY_JOB_CARD_FORM = { job_date: today, odometer: '', driver: '', category: '', priority: 'Medium', technician: '', description: '' }
@@ -129,7 +129,7 @@ function fmtDate(d: string) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return d
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'Asia/Kolkata' })
 }
 
 function statusBadge(row: any) {
@@ -469,6 +469,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={form.vehicle_number}
                     onChange={setField('vehicle_number')}
+                    onClear={() => setField('vehicle_number')('')}
                     options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                     placeholder="Select Bus"
                     onReload={() => reloadBuses()}
@@ -479,6 +480,7 @@ export default function ServiceRemindersPage() {
                     <SearchableSelect
                       value={form.reminder_type}
                       onChange={setField('reminder_type')}
+                      onClear={() => setField('reminder_type')('')}
                       options={reminderTypeList.map((t) => ({ value: t.type_name, label: t.type_name }))}
                       placeholder="Select Type"
                       onReload={() => reloadTypes()}
@@ -689,7 +691,8 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.driver}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, driver: v }))}
-                    options={driverList.map((d) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))}
+                    onClear={() => setJobCardForm((s) => ({ ...s, driver: '' }))}
+                    options={driverList.map((d) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))}
                     placeholder="Select driver"
                     onReload={() => reloadDrivers()}
                     reloading={loadingDrivers}
@@ -698,6 +701,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.category}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, category: v }))}
+                    onClear={() => setJobCardForm((s) => ({ ...s, category: '' }))}
                     options={catList.map((c) => ({ value: String(c.id), label: c.name }))}
                     placeholder="Select category"
                     onReload={() => reloadCats()}
@@ -711,6 +715,7 @@ export default function ServiceRemindersPage() {
                   <SearchableSelect
                     value={jobCardForm.technician}
                     onChange={(v) => setJobCardForm((s) => ({ ...s, technician: v }))}
+                    onClear={() => setJobCardForm((s) => ({ ...s, technician: '' }))}
                     options={staffList.map((s) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))}
                     placeholder="Select technician"
                     onReload={() => reloadStaff()}

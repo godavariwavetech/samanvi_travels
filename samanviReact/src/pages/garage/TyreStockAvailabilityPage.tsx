@@ -7,6 +7,7 @@ import { Button, Input, Label, DataTable, Badge, PageHeader, Select, SearchableS
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption } from '@/lib/utils'
 
 const STATUSES = ['In Stock', 'In Use', 'Retreaded', 'Scrapped', 'Sold', 'Pending Retread']
 
@@ -35,7 +36,7 @@ export default function TyreStockAvailabilityPage() {
 
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   const statusCounts = useMemo(() => {
     const m: Record<string, number> = {}
@@ -204,6 +205,7 @@ export default function TyreStockAvailabilityPage() {
                     <SearchableSelect
                       value={debitLedgerId}
                       onChange={setDebitLedgerId}
+                      onClear={() => setDebitLedgerId('')}
                       options={ledgerOptions}
                       placeholder="Select ledger"
                       onReload={() => reloadLedgers()}
@@ -213,6 +215,7 @@ export default function TyreStockAvailabilityPage() {
                     <SearchableSelect
                       value={creditLedgerId}
                       onChange={setCreditLedgerId}
+                      onClear={() => setCreditLedgerId('')}
                       options={ledgerOptions}
                       placeholder="Select ledger"
                       onReload={() => reloadLedgers()}

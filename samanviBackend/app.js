@@ -109,8 +109,10 @@ app.use(function(req, res, next) {
 
     // Request methods you wish to allow
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-    // Request headers you wish to allow
-    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization');
+    // Request headers you wish to allow. Cache-Control is listed so a browser
+    // still running an older bundle - one that sends it on every GET - does not
+    // have its preflight rejected and every list come back empty.
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization,Cache-Control,Pragma');
     // Set to true if you need the website to include cookies in the requests sent
     // to the API (e.g. in case you use sessions)
     res.setHeader('Access-Control-Allow-Credentials', true);
@@ -118,6 +120,10 @@ app.use(function(req, res, next) {
     next();
 });
 app.use(logErrors);
+// API answers are live data, never to be cached by the browser or a proxy in
+// front of the server; a cached GET made a just-saved fuel entry invisible
+// on the list until a hard refresh.
+app.use('/nodeapp', function (req, res, next) { res.set('Cache-Control', 'no-store'); next(); });
 app.use('/nodeapp', require('./routes/routes'));
 
 function logErrors(err, req, res, next) {
@@ -231,6 +237,59 @@ ensureColumn('tyre_retread_log', 'cost', '`cost` DECIMAL(10,2) DEFAULT 0');
 ensureColumn('tyre_position_log', 'voucher_number', '`voucher_number` VARCHAR(30) DEFAULT NULL');
 ensureColumn('staff_register', 'dob', '`dob` DATE NULL');
 ensureColumn('staff_register', 'address', '`address` TEXT NULL');
+
+// Older Staff records were created before the backend started generating
+// S#### IDs, so their idNumber is an empty string. Fill only missing IDs,
+// preserving any existing/custom IDs and keeping the next number monotonic.
+function backfillStaffIds() {
+    sqldb_init.query(`
+        SELECT id
+        FROM staff_register
+        WHERE idNumber IS NULL OR TRIM(idNumber) = ''
+        ORDER BY id
+    `, function(err, blankRows) {
+        if (err) {
+            console.error('[Staff IDs] Could not find blank staff IDs:', err.message);
+            return;
+        }
+        if (!blankRows.length) return;
+
+        sqldb_init.query(`
+            SELECT COALESCE(MAX(CAST(SUBSTRING(idNumber, 2) AS UNSIGNED)), 0) AS maxid
+            FROM staff_register
+            WHERE idNumber REGEXP '^S[0-9]+$'
+        `, function(maxErr, maxRows) {
+            if (maxErr) {
+                console.error('[Staff IDs] Could not calculate next staff ID:', maxErr.message);
+                return;
+            }
+            var nextId = Number(maxRows[0] && maxRows[0].maxid) || 0;
+            var i = 0;
+            function assignNext() {
+                if (i >= blankRows.length) {
+                    console.log('[Staff IDs] Backfilled ' + blankRows.length + ' staff record(s)');
+                    return;
+                }
+                nextId += 1;
+                var staffId = 'S' + String(nextId).padStart(4, '0');
+                sqldb_init.query(
+                    `UPDATE staff_register SET idNumber = ? WHERE id = ? AND (idNumber IS NULL OR TRIM(idNumber) = '')`,
+                    [staffId, blankRows[i].id],
+                    function(updateErr) {
+                        if (updateErr) {
+                            console.error('[Staff IDs] Could not assign ' + staffId + ':', updateErr.message);
+                            return;
+                        }
+                        i += 1;
+                        assignNext();
+                    }
+                );
+            }
+            assignNext();
+        });
+    });
+}
+backfillStaffIds();
 ensureColumn('driver_register', 'address', '`address` TEXT NULL');
 ensureColumn('driver_register', 'dl_issued_by', '`dl_issued_by` VARCHAR(150) NULL');
 ensureColumn('driver_register', 'dl_dob', '`dl_dob` DATE NULL');
@@ -274,6 +333,13 @@ ensureColumn('driverone', 'optHelperSalary', '`optHelperSalary` VARCHAR(50) DEFA
 // everything else), set once when the service number is created/edited, never
 // derived from fromCity/toCity.
 ensureColumn('driverone', 'up_down', "`up_down` VARCHAR(10) DEFAULT NULL");
+// Active / Inactive — an inactive service number stays on the master (and on
+// the trips it already ran) but is left out of Trip Creation until reactivated.
+ensureColumn('driverone', 'is_active', "`is_active` TINYINT(1) NOT NULL DEFAULT 1");
+// The day it was switched off: earlier dates still offer it on Trip Creation.
+ensureColumn('driverone', 'inactive_from', "`inactive_from` DATE DEFAULT NULL");
+// Validations > Drivers tracks this beside DL expiry and transport validity.
+ensureColumn('driver_register', 'medical_validity', "`medical_validity` VARCHAR(255) DEFAULT NULL");
 
 // Lubricants & Fluids — per-company change periodicities for engine oil,
 // coolant, gear oil etc., managed from Main Masters alongside Service Schedules.

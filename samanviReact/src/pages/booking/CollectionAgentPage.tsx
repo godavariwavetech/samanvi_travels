@@ -3,9 +3,10 @@ import { motion } from 'motion/react'
 import { Users, Send, TrendingUp } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Select, Label, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 
 export default function CollectionAgentPage() {
   const qc = useQueryClient()
@@ -112,9 +113,24 @@ export default function CollectionAgentPage() {
       <GlassCard className="overflow-hidden">
         <div className="p-5 border-b border-slate-100 bg-white/40 flex justify-between items-center">
           <h3 className="font-bold text-slate-900 text-lg">Booking Records</h3>
-          <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${bookingList.length} records`}</p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-slate-500">{isLoading ? 'Loading…' : `${bookingList.length} records`}</p>
+            <ExportMenu
+              disabled={isLoading || bookingList.length === 0}
+              onExport={(format) => exportRows({
+                title: 'Booking Records',
+                headers: ['Sl No', 'Date', 'PNR', 'Service', 'Seat', 'Passenger', 'Fare', 'Commission', 'Amount', 'Booked By', 'Status'],
+                rows: bookingList.map((r, i) => [
+                  i + 1, formatDate(r.date), r.pnr_no ?? '', r.servicenumber ?? '', r.seatnumber ?? '', r.name ?? '',
+                  Number(r.fare) || 0, Number(r.agentcommission) || 0, Number(r.finalamount) || 0, r.bookedby ?? '',
+                  r.agentstatus == 1 ? 'Assigned' : 'Pending',
+                ]),
+                format,
+              })}
+            />
+          </div>
         </div>
-        <div className="overflow-auto max-h-[70vh]">
+        <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-left min-w-[900px]">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/50">
@@ -142,7 +158,7 @@ export default function CollectionAgentPage() {
                     <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)}
                       onClick={(e) => e.stopPropagation()} className="w-4 h-4 accent-blue-600 rounded" />
                   </td>
-                  <td className="p-4 text-sm text-slate-600">{row.date}</td>
+                  <td className="p-4 text-sm text-slate-600">{formatDate(row.date)}</td>
                   <td className="p-4 font-bold text-blue-600">{row.pnr_no}</td>
                   <td className="p-4 text-sm"><div className="font-medium">{row.servicenumber}</div><div className="text-xs text-slate-400">{row.seatnumber}</div></td>
                   <td className="p-4 font-medium">{row.name}</td>
@@ -164,7 +180,7 @@ export default function CollectionAgentPage() {
               </tfoot>
             )}
           </table>
-        </div>
+        </DualScrollTable>
       </GlassCard>
     </motion.div>
   )

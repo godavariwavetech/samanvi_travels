@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { BatteryFull, Plus, X, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { garageService } from '@/services/garage.service'
 
 export default function BatteryCapacityPage() {
@@ -72,9 +73,15 @@ export default function BatteryCapacityPage() {
       </GlassCard>
 
       <GlassCard className="p-6">
-        <h3 className="font-bold text-slate-700 mb-4">
-          Current Battery Capacities ({capacities.length})
-        </h3>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="font-bold text-slate-700">
+            Current Battery Capacities ({capacities.length})
+          </h3>
+          <ExportMenu
+            disabled={capacities.length === 0}
+            onExport={(format) => exportRows({ title: 'Battery Capacities', headers: ['Sl No', 'Capacity'], rows: capacities.map((c, i) => [i + 1, c.capacity_ah ?? '']), format })}
+          />
+        </div>
 
         {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

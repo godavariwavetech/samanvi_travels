@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CircleDot, Save, Plus, X, Edit2, Truck, ShoppingCart, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 const STATUSES = ['In Stock', 'In Use', 'Retreaded', 'Scrapped', 'Sold', 'Pending Retread']
 
@@ -23,7 +24,7 @@ const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger
 type TyreRow = { brand: string; size: string; serial_no: string; cost: string; remarks: string }
 const emptyTyreRow = (cost = ''): TyreRow => ({ brand: '', size: '', serial_no: '', cost, remarks: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'purple' | 'teal'> = {
   'In Stock': 'success', 'In Use': 'info', Retreaded: 'warning', Scrapped: 'danger', Sold: 'purple', 'Pending Retread': 'teal',
@@ -33,7 +34,7 @@ function fmtDate(v: any) {
   if (!v) return '—'
   const d = new Date(v)
   if (isNaN(d.getTime())) return String(v)
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
 export default function TyreInventoryPage() {
@@ -42,6 +43,9 @@ export default function TyreInventoryPage() {
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [editCode, setEditCode] = useState('')
+  // Not shown on the edit form, but the model writes it, so it has to be carried
+  // from the row or every save orphans the tyre from its vendor.
+  const [editingVendorId, setEditingVendorId] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
@@ -79,7 +83,7 @@ export default function TyreInventoryPage() {
 
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   // Standalone tyre purchases are stock coming in, so default the debit side
   // to the "New Tyres In Stock" ledger instead of leaving it for the user to
@@ -136,6 +140,11 @@ export default function TyreInventoryPage() {
   const buildPayload = () => ({
     ...form,
     id: editId,
+    // vendor_id and tyre_code are not on the edit form, but the model writes
+    // both: omitting vendor_id nulled it out on every save, and an empty
+    // tyre_code left the scrap voucher unattributable. Carry the row's values.
+    vendor_id: editingVendorId,
+    tyre_code: editCode,
     ledger_description: ledgerDescription,
     debit_ledgers: debit.filter(e => e.ledger_id && e.amount),
     credit_ledgers: credit.filter(e => e.ledger_id && e.amount),
@@ -186,6 +195,14 @@ export default function TyreInventoryPage() {
     setBusOdometer(bus?.odometer != null ? String(bus.odometer) : '')
   }
 
+  // Clearing the bus drops everything chosen to go on it — the date and odometer
+  // were read off the bus just picked, and the per-position rows are that bus's
+  // alone.
+  const clearBus = () => {
+    setBusNumber(''); setBusPurchaseDate(''); setBusOdometer('')
+    setSelectedPositions([]); setPositionRows({})
+  }
+
   const togglePosition = (posName: string) => {
     setSelectedPositions((prev) => prev.includes(posName) ? prev.filter((p) => p !== posName) : [...prev, posName])
     setPositionRows((rows) => {
@@ -230,6 +247,12 @@ export default function TyreInventoryPage() {
       remarks: row.remarks ?? '',
     })
     setEditCode(row.tyre_code ?? '')
+    setEditingVendorId(row.vendor_id ?? null)
+    // Clear the ledger rows. The model raises a scrap voucher from whatever
+    // debit/credit rows arrive, and this form is the same component used for
+    // adding - so whatever ledgers were last typed stayed in state and an edit
+    // re-posted them as a second voucher.
+    setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
     setIsEdit(true); setEditId(row.id); setShowForm(true)
   }
 
@@ -241,13 +264,13 @@ export default function TyreInventoryPage() {
   }
 
   const openAdd = () => {
-    setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setShowForm(true)
+    setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setEditingVendorId(null); setShowForm(true)
     setEntryMode('new'); setBusNumber(''); setBusPurchaseDate(''); setBusOdometer(''); setSelectedPositions([]); setPositionRows({})
     setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
     setTyreRows([emptyTyreRow()]); setSameCost(false)
   }
   const closeForm = () => {
-    setShowForm(false); setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode('')
+    setShowForm(false); setForm(EMPTY_FORM); setIsEdit(false); setEditId(null); setEditCode(''); setEditingVendorId(null)
     setEntryMode('new'); setBusNumber(''); setBusPurchaseDate(''); setBusOdometer(''); setSelectedPositions([]); setPositionRows({})
     setLedgerDescription(''); setDebit([emptyLedgerEntry()]); setCredit([emptyLedgerEntry()])
     setTyreRows([emptyTyreRow()]); setSameCost(false)
@@ -275,7 +298,7 @@ export default function TyreInventoryPage() {
             const text = p.replace(/^(Debit|Credit) Account: /, '')
             return (
               <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full w-fit whitespace-nowrap ${isDebit ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                {isDebit ? 'Dr' : 'Cr'} {text}
+                {isDebit ? 'Dr' : 'Cr'} <LedgerNameWithGroup name={text.replace(/ ₹[0-9.]+$/, '')} />{(text.match(/ ₹[0-9.]+$/) || [''])[0]}
               </span>
             )
           })}
@@ -357,6 +380,7 @@ export default function TyreInventoryPage() {
                     <SearchableSelect
                       value={form.brand}
                       onChange={(v) => setForm((s) => ({ ...s, brand: v }))}
+                      onClear={() => setForm((s) => ({ ...s, brand: '' }))}
                       options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
                       placeholder="Select make"
                       onReload={() => reloadMakes()}
@@ -368,6 +392,7 @@ export default function TyreInventoryPage() {
                     <SearchableSelect
                       value={form.size}
                       onChange={(v) => setForm((s) => ({ ...s, size: v }))}
+                      onClear={() => setForm((s) => ({ ...s, size: '' }))}
                       options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
                       placeholder="Select size"
                       onReload={() => reloadSizes()}
@@ -426,12 +451,14 @@ export default function TyreInventoryPage() {
                         <div className="flex-[1.5] min-w-0">
                           <SearchableSelect value={row.brand}
                             onChange={(v) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, brand: v }))}
+                            onClear={() => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, brand: '' }))}
                             options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
                             placeholder="Make" onReload={() => reloadMakes()} reloading={loadingMakes} />
                         </div>
                         <div className="flex-[1.5] min-w-0">
                           <SearchableSelect value={row.size}
                             onChange={(v) => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, size: v }))}
+                            onClear={() => setTyreRows((rows) => rows.map((r, ri) => ri !== i ? r : { ...r, size: '' }))}
                             options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
                             placeholder="Size" onReload={() => reloadSizes()} reloading={loadingSizes} />
                         </div>
@@ -479,6 +506,7 @@ export default function TyreInventoryPage() {
                               <div className="flex-[3] min-w-0">
                                 <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                                   onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                                  onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                                   options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                               </div>
                               <div className="flex-[2] min-w-0">
@@ -505,6 +533,7 @@ export default function TyreInventoryPage() {
                               <div className="flex-[3] min-w-0">
                                 <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                                   onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                                  onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                                   options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                               </div>
                               <div className="flex-[2] min-w-0">
@@ -532,6 +561,7 @@ export default function TyreInventoryPage() {
                       <SearchableSelect
                         value={busNumber}
                         onChange={selectBus}
+                        onClear={clearBus}
                         options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
                         placeholder="Select Bus"
                         onReload={() => reloadBuses()}
@@ -585,6 +615,7 @@ export default function TyreInventoryPage() {
                                 <SearchableSelect
                                   value={row.brand}
                                   onChange={setPositionSelect(pos, 'brand')}
+                                  onClear={() => setPositionSelect(pos, 'brand')('')}
                                   options={makeList.map((m) => ({ value: m.make_name, label: m.make_name }))}
                                   placeholder="Select make"
                                   onReload={() => reloadMakes()}
@@ -596,6 +627,7 @@ export default function TyreInventoryPage() {
                                 <SearchableSelect
                                   value={row.size}
                                   onChange={setPositionSelect(pos, 'size')}
+                                  onClear={() => setPositionSelect(pos, 'size')('')}
                                   options={sizeList.map((s) => ({ value: s.size_name, label: s.size_name }))}
                                   placeholder="Select size"
                                   onReload={() => reloadSizes()}

@@ -4,7 +4,10 @@ import { ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Plus, Pencil
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu } from '@/components/shared'
+import { exportRows, type ExportCell, type ExportFormat } from '@/lib/tableExport'
+import { formatDate, todayISO } from '@/lib/utils'
+import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
@@ -48,6 +51,32 @@ function calcTotals(node: HierarchyNode): number {
 function setExpanded(node: HierarchyNode, val: boolean): void {
   node.expanded = val
   node.children?.forEach(c => setExpanded(c, val))
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+// The statement as it stands on screen: a heading row per section with its
+// total, then every visible group / ledger indented by depth - a collapsed
+// branch stays out, so Expand All first for the full detail. Excel gets real
+// numbers; the PDF gets them formatted.
+function exportAmount(v: number, format: ExportFormat): ExportCell {
+  const r = Math.round(v * 100) / 100
+  return format === 'excel' ? r : `${r < 0 ? '-' : ''}${Math.abs(r).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function statementRows(sections: { title: string; nodes: HierarchyNode[] }[], format: ExportFormat): ExportCell[][] {
+  const amt = (v: number) => exportAmount(v, format)
+  const rows: ExportCell[][] = []
+  let sl = 0
+  const walk = (n: HierarchyNode, depth: number) => {
+    const blank = n.nodeType === 'ledger' && n.totalAmount === 0
+    rows.push([++sl, `${'    '.repeat(depth)}${n.name}`, n.nodeType === 'ledger' ? 'Ledger' : 'Group', blank ? '' : amt(n.totalAmount)])
+    if (n.expanded) n.children?.forEach(c => walk(c, depth + 1))
+  }
+  sections.forEach(s => {
+    rows.push(['', s.title.toUpperCase(), '', amt(Math.abs(s.nodes.reduce((t, n) => t + n.totalAmount, 0)))])
+    s.nodes.forEach(n => walk(n, 0))
+  })
+  return rows
 }
 
 // ── Path breadcrumb helper ─────────────────────────────────────────────────
@@ -281,7 +310,7 @@ function Section({ title, nodes, bgColor, textColor, rootNode, onToggle, onAdd, 
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 interface SearchItem {
@@ -728,14 +757,9 @@ export default function BalanceSheetPage() {
     navigate('/accounting/ledger-wise', { state: { ledgerId: node.id } })
   }
 
-  const handlePayables = (node: HierarchyNode) => {
-    const data = { groupName: node.name, entries: [node] }
-    localStorage.setItem('reportViewData', JSON.stringify(data))
-    localStorage.setItem('bs_ledger_name', 'balacesheeet')
-    localStorage.setItem('bs_fromdate', appliedDates.fromdate)
-    localStorage.setItem('bs_todate', appliedDates.todate)
-    window.open('/accounting/payables-view', '_blank')
-  }
+  // Payables opens as a popup over this report rather than in another tab.
+  const [payablesFor, setPayablesFor] = useState<{ id: number; name: string } | null>(null)
+  const handlePayables = (node: HierarchyNode) => setPayablesFor({ id: node.id, name: node.name })
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
@@ -779,6 +803,16 @@ export default function BalanceSheetPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <ExportMenu
+              disabled={isLoading || (assets.length === 0 && liabilities.length === 0)}
+              onExport={(format) => exportRows({
+                title: `Balance Sheet (${formatDate(appliedDates.fromdate)} to ${formatDate(appliedDates.todate)})`,
+                fileName: 'Balance Sheet',
+                headers: ['Sl No', 'Particulars', 'Type', 'Amount'],
+                rows: statementRows([{ title: 'Assets', nodes: assets }, { title: 'Equities & Liabilities', nodes: liabilities }], format),
+                format,
+              })}
+            />
             <span className="text-sm text-slate-500 font-medium">Sort By</span>
             <select
               value={sortMode}
@@ -1027,6 +1061,7 @@ export default function BalanceSheetPage() {
           </motion.div>
         )}
       </AnimatePresence>
+      {payablesFor && <PayablesPopup ledger={payablesFor} onClose={() => setPayablesFor(null)} />}
     </motion.div>
   )
 }

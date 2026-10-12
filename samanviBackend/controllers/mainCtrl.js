@@ -624,6 +624,65 @@ exports.getAllUsersCtrl = function (req, res) {
   });
 };
 
+// The signed-in user's current menu (modules + permitted sub-modules), in the
+// same shape login returns. The app re-reads it so a permission change or a
+// deactivation takes effect without signing out. The user comes from the
+// token, never from the request, so nobody can read another user's menu.
+exports.getMyMenuCtrl = function (req, res) {
+  let usid;
+  try {
+    const token = String(req.headers["authorization"] || "").split(" ")[1];
+    usid = Number(jwt.verify(token, JWT_SECRET).usid);
+  } catch (e) {
+    return res.send({ status: 401, msg: "Invalid token" });
+  }
+  if (!usid) return res.send({ status: 401, msg: "Invalid token" });
+  appmdl.getActiveUserMdl(usid, function (err, users) {
+    if (err) return res.send({ status: 500, msg: "Server Error" });
+    // Deactivated since signing in: the app treats 401 as signed out.
+    if (!users || !users.length) return res.send({ status: 401, msg: "User is inactive" });
+    appmdl.getUserDataMdl(usid, function (err2, usrMenu) {
+      if (err2) return res.send({ status: 500, msg: "Server Error" });
+      usrMenu[0].forEach((mod) => {
+        mod.submenu = usrMenu[1].filter((sub) => sub.module_id == mod.id);
+      });
+      res.send({ status: 200, data: usrMenu[0], usr_data: users });
+    });
+  });
+};
+
+// Edits an existing user's profile, role and (optionally) password. A blank
+// password keeps the current one. The mobile number is the login, so it must
+// stay unique among active users other than this one.
+exports.updateUserCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  let u;
+  try {
+    validateSignature(encryptedPayload, signature);
+    u = decryptPayload(encryptedPayload);
+  } catch (e) {
+    return res.send({ status: 400, message: "Invalid request" });
+  }
+  const id = Number(u && u.id);
+  const name = String((u && u.name) || "").trim();
+  const number = String((u && u.number) || "").trim();
+  const roleType = Number(u && u.role_type);
+  if (!id) return res.send({ status: 400, message: "User id is required" });
+  if (!name) return res.send({ status: 400, message: "Name is required" });
+  if (!/^[6-9]\d{9}$/.test(number)) return res.send({ status: 400, message: "Enter a valid 10-digit mobile number" });
+  if (![0, 1, 2, 3].includes(roleType)) return res.send({ status: 400, message: "Invalid role" });
+
+  appmdl.checkUserMobileOtherMdl(number, id, function (err, dup) {
+    if (err) return res.send({ status: 500, message: "Server Error" });
+    if (dup && dup.length > 0) return res.send({ status: 300, message: "Mobile number already used by another user" });
+    appmdl.updateUserMdl({ ...u, id, name, number, role_type: roleType }, function (err2, results) {
+      if (err2) return res.send({ status: 500, message: "Server Error" });
+      if (!results || !results.affectedRows) return res.send({ status: 404, message: "User not found" });
+      res.send({ status: 200, data: results });
+    });
+  });
+};
+
 exports.deleteUsersCtrl = function (req, res) {
   var ind = req.params.ind;
   appmdl.deleteUsersMdl(ind, function (err, results) {
@@ -654,13 +713,20 @@ exports.addNewbusnumCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const payload = decryptPayload(encryptedPayload);
   var reqdata = payload;
-  // //console.log()reqdata,497)
-  appmdl.addNewbusnumMdl(reqdata, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
+  // A vehicle number is registered once. Adding it again - which the hire
+  // form used to allow, leaving the vehicle twice in every list - is refused
+  // and points at the existing entry; changes go through Edit.
+  appmdl.findLiveBusByNumberMdl(reqdata.busno, function (dupErr, existing) {
+    if (!dupErr && existing) {
+      return res.send({ status: 422, message: 'Vehicle ' + existing.bus_no + ' is already registered' + (existing.bus_category === 'hire' ? ' as a hire vehicle' : '') + ' - edit it from the list instead' });
     }
-    res.send({ status: 200, data: results });
+    appmdl.addNewbusnumMdl(reqdata, function (err, results) {
+      if (err) {
+        res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
   });
 };
 exports.getbussesdataCtrl = function (req, res) {
@@ -1221,7 +1287,10 @@ exports.adddriverregisterCtrl = function (req, res) {
         function (err, results) {
           if (err) {
             // res.send(500, "Server Error");
-            res.status(500).send({ status: 500 });
+            // The reason travels with the response. A bare 500 here showed up in
+            // the UI as a bare "Server error", which is no way to tell a duplicate
+            // key from a bad value on a column the form never even shows.
+            res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
             return;
           }
           res.send({ status: 200, data: results });
@@ -1320,6 +1389,15 @@ exports.deleteStaffTypeCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const data = decryptPayload(encryptedPayload);
   appmdl.deleteStaffTypeMdl(data, function (err, results) {
+    if (err) { res.send({ status: 500, data: null }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+exports.updateStaffTypeCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const data = decryptPayload(encryptedPayload);
+  appmdl.updateStaffTypeMdl(data, function (err, results) {
     if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
   });
@@ -1668,6 +1746,16 @@ exports.deleteDriveroneCtrl = function (req, res) {
   validateSignature(encryptedPayload, signature);
   const payload = decryptPayload(encryptedPayload);
   appmdl.deletedriveoneMdl(payload, function (err, results) {
+    if (err) { res.send({ status: 500, data: results }); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.setServiceNoActiveCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  validateSignature(encryptedPayload, signature);
+  const payload = decryptPayload(encryptedPayload);
+  appmdl.setServiceNoActiveMdl(payload, function (err, results) {
     if (err) { res.send({ status: 500, data: results }); return; }
     res.send({ status: 200, data: results });
   });
@@ -2181,6 +2269,21 @@ exports.deleteexpensesdataCtrl = function (req, res) {
 //     });
 // };
 
+// Debit/credit rows arrive shaped for expensive_details (d_test_name/credit_name
+// carrying the full ledger object) — reshape into the {ledger_id, ledger_name,
+// amount} pairs createTripVoucherMdl/updateTripVoucherMdl expect.
+function buildTripVoucherLedgers(body) {
+  var debit_ledgers = (body.patientsTstdts || []).map(function (r) {
+    var l = r.d_test_name || {};
+    return { ledger_id: l.ledger_id, ledger_name: l.temple_name || l.expensives || '', amount: r.d_test_amount };
+  });
+  var credit_ledgers = (body.credit || []).map(function (r) {
+    var l = r.credit_name || {};
+    return { ledger_id: l.ledger_id, ledger_name: l.temple_name || l.expensives || '', amount: r.credit_amount };
+  });
+  return { debit_ledgers: debit_ledgers, credit_ledgers: credit_ledgers };
+}
+
 exports.addexpensesdetails = function (req, res) {
   // appmdl.maintripexpenseuniquenoMdl(async function (err, cresults1) {
   //   if (err) {
@@ -2201,9 +2304,13 @@ exports.addexpensesdetails = function (req, res) {
     req.body,
     function (err, results) {
       if (err || !results || !results.insertId) {
+        // The cause used to be swallowed entirely, so a failed filing gave the
+        // user (and the log) nothing but "Failed to add...". Surface it.
+        console.error('[addexpensesdetails] tripexpenses_data insert failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
         return res.status(500).send({
           status: 500,
           message: "Failed to add diagnostic patient details.",
+          detail: err && (err.sqlMessage || err.message) || 'no insertId returned',
         });
       }
       appmdl.adddiagnoptntTstdtsmmdl(
@@ -2213,9 +2320,11 @@ exports.addexpensesdetails = function (req, res) {
         req.body,
         function (err, testDetails) {
           if (err || !testDetails) {
+            console.error('[addexpensesdetails] debit rows failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
             return res.status(500).send({
               status: 500,
               message: "Failed to add diagnostic test details.",
+              detail: err && (err.sqlMessage || err.message) || 'no result returned',
             });
           }
           appmdl.adddingcreditmmdl(
@@ -2225,9 +2334,11 @@ exports.addexpensesdetails = function (req, res) {
             req.body,
             function (err, testDetails) {
               if (err || !testDetails) {
+                console.error('[addexpensesdetails] credit rows failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
                 return res.status(500).send({
                   status: 500,
                   message: "Failed to add diagnostic test details.",
+                  detail: err && (err.sqlMessage || err.message) || 'no result returned',
                 });
               }
               appmdl.updatefunction(
@@ -2236,18 +2347,40 @@ exports.addexpensesdetails = function (req, res) {
                 req.body,
                 function (err, updateResult) {
                   if (err || !updateResult) {
+                    console.error('[addexpensesdetails] trip_created update failed for ' + c_number + ':', err && (err.sqlMessage || err.message));
                     return res
                       .status(500)
                       .send({
                         status: 500,
                         message: "Failed to update function.",
+                        detail: err && (err.sqlMessage || err.message) || 'no result returned',
                       });
                   }
-                  // Send final success response
-                  return res.status(200).send({
-                    status: 200,
-                    message: "Successfully added and updated expenses.",
-                    data: updateResult,
+                  var finish = function () {
+                    return res.status(200).send({
+                      status: 200,
+                      message: "Successfully added and updated expenses.",
+                      data: updateResult,
+                    });
+                  };
+                  // Post the accounting voucher for this trip's debit/credit
+                  // lines, then link it back onto trip_created.voucher_number.
+                  // The expense itself already saved fine above, so a voucher
+                  // failure here is logged and swallowed rather than failing
+                  // the whole request.
+                  var ledgers = buildTripVoucherLedgers(req.body);
+                  appmdl.createTripVoucherMdl({
+                    debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
+                    trip_c_number: c_number,
+                    entry_by: (req.body.expensedetails && req.body.expensedetails.named) || '',
+                    user_id: (req.body.expensedetails && req.body.expensedetails.user_id) || 0,
+                  }, function (voucherErr, voucherNumber) {
+                    if (voucherErr) {
+                      console.error('[createTripVoucherMdl] failed for trip ' + c_number + ':', voucherErr.message);
+                      return finish();
+                    }
+                    if (!voucherNumber) return finish();
+                    appmdl.setTripVoucherNumberMdl(c_number, voucherNumber, finish);
                   });
                 }
               );
@@ -2261,15 +2394,23 @@ exports.addexpensesdetails = function (req, res) {
 };
 
 exports.updateexpensesdetailsCtrl = function (req, res) {
+  // An approved trip, or a trip whose voucher is already approved in Voucher
+  // Approvals, is on the books: re-filing replaced the voucher's lines with
+  // pending ones under a header still marked approved, and the payable
+  // silently dropped out of Ledger Wise. Checked before anything is touched.
+  appmdl.tripExpenseLockMdl(req.body.c_number, function (lockErr, lockMsg) {
+  if (lockErr) { res.status(500).send("Server Error"); return; }
+  if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
   appmdl.deletetripexpensesMdl(req.body, function (err, cresults1) {
     if (err) {
       //console.log()"err " + err);
       res.status(500).send("Server Error");
       return;
     }
-    let c_id = cresults1[0] ? cresults1[0].c_id : 0;
-    c_id = c_id * 1 + 1;
-    const c_number = "TRIP00" + c_id;
+    // The expense rows keep the trip's own number (the model reads it off the
+    // body); nothing new is minted on an update.
+    let c_id = req.body.c_id;
+    const c_number = req.body.c_number;
     appmdl.updateadddiagnoptntDtsmmdl(
       c_id,
       c_number,
@@ -2318,11 +2459,57 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
                           message: "Failed to update function.",
                         });
                     }
-                    // Send final success response
-                    return res.status(200).send({
-                      status: 200,
-                      message: "Successfully added and updated expenses.",
-                      data: updateResult,
+                    var finish = function () {
+                      return res.status(200).send({
+                        status: 200,
+                        message: "Successfully added and updated expenses.",
+                        data: updateResult,
+                      });
+                    };
+                    // The trip's own c_number is stable across edits (it's what
+                    // deletetripexpensesMdl above superseded the old row by) —
+                    // NOT the `c_number` in this closure, which is freshly minted
+                    // for the new tripexpenses_data row on every edit. Re-filing
+                    // replaces an existing voucher's lines instead of piling up
+                    // a new voucher each time.
+                    var tripCNumber = req.body.c_number;
+                    var ledgers = buildTripVoucherLedgers(req.body);
+                    appmdl.getTripVoucherNumberMdl(tripCNumber, function (vErr, vRows) {
+                      var existingVoucher = (!vErr && vRows && vRows[0] && vRows[0].voucher_number) || null;
+                      // Re-filed with nobody paid through the books: the
+                      // expense is saved above and no voucher is posted. One
+                      // from an earlier filing is retired rather than left
+                      // standing with no lines.
+                      if (ledgers.debit_ledgers.length === 0 && ledgers.credit_ledgers.length === 0) {
+                        if (!existingVoucher) return finish();
+                        return appmdl.voidTripVoucherMdl(existingVoucher, tripCNumber, function (vdErr) {
+                          if (vdErr) console.error('[voidTripVoucherMdl] failed for trip ' + tripCNumber + ':', vdErr.message);
+                          finish();
+                        });
+                      }
+                      if (existingVoucher) {
+                        appmdl.updateTripVoucherMdl({
+                          voucher_number: existingVoucher, trip_c_number: tripCNumber,
+                          debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
+                          user_id: req.body.updatedby_id || 0,
+                        }, function (uErr) {
+                          if (uErr) console.error('[updateTripVoucherMdl] failed for trip ' + tripCNumber + ':', uErr.message);
+                          finish();
+                        });
+                        return;
+                      }
+                      appmdl.createTripVoucherMdl({
+                        debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
+                        trip_c_number: tripCNumber,
+                        entry_by: req.body.updatedby_nm || '', user_id: req.body.updatedby_id || 0,
+                      }, function (cErr, voucherNumber) {
+                        if (cErr) {
+                          console.error('[createTripVoucherMdl] failed for trip ' + tripCNumber + ':', cErr.message);
+                          return finish();
+                        }
+                        if (!voucherNumber) return finish();
+                        appmdl.setTripVoucherNumberMdl(tripCNumber, voucherNumber, finish);
+                      });
                     });
                   }
                 );
@@ -2333,16 +2520,23 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
       }
     );
   });
+  });
 };
+
 
 exports.deleteexpenseCtrl = function (req, res) {
   var data = req.body;
-  appmdl.deleteexpenseMdl(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
+  // Same lock as editing: an approved expense or voucher is not deleted.
+  appmdl.tripExpenseLockMdl(data.c_number, function (lockErr, lockMsg) {
+    if (lockErr) { res.send(500, "Server Error"); return; }
+    if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
+    appmdl.deleteexpenseMdl(data, function (err, results) {
+      if (err) {
+        res.send(500, "Server Error");
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
   });
 };
 
@@ -3017,7 +3211,21 @@ exports.getexpensetripledgerdataCtrl = function (req, res) {
   });
 };
 exports.SelectdatagetfinaltranscationsreportCtrl = function (req, res) {
+  // The app sends this report's filter encrypted (securePayload). The wrapper
+  // used to be handed to the model as-is, so fromdate / todate were never
+  // seen and every caller - Balance Sheet, Group Wise, Profit & Loss - got
+  // all-time totals whatever range it asked for. Decrypt when the wrapper is
+  // present; a plain body is accepted as before.
   var data = req.body;
+  if (data && data.encryptedPayload) {
+    try {
+      validateSignature(data.encryptedPayload, data.signature);
+      data = decryptPayload(data.encryptedPayload);
+    } catch (e) {
+      console.error('[transactions report] bad payload:', e.message);
+      return res.send({ status: 400, msg: 'Invalid request payload' });
+    }
+  }
   appmdl.SelectdatagetfinaltranscationsreportMdl(data, function (err, results) {
     if (err) {
       console.log(err);
@@ -3071,14 +3279,25 @@ exports.tripcreated = function (req, res) {
     }
     let c_id = cresults1[0] ? cresults1[0].c_id : 0;
     c_id = c_id * 1 + 1;
-    const c_number = "TRIP00" + c_id;
+    // T<yymmdd><nnn> for the trip's date (utils/refnumber); an edit never mints,
+    // it keeps the number the trip already has.
+    appmdl.nextTripNumberMdl(data.trip_date, function (numErr, minted) {
+    if (numErr) { console.log(numErr); res.send({ status: 500, data: null }); return; }
+    const c_number = data.type == "edit" ? data.c_number : minted;
 
     appmdl.tripcreated(c_id, c_number, data, function (err, results) {
       if (err) {
         console.log(err);
-        res.send({ status: 500, data: results });
+        // The screen reads .msg, so the MySQL reason (an unknown column on this
+        // server, a bad value) has to travel back with the 500. "data: null" on
+        // its own left nothing to act on.
+        res.send({ status: 500, data: results, msg: err.sqlMessage || err.message || "Server error" });
         return;
       }
+      // The model answers a bus already out that day as a conflict, not an
+      // error, and nothing was written, so the expense-row cascade below must
+      // not run either; the screen names the trip that has the bus.
+      if (results && results.conflict) { res.send({ status: 409, msg: results.conflict }); return; }
       if (data.type == "edit") {
         console.log("edited Stareted");
         appmdl.updatetripcreated(data, function (err, results) {
@@ -3087,12 +3306,12 @@ exports.tripcreated = function (req, res) {
             res.status(500).send(err);
             return;
           }
-          console.log("Edied");
           res.send({ status: 200, data: results });
         });
       } else {
         res.send({ status: 200, data: results });
       }
+    });
     });
   });
 };
@@ -3106,37 +3325,11 @@ exports.bulkCreateTripsCtrl = function (req, res) {
       return;
     }
 
-    var candidates = (results && results.voucherCandidates) || [];
-    if (candidates.length === 0) {
-      res.send({ status: 200, data: results });
-      return;
-    }
-
-    // Post one Journal voucher per qualifying row, sequentially (createTripVoucherMdl
-    // mints c_number from today's mainvoucher_t count, so overlapping calls could
-    // collide) — mirrors the Garage/Battery "create record, then conditionally post
-    // voucher, then link it back" sequence. Each candidate carries its own
-    // debit AND credit ledger now (both pickable per row on the frontend).
-    var ci = 0;
-    var postNext = function () {
-      if (ci >= candidates.length) { res.send({ status: 200, data: results }); return; }
-      var cand = candidates[ci];
-      appmdl.createTripVoucherMdl({
-        debit_ledgers: [{ ledger_id: cand.debit_ledger_id, ledger_name: cand.debit_ledger_name, amount: cand.amount }],
-        credit_ledgers: [{ ledger_id: cand.credit_ledger_id, ledger_name: cand.credit_ledger_name, amount: cand.amount }],
-        trip_c_number: cand.c_number, entry_by: data.usr_nm, user_id: data.user_id,
-      }, function (voucherErr, voucherNumber) {
-        if (voucherErr) {
-          console.error('[createTripVoucherMdl] failed for trip ' + cand.c_number + ':', voucherErr.message);
-          ci++; postNext();
-          return;
-        }
-        appmdl.setTripVoucherNumberMdl(cand.c_number, voucherNumber, function () {
-          ci++; postNext();
-        });
-      });
-    };
-    postNext();
+    // A trip's voucher - the hire charge on a hired van, the crew's pay - is
+    // filed from Trip Expenses, never at creation: the sheet only records the
+    // trip. (It used to post the hire Journal here, which then sat on the
+    // expense screen as "already posted" with nothing left to file.)
+    res.send({ status: 200, data: results });
   });
 };
 
@@ -3557,6 +3750,28 @@ exports.getbetaCtrl = function (req, res) {
   });
 };
 
+// Halt Beta is one company-wide amount (app_settings.halt_beta), applied to
+// every crew member on any service marked Halt.
+exports.gethaltbetaCtrl = function (req, res) {
+  appmdl.gethaltbetaMdl(req.body, function (err, results) {
+    if (err) {
+      res.send({ status: 500, msg: "Server Error" });
+      return;
+    }
+    res.send({ status: 200, data: { halt_beta: (results && results[0] && results[0].setting_value) || "" } });
+  });
+};
+
+exports.savehaltbetaCtrl = function (req, res) {
+  appmdl.savehaltbetaMdl(req.body, function (err) {
+    if (err) {
+      res.send({ status: 500, msg: err.message || "Server Error" });
+      return;
+    }
+    res.send({ status: 200, msg: "Halt beta saved" });
+  });
+};
+
 exports.getmodaldataCtrl = function (req, res) {
   var data = req.body;
   appmdl.getmodaldataMdl(data, function (err, results) {
@@ -3598,12 +3813,48 @@ exports.submitlaundrytypemainmastersCtrl = function (req, res) {
 
 exports.getlaundrytypemainmastersCtrl = function (req, res) {
   appmdl.getlaundrytypemainmastersMdl(req.body, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
-    }
-    res.send({ status: 200, data: results });
+  if (err) {
+  res.send({ status: 500, data: results });
+  return;
+  }
+  res.send({ status: 200, data: results });
   });
+};
+
+// Laundry products live in laundryproduct_t, NOT voucher_type. These two used to
+// share editvouchernamectrl / deletevouchernamectrl, which renamed and
+// soft-deleted rows in voucher_type - see the note on the models.
+exports.editlaundrytypemainmastersCtrl = function (req, res) {
+  try {
+    const { encryptedPayload, signature } = req.body;
+    validateSignature(encryptedPayload, signature);
+    const data = decryptPayload(encryptedPayload);
+    appmdl.editlaundrytypemainmastersMdl(data, function (err, results) {
+      if (err) {
+        res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
+  } catch (e) {
+    res.status(400).send({ status: 400, message: e.message || "Invalid request" });
+  }
+};
+exports.dellaundrytypemainmastersCtrl = function (req, res) {
+  try {
+    const { encryptedPayload, signature } = req.body;
+    validateSignature(encryptedPayload, signature);
+    const data = decryptPayload(encryptedPayload);
+    appmdl.dellaundrytypemainmastersMdl(data, function (err, results) {
+      if (err) {
+        res.status(500).send({ status: 500, message: err.sqlMessage || err.message || "Server Error" });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
+  } catch (e) {
+    res.status(400).send({ status: 400, message: e.message || "Invalid request" });
+  }
 };
 
 exports.deletefueldataCtrl1 = function (req, res) {
@@ -4535,13 +4786,22 @@ exports.updatebusnumber = function (req, res) {
     res.send({ status: 400, msg: "Invalid payload" });
     return;
   }
-  appmdl.updatebusnumber(data, function (err, results) {
-    if (err) {
-      res.send({ status: 500, data: results });
-      return;
+  // The same one-number-one-vehicle rule the Add form enforces: renaming a
+  // vehicle onto a number another live row already holds would put two of them
+  // in every list, and the boot migration would then retire one of the pair.
+  // The row's own id is excluded, so saving an unchanged number is fine.
+  appmdl.findLiveBusByNumberMdl(data.busnumber || data.busno, function (dupErr, existing) {
+    if (!dupErr && existing) {
+      return res.send({ status: 422, message: 'Vehicle ' + existing.bus_no + ' is already registered - use that entry instead' });
     }
-    res.send({ status: 200, data: results });
-  });
+    appmdl.updatebusnumber(data, function (err, results) {
+      if (err) {
+        res.send({ status: 500, data: results });
+        return;
+      }
+      res.send({ status: 200, data: results });
+    });
+  }, data.id);
 };
 
 exports.updateBusValidityDateCtrl = function (req, res) {
@@ -4560,6 +4820,25 @@ exports.updateBusValidityDateCtrl = function (req, res) {
     return;
   }
   appmdl.updateBusValidityDateMdl(data, function (err, results) {
+    if (err) {
+      res.send({ status: 500, data: results });
+      return;
+    }
+    res.send({ status: 200, data: results });
+  });
+};
+
+exports.updateDriverValidityDateCtrl = function (req, res) {
+  const { encryptedPayload, signature } = req.body;
+  let data;
+  try {
+    validateSignature(encryptedPayload, signature);
+    data = decryptPayload(encryptedPayload);
+  } catch (e) {
+    res.send({ status: 400, msg: "Invalid request" });
+    return;
+  }
+  appmdl.updateDriverValidityDateMdl(data, function (err, results) {
     if (err) {
       res.send({ status: 500, data: results });
       return;
@@ -4678,8 +4957,6 @@ exports.edithelperregisterCtrl = function (req, res) {
   //   validateSignature(encryptedPayload, signature);
   //   const payload = decryptPayload(encryptedPayload);
   const data = req.body;
-
-  console.log(data, 3347);
 
   const processImage = (imgData) => {
     if (!imgData || !imgData.reviewimg) return null;
@@ -5209,9 +5486,9 @@ exports.getadminrejectedCtrl = function (req, res) {
   });
 };
 
-exports.getservicenumCtrl = function (req, res) {
+exports.getBusLastTripCtrl = function (req, res) {
   var data = req.body;
-  appmdl.getservicenumMdl(data, function (err, results) {
+  appmdl.getBusLastTripMdl(data, function (err, results) {
     if (err) {
       res.send(500, "Server Error");
       return;

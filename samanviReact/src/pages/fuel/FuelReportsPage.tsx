@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Search, X } from 'lucide-react'
+import { Search, X, Fuel } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
+import { formatDate, formatDateTime, withStatusLabel, formatAmount, todayISO, toLocalISODate } from '@/lib/utils'
 
-const today = new Date().toISOString().split('T')[0]
-const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
+const today = todayISO()
+const weekAgo = toLocalISODate(new Date(Date.now() - 7 * 86400000))
 
 export default function FuelReportsPage() {
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState({ fromdate: weekAgo, todate: today, admin_status: '1' })
   const [applied, setApplied] = useState(filter)
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
@@ -31,28 +33,29 @@ export default function FuelReportsPage() {
   // form fields — the data isn't collected anymore, so no point rendering
   // empty cells for it.
   const columns: Column[] = useMemo(() => [
-    { label: 'Ref #', key: 'c_number', render: (v, r: Record<string, unknown>) => (
+    { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
+    { label: 'Ref #', key: 'c_number', filterable: true, render: (v, r: Record<string, unknown>) => (
         <button onClick={() => onView(r)} className="text-blue-600 hover:underline font-medium">{String(v)}</button>
       ) },
-    { label: 'Date', key: 'date' },
-    { label: 'Bus No', key: 'vehicle_number' },
+    { label: 'Date', key: 'date', render: (v) => formatDate(v) },
+    { label: 'Bus No', key: 'vehicle_number', filterable: true },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
-    { label: 'Dr Ledger', key: 'debit_ledger_id' },
-    { label: 'Cr Ledger', key: 'credit_ledger_id' },
+    { label: 'Dr Ledger', key: 'debit_ledger_id', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
+    { label: 'Cr Ledger', key: 'credit_ledger_id', filterable: true, render: (v) => <LedgerNameWithGroup name={v} /> },
     { label: 'KMs', key: 'kilometers' },
     { label: 'Qty (L)', key: 'quantity_filled' },
-    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${v}` : '—' },
-    { label: 'Bill', key: 'total_bill', render: (v) => v ? <span className="font-bold">₹{v}</span> : '—' },
+    { label: 'Price/L', key: 'price_per_liter', render: (v) => v ? `₹${formatAmount(v)}` : '—' },
+    { label: 'Bill', key: 'total_bill', render: (v) => v ? <span className="font-bold">₹{formatAmount(v)}</span> : '—' },
     { label: 'Avg KMPL', key: 'avg_kmpl' },
     { label: 'Remarks', key: 'remarks', render: (v) => v ? <span className="text-slate-600 text-xs">{String(v)}</span> : '—' },
-    { label: 'Action Date', key: 'admin_status_bydate' },
+    { label: 'Action Date', key: 'admin_status_bydate', render: (v) => formatDateTime(v) },
     { label: 'Action By', key: 'admin_status_byname' },
     {
-      label: 'Status', key: 'admin_status',
-      render: (v) => Number(v) === 1
+      label: 'Status', key: 'status_label', filterable: true,
+      render: (_v, r: Record<string, unknown>) => Number(r.admin_status) === 1
         ? <Badge variant="success">Approved</Badge>
-        : Number(v) === 2 ? <Badge variant="danger">Rejected</Badge>
+        : Number(r.admin_status) === 2 ? <Badge variant="danger">Rejected</Badge>
         : <Badge variant="warning">Pending</Badge>,
     },
   ], [])
@@ -97,81 +100,41 @@ export default function FuelReportsPage() {
             <span className="text-slate-600">Total Litres:</span> <b>{totalQty.toFixed(2)} L</b>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Amount:</span> <b>₹{totalBill.toFixed(2)}</b>
+            <span className="text-slate-600">Total Amount:</span> <b>₹{formatAmount(totalBill)}</b>
           </div>
         </div>
       )}
 
       <DataTable
         title="Filtered Fuel Entries"
-        columns={columns}
-        data={rows}
+        columns={columns} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        data={withStatusLabel(rows)}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
       />
 
-      {/* View modal — same shape as the one in FuelEntryPage so users see the
-          full debit / credit breakdown for any historical entry. */}
+      {/* View modal */}
       <AnimatePresence>
         {viewRow && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
-              <div className="bg-gradient-to-r from-amber-400 to-orange-500 px-6 py-4 flex justify-between items-center text-white">
-                <h3 className="font-bold text-lg">Fuel Entry Details — {String(viewRow.c_number)}</h3>
-                <button onClick={() => setViewRow(null)} className="text-white/70 hover:text-white"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                  <div><b>Date:</b> {String(viewRow.date)}</div>
-                  <div><b>Vehicle:</b> {String(viewRow.vehicle_number)}</div>
-                  <div><b>Qty:</b> {String(viewRow.quantity_filled)} L</div>
-                  <div><b>Price/L:</b> ₹{String(viewRow.price_per_liter)}</div>
-                  <div><b>Bill:</b> ₹{String(viewRow.total_bill)}</div>
-                  <div><b>Avg KMPL:</b> {String(viewRow.avg_kmpl)}</div>
-                  <div><b>Prev Odo:</b> {String(viewRow.previous_odometer || viewRow.prev_odometer)}</div>
-                  <div><b>Present Odo:</b> {String(viewRow.present_odometer)}</div>
-                  <div><b>KMs:</b> {String(viewRow.kilometers)}</div>
-                  <div><b>Action Date:</b> {String(viewRow.admin_status_bydate || '—')}</div>
-                  <div><b>Action By:</b> {String(viewRow.admin_status_byname || '—')}</div>
-                  <div><b>Status:</b> {Number(viewRow.admin_status) === 1 ? 'Approved' : Number(viewRow.admin_status) === 2 ? 'Rejected' : 'Pending'}</div>
-                </div>
-                {viewRow.remarks ? (
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm">
-                    <b>Remarks:</b> <span className="text-slate-700">{String(viewRow.remarks)}</span>
-                  </div>
-                ) : null}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="border rounded-xl">
-                    <div className="bg-blue-50 px-3 py-2 font-bold text-blue-700 rounded-t-xl">Debit Ledgers</div>
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {((viewRow._accounts as Array<Record<string, unknown>>) || [])
-                          .filter((a) => a.account_type === 'Debit Account')
-                          .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{String(a.amount)}</td></tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="border rounded-xl">
-                    <div className="bg-emerald-50 px-3 py-2 font-bold text-emerald-700 rounded-t-xl">Credit Ledgers</div>
-                    <table className="w-full text-sm">
-                      <tbody>
-                        {((viewRow._accounts as Array<Record<string, unknown>>) || [])
-                          .filter((a) => a.account_type === 'Credit Account')
-                          .map((a, i) => (
-                            <tr key={i} className="border-t"><td className="p-2">{String(a.expensives)}</td><td className="p-2 text-right">₹{String(a.amount)}</td></tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <RecordModal size="lg" title="Fuel Entry" subtitle={String(viewRow.c_number ?? '')} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setViewRow(null)}>
+            <DetailGrid>
+              <DetailField label="Date" value={formatDate(String(viewRow.date ?? ''))} />
+              <DetailField label="Vehicle No" value={String(viewRow.vehicle_number ?? '—')} />
+              <DetailField label="Quantity" value={`${String(viewRow.quantity_filled ?? 0)} L`} />
+              <DetailField label="Price / Litre" value={`₹${formatAmount(viewRow.price_per_liter)}`} />
+              <DetailField label="Bill" value={`₹${formatAmount(viewRow.total_bill)}`} strong />
+              <DetailField label="Avg KMPL" value={String(viewRow.avg_kmpl ?? '—')} />
+              <DetailField label="Previous Odometer" value={String(viewRow.previous_odometer || viewRow.prev_odometer || '—')} />
+              <DetailField label="Present Odometer" value={String(viewRow.present_odometer ?? '—')} />
+              <DetailField label="Kilometres" value={String(viewRow.kilometers ?? '—')} />
+              <DetailField label="Status" value={<Badge variant={Number(viewRow.admin_status) === 1 ? 'success' : Number(viewRow.admin_status) === 2 ? 'danger' : 'warning'}>{Number(viewRow.admin_status) === 1 ? 'Approved' : Number(viewRow.admin_status) === 2 ? 'Rejected' : 'Pending'}</Badge>} />
+              <DetailField label="Action Date" value={viewRow.admin_status_bydate ? formatDateTime(String(viewRow.admin_status_bydate)) : '—'} />
+              <DetailField label="Action By" value={String(viewRow.admin_status_byname || '—')} />
+            </DetailGrid>
+            <RemarksBlock text={viewRow.remarks} />
+            <LedgerSideLists rows={(viewRow._accounts as Array<Record<string, unknown>>) || []} />
+          </RecordModal>
         )}
       </AnimatePresence>
     </motion.div>

@@ -7,6 +7,7 @@ import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import ActivityHistory, { HistoryEntry } from '@/components/shared/ActivityHistory'
 import { calculateTripDiff } from '@/lib/diffUtils'
+import { formatDate, formatDateTime } from '@/lib/utils'
 
 const tabs = ['Updated Logs', 'Deleted Logs', 'Counts']
 
@@ -14,16 +15,16 @@ const updatedCols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
   { label: 'Bus No', key: 'bus_no' },
   { label: 'Service No', key: 'service_no' },
-  { label: 'Trip Date', key: 'trip_date' },
+  { label: 'Trip Date', key: 'trip_date', render: (v) => formatDate(v) },
   { label: 'Driver 1', key: 'driver1_name' },
   { label: 'Updated By', key: 'updatedby_name' },
-  { label: 'Updated At', key: 'updatedby_date' },
+  { label: 'Updated At', key: 'updatedby_date', render: (v) => formatDateTime(v) },
 ]
 
 const deletedCols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-red-600">{String(v)}</span> },
   { label: 'Deleted By', key: 'delete_by_name' },
-  { label: 'Deleted At', key: 'delete_by_date' },
+  { label: 'Deleted At', key: 'delete_by_date', render: (v) => formatDateTime(v) },
   { label: 'Remarks', key: 'remarks' },
 ]
 

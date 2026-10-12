@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
 import {
-  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, FileSpreadsheet, FileText, Pencil, RefreshCw, XCircle, BellRing,
+  CheckCircle, X, Save, PackagePlus, Plus, MinusCircle, AlertCircle, Eye, Pencil, RefreshCw, XCircle, BellRing,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -11,11 +11,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   GlassCard, Button, Input, Label, PageHeader,
-  DynamicRows, SearchableSelect, ColumnFilterDropdown,
+  DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu,
+  LedgerGroupTag, useLedgerGroupOf,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption, todayISO } from '@/lib/utils'
 
 
 type SimplePartRow = { part_id: string; qty: string; rate: string }
@@ -174,10 +176,11 @@ export default function RepairTrackingPage() {
   const staffList: any[]   = staffData?.data ?? []
 
   const partsOptions  = partsList.map((p: any) => ({ value: String(p.part_id), label: p.part_name }))
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
+  const ledgerGroupOf = useLedgerGroupOf()
   const catOptions    = catList.map((c: any) => ({ value: String(c.id), label: c.name }))
   const busOptions    = busList.map((b: any) => ({ value: b.bus_no, label: b.bus_no }))
-  const driverOptions = driverList.map((d: any) => ({ value: String(d.id), label: d.driver_name || d.nickname || '' }))
+  const driverOptions = driverList.map((d: any) => ({ value: String(d.id), label: d.nickname || d.driver_name || '' }))
   const staffOptions  = staffList.map((s: any) => ({ value: String(s.id), label: s.fullName || s.nickName || '' }))
 
   const findLedger = (keyword: string): LedgerEntry => {
@@ -383,7 +386,7 @@ export default function RepairTrackingPage() {
     if (!d) return '-'
     const dt = new Date(d)
     if (isNaN(dt.getTime())) return '-'
-    return `${String(dt.getDate()).padStart(2, '0')}-${String(dt.getMonth() + 1).padStart(2, '0')}-${dt.getFullYear()}`
+    return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
   }
 
   const dueDays = (d: any) => {
@@ -973,12 +976,7 @@ export default function RepairTrackingPage() {
           </button>
         ))}
         <div className="ml-auto flex gap-1.5 items-center">
-          <button onClick={downloadExcel} className="inline-flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
-          </button>
-          <button onClick={downloadPdf} className="inline-flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 transition-colors">
-            <FileText className="w-3.5 h-3.5" /> PDF
-          </button>
+          <ExportMenu onExport={(f) => f === 'excel' ? downloadExcel() : downloadPdf()} />
         </div>
       </div>
 
@@ -1022,7 +1020,7 @@ export default function RepairTrackingPage() {
             </span>
           )}
         </div>
-        <div className="overflow-auto max-h-[70vh]">
+        <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
@@ -1138,7 +1136,7 @@ export default function RepairTrackingPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </DualScrollTable>
       </GlassCard>
 
       {/* ── Job History Modal ─────────────────────────────────────────────────── */}
@@ -1147,7 +1145,7 @@ export default function RepairTrackingPage() {
           if (!d) return '—'
           const dt = new Date(d)
           if (isNaN(dt.getTime())) return '—'
-          return `${String(dt.getDate()).padStart(2,'0')}-${String(dt.getMonth()+1).padStart(2,'0')}-${dt.getFullYear()}  ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+          return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}  ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
         }
         const activeParts  = historyParts.filter((p: any) => Number(p.d_in) !== 2)
         const partsTotal   = activeParts.reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0)
@@ -1274,7 +1272,7 @@ export default function RepairTrackingPage() {
                   <div>
                     <h4 className="text-sm font-bold text-slate-700 mb-3">Spare Parts Used</h4>
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="overflow-auto max-h-64">
+                      <DualScrollTable tableClassName="overflow-auto max-h-64">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -1305,7 +1303,7 @@ export default function RepairTrackingPage() {
                           </tr>
                         </tfoot>
                       </table>
-                      </div>
+                      </DualScrollTable>
                     </div>
                   </div>
                 )}
@@ -1328,7 +1326,7 @@ export default function RepairTrackingPage() {
                             <div className="divide-y divide-slate-100">
                               {entries.map((l: any, i: number) => (
                                 <div key={i} className="flex justify-between items-center px-3 py-2.5 bg-white">
-                                  <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                                  <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}<LedgerGroupTag group={ledgerGroupOf({ id: l.ledger_id, name: l.ledger_name })} /></span>
                                   <span className={`text-xs font-bold ${type === 'debit' ? 'text-blue-700' : 'text-emerald-700'}`}>
                                     ₹{Number(l.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                   </span>
@@ -1468,7 +1466,7 @@ export default function RepairTrackingPage() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-700 mb-3">Parts Used</h4>
                   <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="overflow-auto max-h-64">
+                    <DualScrollTable tableClassName="overflow-auto max-h-64">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -1495,7 +1493,7 @@ export default function RepairTrackingPage() {
                         </tr>
                       </tbody>
                     </table>
-                    </div>
+                    </DualScrollTable>
                   </div>
                 </div>
               )}
@@ -1514,7 +1512,7 @@ export default function RepairTrackingPage() {
                           <p className="text-xs text-slate-400 px-1">No debit entries</p>
                         ) : stageLedgers.filter((l: any) => l.entry_type === 'debit').map((l: any, i: number) => (
                           <div key={i} className="flex justify-between items-center px-2 py-1.5 bg-white rounded-lg border border-blue-100">
-                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}<LedgerGroupTag group={ledgerGroupOf({ id: l.ledger_id, name: l.ledger_name })} /></span>
                             <span className="text-xs font-bold text-blue-700">₹{Number(l.amount).toLocaleString('en-IN')}</span>
                           </div>
                         ))}
@@ -1529,7 +1527,7 @@ export default function RepairTrackingPage() {
                           <p className="text-xs text-slate-400 px-1">No credit entries</p>
                         ) : stageLedgers.filter((l: any) => l.entry_type === 'credit').map((l: any, i: number) => (
                           <div key={i} className="flex justify-between items-center px-2 py-1.5 bg-white rounded-lg border border-emerald-100">
-                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}</span>
+                            <span className="text-xs font-medium text-slate-700">{l.ledger_name || `Ledger #${l.ledger_id}`}<LedgerGroupTag group={ledgerGroupOf({ id: l.ledger_id, name: l.ledger_name })} /></span>
                             <span className="text-xs font-bold text-emerald-700">₹{Number(l.amount).toLocaleString('en-IN')}</span>
                           </div>
                         ))}
@@ -2383,7 +2381,7 @@ export default function RepairTrackingPage() {
                 {finishRepeat && (
                   <div className="mt-3 max-w-xs">
                     <Label>Next Job Date</Label>
-                    <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={new Date().toISOString().split('T')[0]} />
+                    <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
                   </div>
                 )}
               </div>

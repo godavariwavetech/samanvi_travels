@@ -3,7 +3,8 @@ import { motion } from 'motion/react'
 import { Save, Pencil, X, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { exportRows } from '@/lib/tableExport'
 import { accountingService } from '@/services/accounting.service'
 
 export default function VoucherTypePage() {
@@ -111,6 +112,17 @@ export default function VoucherTypePage() {
 
       {/* Table */}
       <GlassCard className="overflow-hidden">
+        <div className="p-4 sm:p-5 bg-white/40 border-b border-slate-100 flex items-center gap-2">
+          <h3 className="font-bold text-slate-900 text-base sm:text-lg">Voucher Types</h3>
+          <span className="text-xs text-slate-500 font-medium ml-1">
+            {isLoading ? 'Loading…' : `${types.length} record${types.length !== 1 ? 's' : ''}`}
+          </span>
+          <ExportMenu
+            className="ml-auto"
+            disabled={isLoading || types.length === 0}
+            onExport={(format) => exportRows({ title: 'Voucher Types', headers: ['Sl No', 'Voucher Type'], rows: types.map((t, i) => [i + 1, t.voucher_type ?? '']), format })}
+          />
+        </div>
         <table className="w-full text-left">
           <thead>
             <tr className="sticky top-0 z-10 bg-blue-600 text-white">

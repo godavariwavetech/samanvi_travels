@@ -9,6 +9,12 @@ export const authService = {
     return res.data
   },
 
+  // The signed-in user's current menu; the server reads the user from the token.
+  async getMyMenu() {
+    const res = await api.get('/getmymenu')
+    return res.data
+  },
+
   async login(data: { phone: string; usr_pwd: string; rememberme: boolean }) {
     const payload = securePayload(data)
     const res = await api.post('/loginuser', payload)

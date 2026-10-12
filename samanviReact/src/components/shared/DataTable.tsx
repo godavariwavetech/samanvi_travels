@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { Search, Download, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
+import { Search, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
 import { Input } from './Input'
 import { ColumnFilterDropdown } from './ColumnFilterDropdown'
+import { ExportMenu } from './ExportMenu'
 import { cn } from '@/lib/utils'
+import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 
 export interface Column<T = Record<string, unknown>> {
   label: string
@@ -34,9 +36,16 @@ interface DataTableProps<T extends Record<string, unknown>> {
   selectable?: boolean
   sumKey?: string
   onSelectionChange?: (rows: T[]) => void
+  /** What identifies a row across renders for selection. Defaults to id, then
+   *  c_number, then the row's own contents. */
+  rowKey?: (row: T) => string
   selectionActions?: ReactNode
   columnFilters?: Record<string, string[]>
   onColumnFilterChange?: (key: string, vals: string[]) => void
+  /** The rows left after the search box and column filters, whenever that set
+   *  changes - so a page's Excel / PDF download can carry exactly what the
+   *  table shows. */
+  onFilteredChange?: (rows: T[]) => void
   filterBar?: ReactNode
   className?: string
   /** Opt-in: paginate `filtered` rows and show page controls above and below the table. */
@@ -45,6 +54,14 @@ interface DataTableProps<T extends Record<string, unknown>> {
   pageSize?: number
   /** Opt-in: mirror a slim scrollbar above the table, synced with the table's own horizontal scroll — lets wide tables be scrolled without hunting for the scrollbar below a long list of rows. */
   topScrollbar?: boolean
+  /** Export button (Excel / PDF of the rows left after search and filters). On by default. */
+  exportable?: boolean
+  /** File / PDF heading for the export. Defaults to the title. */
+  exportTitle?: string
+  /** A page whose export has its own layout (an import-ready sheet, a report
+   *  with totals) plugs it into this button per format, so the page never
+   *  shows two Export buttons. A format left out uses the built-in export. */
+  onExport?: Partial<Record<ExportFormat, (rows: T[]) => void | Promise<void>>>
 }
 
 function buildPageList(current: number, total: number): (number | '…')[] {
@@ -125,18 +142,39 @@ export function DataTable<T extends Record<string, unknown>>({
   selectable = false,
   sumKey,
   onSelectionChange,
+  rowKey,
   selectionActions,
   columnFilters,
   onColumnFilterChange,
+  onFilteredChange,
   filterBar,
   className,
   paginated = false,
   pageSize = 25,
-  topScrollbar = false,
+  // On by default: every list gets a scrollbar above its header, so a wide
+  // table can be swiped from the top instead of hunting for the bar under it.
+  topScrollbar = true,
+  exportable = true,
+  exportTitle,
+  onExport,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  // Selection is held by row key, not position: rows that leave the list
+  // (vouchers just approved, say) drop out of the selection instead of handing
+  // their tick to whichever rows slide into their places, and a search or
+  // filter that reorders the list leaves the ticked rows ticked. A key rather
+  // than the object itself because owners routinely rebuild their row objects
+  // on every render (mapping a query result), which would otherwise untick a
+  // row the moment it was ticked.
+  const keyOf = (row: T): string => {
+    if (rowKey) return rowKey(row)
+    const r = row as any
+    if (r.id != null && r.id !== '') return 'id:' + String(r.id)
+    if (r.c_number != null && r.c_number !== '') return 'cn:' + String(r.c_number)
+    return 'row:' + JSON.stringify(r)
+  }
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
 
   const scrollTopRef = useRef<HTMLDivElement>(null)
@@ -191,6 +229,18 @@ export function DataTable<T extends Record<string, unknown>>({
   // user never lands on a now-empty page after narrowing the result set.
   useEffect(() => { setPage(1) }, [search, columnFilters])
 
+  // Report the visible set to the page, but only when it actually changed:
+  // `data` is often rebuilt on every render, so comparing the rows' keys keeps
+  // a page that stores these rows in state from re-rendering forever.
+  const filteredSigRef = useRef('')
+  useEffect(() => {
+    if (!onFilteredChange) return
+    const sig = filtered.map(keyOf).join('\u0001')
+    if (sig === filteredSigRef.current) return
+    filteredSigRef.current = sig
+    onFilteredChange(filtered)
+  })
+
   const totalPages = paginated ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1
   const safePage = Math.min(page, totalPages)
   const pageRows = paginated ? filtered.slice((safePage - 1) * pageSize, safePage * pageSize) : filtered
@@ -220,27 +270,41 @@ export function DataTable<T extends Record<string, unknown>>({
     scrollTopRef.current.scrollLeft = scrollBodyRef.current.scrollLeft
   }
 
-  const allSelected = filtered.length > 0 && filtered.every((_, i) => selected.has(i))
+  const selectedRows = (keys: Set<string>) => data.filter((r) => keys.has(keyOf(r)))
+
+  // Rows no longer in the data (refetched after an action) leave the selection,
+  // and the owner hears about it so its own copy agrees with the checkboxes.
+  useEffect(() => {
+    if (!selected.size) return
+    const present = new Set(data.map(keyOf))
+    const kept = [...selected].filter((k) => present.has(k))
+    if (kept.length === selected.size) return
+    const next = new Set(kept)
+    setSelected(next)
+    onSelectionChange?.(selectedRows(next))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  const allSelected = filtered.length > 0 && filtered.every((r) => selected.has(keyOf(r)))
   const someSelected = selected.size > 0
 
   const toggleAll = () => {
-    const next = allSelected ? new Set<number>() : new Set(filtered.map((_, i) => i))
+    const next = allSelected ? new Set<string>() : new Set<string>(filtered.map(keyOf))
     setSelected(next)
     onSelectionChange?.(allSelected ? [] : [...filtered])
   }
 
-  const toggleRow = (i: number) => {
-    setSelected(prev => {
-      const next = new Set(prev)
-      next.has(i) ? next.delete(i) : next.add(i)
-      onSelectionChange?.(filtered.filter((_, idx) => next.has(idx)))
-      return next
-    })
+  const toggleRow = (row: T) => {
+    const k = keyOf(row)
+    const next = new Set(selected)
+    next.has(k) ? next.delete(k) : next.add(k)
+    setSelected(next)
+    onSelectionChange?.(filtered.filter((r) => next.has(keyOf(r))))
   }
 
   const selectedSum = sumKey
-    ? Array.from(selected).reduce((acc, i) => {
-        const val = Number((filtered[i] as any)?.[sumKey] ?? 0)
+    ? selectedRows(selected).reduce((acc, r) => {
+        const val = Number((r as any)?.[sumKey] ?? 0)
         return acc + (isNaN(val) ? 0 : val)
       }, 0)
     : 0
@@ -248,6 +312,21 @@ export function DataTable<T extends Record<string, unknown>>({
   const handleAction = (action: ActionType, row: T) => {
     if (action === 'delete') { setConfirmDelete(row); return }
     onAction?.(action, row)
+  }
+
+  // Every row the search and filters leave (all pages, not just the one shown),
+  // each cell as the text it renders on screen.
+  const handleExport = async (format: ExportFormat) => {
+    const custom = onExport?.[format]
+    if (custom) return custom(filtered)
+    const render = await loadCellRenderer()
+    const cols = columns.filter((c) => c.label.trim())
+    const rows = filtered.map((row, i) => cols.map((col) => {
+      const raw = (row as any)[col.key]
+      if (col.render) return nodeText(render, col.render(raw, row, i), raw)
+      return raw == null || typeof raw === 'object' ? '' : typeof raw === 'number' ? raw : String(raw)
+    }))
+    exportRows({ title: exportTitle || title, headers: cols.map((c) => c.label), rows, format })
   }
 
   const actionButtons = [
@@ -295,9 +374,7 @@ export function DataTable<T extends Record<string, unknown>>({
             </button>
           )}
 
-          <Button variant="outline" size="sm" className="h-9 sm:h-10 bg-white flex-shrink-0">
-            <Download className="w-4 h-4" /> <span className="hidden sm:inline">Export</span>
-          </Button>
+          {exportable && <ExportMenu onExport={handleExport} disabled={loading || filtered.length === 0} />}
         </div>
       </div>
       {filterBar && (
@@ -429,14 +506,14 @@ export function DataTable<T extends Record<string, unknown>>({
                 return (
                 <tr
                   key={i}
-                  className={`hover:bg-blue-50/30 transition-colors ${selected.has(i) ? 'bg-blue-50/50' : ''}`}
+                  className={`hover:bg-blue-50/30 transition-colors ${selected.has(keyOf(row)) ? 'bg-blue-50/50' : ''}`}
                 >
                   {selectable && (
                     <td className="pl-5 pr-2 py-4 align-middle">
                       <input
                         type="checkbox"
-                        checked={selected.has(i)}
-                        onChange={() => toggleRow(i)}
+                        checked={selected.has(keyOf(row))}
+                        onChange={() => toggleRow(row)}
                         className="w-4 h-4 rounded accent-blue-600 cursor-pointer"
                       />
                     </td>

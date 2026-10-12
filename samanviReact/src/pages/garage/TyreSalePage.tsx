@@ -7,6 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
+import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
 
 const LEDGER_STATUS_MAP: Record<string, string> = {
   'New Tyres In Stock': 'In Stock',
@@ -22,7 +23,7 @@ const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'danger' | 
 type LedgerEntry = { ledger_id: string; amount: string; ledger_name: string }
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function TyreSalePage() {
   const qc = useQueryClient()
@@ -40,13 +41,13 @@ export default function TyreSalePage() {
 
   const { data: ledgersData, refetch: reloadLedgers, isFetching: loadingLedgers } = useQuery({ queryKey: ['ledger-names-tyre'], queryFn: () => accountingService.getLedgerName() })
   const ledgerList: any[] = ledgersData?.data ?? []
-  const ledgerOptions = ledgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const ledgerOptions = ledgerList.map((l: any) => ledgerOption(l))
 
   // Debit is restricted to the "Tyres In Stock" group, since picking it also
   // determines which tyres are available to sell. Credit stays free-choice
   // (Cash, Buyer, …).
   const stockLedgerList = ledgerList.filter((l: any) => l.subchildtwo === 'Tyres In Stock')
-  const stockLedgerOptions = stockLedgerList.map((l: any) => ({ value: String(l.id), label: l.temple_name || l.name || '' }))
+  const stockLedgerOptions = stockLedgerList.map((l: any) => ledgerOption(l))
 
   // The first Debit row IS the stock ledger picker — no separate field needed.
   // Picking it narrows the tyre list to whatever bucket it represents (e.g.
@@ -57,7 +58,7 @@ export default function TyreSalePage() {
 
   const availableTyres = useMemo(() => {
     if (!stockLedgerId) return []
-    return list.filter((t: any) => t.status !== 'Sold' && (mappedStatus ? t.status === mappedStatus : true))
+    return list.filter((t: any) => isApprovedTyre(t) && t.status !== 'Sold' && (mappedStatus ? t.status === mappedStatus : true))
   }, [list, stockLedgerId, mappedStatus])
 
   useEffect(() => {
@@ -139,7 +140,6 @@ export default function TyreSalePage() {
       <GlassCard className="p-6" colorBar="bg-gradient-to-r from-violet-500 to-purple-600">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-violet-500" /> New Sale</h2>
-          <Button onClick={() => sell()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : `Sell ${selectedIds.length || ''} Tyre${selectedIds.length !== 1 ? 's' : ''}`}</Button>
         </div>
 
         <div className="mb-1">
@@ -170,6 +170,7 @@ export default function TyreSalePage() {
                       <div className="flex-[3] min-w-0">
                         <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                           onChange={v => { const nm = stockLedgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                          onClear={() => setDebit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                           options={stockLedgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                       </div>
                       <div className="flex-[2] min-w-0">
@@ -195,6 +196,7 @@ export default function TyreSalePage() {
                       <div className="flex-[3] min-w-0">
                         <SearchableSelect value={entry.ledger_id} displayLabel={entry.ledger_name}
                           onChange={v => { const nm = ledgerList.find((l: any) => String(l.id) === v)?.temple_name || ''; setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: v, ledger_name: nm })) }}
+                          onClear={() => setCredit(rows => rows.map((r, ri) => ri !== i ? r : { ...r, ledger_id: '', ledger_name: '' }))}
                           options={ledgerOptions} placeholder="Select Ledger" onReload={() => reloadLedgers()} reloading={loadingLedgers} />
                       </div>
                       <div className="flex-[2] min-w-0">
@@ -236,6 +238,10 @@ export default function TyreSalePage() {
             </div>
           </div>
         )}
+        {/* Submit sits under the fields, as on every other form. */}
+        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+          <Button onClick={() => sell()} disabled={isPending || !canSave}><Save className="w-4 h-4" />{isPending ? 'Saving…' : `Sell ${selectedIds.length || ''} Tyre${selectedIds.length !== 1 ? 's' : ''}`}</Button>
+        </div>
       </GlassCard>
 
       {stockLedgerId && (

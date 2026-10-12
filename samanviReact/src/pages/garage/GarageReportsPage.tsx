@@ -3,17 +3,17 @@ import { motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, todayISO } from '@/lib/utils'
 
 function fmtDate(d: any) {
   if (!d) return '—'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '—'
-  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'Asia/Kolkata' })
 }
 
 const categoryOf = (r: any) => r.all_categories || r.repair_category_name || ''
@@ -35,7 +35,7 @@ function ledgerChips(v: any, cls: string) {
     <div className="flex flex-col gap-1">
       {entries.map((e, i) => (
         <span key={i} className={`inline-flex items-center gap-1 w-fit px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${cls}`}>
-          {e.name}: ₹{e.amount.toLocaleString('en-IN')}
+          <LedgerNameWithGroup name={e.name} />: ₹{e.amount.toLocaleString('en-IN')}
         </span>
       ))}
     </div>
@@ -55,7 +55,7 @@ const cols: Column[] = [
   { label: 'Completed', key: 'completed_date', align: 'center', render: (v) => <span className="text-sm">{fmtDate(v)}</span> },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function GarageReportsPage() {
   const [filter, setFilter] = useState({ bus_no: '', from_date: '', to_date: '', category: '' })
@@ -105,6 +105,7 @@ export default function GarageReportsPage() {
             <SearchableSelect
               value={filter.bus_no}
               onChange={(v) => setFilter({ ...filter, bus_no: v })}
+              onClear={() => setFilter({ ...filter, bus_no: '' })}
               options={busList.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
               placeholder="All Buses"
               onReload={() => reloadBuses()}
@@ -114,6 +115,7 @@ export default function GarageReportsPage() {
             <SearchableSelect
               value={filter.category}
               onChange={(v) => setFilter({ ...filter, category: v })}
+              onClear={() => setFilter({ ...filter, category: '' })}
               options={catList.map((c) => ({ value: c.name, label: c.name }))}
               placeholder="All Categories"
               onReload={() => reloadCats()}

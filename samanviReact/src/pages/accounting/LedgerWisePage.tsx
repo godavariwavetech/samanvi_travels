@@ -1,11 +1,12 @@
-﻿import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
-import { BookMarked, Search, X, FileSpreadsheet, FileText, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
+import { BookMarked, Search, X, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
@@ -19,7 +20,7 @@ function fmt(d: any): string {
   if (!d) return '-'
   const dt = new Date(d)
   if (isNaN(dt.getTime())) return '-'
-  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`
+  return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`
 }
 
 // dd/mm/yy — used only in the PDF export, which needs the narrower format
@@ -159,6 +160,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
   const totalCr = creditRows.reduce((s: number, e: any) => s + Number(e.amount || 0), 0)
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01
   const getLedgerName = (e: any) => e.expensives || e.temple_name || '—'
+  const groupOf = useLedgerGroupOf()
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -208,7 +210,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
               : <span className="ml-auto text-xs font-semibold text-orange-500 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full">⚠ Unbalanced</span>
             }
           </div>
-          <div className="overflow-auto max-h-64">
+          <DualScrollTable tableClassName="overflow-auto max-h-64">
           <table className="w-full text-sm">
             <thead>
               <tr className="sticky top-0 z-10 text-[11px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
@@ -224,7 +226,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
                   <td className="px-4 py-2.5 text-xs text-slate-400">{i + 1}</td>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-800">{getLedgerName(r)}</span>
+                      <span className="font-semibold text-slate-800">{getLedgerName(r)}<LedgerGroupTag group={groupOf({ id: r.ledger_id, name: getLedgerName(r) })} /></span>
                       <span className="text-[10px] font-bold text-red-500 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded tracking-wide">DR</span>
                     </div>
                   </td>
@@ -238,7 +240,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2 pl-6">
                       <span className="text-slate-400 text-xs italic mr-1">To</span>
-                      <span className="font-semibold text-slate-800">{getLedgerName(r)}</span>
+                      <span className="font-semibold text-slate-800">{getLedgerName(r)}<LedgerGroupTag group={groupOf({ id: r.ledger_id, name: getLedgerName(r) })} /></span>
                       <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded tracking-wide">CR</span>
                     </div>
                   </td>
@@ -255,7 +257,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
               </tr>
             </tfoot>
           </table>
-          </div>
+          </DualScrollTable>
         </div>
 
         {/* Transaction detail cards */}
@@ -270,7 +272,7 @@ function VoucherModal({ data, refNo, onClose, auditTrail }: { data: any; refNo: 
                     <div className={`flex items-center justify-between px-4 py-2.5 ${isDr ? 'bg-red-50' : 'bg-emerald-50'}`}>
                       <div className="flex items-center gap-2.5 min-w-0">
                         <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide flex-shrink-0 ${isDr ? 'text-red-500 bg-red-100 border border-red-200' : 'text-emerald-600 bg-emerald-100 border border-emerald-200'}`}>{isDr ? 'DR' : 'CR'}</span>
-                        <span className="font-semibold text-slate-800 text-sm truncate">{getLedgerName(r)}</span>
+                        <span className="font-semibold text-slate-800 text-sm truncate">{getLedgerName(r)}<LedgerGroupTag group={groupOf({ id: r.ledger_id, name: getLedgerName(r) })} /></span>
                       </div>
                       <span className={`font-bold text-sm tabular-nums flex-shrink-0 ml-2 ${isDr ? 'text-red-600' : 'text-emerald-600'}`}>
                         ₹{fmtAmt(Number(r.amount || 0))}
@@ -399,6 +401,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
   const debitEntries = entries.filter((e: any) => e.account_type === 'Debit Account' || e.amount_type === 'Debit Account')
   const creditEntries = entries.filter((e: any) => e.account_type === 'Credit Account' || e.amount_type === 'Credit Account')
   const getLedgerName = (e: any) => e.temple_name || e.expensives || 'Unknown'
+  const groupOf = useLedgerGroupOf()
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -414,7 +417,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
       <div className="p-6 space-y-4">
         <div className="bg-sky-50 rounded-xl overflow-hidden">
           <div className="bg-sky-500 text-white px-4 py-2 text-sm font-bold">Vehicle Details</div>
-          <div className="overflow-auto max-h-64">
+          <DualScrollTable tableClassName="overflow-auto max-h-64">
             <table className="w-full text-sm">
               <thead>
                 <tr className="sticky top-0 z-10 bg-sky-100">
@@ -435,7 +438,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 </tr>
               </tbody>
             </table>
-          </div>
+          </DualScrollTable>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -452,7 +455,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 ? <p className="text-xs text-slate-400 text-center py-2">No debit entries</p>
                 : debitEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                     <span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
@@ -471,7 +474,7 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
                 ? <p className="text-xs text-slate-400 text-center py-2">No credit entries</p>
                 : creditEntries.map((e: any, i: number) => (
                   <div key={i} className="flex justify-between py-1.5 border-b border-slate-100 last:border-0 text-sm">
-                    <span>{getLedgerName(e)}</span>
+                    <span>{getLedgerName(e)}<LedgerGroupTag group={groupOf({ id: e.ledger_id, name: getLedgerName(e) })} /></span>
                     <span>₹{fmtAmt(Number(e.amount))}</span>
                   </div>
                 ))}
@@ -531,8 +534,8 @@ function LedgerSelectDropdown({ value, ledgers, onChange, onRefresh, refreshing 
     return () => document.removeEventListener('mousedown', close)
   }, [open])
 
-  const filtered = ledgers.filter(l => (l.temple_name ?? l.ledger_name ?? '').toLowerCase().includes(search.toLowerCase()))
-  const groupOf = (l: any) => l?.subchildtwo || l?.child || ''
+  const filtered = ledgers.filter(l => `${l.temple_name ?? l.ledger_name ?? ''} ${ledgerGroupName(l)}`.toLowerCase().includes(search.toLowerCase()))
+  const groupOf = (l: any) => ledgerGroupName(l)
   const selected = ledgers.find(l => String(l.id) === String(value))
   const spaceBelow = rect ? window.innerHeight - rect.bottom : 999
   const openUpward = rect ? spaceBelow < PANEL_MAX_H + 8 : false
@@ -596,7 +599,7 @@ function LedgerSelectDropdown({ value, ledgers, onChange, onRefresh, refreshing 
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 const currentFY = getCurrentFY()
 
 export default function LedgerWisePage() {
@@ -761,11 +764,18 @@ export default function LedgerWisePage() {
 
   const closeModal = () => setModal({ open: false, entry: null, data: null, loading: false })
 
+  // ─── Optional columns ──────────────────────────────────────────────────────
+  // Trip Date, Quantity and Rate, ticked on and off above the table the way
+  // Voucher Approvals' "Show columns" works; all three start visible.
+  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(REPORT_EXTRA_COLS))
+  const showCol = (c: string) => extraCols.has(c)
+  const extraCount = extraCols.size
+
   // ─── Column filters ────────────────────────────────────────────────────────
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
 
-  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'name', 'description', 'debitAmount', 'creditAmount'] as const
+  const FILTER_KEYS = ['c_number', 'date', 'vouchertype', 'opp_ledgers', 'valueDate', 'vehicleNo', 'tripDate', 'quantity', 'rate', 'name', 'description', 'debitAmount', 'creditAmount'] as const
 
   const colValue = useCallback((row: any, key: string): string => {
     switch (key) {
@@ -775,6 +785,9 @@ export default function LedgerWisePage() {
       case 'opp_ledgers': return row.opp_ledgers || 'N/A'
       case 'valueDate': return fmt(row.valueDate)
       case 'vehicleNo': return (row.vehicleNo || row.bus_no) || '-'
+      case 'tripDate': return row.trip_date ? fmt(row.trip_date) : '-'
+      case 'quantity': return reportQuantity(row) || '-'
+      case 'rate': return reportRate(row) || '-'
       case 'name': return row.name || '-'
       case 'description': return row.description || '-'
       case 'debitAmount': return row.debit > 0 ? fmtAmt(row.debit) : '-'
@@ -802,11 +815,17 @@ export default function LedgerWisePage() {
     })
   }, [rows, colFilters, activeFilterCount, colValue])
 
+  // The Total row on screen and in both downloads sums the rows shown - the
+  // column filters applied - and the downloads carry only those rows. Opening,
+  // Closing and Grand Total stay the ledger's own figures for the period.
+  const shownDebit = displayRows.reduce((s, r) => s + r.debit, 0)
+  const shownCredit = displayRows.reduce((s, r) => s + r.credit, 0)
+
   // Opp-Ledger is a comma-joined string of names (possibly several) — map each
   // back to its parent group via the ledger master list for the exports.
   const nameToGroup = useMemo(() => {
     const m = new Map<string, string>()
-    ledgerList.forEach(l => { if (l.temple_name) m.set(String(l.temple_name).trim().toLowerCase(), l.child || '') })
+    ledgerList.forEach(l => { if (l.temple_name) m.set(String(l.temple_name).trim().toLowerCase(), ledgerGroupName(l)) })
     return m
   }, [ledgerList])
 
@@ -821,31 +840,36 @@ export default function LedgerWisePage() {
 
   // ─── Excel Export ──────────────────────────────────────────────────────────
   const exportExcel = () => {
+    // The ticked optional columns go out too, after Vehicle No. as on screen.
+    const extras = REPORT_EXTRA_COLS.filter(showCol)
+    const pad = extras.map(() => '')
+    const extraValues = (r: any) => extras.map((c) => c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '-') : c === 'Quantity' ? (reportQuantity(r) || '-') : (reportRate(r) || '-'))
     const data: any[][] = [
-      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
+      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', ...extras, 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
     ]
     if (showOB) {
-      data.push(['', '', '', '', 'Opening Balance', '', '', '', '', '',
+      data.push(['', '', '', '', 'Opening Balance', '', '', '', ...pad, '', '',
         openingBalance >= 0 ? openingBalance : 0,
         openingBalance < 0 ? Math.abs(openingBalance) : 0,
         balStr(openingBalance),
       ])
     }
-    rows.forEach((r, i) => {
+    displayRows.forEach((r, i) => {
       data.push([
         i + 1, r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
         r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
+        ...extraValues(r),
         r.name || '-', r.description || '-',
         r.debit, r.credit, balStr(r.runningBalance ?? 0),
       ])
     })
-    data.push(['', '', '', '', 'Total', '', '', '', '', '', totalDebit, totalCredit, ''])
-    data.push(['', '', '', '', 'Closing Balance', '', '', '', '', '',
+    data.push(['', '', '', '', 'Total', '', '', '', ...pad, '', '', shownDebit, shownCredit, ''])
+    data.push(['', '', '', '', 'Closing Balance', '', '', '', ...pad, '', '',
       closingBalance < 0 ? Math.abs(closingBalance) : 0,
       closingBalance >= 0 ? closingBalance : 0,
       balStr(closingBalance),
     ])
-    data.push(['', '', '', '', 'Grand Total', '', '', '', '', '', grandDebit, grandCredit, ''])
+    data.push(['', '', '', '', 'Grand Total', '', '', '', ...pad, '', '', grandDebit, grandCredit, ''])
 
     const ws = XLSX.utils.aoa_to_sheet(data)
     ws['!cols'] = data[0].map((_: any, ci: number) => ({
@@ -854,7 +878,7 @@ export default function LedgerWisePage() {
     // Dr/Cr Amount columns (10, 11) hold real numbers — format them so Excel
     // treats them as numeric (right-aligned, summable via the status bar).
     for (let r = 1; r < data.length; r++) {
-      for (const c of [10, 11]) {
+      for (const c of [10 + extras.length, 11 + extras.length]) {
         const cellRef = XLSX.utils.encode_cell({ r, c })
         const cell = ws[cellRef]
         if (cell && typeof cell.v === 'number') cell.z = '#,##0.00'
@@ -928,7 +952,7 @@ export default function LedgerWisePage() {
       ])
     }
 
-    rows.forEach((r, i) => {
+    displayRows.forEach((r, i) => {
       body.push([
         String(i + 1), r.c_number || '-', fmtShort(resolveDisplayDate(r)), r.vouchertype || 'N/A',
         r.opp_ledgers || 'N/A', fmtShort(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
@@ -941,8 +965,8 @@ export default function LedgerWisePage() {
 
     body.push(['', '', '', '',
       { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
-      { content: fmtN(totalDebit), styles: { fontStyle: 'bold', halign: 'right' } },
-      { content: fmtN(totalCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
+      { content: fmtN(shownDebit), styles: { fontStyle: 'bold', halign: 'right' } },
+      { content: fmtN(shownCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
     body.push(['', '', '', '',
       { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
@@ -999,7 +1023,7 @@ export default function LedgerWisePage() {
 
   const SummaryRow = ({ label, dr, cr, bal }: { label: string; dr?: number; cr?: number; bal?: number }) => (
     <tr className="bg-blue-50 border-t-2 border-blue-200 font-bold">
-      <td colSpan={9} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
+      <td colSpan={9 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{dr != null ? fmtAmt(dr) : ''}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{cr != null ? fmtAmt(cr) : ''}</td>
       <td className={`px-3 py-2.5 text-right tabular-nums ${bal != null ? obCbCls(bal) : ''}`}>
@@ -1010,7 +1034,7 @@ export default function LedgerWisePage() {
 
   const GrandRow = ({ label, dr, cr }: { label: string; dr: number; cr: number }) => (
     <tr className="bg-amber-50 border-t-2 border-amber-300 font-bold">
-      <td colSpan={9} className="px-3 py-2.5 text-right text-xs font-bold text-amber-800 uppercase tracking-wide">{label}</td>
+      <td colSpan={9 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-amber-800 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{fmtAmt(dr)}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{fmtAmt(cr)}</td>
       <td />
@@ -1113,14 +1137,11 @@ export default function LedgerWisePage() {
                   <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
                 </span>
               )}
-              <Button variant="outline" onClick={exportExcel} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
-                <FileSpreadsheet className="w-4 h-4" /> Download Excel
-              </Button>
-              <Button variant="outline" onClick={exportPDF} className="border-red-300 text-red-700 hover:bg-red-50">
-                <FileText className="w-4 h-4" /> Download PDF
-              </Button>
+              <ExportMenu onExport={(f) => f === 'excel' ? exportExcel() : exportPDF()} />
             </div>
           </div>
+
+          <ReportColumnPicker options={REPORT_EXTRA_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
 
           {/* Summary strip */}
           <SummaryStrip />
@@ -1142,7 +1163,7 @@ export default function LedgerWisePage() {
       ) : (
         <>
         <GlassCard className="overflow-hidden">
-          <div className="overflow-auto max-h-[70vh]">
+          <DualScrollTable tableClassName="overflow-auto max-h-[70vh]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
@@ -1153,6 +1174,9 @@ export default function LedgerWisePage() {
                   <TH filterKey="opp_ledgers">Opp-Ledger</TH>
                   <TH filterKey="valueDate">Value Date</TH>
                   <TH filterKey="vehicleNo">Vehicle No.</TH>
+                  {showCol('Trip Date') && <TH filterKey="tripDate">Trip Date</TH>}
+                  {showCol('Quantity') && <TH cls="text-right" filterKey="quantity">Quantity</TH>}
+                  {showCol('Rate') && <TH cls="text-right" filterKey="rate">Rate</TH>}
                   <TH filterKey="name">Name</TH>
                   <TH filterKey="description">Description</TH>
                   <TH cls="text-right" filterKey="debitAmount">Dr Amount</TH>
@@ -1164,7 +1188,7 @@ export default function LedgerWisePage() {
                 {/* Opening Balance */}
                 {showOB && (
                   <tr className="bg-sky-50 border-b border-sky-200">
-                    <td colSpan={9} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
+                    <td colSpan={9 + extraCount} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
                       Opening Balance —{' '}
                       <span className={obCbCls(openingBalance)}>{balStr(openingBalance)}</span>
                     </td>
@@ -1180,13 +1204,13 @@ export default function LedgerWisePage() {
                     of swapping the whole card out for a blank message */}
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={12 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
                       No transactions found for the selected criteria.
                     </td>
                   </tr>
                 ) : displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-3 py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={12 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
                       No rows match the active filters.
                     </td>
                   </tr>
@@ -1221,8 +1245,8 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 whitespace-nowrap">
                       {row.vouchertype || 'N/A'}
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[160px] truncate" title={row.opp_ledgers || 'N/A'}>
-                      {row.opp_ledgers || 'N/A'}
+                    <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[220px] truncate" title={row.opp_ledgers || 'N/A'}>
+                      {row.opp_ledgers || 'N/A'}<LedgerGroupTag group={oppLedgerGroup(row.opp_ledgers)} />
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {fmt(row.valueDate)}
@@ -1230,6 +1254,15 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {(row.vehicleNo || row.bus_no) || '-'}
                     </td>
+                    {showCol('Trip Date') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.trip_date ? fmt(row.trip_date) : '-'}</td>
+                    )}
+                    {showCol('Quantity') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportQuantity(row) || '-'}</td>
+                    )}
+                    {showCol('Rate') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportRate(row) || '-'}</td>
+                    )}
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap" title={row.name || '-'}>
                       {row.name || '-'}
                     </td>
@@ -1250,7 +1283,7 @@ export default function LedgerWisePage() {
                 })}
               </tbody>
               <tfoot>
-                <SummaryRow label="Total" dr={totalDebit} cr={totalCredit} />
+                <SummaryRow label={displayRows.length !== rows.length ? `Total (${displayRows.length} of ${rows.length} rows)` : 'Total'} dr={shownDebit} cr={shownCredit} />
                 <SummaryRow
                   label="Closing Balance"
                   dr={closingBalance < 0 ? Math.abs(closingBalance) : 0}
@@ -1260,7 +1293,7 @@ export default function LedgerWisePage() {
                 <GrandRow label="Grand Total" dr={grandDebit} cr={grandCredit} />
               </tfoot>
             </table>
-          </div>
+          </DualScrollTable>
         </GlassCard>
 
         {/* Summary strip repeated below the table */}

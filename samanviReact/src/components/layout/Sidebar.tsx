@@ -1,5 +1,5 @@
 import type { ElementType } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { NavLink, useLocation } from 'react-router'
 import {
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
+import { buildAccess, canAccess, type Access } from '@/lib/access'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NavLeaf {
@@ -52,7 +53,13 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Sold Out / Service Out', path: '/masters/service-out' },
     ],
   },
-  { id: 'validations', label: 'Validations', icon: ShieldCheck, path: '/validations' },
+  {
+    id: 'validations', label: 'Validations', icon: ShieldCheck,
+    children: [
+      { label: 'Drivers',  path: '/validations/drivers' },
+      { label: 'Vehicles', path: '/validations/vehicles' },
+    ],
+  },
   {
     id: 'trips', label: 'Trip Management', icon: Map,
     children: [
@@ -177,9 +184,43 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Bus Operator',       path: '/mainmasters/bus-operator' },
       { label: 'Line Code',          path: '/mainmasters/line-code' },
       { label: 'Route ID',           path: '/mainmasters/route-id' },
+      { label: 'Designation',        path: '/mainmasters/designation' },
     ],
   },
 ]
+
+// ── What this user may open ────────────────────────────────────────────────────
+// Screens the user has no permission for are dropped, and a group left with
+// nothing in it goes too, so the menu only ever lists what will open.
+function filterChildren(children: NavChild[], access: Access): NavChild[] {
+  return children.flatMap((c): NavChild[] => {
+    if (isSubGroup(c)) {
+      const kids = filterChildren(c.children, access)
+      return kids.length ? [{ ...c, children: kids }] : []
+    }
+    return canAccess(c.path, access) ? [c] : []
+  })
+}
+
+export function visibleNav(access: Access): NavItem[] {
+  return NAV_ITEMS.flatMap((item): NavItem[] => {
+    if (item.children) {
+      const kids = filterChildren(item.children, access)
+      return kids.length ? [{ ...item, children: kids }] : []
+    }
+    return item.path && canAccess(item.path, access) ? [item] : []
+  })
+}
+
+// Where to land when the requested screen is not allowed: the first menu entry.
+export function firstAllowedPath(access: Access): string | null {
+  for (const item of visibleNav(access)) {
+    if (item.path) return item.path
+    const leaf = flattenLeafs(item.children ?? [])[0]
+    if (leaf) return leaf.path
+  }
+  return null
+}
 
 // ── Sub-group (3rd level) — always visible, label is a decorative divider ─────
 function NavSubSection({
@@ -231,8 +272,11 @@ function NavSubSection({
 }
 
 // ── Top-level group (2nd level) ───────────────────────────────────────────────
-function NavGroup({ item, onClose }: { item: NavItem; onClose: () => void }) {
+function NavGroup({ item, onClose, collapsed, onExpand }: { item: NavItem; onClose: () => void; collapsed?: boolean; onExpand?: () => void }) {
   const location = useLocation()
+  // Folded to the icon rail on desktop, a group cannot show its children, so
+  // its icon opens the rail back up with the group expanded.
+  const railOnDesktop = () => !!collapsed && window.matchMedia('(min-width: 1024px)').matches
 
   const allLeafs = flattenLeafs(item.children ?? [])
   const isChildActive = allLeafs.some(c => location.pathname.startsWith(c.path))
@@ -241,9 +285,11 @@ function NavGroup({ item, onClose }: { item: NavItem; onClose: () => void }) {
   return (
     <div>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { if (railOnDesktop()) { onExpand?.(); setOpen(true); return } setOpen(o => !o) }}
+        title={item.label}
         className={cn(
           'w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl transition-all text-sm font-bold group relative overflow-hidden',
+          collapsed && 'lg:justify-center lg:px-0',
           isChildActive
             ? 'text-white bg-white/10 border border-white/5'
             : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50',
@@ -261,14 +307,14 @@ function NavGroup({ item, onClose }: { item: NavItem; onClose: () => void }) {
             isChildActive ? 'text-[#14B8A6]' : 'text-slate-500 group-hover:text-slate-300',
           )}
         />
-        <span className="flex-1 text-left">{item.label}</span>
+        <span className={cn('flex-1 text-left', collapsed && 'lg:hidden')}>{item.label}</span>
         {open
-          ? <ChevronDown className="w-4 h-4 text-slate-500" />
-          : <ChevronRight className="w-4 h-4 text-slate-500" />}
+          ? <ChevronDown className={cn('w-4 h-4 text-slate-500', collapsed && 'lg:hidden')} />
+          : <ChevronRight className={cn('w-4 h-4 text-slate-500', collapsed && 'lg:hidden')} />}
       </button>
 
       {open && (
-        <div className="ml-9 mt-1 space-y-0.5 border-l border-slate-700/50 pl-3">
+        <div className={cn('ml-9 mt-1 space-y-0.5 border-l border-slate-700/50 pl-3', collapsed && 'lg:hidden')}>
           {(item.children ?? []).map((child, i) =>
             isSubGroup(child) ? (
               <NavSubSection key={i} group={child} onClose={onClose} />
@@ -300,11 +346,16 @@ function NavGroup({ item, onClose }: { item: NavItem; onClose: () => void }) {
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
+  /** Desktop only: folded to an icon rail so the page gets most of the width. */
+  collapsed?: boolean
+  /** Called when a group icon on the rail is clicked, to unfold the menu. */
+  onExpand?: () => void
 }
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const { user, logout } = useAuthStore()
+export function Sidebar({ isOpen, onClose, collapsed = false, onExpand }: SidebarProps) {
+  const { user, logout, menu } = useAuthStore()
   const location = useLocation()
+  const navItems = useMemo(() => visibleNav(buildAccess(menu)), [menu])
 
   useEffect(() => {
     onClose()
@@ -317,14 +368,16 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         'fixed inset-y-0 left-0 z-50 transition-transform duration-300 ease-in-out',
         isOpen ? 'translate-x-0' : '-translate-x-full',
         'lg:relative lg:translate-x-0 lg:h-auto',
+        // The rail keeps every icon (with its name on hover) and drops the labels.
+        collapsed && 'lg:w-[76px]',
       )}
     >
       {/* Logo */}
-      <div className="h-24 flex items-center px-5 gap-3 border-b border-slate-800/80">
+      <div className={cn('h-24 flex items-center px-5 gap-3 border-b border-slate-800/80', collapsed && 'lg:justify-center lg:px-0')}>
         <div className="w-12 h-12 bg-gradient-to-br from-[#2563EB] to-[#7C3AED] rounded-2xl flex items-center justify-center shadow-lg border border-white/10 flex-shrink-0">
           <span className="font-black text-2xl text-white">S</span>
         </div>
-        <div className="flex-1 min-w-0">
+        <div className={cn('flex-1 min-w-0', collapsed && 'lg:hidden')}>
           <h2 className="font-extrabold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-300">
             Samanvi
           </h2>
@@ -342,17 +395,19 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
 
       {/* Nav */}
-      <div className="flex-1 overflow-y-auto py-6 px-4 space-y-1 scrollbar-hide">
-        {NAV_ITEMS.map((item) => {
-          if (item.children) return <NavGroup key={item.id} item={item} onClose={onClose} />
+      <div className={cn('flex-1 overflow-y-auto py-6 px-4 space-y-1 scrollbar-hide', collapsed && 'lg:px-2')}>
+        {navItems.map((item) => {
+          if (item.children) return <NavGroup key={item.id} item={item} onClose={onClose} collapsed={collapsed} onExpand={onExpand} />
           return (
             <NavLink
               key={item.id}
               to={item.path!}
               onClick={onClose}
+              title={item.label}
               className={({ isActive }) =>
                 cn(
                   'w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl transition-all text-sm font-bold group relative overflow-hidden',
+                  collapsed && 'lg:justify-center lg:px-0',
                   isActive
                     ? 'text-white bg-white/10 border border-white/5'
                     : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/50',
@@ -373,7 +428,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                       isActive ? 'text-[#14B8A6]' : 'text-slate-500 group-hover:text-slate-300',
                     )}
                   />
-                  {item.label}
+                  <span className={cn(collapsed && 'lg:hidden')}>{item.label}</span>
                 </>
               )}
             </NavLink>
@@ -382,12 +437,12 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       </div>
 
       {/* User footer */}
-      <div className="p-4 border-t border-slate-800/80">
-        <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-800/60 transition-colors">
+      <div className={cn('p-4 border-t border-slate-800/80', collapsed && 'lg:p-2')}>
+        <div className={cn('flex items-center gap-3 p-3 rounded-2xl bg-slate-800/40 border border-slate-700/50 hover:bg-slate-800/60 transition-colors', collapsed && 'lg:flex-col lg:gap-2 lg:p-2')}>
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center font-bold text-sm text-white flex-shrink-0">
             {user?.name?.charAt(0) ?? 'A'}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className={cn('flex-1 min-w-0', collapsed && 'lg:hidden')}>
             <p className="text-sm font-bold truncate text-white">{user?.name ?? 'Admin'}</p>
             <p className="text-xs text-slate-400 truncate font-medium">{user?.department_name ?? 'Head Office'}</p>
           </div>

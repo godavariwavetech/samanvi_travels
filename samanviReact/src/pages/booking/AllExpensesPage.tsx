@@ -6,11 +6,11 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader }
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
-  { label: 'Date', key: 'date' },
+  { label: 'Date', key: 'date', render: (v) => formatDate(v) },
   { label: 'Expense Type', key: 'expense_type', render: (v) => <Badge variant="info">{String(v)}</Badge> },
   { label: 'Bus', key: 'bus_no' },
   { label: 'Route', key: 'service_no' },
@@ -19,7 +19,7 @@ const cols: Column[] = [
   { label: 'By', key: 'usr_nm' },
 ]
 
-const today = new Date().toISOString().split('T')[0]
+const today = todayISO()
 
 export default function AllExpensesPage() {
   const [filter, setFilter] = useState({ bus_no: '', service_no: '', from_date: '', to_date: '', expense_type: '' })
