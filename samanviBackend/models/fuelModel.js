@@ -49,6 +49,9 @@ sqldb.query(
 // on a fuel entry. Through ensureColumn, so a database where the ALTER cannot
 // run still approves and rejects - just without keeping the reason.
 var rejectionReason = ensureColumn(sqldb, 'fuel_entry', 'rejection_reason', 'TEXT DEFAULT NULL');
+// Keep the accounting/value date separate from the physical fuel fill date.
+// Older rows are displayed with `date` as a fallback by the UI.
+var valueDate = ensureColumn(sqldb, 'fuel_entry', 'value_date', 'DATE DEFAULT NULL');
 
 // Reference number generation is derived from MAX(c_id) inside fuel_entry rather
 // than a separate counter table — this matches how mainvoucher_t / trips already
@@ -134,8 +137,8 @@ exports.createFuelEntryMdl = function (data, callback) {
           (date, vehicle_number, previous_odometer, present_odometer, quantity_filled,
            price_per_liter, total_bill, avg_kmpl, debit_account, credit_account,
            d_in, c_id, c_number, entry_by, user_id, kilometers, prev_odometer,
-           admin_status, i_ts, issparetank, remarks)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+           admin_status, i_ts, issparetank, remarks${valueDate.present ? ', value_date' : ''})
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${valueDate.present ? ',?' : ''})`;
         var headerVals = [
           data.date || null,
           data.vehicleNumber || null,
@@ -159,6 +162,7 @@ exports.createFuelEntryMdl = function (data, callback) {
           0,
           data.remarks || null,
         ];
+        if (valueDate.present) headerVals.push(data.valueDate || data.date || null);
         connection.query(headerSql, headerVals, function (err, headerRes) {
           if (err) return rollback(err);
           var parentId = headerRes.insertId;
@@ -232,7 +236,7 @@ function updateFuelEntryOpen(data, callback) {
         date=?, vehicle_number=?, previous_odometer=?, present_odometer=?,
         quantity_filled=?, price_per_liter=?, total_bill=?, avg_kmpl=?,
         debit_account=?, credit_account=?, kilometers=?, prev_odometer=?,
-        updatedid=?, updatedby=?, updated_date=?, remarks=?
+        updatedid=?, updatedby=?, updated_date=?, remarks=?${valueDate.present ? ', value_date=?' : ''}
         WHERE id=?`;
       var updateVals = [
         data.date || null, data.vehicleNumber || null,
@@ -243,6 +247,7 @@ function updateFuelEntryOpen(data, callback) {
         String(data.kilometers || 0), String(data.previousOdometer || 0),
         Number(data.user_id || 0), data.named || '', now,
         data.remarks || null,
+        ...(valueDate.present ? [data.valueDate || data.date || null] : []),
         Number(data.id),
       ];
       connection.query(updateSql, updateVals, function (err) {

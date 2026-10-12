@@ -35,6 +35,7 @@ export const emptyForm = () => ({
   c_id: '' as string,
   c_number: '' as string,
   date: todayISO(),
+  valueDate: todayISO(),
   vehicleNumber: '',
   previousOdometer: '',
   presentOdometer: '',
@@ -67,6 +68,7 @@ function ledgerLabel(l: Ledger) {
 // can't sneak past.
 function validateBalance(f: FormState): string | null {
   if (!f.date) return 'Date is required'
+  if (!f.valueDate) return 'Value Date is required'
   if (!f.vehicleNumber) return 'Vehicle Number is required'
   if (!f.qtyFilled || Number(f.qtyFilled) <= 0) return 'Quantity Filled must be greater than 0'
   if (!f.pricePerLitre || Number(f.pricePerLitre) <= 0) return 'Price Per Litre must be greater than 0'
@@ -127,6 +129,8 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div><Label>Date <Req /></Label>
             <Input type="date" max={today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+          <div><Label>Value Date <Req /></Label>
+            <Input type="date" max={today} value={form.valueDate} onChange={(e) => setForm({ ...form, valueDate: e.target.value })} /></div>
           <div><Label>Vehicle Number <Req /></Label>
             <SearchableSelect placeholder="Select Vehicle"
               options={buses.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
@@ -351,6 +355,7 @@ export default function FuelEntryPage() {
       c_id: String(row.c_id || ''),
       c_number: String(row.c_number || ''),
       date: String(row.date || today),
+      valueDate: String(row.value_date || row.valueDate || row.date || today),
       vehicleNumber: String(row.vehicle_number || ''),
       previousOdometer: String(row.previous_odometer || row.prev_odometer || 0),
       presentOdometer: String(row.present_odometer || 0),
@@ -385,6 +390,7 @@ export default function FuelEntryPage() {
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     { label: 'Ref #', key: 'c_number', filterable: true },
     { label: 'Date', key: 'date', render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Value Date', key: 'value_date', render: (v, r: Record<string, unknown>) => formatDate(String(v || r.date || '')) },
     { label: 'Vehicle No', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
@@ -491,6 +497,7 @@ export default function FuelEntryPage() {
           <RecordModal size="lg" title="Fuel Entry" subtitle={String(viewRow.c_number ?? '')} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setViewRow(null)}>
             <DetailGrid>
               <DetailField label="Date" value={formatDate(String(viewRow.date ?? ''))} />
+              <DetailField label="Value Date" value={formatDate(String(viewRow.value_date || viewRow.valueDate || viewRow.date || ''))} />
               <DetailField label="Vehicle No" value={String(viewRow.vehicle_number ?? '—')} />
               <DetailField label="Quantity" value={`${String(viewRow.quantity_filled ?? 0)} L`} />
               <DetailField label="Price / Litre" value={`₹${formatAmount(viewRow.price_per_liter)}`} />
