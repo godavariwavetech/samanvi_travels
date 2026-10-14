@@ -107,6 +107,8 @@ jobs:
       # stray .zip files) so public_html doesn't accumulate cruft. The
       # excludes protect cPanel/SSL-managed files that live alongside the
       # built app but aren't part of it.
+      # Staging lives inside public_html/staging/ and is deployed separately.
+      # Preserve it when deleting files absent from the production build.
       - name: Sync frontend build to server
         run: |
           rsync -avz --delete \
@@ -114,6 +116,7 @@ jobs:
             --exclude '.htaccess' \
             --exclude '.user.ini' \
             --exclude '.well-known/' \
+            --exclude '/staging/' \
             --exclude '*.zip' \
             samanviReact/dist/ \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.FRONTEND_PATH }}/
