@@ -1,3 +1,4 @@
+import { usePermissions } from '@/lib/usePermissions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2, X } from 'lucide-react'
@@ -447,6 +448,7 @@ function LaundryBillView({ row, onClose, onApprove, onReject, onReopen }: {
 
 // ── Main page ────────────────────────────────────────────────────────────
 export default function LaundryBillPage() {
+  const { canAdd, canEdit, canDelete, canApprove } = usePermissions()
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm())
@@ -512,6 +514,7 @@ export default function LaundryBillPage() {
   const laundryLedger = ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /^laundry expenses?$/i.test(String(l.temple_name ?? '').trim()))
     ?? ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /laundry/i.test(String(l.temple_name ?? '')))
   const openNew = () => {
+    if (!canAdd) return toast.error('You do not have Add permission')
     setForm(emptyForm()); setVehicleRows([]); setCredits([emptyLedgerLine<Ledger>()]); setMode('add')
     setDebits(laundryLedger ? [{ ledger: laundryLedger, amount: '', auto: true }] : [emptyLedgerLine<Ledger>()])
     setShowForm(true)
@@ -634,6 +637,7 @@ export default function LaundryBillPage() {
   // The same checks the Fuel Entry form makes, so a bill is never filed with a
   // vehicle missing, nothing billed, or ledgers that do not add up to it.
   const onSave = () => {
+    if (mode === 'edit' ? !canEdit : !canAdd) return toast.error('You do not have permission to save this bill')
     if (!form.vendor) return toast.error('Vendor Name is required')
     if (!form.voucherdate) return toast.error('Bill Date is required')
     if (vehicleRows.length === 0) return toast.error('Add at least one vehicle row')
@@ -670,6 +674,7 @@ export default function LaundryBillPage() {
   // Approve / reject the selected bills one after another, as Voucher Approvals
   // does, then report the count once.
   const runBulk = async (rows: Record<string, unknown>[], admin_status: 1 | 2, reason = '') => {
+    if (!canApprove) return toast.error('You do not have approval permission')
     if (!rows.length) return
     const setLoading = admin_status === 1 ? setBulkApproving : setBulkRejecting
     setLoading(true)
@@ -758,6 +763,7 @@ export default function LaundryBillPage() {
   }
 
   const onDelete = async (row: Record<string, unknown>) => {
+    if (!canDelete) return toast.error('You do not have Delete permission')
     if (!confirm(`Delete bill ${row.c_number}?`)) return
     const res = await laundryService.deleteLaundryBill({ c_number: row.c_number, named, user_id })
     if (res?.status === 200) {
@@ -821,7 +827,7 @@ export default function LaundryBillPage() {
       <PageHeader title={mode === 'edit' ? 'Edit Laundry Bill' : 'Add Laundry Bill'} subtitle="Bill laundry vendors for washed items per vehicle" />
 
       <div className="flex justify-end">
-        {!showForm && <Button onClick={openNew}><Plus className="w-4 h-4" /> Add Laundry Bill</Button>}
+        {canAdd && !showForm && <Button onClick={openNew}><Plus className="w-4 h-4" /> Add Laundry Bill</Button>}
       </div>
 
       <AnimatePresence>
@@ -867,10 +873,10 @@ export default function LaundryBillPage() {
         rowKey={(r) => String(r.c_number)}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
-        selectable={tab === 'pending'}
+        selectable={canApprove && tab === 'pending'}
         sumKey="total_amount"
         onSelectionChange={(rows) => setSelectedRows(rows as Record<string, unknown>[])}
-        selectionActions={tab === 'pending' ? (
+        selectionActions={canApprove && tab === 'pending' ? (
           <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
             onApprove={() => runBulk(selectedRows, 1)} onReject={() => askReject(selectedRows)} />
         ) : undefined}

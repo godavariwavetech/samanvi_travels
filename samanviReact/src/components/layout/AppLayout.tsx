@@ -21,8 +21,8 @@ export function AppLayout() {
     queryKey: ['my-menu'],
     queryFn: () => authService.getMyMenu(),
     enabled: isAuthenticated,
-    staleTime: 60_000,
-    refetchOnWindowFocus: true,
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
   })
   useEffect(() => {
     if (freshMenu?.status === 200 && Array.isArray(freshMenu.data)) setMenu(freshMenu.data)

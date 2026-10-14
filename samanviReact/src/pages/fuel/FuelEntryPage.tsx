@@ -1,3 +1,4 @@
+import { usePermissions } from '@/lib/usePermissions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X } from 'lucide-react'
@@ -201,6 +202,7 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
 }
 
 export default function FuelEntryPage() {
+  const { canAdd, canEdit, canDelete, canApprove } = usePermissions()
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm())
@@ -243,6 +245,7 @@ export default function FuelEntryPage() {
   const dieselLedger = ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /^diesel$/i.test(String(l.temple_name ?? '').trim()))
     ?? ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /diesel/i.test(String(l.temple_name ?? '')))
   const openNew = () => {
+    if (!canAdd) return toast.error('You do not have Add permission')
     setForm({ ...emptyForm(), ...(dieselLedger ? { patientsTstdts: [{ ledger: dieselLedger, amount: '', auto: true }] } : {}) })
     setShowForm(true)
   }
@@ -290,12 +293,14 @@ export default function FuelEntryPage() {
   })
 
   const onSaveNew = () => {
+    if (!canAdd) return toast.error('You do not have Add permission')
     const err = validateBalance(form)
     if (err) return toast.error(err)
     submit()
   }
 
   const onSaveEdit = () => {
+    if (!canEdit) return toast.error('You do not have Edit permission')
     if (!editForm) return
     const err = validateBalance(editForm)
     if (err) return toast.error(err)
@@ -320,6 +325,7 @@ export default function FuelEntryPage() {
   // Approve / reject the selected rows one after another, as Voucher Approvals
   // does, then report the count once.
   const runBulk = async (rows: Record<string, unknown>[], admin_status: 1 | 2, reason = '') => {
+    if (!canApprove) return toast.error('You do not have approval permission')
     if (!rows.length) return
     const setLoading = admin_status === 1 ? setBulkApproving : setBulkRejecting
     setLoading(true)
@@ -371,6 +377,7 @@ export default function FuelEntryPage() {
   }
 
   const onDelete = async (row: Record<string, unknown>) => {
+    if (!canDelete) return toast.error('You do not have Delete permission')
     if (!confirm(`Delete fuel entry ${row.c_number}?`)) return
     const res = await fuelService.deleteFuelEntry({ id: row.id, named, user_id })
     if (res?.status === 200) {
@@ -440,7 +447,7 @@ export default function FuelEntryPage() {
       <PageHeader title="Fuel Entry" subtitle="Record daily fuel fills for each vehicle" />
 
       <div className="flex justify-end">
-        {!showForm && <Button onClick={openNew}><Plus className="w-4 h-4" /> Log Fuel</Button>}
+        {canAdd && !showForm && <Button onClick={openNew}><Plus className="w-4 h-4" /> Log Fuel</Button>}
       </div>
 
           <AnimatePresence>
@@ -477,10 +484,10 @@ export default function FuelEntryPage() {
         actions={[]}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
-        selectable={tab === 'pending'}
+        selectable={canApprove && tab === 'pending'}
         sumKey="total_bill"
         onSelectionChange={(rows) => setSelectedRows(rows as Record<string, unknown>[])}
-        selectionActions={tab === 'pending' ? (
+        selectionActions={canApprove && tab === 'pending' ? (
           <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
             onApprove={() => runBulk(selectedRows, 1)} onReject={() => askReject(selectedRows)} />
         ) : undefined}

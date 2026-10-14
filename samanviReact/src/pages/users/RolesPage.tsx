@@ -186,6 +186,7 @@ export default function RolesPage() {
                 {enabledCount} module{enabledCount !== 1 ? 's' : ''} enabled
               </span>
               <Button
+                permission="edit"
                 onClick={() => save()}
                 disabled={isPending || !enabledCount}
                 variant="purple"

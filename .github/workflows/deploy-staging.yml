@@ -31,6 +31,12 @@ jobs:
         working-directory: samanviReact
         run: npm ci
 
+      - name: Check permission enforcement
+        working-directory: samanviReact
+        run: |
+          npm run test:permissions
+          node --test ../samanviBackend/tests/permissions.test.js ../.github/tests/deploy-production.test.cjs
+
       # `--mode staging` picks up .env.staging, which points the app at
       # https://samanvitravels.org.in:8946/nodeapp/ instead of the :8945
       # production API. Output goes to samanviReact/staging/, not dist/, so a

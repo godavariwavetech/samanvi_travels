@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useRef } from 'react'
+import { usePermissions } from '@/lib/usePermissions'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
@@ -592,6 +593,8 @@ import ActivityHistory from '@/components/shared/ActivityHistory'
 import { PayablesPopup } from './PayablesPopup'
 
 export default function VoucherApprovalsPage() {
+  const { canEdit, canApprove } = usePermissions()
+  const jobPermissions = usePermissions('/garage/tracking')
   const navigate = useNavigate()
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
@@ -1268,7 +1271,7 @@ export default function VoucherApprovalsPage() {
 
       <DataTable
         title={tab}
-        columns={buildCols(handleApprove, handleReject, handleView, handleReopen, getMode(), {
+        columns={buildCols(handleApprove, handleReject, handleView, handleReopen, canApprove ? getMode() : 'view', {
           voucherTypes: voucherTypeFilterOpts,
           busList,
           staffOptions: staffFilterOpts,
@@ -1281,10 +1284,10 @@ export default function VoucherApprovalsPage() {
         actions={[]}
         columnFilters={colFilters}
         onColumnFilterChange={(key, val) => setColFilters(f => ({ ...f, [key]: val }))}
-        selectable
+        selectable={canApprove}
         sumKey="debit_total"
         onSelectionChange={(rows) => setSelectedRows(rows)}
-        selectionActions={tab === 'Pending Approval' ? (
+        selectionActions={canApprove && tab === 'Pending Approval' ? (
           <>
             <button
               onClick={() => runBulkAction(1)}
@@ -1874,22 +1877,22 @@ export default function VoucherApprovalsPage() {
                 <div className="flex justify-between items-center pt-4 border-t border-slate-200">
                   <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
                   <div className="flex gap-3 flex-wrap">
-                    {!editMode && Number(viewModal.is_payable) === 1 && (
+                    {canEdit && !editMode && Number(viewModal.is_payable) === 1 && (
                       <Button variant="outline" onClick={openInPayables}>
                         <Pencil className="w-4 h-4" /> Edit in Payables
                       </Button>
                     )}
-                    {!editMode && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                    {canEdit && jobPermissions.canEdit && !editMode && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={openInJobCard} className="border-orange-300 text-orange-700 hover:bg-orange-50">
                         <Wrench className="w-4 h-4" /> Edit in Job Card
                       </Button>
                     )}
-                    {!editMode && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                    {canEdit && !editMode && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={() => setEditMode(true)}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>
                     )}
-                    {editMode && (
+                    {canEdit && editMode && (
                       <>
                         <Button variant="ghost" onClick={() => setEditMode(false)}>Cancel</Button>
                         <Button variant="purple" onClick={() => { if (validateEditForm()) saveEdit() }} disabled={saving}>
@@ -1897,22 +1900,22 @@ export default function VoucherApprovalsPage() {
                         </Button>
                       </>
                     )}
-                    {!editMode && viewModal.status == 0 && (
+                    {canApprove && !editMode && viewModal.status == 0 && (
                       <Button variant="danger" onClick={() => { handleReject(viewModal); setViewModal(null) }}>
                         <XCircle className="w-4 h-4" /> Reject
                       </Button>
                     )}
-                    {!editMode && viewModal.status == 0 && (
+                    {canApprove && !editMode && viewModal.status == 0 && (
                       <Button variant="success" onClick={() => { handleApprove(viewModal); setViewModal(null) }}>
                         <CheckCircle className="w-4 h-4" /> Approve
                       </Button>
                     )}
-                    {!editMode && viewModal.status == 2 && (
+                    {canApprove && !editMode && viewModal.status == 2 && (
                       <Button variant="outline" onClick={() => { handleReopen(viewModal); setViewModal(null) }} className="border-amber-300 text-amber-700 hover:bg-amber-50">
                         <RotateCcw className="w-4 h-4" /> Reopen
                       </Button>
                     )}
-                    {!editMode && viewModal.status == 2 && (
+                    {canApprove && !editMode && viewModal.status == 2 && (
                       <Button variant="success" onClick={() => { handleApprove(viewModal); setViewModal(null) }}>
                         <CheckCircle className="w-4 h-4" /> Approve Directly
                       </Button>

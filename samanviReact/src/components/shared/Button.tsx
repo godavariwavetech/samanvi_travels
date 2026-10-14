@@ -1,11 +1,13 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
+import { usePermissions } from '@/lib/usePermissions'
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'success' | 'purple' | 'teal'
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant
   size?: 'sm' | 'md' | 'lg'
+  permission?: 'add' | 'edit' | 'delete' | 'approve'
 }
 
 const variants: Record<Variant, string> = {
@@ -31,7 +33,10 @@ const sizes = {
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ children, variant = 'primary', size = 'md', className, ...props }, ref) => (
+  ({ children, variant = 'primary', size = 'md', className, permission, ...props }, ref) => {
+    const rights = usePermissions()
+    if (permission && !rights[({ add: 'canAdd', edit: 'canEdit', delete: 'canDelete', approve: 'canApprove' } as const)[permission]]) return null
+    return (
     <button
       ref={ref}
       className={cn(
@@ -44,6 +49,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     >
       {children}
     </button>
-  )
+    )
+  }
 )
 Button.displayName = 'Button'

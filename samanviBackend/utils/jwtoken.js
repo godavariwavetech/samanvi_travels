@@ -15,6 +15,7 @@ function verifyToken(req, res, next) {
         if (err) {
             return res.status(403).json({ "status": 403, "msg": 'Token expired' });
         }
+        req.auth = decoded;
         next();
     });
 }

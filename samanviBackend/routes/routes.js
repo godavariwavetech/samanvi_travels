@@ -5,6 +5,15 @@ var fuelcontroller = require('../controllers/fuelCtrl');
 var laundrycontroller = require('../controllers/laundryCtrl');
 const { apiRateLimiter } = require('../utils/apiratelimiter');
 const { verifyToken } = require('../utils/jwtoken');
+const { requirePermission, API_PERMISSIONS } = require('../utils/permissions');
+
+// Do not trust a user_id or role_type supplied in a mutation's request body.
+router.use((req, res, next) => {
+  const operation = req.method === 'POST' ? API_PERMISSIONS[req.path]
+    : req.method === 'GET' && /^\/deleteUsers\/[^/]+$/.test(req.path) ? [{ subs: [2] }, 'delete'] : null;
+  if (!operation) return next();
+  verifyToken(req, res, () => requirePermission(...operation)(req, res, next));
+});
 
 // Api start
 router.post('/getdashotp',routcontroller.getdashotpCtrl);

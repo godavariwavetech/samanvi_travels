@@ -388,7 +388,7 @@ function PermissionsPanel({ user, onClose }: { user: any; onClose: () => void })
                 </button>
               </>
             )}
-            <Button variant="primary" onClick={() => save()} disabled={isPending || !loaded}>
+            <Button permission="edit" variant="primary" onClick={() => save()} disabled={isPending || !loaded}>
               <Save className="w-4 h-4" />
               {isPending ? 'Saving…' : 'Save Permissions'}
             </Button>
@@ -599,7 +599,7 @@ export default function UserManagementPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
       <div className="flex justify-between items-end">
         <PageHeader title="User Management" subtitle="Manage users and their module permissions" />
-        <Button onClick={() => { setShowCreate(s => !s); setSelectedUser(null); setEditUser(null) }}>
+        <Button permission="add" onClick={() => { setShowCreate(s => !s); setSelectedUser(null); setEditUser(null) }}>
           <UserCircle className="w-4 h-4" />
           {showCreate ? 'Cancel' : 'Create User'}
         </Button>
@@ -696,7 +696,7 @@ export default function UserManagementPage() {
               </div>
               {/* Submit sits under the fields, as on every other form. */}
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
-                <Button onClick={() => createUser()} disabled={isPending || !canSubmit}>
+                <Button permission="add" onClick={() => createUser()} disabled={isPending || !canSubmit}>
                 <Save className="w-4 h-4" />{isPending ? 'Saving…' : 'Save User'}
                 </Button>
               </div>
