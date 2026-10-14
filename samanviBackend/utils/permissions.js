@@ -77,4 +77,15 @@ const API_PERMISSIONS = {
   '/changeJobSatus': [{ subs: [63, 200, 201] }, 'approve'],
 };
 
-module.exports = { allows, requirePermission, API_PERMISSIONS };
+const normalizedOperations = new Map(Object.entries(API_PERMISSIONS).map(([route, rule]) => [route.toLowerCase(), rule]));
+
+function permissionForOperation(method, pathname) {
+  // Express routes accept case variants and trailing slashes by default.
+  // Permission matching must accept exactly the same variants.
+  const route = pathname.toLowerCase().replace(/\/+$/, '');
+  if (method === 'POST') return normalizedOperations.get(route);
+  if (method === 'GET' && /^\/deleteusers\/[^/]+$/.test(route)) return [{ subs: [2] }, 'delete'];
+  return undefined;
+}
+
+module.exports = { allows, requirePermission, API_PERMISSIONS, permissionForOperation };

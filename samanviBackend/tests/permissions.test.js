@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { allows, requirePermission, API_PERMISSIONS } = require('../utils/permissions');
+const { allows, requirePermission, API_PERMISSIONS, permissionForOperation } = require('../utils/permissions');
 
 const viewer = { can_view: 1, can_add: 0, can_edit: 0, can_delete: 0 };
 
@@ -54,4 +54,12 @@ test('job admin fallback is restricted by the real database role and still needs
   assert.deepEqual(result.values, [17, 200, 63]);
   assert.match(result.sql, /u\.role_type IN \(0, 1\)/);
   assert.equal(result.allowed, false);
+});
+
+test('case variants and trailing slashes cannot bypass mutation permissions', () => {
+  for (const [endpoint, operation] of Object.entries(API_PERMISSIONS)) {
+    assert.deepEqual(permissionForOperation('POST', endpoint.toUpperCase() + '/'), operation);
+  }
+  assert.deepEqual(permissionForOperation('GET', '/DELETEUSERS/3/'), [{ subs: [2] }, 'delete']);
+  assert.equal(permissionForOperation('GET', '/getvoucherentrydata'), undefined);
 });
