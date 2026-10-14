@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Clock, Eye, Pencil, Trash2, RotateCcw } from 'lucide-react'
 import { Button } from './Button'
+import { usePermissions } from '@/lib/usePermissions'
 
 // The approval flow Voucher Approvals uses, packaged so the fuel and laundry
 // pages review their records the same way: three status tabs with counts,
@@ -55,18 +56,19 @@ export function ApprovalRowActions({ tab, onView, onEdit, onDelete, onApprove, o
   onReject: () => void
   onReopen: () => void
 }) {
+  const { canView, canEdit, canDelete, canApprove } = usePermissions()
   return (
     <div className="flex gap-1.5">
-      {onView && <button type="button" onClick={onView} title="View" className="p-1.5 text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100"><Eye className="w-4 h-4" /></button>}
-      {tab === 'pending' && onEdit && <button type="button" onClick={onEdit} title="Edit" className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>}
-      {tab === 'pending' && onDelete && <button type="button" onClick={onDelete} title="Delete" className="p-1.5 text-slate-500 bg-slate-50 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
-      {tab === 'pending' && (
+      {canView && onView && <button type="button" onClick={onView} title="View" className="p-1.5 text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100"><Eye className="w-4 h-4" /></button>}
+      {canEdit && tab === 'pending' && onEdit && <button type="button" onClick={onEdit} title="Edit" className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>}
+      {canDelete && tab === 'pending' && onDelete && <button type="button" onClick={onDelete} title="Delete" className="p-1.5 text-slate-500 bg-slate-50 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
+      {canApprove && tab === 'pending' && (
         <>
           <button type="button" onClick={onApprove} title="Approve" className="p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100"><CheckCircle className="w-4 h-4" /></button>
           <button type="button" onClick={onReject} title="Reject" className="p-1.5 text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100"><XCircle className="w-4 h-4" /></button>
         </>
       )}
-      {tab === 'rejected' && (
+      {canApprove && tab === 'rejected' && (
         <>
           <button type="button" onClick={onReopen} title="Reopen for review" className="p-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg hover:bg-amber-100"><RotateCcw className="w-4 h-4" /></button>
           <button type="button" onClick={onApprove} title="Approve directly" className="p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100"><CheckCircle className="w-4 h-4" /></button>
@@ -83,6 +85,8 @@ export function ApprovalBulkButtons({ onApprove, onReject, approving, rejecting 
   approving?: boolean
   rejecting?: boolean
 }) {
+  const { canApprove } = usePermissions()
+  if (!canApprove) return null
   return (
     <>
       <button type="button" onClick={onApprove} disabled={approving || rejecting}
@@ -105,7 +109,8 @@ export function ApprovalModalButtons({ tab, onApprove, onReject, onReopen }: {
   onReject: () => void
   onReopen: () => void
 }) {
-  if (tab === 'approved') return null
+  const { canApprove } = usePermissions()
+  if (!canApprove || tab === 'approved') return null
   return (
     <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
       {tab === 'pending' && (

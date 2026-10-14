@@ -1,3 +1,4 @@
+import { usePermissions } from '@/lib/usePermissions'
 ﻿import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Clock, Search, X, User, FileText } from 'lucide-react'
@@ -97,6 +98,7 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
 }
 
 export default function AdminApprovalsPage() {
+  const { canApprove } = usePermissions()
   const [tab, setTab] = useState('Pending')
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [fromDate, setFromDate] = useState(firstOfMonth)
@@ -199,7 +201,7 @@ export default function AdminApprovalsPage() {
       label: 'Action', key: 'id',
       render: (_, row: any) => (
         <div className="flex gap-2">
-          {row.admin_status !== 1 && (
+          {canApprove && row.admin_status !== 1 && (
             <Button
               variant="success"
               size="sm"
@@ -209,7 +211,7 @@ export default function AdminApprovalsPage() {
               <CheckCircle className="w-3.5 h-3.5" /> Approve
             </Button>
           )}
-          {row.admin_status !== 2 && (
+          {canApprove && row.admin_status !== 2 && (
             <Button
               variant="danger"
               size="sm"

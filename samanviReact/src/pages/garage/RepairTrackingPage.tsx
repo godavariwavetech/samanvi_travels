@@ -1,3 +1,5 @@
+import { usePermissions } from '@/lib/usePermissions'
+import { useAuthStore } from '@/store/auth.store'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { motion } from 'motion/react'
@@ -34,6 +36,11 @@ const emptyVoucherBlock = (): VoucherBlock => ({ description: '', category_name:
 const PRIORITY_OPTIONS = ['Low', 'Medium', 'High']
 
 export default function RepairTrackingPage() {
+  const { canEdit } = usePermissions()
+  const permissionMenu = useAuthStore(s => s.menu)
+  const jobPermissionKey = permissionMenu.flatMap(m => m.submenu ?? [])
+    .filter(s => [63, 200, 201].includes(Number(s.id)))
+    .map(s => [s.id, s.can_view, s.can_add, s.can_edit].join(':')).join('|')
   const qc = useQueryClient()
   const location = useLocation()
   const navigate  = useNavigate()
@@ -120,12 +127,13 @@ export default function RepairTrackingPage() {
 
   // Job permissions
   const { data: permData } = useQuery({
-    queryKey: ['job-permissions'],
+    queryKey: ['job-permissions', localStorage.getItem('user_id'), jobPermissionKey],
     queryFn: () => garageService.checkJobPermission({
       user_id: localStorage.getItem('user_id'),
       role_type: localStorage.getItem('role_type'),
     }),
-    staleTime: 60_000,
+    staleTime: 0,
+    refetchOnWindowFocus: 'always',
   })
   const canApprove: boolean = permData?.can_approve === 1
   const canComplete: boolean = permData?.can_complete === 1
@@ -1097,7 +1105,7 @@ export default function RepairTrackingPage() {
                         <button onClick={() => setViewModal({ open: true, job: r })} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 transition-colors">
                           View
                         </button>
-                        {isOpen && (
+                        {canEdit && isOpen && (
                           <button onClick={() => {
                             setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate('')
                             setFinishVoucherBlocks([defaultVoucherBlock()])
@@ -1124,7 +1132,7 @@ export default function RepairTrackingPage() {
                             Complete
                           </button>
                         )}
-                        {(isOpen || isFinished) && (
+                        {canApprove && (isOpen || isFinished) && (
                           <button onClick={() => setRejectModal({ open: true, job: r })} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
                             Reject
                           </button>
@@ -1545,17 +1553,17 @@ export default function RepairTrackingPage() {
                   const notDone = vs !== 'CLOSED' && vs !== 'COMPLETED' && vs !== 'REJECTED'
                   return (
                     <>
-                      {notDone && (
+                      {canEdit && notDone && (
                         <Button variant="outline" onClick={openEditFromView} disabled={loadingJobCats || loadingStageData}>
                           <Pencil className="w-4 h-4" /> Edit Job
                         </Button>
                       )}
-                      {(vs === 'OPEN' || vs === 'FINISHED') && (
+                      {canApprove && (vs === 'OPEN' || vs === 'FINISHED') && (
                         <Button variant="danger" onClick={() => { setRejectModal({ open: true, job: viewModal.job }); setRejectReason(''); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
                           <XCircle className="w-4 h-4" /> Reject
                         </Button>
                       )}
-                      {vs === 'OPEN' && (
+                      {canEdit && vs === 'OPEN' && (
                         <Button variant="outline" onClick={() => {
                           const job = viewModal.job
                           setFinishRemarks(''); setFinishRepeat(false); setFinishRepeatDate('')
@@ -2187,7 +2195,7 @@ export default function RepairTrackingPage() {
                 )}
                 <div className="ml-auto flex gap-3">
                   <Button variant="outline" onClick={() => setEditModal({ open: false, job: null })}>Cancel</Button>
-                  <Button onClick={() => saveEdit()} disabled={savingEdit || !editForm.bus_no || editJobRows.every(r => !r.category) || !editForm.edit_reason.trim()}>
+                  <Button permission="edit" onClick={() => saveEdit()} disabled={savingEdit || !editForm.bus_no || editJobRows.every(r => !r.category) || !editForm.edit_reason.trim()}>
                     <Save className="w-4 h-4" />{savingEdit ? 'Saving…' : 'Update Job'}
                   </Button>
                 </div>

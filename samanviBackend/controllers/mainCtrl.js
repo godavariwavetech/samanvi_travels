@@ -5933,15 +5933,22 @@ exports.updateJobVoucherCtrl = function (req, res) {
 exports.changeJobSatusCtrl = function (req, res) {
   var data;
   try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
-  console.log('[changeJobSatus] id:', data.id, '| state:', data.state);
-  appmdl.changeJobSatusMdl(data, function (err, results) {
-    if (err) {
-      console.log('[changeJobSatus] DB error:', err);
-      res.send({ status: 500, data: results });
-      return;
-    }
-    console.log('[changeJobSatus] affectedRows:', results && results.affectedRows);
-    res.send({ status: 200, data: results });
+  const stage = String(data.state || '').toUpperCase();
+  const subs = stage === 'APPROVED' || stage === 'REJECTED' ? [200]
+    : stage === 'CLOSED' || stage === 'COMPLETED' ? [201] : [63];
+  const rule = { subs, ...(subs[0] !== 63 ? { adminFallback: [63] } : {}) };
+  require('../utils/permissions').requirePermission(rule, 'approve')(req, res, () => {
+    data.user_id = req.auth.usid;
+    console.log('[changeJobSatus] id:', data.id, '| state:', data.state);
+    appmdl.changeJobSatusMdl(data, function (err, results) {
+      if (err) {
+        console.log('[changeJobSatus] DB error:', err);
+        res.send({ status: 500, data: results });
+        return;
+      }
+      console.log('[changeJobSatus] affectedRows:', results && results.affectedRows);
+      res.send({ status: 200, data: results });
+    });
   });
 };
 
@@ -5957,8 +5964,7 @@ exports.getJobStageDataCtrl = function (req, res) {
 };
 
 exports.checkJobPermissionCtrl = function (req, res) {
-  var data;
-  try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  const data = { user_id: req.auth.usid };
   appmdl.checkJobPermissionMdl(data, function (err, results) {
     if (err) { console.log(err); res.send({ status: 500 }); return; }
     var row = (results && results[0]) || { can_approve: 0, can_complete: 0 };
@@ -5969,9 +5975,14 @@ exports.checkJobPermissionCtrl = function (req, res) {
 exports.jobWorkflowActionCtrl = function (req, res) {
   var data;
   try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
-  appmdl.jobWorkflowActionMdl(data, function (err, results) {
-    if (err) { console.log(err); res.send({ status: 500 }); return; }
-    res.send({ status: 200, data: results });
+  const approval = data.action === 'approve' || data.action === 'reject';
+  const rule = approval ? { subs: [200], adminFallback: [63] } : { subs: [63] };
+  require('../utils/permissions').requirePermission(rule, 'approve')(req, res, () => {
+    data.user_id = req.auth.usid;
+    appmdl.jobWorkflowActionMdl(data, function (err, results) {
+      if (err) { console.log(err); res.send({ status: 500 }); return; }
+      res.send({ status: 200, data: results });
+    });
   });
 };
 

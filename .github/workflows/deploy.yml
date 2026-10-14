@@ -3,6 +3,11 @@ name: Deploy to Production
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -10,6 +15,14 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Validate production backend destination
+        env:
+          BACKEND_PATH: ${{ secrets.BACKEND_PATH }}
+        run: |
+          test "$BACKEND_PATH" = '/home/samanvitravelsor/api' || {
+            echo 'BACKEND_PATH must point to the live /api directory'
+            exit 1
+          }
       # ── 1. Get the code ────────────────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +38,12 @@ jobs:
       - name: Install frontend dependencies
         working-directory: samanviReact
         run: npm ci
+
+      - name: Check permission enforcement and production process selection
+        working-directory: samanviReact
+        run: |
+          npm run test:permissions
+          node --test ../samanviBackend/tests/permissions.test.js ../.github/tests/deploy-production.test.cjs
 
       - name: Build frontend
         working-directory: samanviReact
@@ -97,7 +116,38 @@ jobs:
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
             set -e
             export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
-            pm2 restart "${{ secrets.PM2_APP_NAME }}"
+            # Two processes previously shared the name app: /api and /test_api.
+            # Select the production script by path so a deploy cannot restart
+            # the test process and make it occupy the production port again.
+            production_ids=$(PRODUCTION_SCRIPT="${{ secrets.BACKEND_PATH }}/app.js" node -e "
+              const path = require(\"path\");
+              const cp = require(\"child_process\");
+              const expected = path.resolve(process.env.PRODUCTION_SCRIPT);
+              const apps = JSON.parse(cp.execFileSync(\"pm2\", [\"jlist\"], {encoding: \"utf8\"}));
+              const ids = apps.filter(a => path.resolve(a.pm2_env.pm_exec_path || \".\") === expected).map(a => a.pm_id);
+              if (!ids.length) { console.error(\"Production /api/app.js is not registered in PM2\"); process.exit(1); }
+              process.stdout.write(ids.join(\" \"));
+            ")
+            for production_id in $production_ids; do
+              PORT=8945 FRONTEND_DIR="" pm2 restart "$production_id" --update-env
+            done
+            sleep 5
+            PRODUCTION_SCRIPT="${{ secrets.BACKEND_PATH }}/app.js" node -e "
+              const path = require(\"path\");
+              const cp = require(\"child_process\");
+              const expected = path.resolve(process.env.PRODUCTION_SCRIPT);
+              const apps = JSON.parse(cp.execFileSync(\"pm2\", [\"jlist\"], {encoding: \"utf8\"}));
+              const production = apps.filter(a => path.resolve(a.pm2_env.pm_exec_path || \".\") === expected);
+              if (!production.length || production.some(a => a.pm2_env.status !== \"online\")) {
+                console.error(\"Production backend did not start successfully\"); process.exit(1);
+              }
+              const db = require(path.join(path.dirname(expected), \"config/dbconnect.js\"));
+              db.query(\"SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?\", [\"fuel_entry\", \"value_date\"], (error, rows) => {
+                if (error || !rows[0].count) { console.error(\"Fuel value_date migration is missing\"); process.exitCode = 1; }
+                else console.log(\"Production backend online; fuel value_date column verified\");
+                db.end();
+              });
+            "
             pm2 save
           '
 

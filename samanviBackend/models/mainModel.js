@@ -837,7 +837,7 @@ exports.getUserDataMdl = function (user_id, callback) {
   var cntxtDtls = "in getUserDataMdl";
   var m = [user_id, user_id];
   var QRY_TO_EXEC = `SELECT mm.* from main_modules as mm join permissions as ps on mm.id=ps.module_id  where ps.user_id =? and ps.d_in <> 1 and mm.d_in=0 group by  ps.module_id    ;
-	SELECT mm.* from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in <> 1 and mm.d_in=0 order by module_order  ;
+	SELECT mm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in=0 and mm.d_in=0 order by module_order  ;
 	`;
 
   if (callback && typeof callback == "function")
@@ -14243,19 +14243,18 @@ exports.getRepeatJobsMdl = function (data, callback) {
 
 exports.checkJobPermissionMdl = function (data, callback) {
   var userId   = data.user_id   || 0;
-  var roleType = data.role_type != null ? String(data.role_type) : '2';
-  if (roleType === '0' || roleType === '1') {
-    return callback(null, [{ can_approve: 1, can_complete: 1 }]);
-  }
   var QRY_TO_EXEC = `
     SELECT
-      MAX(CASE WHEN sm.id = 200 AND p.can_add = 1 THEN 1 ELSE 0 END) AS can_approve,
-      MAX(CASE WHEN sm.id = 201 AND p.can_add = 1 THEN 1 ELSE 0 END) AS can_complete
+      MAX(CASE WHEN (sm.id = 200 OR (u.role_type IN (0, 1) AND sm.id = 63))
+        AND p.can_view = 1 AND (p.can_add = 1 OR p.can_edit = 1) THEN 1 ELSE 0 END) AS can_approve,
+      MAX(CASE WHEN (sm.id = 201 OR (u.role_type IN (0, 1) AND sm.id = 63))
+        AND p.can_view = 1 AND (p.can_add = 1 OR p.can_edit = 1) THEN 1 ELSE 0 END) AS can_complete
     FROM permissions p
+    JOIN users u ON u.id = p.user_id AND u.d_in = 0
     JOIN sub_modules sm ON sm.id = p.sub_module_id
-    WHERE p.user_id = '${userId}' AND sm.module_id = 19 AND p.d_in = 0
+    WHERE p.user_id = ? AND sm.module_id = 19 AND sm.d_in = 0 AND p.d_in = 0
   `;
-  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], 'checkJobPermissionMdl', function(err, results) {
+  dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [userId], 'checkJobPermissionMdl', function(err, results) {
     callback(err, results);
   });
 };

@@ -38,13 +38,14 @@ api.interceptors.response.use(
   (res) => {
     // Backend sends HTTP 200 with {status: 401|403} in body — treat as auth failure
     const s = res.data?.status
-    if (s === 401 || s === 403) {
+    if (s === 401 || (s === 403 && res.data?.msg === 'Token expired')) {
       redirectToLogin()
     }
     return res
   },
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    if (error.response?.status === 401 ||
+      (error.response?.status === 403 && error.response?.data?.msg === 'Token expired')) {
       redirectToLogin()
     }
     return Promise.reject(error)

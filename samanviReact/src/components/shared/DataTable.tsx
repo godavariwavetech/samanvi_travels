@@ -8,6 +8,7 @@ import { Input } from './Input'
 import { ColumnFilterDropdown } from './ColumnFilterDropdown'
 import { ExportMenu } from './ExportMenu'
 import { cn } from '@/lib/utils'
+import { usePermissions } from '@/lib/usePermissions'
 import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 
 export interface Column<T = Record<string, unknown>> {
@@ -137,7 +138,7 @@ export function DataTable<T extends Record<string, unknown>>({
   data,
   onAction,
   loading = false,
-  actions = ['view', 'edit', 'delete'],
+  actions: requestedActions = ['view', 'edit', 'delete'],
   icon,
   selectable = false,
   sumKey,
@@ -158,6 +159,9 @@ export function DataTable<T extends Record<string, unknown>>({
   exportTitle,
   onExport,
 }: DataTableProps<T>) {
+  const permissions = usePermissions()
+  const actions = requestedActions.filter(action => action === 'edit' ? permissions.canEdit
+    : action === 'delete' ? permissions.canDelete : permissions.canView)
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
   // Selection is held by row key, not position: rows that leave the list

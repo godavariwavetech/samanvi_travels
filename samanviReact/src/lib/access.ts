@@ -13,6 +13,7 @@ import type { MenuItem } from '@/store/auth.store'
 export interface AccessRule {
   subs?: number[]
   module?: number
+  actionSubs?: Partial<Record<'add' | 'edit' | 'delete' | 'approve', number[]>>
 }
 
 // main_modules ids
@@ -66,7 +67,7 @@ export const PATH_ACCESS: Record<string, AccessRule> = {
 
   '/garage/repair-entry': { subs: [62] },
   // Job Approval (200) and Job Completion (201) are steps on the tracking screen.
-  '/garage/tracking': { subs: [63, 200, 201] },
+  '/garage/tracking': { subs: [63, 200, 201], actionSubs: { edit: [63], delete: [63], approve: [200, 201] } },
   '/garage/repeat-jobs': { subs: [62, 63] },
   '/garage/scheduled-jobs': { subs: [62, 63] },
   '/garage/reports': { subs: [64] },
@@ -109,9 +110,10 @@ export function buildAccess(menu: MenuItem[] | undefined): Access {
   const subs = new Set<number>()
   const modules = new Set<number>()
   for (const m of menu ?? []) {
-    modules.add(Number(m.id))
     for (const s of m.submenu ?? []) {
+      if (Number(s.can_view) !== 1) continue
       subs.add(Number(s.id))
+      modules.add(Number(m.id))
       modules.add(Number(s.module_id))
     }
   }
@@ -121,7 +123,7 @@ export function buildAccess(menu: MenuItem[] | undefined): Access {
 // The most specific rule for a path: an exact entry, else the longest entry the
 // path starts with ('/garage/tyre-' covers every tyre screen, '/mainmasters'
 // every master list without an entry of its own).
-function ruleFor(pathname: string): AccessRule | undefined {
+export function ruleFor(pathname: string): AccessRule | undefined {
   const path = pathname.replace(/\/+$/, '') || '/'
   if (PATH_ACCESS[path]) return PATH_ACCESS[path]
   let best: string | undefined
@@ -138,4 +140,29 @@ export function canAccess(pathname: string, access: Access): boolean {
   if (rule.subs) return rule.subs.some((id) => access.subs.has(id))
   if (rule.module != null) return access.modules.has(rule.module)
   return true
+}
+
+export interface ActionPermissions {
+  canView: boolean
+  canAdd: boolean
+  canEdit: boolean
+  canDelete: boolean
+  canApprove: boolean
+}
+
+export function permissionsFor(pathname: string, menu: MenuItem[] | undefined): ActionPermissions {
+  const rule = ruleFor(pathname)
+  const grants = (menu ?? []).flatMap(m => m.submenu ?? []).filter(s =>
+    rule?.subs ? rule.subs.includes(Number(s.id)) : rule?.module === Number(s.module_id),
+  )
+  const has = (key: 'can_view' | 'can_add' | 'can_edit' | 'can_delete') =>
+    grants.some(s => Number(s[key]) === 1 && Number(s.can_view) === 1 &&
+      (key === 'can_view' || !rule?.actionSubs?.[key.slice(4) as 'add' | 'edit' | 'delete'] ||
+        rule.actionSubs[key.slice(4) as 'add' | 'edit' | 'delete']!.includes(Number(s.id))))
+  const canView = rule ? has('can_view') : true
+  const canAdd = canView && has('can_add')
+  const canEdit = canView && has('can_edit')
+  const canApprove = canView && grants.some(s => Number(s.can_view) === 1 && (Number(s.can_add) === 1 || Number(s.can_edit) === 1) &&
+    (!rule?.actionSubs?.approve || rule.actionSubs.approve.includes(Number(s.id))))
+  return { canView, canAdd, canEdit, canDelete: canView && has('can_delete'), canApprove }
 }
