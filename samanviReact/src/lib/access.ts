@@ -124,7 +124,7 @@ export function buildAccess(menu: MenuItem[] | undefined): Access {
 // path starts with ('/garage/tyre-' covers every tyre screen, '/mainmasters'
 // every master list without an entry of its own).
 export function ruleFor(pathname: string): AccessRule | undefined {
-  const path = pathname.replace(/\/+$/, '') || '/'
+  const path = pathname.toLowerCase().replace(/\/+$/, '') || '/'
   if (PATH_ACCESS[path]) return PATH_ACCESS[path]
   let best: string | undefined
   for (const key of Object.keys(PATH_ACCESS)) {

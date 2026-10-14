@@ -48,6 +48,7 @@ for (const [path, id, moduleId] of [
 
 const noView = menu(61, 14, { ...viewer, can_view: 0, can_edit: 1 })
 assert.equal(canAccess('/accounting/voucher-approvals', buildAccess(noView)), false)
+assert.equal(canAccess('/ACCOUNTING/VOUCHER-APPROVALS/', buildAccess(noView)), false)
 assert.equal(permissionsFor('/accounting/voucher-approvals', noView).canEdit, false)
 assert.equal(canAccess('/accounting/voucher', buildAccess(menu(61, 14))), false)
 assert.equal(permissionsFor('/accounting/voucher-approvals', menu(36, 14, { ...viewer, can_add: 1 })).canApprove, false)
