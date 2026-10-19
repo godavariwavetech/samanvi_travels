@@ -8794,7 +8794,7 @@ exports.getsearchdataMdl = function (data, callback) {
   if (data.valuefrom && data.valueto) {
     const vf = String(data.valuefrom).replace(/[^0-9-]/g, '');
     const vt = String(data.valueto).replace(/[^0-9-]/g, '');
-    const fuelIds = (cond) => ` AND fe.lastinsert_id IN (SELECT CAST(id AS CHAR) FROM fuel_entry WHERE value_date ${cond}) `;
+    const fuelIds = (cond) => ` AND EXISTS (SELECT 1 FROM fuel_entry fv WHERE fv.id = fe.lastinsert_id AND fv.value_date ${cond}) `;
     openingExp = transExp = openingLaundry = transLaundry = ' AND 1=0 ';
     openingVoucher = ` AND DATE(mv.valueDate) < '${vf}' `;
     transVoucher = ` AND DATE(mv.valueDate) BETWEEN '${vf}' AND '${vt}' `;
@@ -8911,7 +8911,7 @@ exports.getsearchdataMdl = function (data, callback) {
     -- litre, so the report can show the quantity and rate the amount came from.
     SELECT fe.*, 'fuelentry_subt' AS source_table,
       GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers,
-      MAX(fx.quantity_filled) AS quantity, MAX(fx.price_per_liter) AS rate, 'L' AS quantity_unit
+      MAX(fx.value_date) AS valueDate, MAX(fx.quantity_filled) AS quantity, MAX(fx.price_per_liter) AS rate, 'L' AS quantity_unit
     FROM fuelentry_subt fe
     LEFT JOIN fuelentry_subt fe2
       ON fe.c_number = fe2.c_number AND fe2.d_in='0' AND fe2.ledger_id != fe.ledger_id
