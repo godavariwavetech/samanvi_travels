@@ -8789,6 +8789,19 @@ exports.getsearchdataMdl = function (data, callback) {
     transLaundry = ` AND DATE(lb.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' `;
   }
 
+  // Value-date mode: only lines that carry a value date (vouchers, fuel fills)
+  // are matched, on that date; trip and laundry rows have none and drop out.
+  if (data.valuefrom && data.valueto) {
+    const vf = String(data.valuefrom).replace(/[^0-9-]/g, '');
+    const vt = String(data.valueto).replace(/[^0-9-]/g, '');
+    const fuelIds = (cond) => ` AND fe.lastinsert_id IN (SELECT CAST(id AS CHAR) FROM fuel_entry WHERE value_date ${cond}) `;
+    openingExp = transExp = openingLaundry = transLaundry = ' AND 1=0 ';
+    openingVoucher = ` AND DATE(mv.valueDate) < '${vf}' `;
+    transVoucher = ` AND DATE(mv.valueDate) BETWEEN '${vf}' AND '${vt}' `;
+    openingFuel = fuelIds(`< '${vf}'`);
+    transFuel = fuelIds(`BETWEEN '${vf}' AND '${vt}'`);
+  }
+
   // -------------------------------
   // LEDGER CONDITIONS
   // -------------------------------

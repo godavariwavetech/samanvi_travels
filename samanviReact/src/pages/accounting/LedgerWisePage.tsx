@@ -613,6 +613,8 @@ export default function LedgerWisePage() {
   const [filter, setFilter] = useState({
     ledger_id: inboundLedgerId ? String(inboundLedgerId) : '',
     ...defaultReportRange(selectedFY, today),
+    valuefrom: '',
+    valueto: '',
   })
   const [applied, setApplied] = useState<typeof filter | null>(null)
 
@@ -643,6 +645,8 @@ export default function LedgerWisePage() {
       todate: applied!.todate,
       ledger_id: applied!.ledger_id || null,
       ledger_name: '',
+      valuefrom: applied!.valuefrom || null,
+      valueto: applied!.valueto || null,
       user_id: localStorage.getItem('user_id'),
     }),
     enabled: !!applied,
@@ -666,7 +670,7 @@ export default function LedgerWisePage() {
   useEffect(() => {
     if (!inboundLedgerId || ledgerList.length === 0 || autoApplied.current) return
     autoApplied.current = true
-    setApplied({ ledger_id: String(inboundLedgerId), fromdate: filter.fromdate, todate: filter.todate })
+    setApplied({ ...filter, ledger_id: String(inboundLedgerId) })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ledgerList.length])
 
@@ -742,7 +746,7 @@ export default function LedgerWisePage() {
 
   const handleSearch = () => setApplied({ ...filter })
   const handleClear = () => {
-    setFilter({ ledger_id: '', ...defaultReportRange(selectedFY, today) })
+    setFilter({ ledger_id: '', ...defaultReportRange(selectedFY, today), valuefrom: '', valueto: '' })
     setApplied(null)
   }
 
@@ -1099,6 +1103,20 @@ export default function LedgerWisePage() {
             <DateRangePicker
               from={filter.fromdate} to={filter.todate} min={fyMin} max={fyMax}
               onChange={r => setFilter(f => ({ ...f, ...r }))}
+            />
+          </div>
+          <div>
+            <Label>
+              Value Date{' '}
+              <span className="text-slate-400 font-normal text-xs">(Optional)</span>
+              {filter.valuefrom && (
+                <button type="button" className="ml-2 text-xs text-blue-600 hover:underline"
+                  onClick={() => setFilter(f => ({ ...f, valuefrom: '', valueto: '' }))}>Clear</button>
+              )}
+            </Label>
+            <DateRangePicker
+              from={filter.valuefrom} to={filter.valueto}
+              onChange={r => setFilter(f => ({ ...f, valuefrom: r.fromdate, valueto: r.todate }))}
             />
           </div>
           <Button onClick={handleSearch} disabled={isLoading}>
