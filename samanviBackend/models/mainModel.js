@@ -8816,8 +8816,7 @@ exports.getsearchdataMdl = function (data, callback) {
           ${openingExp} ${ledgerExp}), 0)
         +
         COALESCE((SELECT SUM(mv.amount) FROM mainvoucher_subt mv
-          -- Ledger reports include pending, approved, and rejected vouchers.
-          WHERE mv.d_in='0'
+          WHERE mv.d_in='0' AND ${voucherHeaderApproved('mv')}
           AND mv.account_type='Credit Account'
           ${openingVoucher} ${ledgerVoucher}), 0)
         +
@@ -8839,7 +8838,7 @@ exports.getsearchdataMdl = function (data, callback) {
           ${openingExp} ${ledgerExp}), 0)
         +
         COALESCE((SELECT SUM(mv.amount) FROM mainvoucher_subt mv
-          WHERE mv.d_in='0'
+          WHERE mv.d_in='0' AND ${voucherHeaderApproved('mv')}
           AND mv.account_type='Debit Account'
           ${openingVoucher} ${ledgerVoucher}), 0)
         +
@@ -8889,8 +8888,8 @@ exports.getsearchdataMdl = function (data, callback) {
       ON mv.c_number = mv2.c_number AND mv2.d_in='0' AND mv2.ledger_id != mv.ledger_id
     LEFT JOIN mainmasterssubchildtwo mm ON mv2.ledger_id = mm.id
     LEFT JOIN trip_created tc ON tc.voucher_number = mv.c_number AND tc.d_in = 0
-    -- Keep voucher visibility here independent of its approval status.
-    WHERE mv.d_in='0'
+    -- Only approved vouchers reach the ledger report.
+    WHERE mv.d_in='0' AND ${voucherHeaderApproved('mv')}
     ${transVoucher} ${ledgerVoucher}
     GROUP BY mv.id;
 
