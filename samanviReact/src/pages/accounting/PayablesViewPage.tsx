@@ -805,12 +805,12 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
               <tbody>
                 <tr>
                   <td className="px-3 py-2">{vehicle}</td>
-                  <td className="px-3 py-2">{num(debitRow.blanket_qty)} (₹{num(debitRow.blanket_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.pillow_qty)} (₹{num(debitRow.pillow_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.white_qty)} (₹{num(debitRow.white_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.cover_qty)} (₹{num(debitRow.cover_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.curtain_qty)} (₹{num(debitRow.curtain_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2 font-bold">₹{totalAmount.toFixed(0)}</td>
+                  <td className="px-3 py-2">{num(debitRow.blanket_qty)} (₹{num(debitRow.blanket_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.pillow_qty)} (₹{num(debitRow.pillow_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.white_qty)} (₹{num(debitRow.white_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.cover_qty)} (₹{num(debitRow.cover_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.curtain_qty)} (₹{num(debitRow.curtain_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2 font-bold">₹{totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                 </tr>
               </tbody>
             </table>

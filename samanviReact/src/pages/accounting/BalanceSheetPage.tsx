@@ -4,12 +4,12 @@ import { ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Plus, Pencil
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu, DateRangePicker } from '@/components/shared'
 import { exportRows, type ExportCell, type ExportFormat } from '@/lib/tableExport'
 import { formatDate, todayISO } from '@/lib/utils'
 import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
-import { getCurrentFY } from '@/lib/fy'
+import { getCurrentFY, defaultReportRange } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
 
 const hasGroupChildren = (n: HierarchyNode) => n.children?.some(c => c.nodeType === 'group') ?? false
@@ -330,15 +330,16 @@ export default function BalanceSheetPage() {
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
 
-  const [fromdate, setFromDate] = useState(localStorage.getItem('bs_fromdate') || fyMin)
-  const [todate, setToDate] = useState(localStorage.getItem('bs_todate') || fyMax)
+  const [{ fromdate, todate }, setRange] = useState(() => defaultReportRange(selectedFY, today))
   const [appliedDates, setAppliedDates] = useState({ fromdate, todate })
 
   // Selecting a financial year snaps the range to that year's full span and
   // re-fetches immediately — otherwise the FY tabs look like they do nothing.
+  // (Not on first render: the page opens on today, not on the whole year.)
+  const fyMounted = useRef(false)
   useEffect(() => {
-    setFromDate(fyMin)
-    setToDate(fyMax)
+    if (!fyMounted.current) { fyMounted.current = true; return }
+    setRange({ fromdate: fyMin, todate: fyMax })
     setAppliedDates({ fromdate: fyMin, todate: fyMax })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fyMin, fyMax])
@@ -771,12 +772,8 @@ export default function BalanceSheetPage() {
         <div className="flex flex-wrap items-end gap-4 justify-between">
           <div className="flex flex-wrap items-end gap-4">
             <div>
-              <Label>From Date</Label>
-              <Input type="date" min={fyMin} max={fyMax} value={fromdate} onChange={e => setFromDate(e.target.value)} className="w-40" />
-            </div>
-            <div>
-              <Label>To Date</Label>
-              <Input type="date" min={fyMin} max={fyMax} value={todate} onChange={e => setToDate(e.target.value)} className="w-40" />
+              <Label>Date</Label>
+              <DateRangePicker from={fromdate} to={todate} min={fyMin} max={fyMax} onChange={setRange} />
             </div>
             <Button onClick={() => setAppliedDates({ fromdate, todate })} className="bg-blue-600 hover:bg-blue-700">
               <RefreshCw className="w-4 h-4" /> Load

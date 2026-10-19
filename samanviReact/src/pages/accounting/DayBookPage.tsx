@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag } from '@/components/shared'
+import { GlassCard, Button, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, DateRangePicker } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
 import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
@@ -331,12 +331,8 @@ export default function DayBookPage() {
         <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap">
           <div>
-            <Label>From Date</Label>
-            <Input type="date" min={fyMin} max={fyMax} value={range.fromdate} onChange={e => setRange(r => ({ ...r, fromdate: e.target.value }))} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
-          </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" min={fyMin} max={fyMax} value={range.todate} onChange={e => setRange(r => ({ ...r, todate: e.target.value }))} onClick={(e) => (e.target as HTMLInputElement).showPicker?.()} />
+            <Label>Date</Label>
+            <DateRangePicker from={range.fromdate} to={range.todate} min={fyMin} max={fyMax} onChange={setRange} />
           </div>
           <div className="min-w-[260px]">
             <Label>Search</Label>

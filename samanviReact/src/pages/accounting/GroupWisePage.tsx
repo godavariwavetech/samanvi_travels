@@ -7,11 +7,11 @@ import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, DateRangePicker } from '@/components/shared'
 import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
 import { useFYStore } from '@/store/fy.store'
-import { getCurrentFY } from '@/lib/fy'
+import { getCurrentFY, defaultReportRange } from '@/lib/fy'
 import { todayISO } from '@/lib/utils'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -141,15 +141,15 @@ export default function GroupWisePage() {
     district_id: localStorage.getItem('district_id') ?? '1',
   }
 
-  const [filter, setFilter] = useState({
-    fromdate: selectedFY.fromDate,
-    todate: selectedFY.toDate,
-  })
+  const [filter, setFilter] = useState(() => defaultReportRange(selectedFY, today))
   const [applied, setApplied] = useState(filter)
 
   // Selecting a financial year snaps the range to that year's full span and
   // re-fetches immediately — otherwise the FY tabs look like they do nothing.
+  // (Not on first render: the page opens on today, not on the whole year.)
+  const fyMounted = useRef(false)
   useEffect(() => {
+    if (!fyMounted.current) { fyMounted.current = true; return }
     const next = { fromdate: fyMin, todate: fyMax }
     setFilter(next)
     setApplied(next)
@@ -822,14 +822,9 @@ export default function GroupWisePage() {
         <div className="flex items-end gap-4 flex-wrap justify-between">
           <div className="flex items-end gap-4 flex-wrap">
             <div>
-              <Label>From Date</Label>
-              <Input type="date" min={fyMin} max={fyMax} value={filter.fromdate}
-                onChange={e => setFilter(f => ({ ...f, fromdate: e.target.value }))} />
-            </div>
-            <div>
-              <Label>To Date</Label>
-              <Input type="date" min={fyMin} max={fyMax} value={filter.todate}
-                onChange={e => setFilter(f => ({ ...f, todate: e.target.value }))} />
+              <Label>Date</Label>
+              <DateRangePicker from={filter.fromdate} to={filter.todate} min={fyMin} max={fyMax}
+                onChange={r => setFilter(f => ({ ...f, ...r }))} />
             </div>
             <Button onClick={handleLoad}>
               <BarChart3 className="w-4 h-4" /> Load

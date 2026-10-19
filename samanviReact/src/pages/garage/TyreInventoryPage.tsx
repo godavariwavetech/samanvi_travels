@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO } from '@/lib/utils'
+import { ledgerOption, todayISO, formatAmount } from '@/lib/utils'
 
 const STATUSES = ['In Stock', 'In Use', 'Retreaded', 'Scrapped', 'Sold', 'Pending Retread']
 
@@ -286,7 +286,7 @@ export default function TyreInventoryPage() {
     { label: 'Current Vehicle', key: 'current_vehicle_number', filterable: true, render: (v) => v ? <span className="font-medium">{String(v)}</span> : <span className="text-slate-300">—</span> },
     { label: 'Position', key: 'current_position', filterable: true, render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span> },
     { label: 'Purchased', key: 'purchase_date', filterable: true, render: (v) => <span className="text-sm">{fmtDate(v)}</span> },
-    { label: 'Cost', key: 'cost', align: 'right', filterable: true, render: (v) => <span className="font-medium">₹{v}</span> },
+    { label: 'Cost', key: 'cost', align: 'right', filterable: true, render: (v) => <span className="font-medium">₹{formatAmount(v)}</span> },
     { label: 'Voucher', key: 'voucher_number', filterable: true, render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span> },
     { label: 'Ledgers', key: 'ledger_summary', filterable: true, render: (v) => {
       if (!v) return <span className="text-slate-300">—</span>

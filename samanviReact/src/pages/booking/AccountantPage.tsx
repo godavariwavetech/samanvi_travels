@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatAmount } from '@/lib/utils'
 
 export default function AccountantPage() {
   const qc = useQueryClient()
@@ -173,7 +173,7 @@ export default function AccountantPage() {
                   </td>
                   <td className="p-4 text-slate-500 text-sm">{i + 1}</td>
                   <td className="p-4 font-medium">{row.name ?? row.accontant_id}</td>
-                  <td className="p-4 font-bold text-emerald-600">₹{row.amount}</td>
+                  <td className="p-4 font-bold text-emerald-600">₹{formatAmount(row.amount)}</td>
                   <td className="p-4 text-xs text-slate-500">{row.ramrks}</td>
                   <td className="p-4 text-xs">{row.assigned_name}</td>
                   <td className="p-4">
