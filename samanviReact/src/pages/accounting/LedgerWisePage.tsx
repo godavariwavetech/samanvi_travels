@@ -5,12 +5,12 @@ import { BookMarked, Search, X, ExternalLink, CreditCard, BookOpen, History, Che
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { useQuery } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { GlassCard, Button, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
 import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
 import { useFYStore } from '@/store/fy.store'
-import { getCurrentFY } from '@/lib/fy'
+import { getCurrentFY, defaultReportRange } from '@/lib/fy'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -43,7 +43,7 @@ function fmtAmt(n: number): string {
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function fmtN(n: number): string { return n.toFixed(2) }
+function fmtN(n: number): string { return fmtAmt(n) }
 
 // Opening/closing balance specifically use the conventional debit=red,
 // credit=green scheme — distinct from balCls' neutral per-transaction
@@ -429,12 +429,12 @@ function LaundryModal({ data, refNo, onClose }: { data: any; refNo: string; onCl
               <tbody>
                 <tr>
                   <td className="px-3 py-2">{vehicle}</td>
-                  <td className="px-3 py-2">{num(debitRow.blanket_qty)} (₹{num(debitRow.blanket_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.pillow_qty)} (₹{num(debitRow.pillow_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.white_qty)} (₹{num(debitRow.white_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.cover_qty)} (₹{num(debitRow.cover_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2">{num(debitRow.curtain_qty)} (₹{num(debitRow.curtain_amount).toFixed(0)})</td>
-                  <td className="px-3 py-2 font-bold">₹{totalAmount.toFixed(0)}</td>
+                  <td className="px-3 py-2">{num(debitRow.blanket_qty)} (₹{num(debitRow.blanket_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.pillow_qty)} (₹{num(debitRow.pillow_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.white_qty)} (₹{num(debitRow.white_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.cover_qty)} (₹{num(debitRow.cover_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2">{num(debitRow.curtain_qty)} (₹{num(debitRow.curtain_amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })})</td>
+                  <td className="px-3 py-2 font-bold">₹{totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                 </tr>
               </tbody>
             </table>
@@ -612,15 +612,17 @@ export default function LedgerWisePage() {
 
   const [filter, setFilter] = useState({
     ledger_id: inboundLedgerId ? String(inboundLedgerId) : '',
-    fromdate: selectedFY.fromDate,
-    todate: selectedFY.toDate,
+    ...defaultReportRange(selectedFY, today),
   })
   const [applied, setApplied] = useState<typeof filter | null>(null)
 
   // Selecting a financial year snaps the range to that year's full span and,
   // if a search is already showing, re-runs it immediately — otherwise the FY
   // tabs look like they do nothing once a ledger's been searched.
+  // (Not on first render: the page opens on today, not on the whole year.)
+  const fyMounted = useRef(false)
   useEffect(() => {
+    if (!fyMounted.current) { fyMounted.current = true; return }
     setFilter(f => ({ ...f, fromdate: fyMin, todate: fyMax }))
     setApplied(a => a ? { ...a, fromdate: fyMin, todate: fyMax } : a)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -740,7 +742,7 @@ export default function LedgerWisePage() {
 
   const handleSearch = () => setApplied({ ...filter })
   const handleClear = () => {
-    setFilter({ ledger_id: '', fromdate: selectedFY.fromDate, todate: selectedFY.toDate })
+    setFilter({ ledger_id: '', ...defaultReportRange(selectedFY, today) })
     setApplied(null)
   }
 
@@ -1093,19 +1095,10 @@ export default function LedgerWisePage() {
             />
           </div>
           <div>
-            <Label>From Date</Label>
-            <Input
-              type="date" min={fyMin} max={fyMax}
-              value={filter.fromdate}
-              onChange={e => setFilter(f => ({ ...f, fromdate: e.target.value }))}
-            />
-          </div>
-          <div>
-            <Label>To Date</Label>
-            <Input
-              type="date" min={fyMin} max={fyMax}
-              value={filter.todate}
-              onChange={e => setFilter(f => ({ ...f, todate: e.target.value }))}
+            <Label>Date</Label>
+            <DateRangePicker
+              from={filter.fromdate} to={filter.todate} min={fyMin} max={fyMax}
+              onChange={r => setFilter(f => ({ ...f, ...r }))}
             />
           </div>
           <Button onClick={handleSearch} disabled={isLoading}>

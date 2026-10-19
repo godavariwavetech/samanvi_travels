@@ -7,7 +7,7 @@ import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, Searchab
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
-import { isVanVehicleType, formatDate, ledgerOption, todayISO } from '@/lib/utils'
+import { isVanVehicleType, formatDate, ledgerOption, todayISO, formatAmount } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 
@@ -2289,7 +2289,7 @@ export default function TripExpensesPage() {
                         {viewModal.debit.length === 0 && <div className="p-3 text-sm text-slate-400">No entries</div>}
                         {viewModal.debit.map((item, i) => (
                           <div key={i} className="flex justify-between px-4 py-2 text-sm">
-                            <span>{item.expensives}<LedgerGroupTag group={ledgerGroupOf({ id: (item as any).ledger_id, name: item.expensives })} /></span><span className="font-semibold">₹{item.amount}</span>
+                            <span>{item.expensives}<LedgerGroupTag group={ledgerGroupOf({ id: (item as any).ledger_id, name: item.expensives })} /></span><span className="font-semibold">₹{formatAmount(item.amount)}</span>
                           </div>
                         ))}
                       </div>
@@ -2300,7 +2300,7 @@ export default function TripExpensesPage() {
                         {viewModal.credit.length === 0 && <div className="p-3 text-sm text-slate-400">No entries</div>}
                         {viewModal.credit.map((item, i) => (
                           <div key={i} className="flex justify-between px-4 py-2 text-sm">
-                            <span>{item.expensives}<LedgerGroupTag group={ledgerGroupOf({ id: (item as any).ledger_id, name: item.expensives })} /></span><span className="font-semibold">₹{item.amount}</span>
+                            <span>{item.expensives}<LedgerGroupTag group={ledgerGroupOf({ id: (item as any).ledger_id, name: item.expensives })} /></span><span className="font-semibold">₹{formatAmount(item.amount)}</span>
                           </div>
                         ))}
                       </div>

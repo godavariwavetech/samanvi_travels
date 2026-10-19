@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Select, Label, Badge, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency, formatDate } from '@/lib/utils'
+import { formatCurrency, formatDate, formatAmount } from '@/lib/utils'
 
 export default function CollectionAgentPage() {
   const qc = useQueryClient()
@@ -162,9 +162,9 @@ export default function CollectionAgentPage() {
                   <td className="p-4 font-bold text-blue-600">{row.pnr_no}</td>
                   <td className="p-4 text-sm"><div className="font-medium">{row.servicenumber}</div><div className="text-xs text-slate-400">{row.seatnumber}</div></td>
                   <td className="p-4 font-medium">{row.name}</td>
-                  <td className="p-4 text-sm">₹{row.fare}</td>
-                  <td className="p-4 text-sm text-red-500">₹{row.agentcommission}</td>
-                  <td className="p-4 font-bold text-emerald-600">₹{row.finalamount}</td>
+                  <td className="p-4 text-sm">₹{formatAmount(row.fare)}</td>
+                  <td className="p-4 text-sm text-red-500">₹{formatAmount(row.agentcommission)}</td>
+                  <td className="p-4 font-bold text-emerald-600">₹{formatAmount(row.finalamount)}</td>
                   <td className="p-4 text-xs">{row.bookedby}</td>
                   <td className="p-4"><Badge variant={row.agentstatus == 1 ? 'success' : 'warning'}>{row.agentstatus == 1 ? 'Assigned' : 'Pending'}</Badge></td>
                 </tr>

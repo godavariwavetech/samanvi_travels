@@ -6,13 +6,13 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatDate, todayISO } from '@/lib/utils'
+import { formatDate, todayISO, formatAmount } from '@/lib/utils'
 
 const tabs = ['Additional Income', 'Additional Expenses']
 
 const incomeCols: Column[] = [
   { label: 'Source', key: 'source_name', render: (v) => <span className="font-bold">{String(v)}</span> },
-  { label: 'Amount', key: 'amount', render: (v) => <span className="font-bold text-green-600">₹{v}</span> },
+  { label: 'Amount', key: 'amount', render: (v) => <span className="font-bold text-green-600">₹{formatAmount(v)}</span> },
   { label: 'Date', key: 'date', render: (v) => formatDate(v) },
   { label: 'Added By', key: 'usr_nm' },
   { label: 'Remarks', key: 'remarks' },

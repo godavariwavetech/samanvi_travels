@@ -6,7 +6,7 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader }
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO, formatAmount } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
@@ -14,7 +14,7 @@ const cols: Column[] = [
   { label: 'Expense Type', key: 'expense_type', render: (v) => <Badge variant="info">{String(v)}</Badge> },
   { label: 'Bus', key: 'bus_no' },
   { label: 'Route', key: 'service_no' },
-  { label: 'Amount', key: 'amount', render: (v) => <span className="font-bold text-red-600">₹{v}</span> },
+  { label: 'Amount', key: 'amount', render: (v) => <span className="font-bold text-red-600">₹{formatAmount(v)}</span> },
   { label: 'Remarks', key: 'remarks' },
   { label: 'By', key: 'usr_nm' },
 ]

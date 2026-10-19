@@ -6,15 +6,16 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
+import { formatAmount } from '@/lib/utils'
 
 const tabs = ['Salary Payment', 'Salary Statement']
 
 const salaryColumns: Column[] = [
   { label: 'Employee', key: 'name', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">{r.designation}</div></div> },
-  { label: 'Basic (₹)', key: 'basic', render: (v) => <span className="font-medium">₹{v}</span> },
-  { label: 'Incentive (₹)', key: 'incentive', render: (v) => <span className="text-green-600 font-medium">+₹{v}</span> },
-  { label: 'Advance Deduction', key: 'advance', render: (v) => <span className="text-red-500 font-medium">-₹{v}</span> },
-  { label: 'Net Pay', key: 'net', render: (v) => <span className="font-extrabold text-emerald-600 text-lg">₹{v}</span> },
+  { label: 'Basic (₹)', key: 'basic', render: (v) => <span className="font-medium">₹{formatAmount(v)}</span> },
+  { label: 'Incentive (₹)', key: 'incentive', render: (v) => <span className="text-green-600 font-medium">+₹{formatAmount(v)}</span> },
+  { label: 'Advance Deduction', key: 'advance', render: (v) => <span className="text-red-500 font-medium">-₹{formatAmount(v)}</span> },
+  { label: 'Net Pay', key: 'net', render: (v) => <span className="font-extrabold text-emerald-600 text-lg">₹{formatAmount(v)}</span> },
   { label: 'Status', key: 'status', render: (v) => <Badge variant="success">{String(v)}</Badge> },
 ]
 

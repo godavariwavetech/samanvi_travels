@@ -29,3 +29,11 @@ export function getFYList(extra = 4): FinancialYear[] {
   const current = getCurrentFY()
   return Array.from({ length: extra + 1 }, (_, i) => buildFY(current.startYear - i))
 }
+
+// Where a report's date range starts on opening the page: today for the
+// current financial year, the whole year for a past one (today isn't in it).
+export function defaultReportRange(fy: FinancialYear, today: string): { fromdate: string; todate: string } {
+  return fy.startYear === getCurrentFY().startYear
+    ? { fromdate: today, todate: today }
+    : { fromdate: fy.fromDate, todate: fy.toDate }
+}

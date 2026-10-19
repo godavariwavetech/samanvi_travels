@@ -45,6 +45,13 @@ function tripRowsWithoutVoucher(alias) {
   return "NOT EXISTS (SELECT 1 FROM trip_created tc WHERE tc.c_number = " + col + " AND tc.d_in = 0 AND tc.voucher_number IS NOT NULL AND tc.voucher_number <> '')";
 }
 
+// A voucher line only counts once its voucher header is approved too. Lines
+// carry their own status copy, which can drift from the header (e.g. a trip
+// voucher re-filed after approval), so reports check both.
+function voucherHeaderApproved(alias) {
+  return "EXISTS (SELECT 1 FROM mainvoucher_t vh WHERE vh.c_number = " + alias + ".c_number AND vh.d_in = 0 AND vh.status = 1)";
+}
+
 // Garage approval workflow schema migration (runs once on startup)
 (function initGarageWorkflow() {
   sqldb.query(`CREATE TABLE IF NOT EXISTS job_approval_stages (
@@ -6237,7 +6244,7 @@ exports.SelectdatagetfinaltranscationsreportMdl = function (data, callback) {
 
   // Base WHERE clauses
   let expenseCondition = `ed.d_in='0' AND ed.admin_status='1'`;
-  let voucherCondition = `mv.d_in='0' AND mv.status='1'`;
+  let voucherCondition = `mv.d_in='0' AND mv.status='1' AND ${voucherHeaderApproved('mv')}`;
   let fuelCondition = `f.d_in='0' AND f.admin_status='1'`;
   let laundryCondition = `l.d_in='0' AND l.admin_status='1'`;
 
@@ -7590,7 +7597,7 @@ exports.Selectdatagetfinaltranscationsreport1Mdl = function (data, callback) {
 
   // Base conditions
   var expenseCondition = "d_in='0' AND admin_status='1'";
-  var voucherCondition = "d_in='0' AND status='1'";
+  var voucherCondition = "d_in='0' AND status='1' AND " + voucherHeaderApproved('mainvoucher_subt');
   var fuelCondition = "d_in='0' AND admin_status='1'";
   var laundryCondition = "d_in='0' AND admin_status='1'";
   if (data.fromdate && data.todate) {
@@ -9633,7 +9640,7 @@ exports.gettrialbalancereportsMdl = function (data, callback) {
   const cntxtDtls = "in gettrialbalancereportsMdl";
   //console.log()data, 5242);
   const query1 = `SELECT * FROM expensive_details WHERE d_in = 0 and admin_status='1' AND ${tripRowsWithoutVoucher('')} AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
-  const query2 = `SELECT * FROM mainvoucher_subt WHERE d_in = 0 and status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
+  const query2 = `SELECT * FROM mainvoucher_subt WHERE d_in = 0 and status='1' AND ${voucherHeaderApproved('mainvoucher_subt')} AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
   const query3 = `SELECT * FROM fuelentry_subt WHERE d_in = 0 and admin_status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC;`;
   const query4 = `SELECT * FROM laundrybill_subt WHERE d_in = 0 and admin_status='1' AND DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY id DESC ;`;
 
@@ -14467,10 +14474,10 @@ exports.createTyreVoucherMdl = function (data, callback) {
       var lastId = result.insertId;
       var subRows = [];
       rows.debit.forEach(function (e) {
-        subRows.push({ lastinsert_id: lastId, account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+        subRows.push({ lastinsert_id: lastId, account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0, status: 0 });
       });
       rows.credit.forEach(function (e) {
-        subRows.push({ lastinsert_id: lastId, account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
+        subRows.push({ lastinsert_id: lastId, account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0, status: 0 });
       });
 
       var si = 0;

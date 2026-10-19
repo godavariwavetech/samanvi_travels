@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
 import ChangeNote from '@/components/shared/ChangeNote'
-import { formatDate, ledgerOption, todayISO } from '@/lib/utils'
+import { formatDate, ledgerOption, todayISO, formatAmount } from '@/lib/utils'
 
 const STATUSES = ['Active', 'Replaced', 'Scrapped']
 
@@ -170,7 +170,7 @@ export default function BatteryManagementPage() {
     { label: 'Installed', key: 'install_date', align: 'center', render: (v) => <span className="text-sm">{formatDate(v)}</span> },
     { label: 'Warranty (mo)', key: 'warranty_months', align: 'right', render: (v) => <span className="text-sm">{v ?? '—'}</span> },
     { label: 'Status', key: 'status', filterable: true, render: (v) => <Badge variant={statusVariant[String(v)] ?? 'default'}>{String(v)}</Badge> },
-    { label: 'Cost', key: 'cost', align: 'right', render: (v) => <span className="font-medium">₹{v}</span> },
+    { label: 'Cost', key: 'cost', align: 'right', render: (v) => <span className="font-medium">₹{formatAmount(v)}</span> },
     {
       label: 'Voucher', key: 'voucher_number', filterable: true,
       render: (v) => v ? <Badge variant="purple">{String(v)}</Badge> : <span className="text-slate-300">—</span>,

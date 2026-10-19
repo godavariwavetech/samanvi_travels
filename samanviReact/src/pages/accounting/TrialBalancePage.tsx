@@ -1,16 +1,16 @@
-﻿import { useState, useEffect } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { motion } from 'motion/react'
 import { Scale, Search, RefreshCw } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, FYSelector } from '@/components/shared'
+import { GlassCard, Button, Label, DataTable, Badge, PageHeader, FYSelector, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { formatCurrency, todayISO } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
-import { getCurrentFY } from '@/lib/fy'
+import { getCurrentFY, defaultReportRange } from '@/lib/fy'
 
 // Plain number formatting for PDF cells — jsPDF's default font has no ₹
 // glyph, and a missing glyph throws off autoTable's right-alignment math.
@@ -74,14 +74,17 @@ export default function TrialBalancePage() {
   const selectedFY = useFYStore(s => s.selectedFY)
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
-  const [range, setRange] = useState({ fromdate: selectedFY.fromDate, todate: selectedFY.toDate })
+  const [range, setRange] = useState(() => defaultReportRange(selectedFY, today))
   const [applied, setApplied] = useState(range)
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   // The rows the table is showing after its search box and column filters -
   // the downloads carry exactly these, numbered from 1, with their total.
   const [shownRows, setShownRows] = useState<any[] | null>(null)
 
+  // (Not on first render: the page opens on today, not on the whole year.)
+  const fyMounted = useRef(false)
   useEffect(() => {
+    if (!fyMounted.current) { fyMounted.current = true; return }
     const next = { fromdate: selectedFY.fromDate, todate: selectedFY.toDate }
     setRange(next)
     setApplied(next)
@@ -220,8 +223,7 @@ export default function TrialBalancePage() {
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-slate-600 to-slate-800">
         <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap">
-          <div><Label>From Date</Label><Input type="date" min={fyMin} max={fyMax} value={range.fromdate} onChange={(e) => setRange({ ...range, fromdate: e.target.value })} /></div>
-          <div><Label>As Of Date</Label><Input type="date" min={fyMin} max={fyMax} value={range.todate} onChange={(e) => setRange({ ...range, todate: e.target.value })} /></div>
+          <div><Label>Date</Label><DateRangePicker from={range.fromdate} to={range.todate} min={fyMin} max={fyMax} onChange={setRange} /></div>
           <Button onClick={() => setApplied(range)}><Search className="w-4 h-4" /> Generate</Button>
           <Button onClick={refetchAll} disabled={anyFetching} className="bg-slate-600 hover:bg-slate-700">
             <RefreshCw className={`w-4 h-4 ${anyFetching ? 'animate-spin' : ''}`} /> Refresh

@@ -1,4 +1,5 @@
 var appmdl = require("../models/mainModel");
+const { guardApprovedVoucher } = require("../utils/approvedVouchers");
 var jwt = require("jsonwebtoken");
 const axios = require("axios");
 var masterVldtr = require("../validators/mstrVldt");
@@ -3468,6 +3469,8 @@ exports.updatevoucherentryCtrl = function (req, res) {
     const c_number = data.c_number;
     const c_id = parseInt((c_number || '').replace(/\D/g, '')) || 0;
     console.log('[updatevoucherentry] c_number:', c_number, '| vouchertype:', data.expensedetails?.vouchertype?.voucher_type);
+    guardApprovedVoucher(req.auth && req.auth.usid, c_number, function (denied) {
+    if (denied) return res.status(denied.code).json({ status: denied.code, message: denied.message });
     appmdl.deletevouchertypebill(data, function (err) {
       if (err) {
         console.error('[updatevoucherentry] deletevouchertypebill failed:', err);
@@ -3499,6 +3502,7 @@ exports.updatevoucherentryCtrl = function (req, res) {
           });
         });
       });
+    });
     });
   } catch (e) {
     console.error('[updatevoucherentry] exception:', e.message);
@@ -3579,6 +3583,13 @@ exports.updatevoucherentrystatusCtrl = function (req, res) {
     if (!data.voucherdata || !data.voucherdata.c_number) {
       return res.status(400).json({ status: 400, message: 'Missing voucherdata.c_number' });
     }
+    // Approving is open to approvers; taking an approved voucher back out of
+    // 'approved' (reopen/reject) is limited to the authorised users.
+    const guard = data.vouchervalue == '1'
+      ? function (cb) { cb(null); }
+      : function (cb) { guardApprovedVoucher(req.auth && req.auth.usid, data.voucherdata.c_number, cb); };
+    guard(function (denied) {
+    if (denied) return res.status(denied.code).json({ status: denied.code, message: denied.message });
     appmdl.updatevoucherentrystatusMdl(data, function (err, results) {
       if (err) {
         console.error('updatevoucherentrystatusMdl db error:', err);
@@ -3611,6 +3622,7 @@ exports.updatevoucherentrystatusCtrl = function (req, res) {
       } else {
         finish();
       }
+    });
     });
   } catch (e) {
     console.error('updatevoucherentrystatusCtrl exception:', e.message);
@@ -5628,6 +5640,8 @@ exports.updatepayablesvoucherentryCtrl = function (req, res) {
     data.c_number = c_number;
     data.is_payable = 1;
 
+    guardApprovedVoucher(req.auth && req.auth.usid, c_number, function (denied) {
+    if (denied) return res.status(denied.code).json({ status: denied.code, message: denied.message });
     appmdl.deletevouchertypebill(data, function (err) {
       if (err) {
         console.error('[updatepayablesvoucherentry] deletevouchertypebill failed:', err);
@@ -5678,6 +5692,7 @@ exports.updatepayablesvoucherentryCtrl = function (req, res) {
           });
         });
       });
+    });
     });
   } catch (e) {
     console.error('[updatepayablesvoucherentry] exception:', e.message);

@@ -380,6 +380,9 @@ const buildCols = (
             <button onClick={() => onReject(row)} className="p-1.5 text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100"><XCircle className="w-4 h-4" /></button>
           </>
         )}
+        {mode === 'approved' && (
+          <button onClick={() => onReopen(row)} title="Revert to pending" className="p-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg hover:bg-amber-100"><RotateCcw className="w-4 h-4" /></button>
+        )}
         {mode === 'rejected' && (
           <>
             <button onClick={() => onReopen(row)} title="Reopen for review" className="p-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg hover:bg-amber-100"><RotateCcw className="w-4 h-4" /></button>
@@ -591,9 +594,11 @@ const currentFY = getCurrentFY()
 
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { PayablesPopup } from './PayablesPopup'
+import { useCanReviseApproved } from '@/lib/approvedEditors'
 
 export default function VoucherApprovalsPage() {
   const { canEdit, canApprove } = usePermissions()
+  const canReviseApproved = useCanReviseApproved()
   const jobPermissions = usePermissions('/garage/tracking')
   const navigate = useNavigate()
   const selectedFY = useFYStore(s => s.selectedFY)
@@ -1149,7 +1154,7 @@ export default function VoucherApprovalsPage() {
   const rejectedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 2))
 
   const getList = () => tab === 'Pending Approval' ? pending : tab === 'Approved' ? approvedList : rejectedList
-  const getMode = () => tab === 'Pending Approval' ? 'pending' : tab === 'Rejected' ? 'rejected' : 'view'
+  const getMode = () => tab === 'Pending Approval' ? 'pending' : tab === 'Rejected' ? 'rejected' : canReviseApproved ? 'approved' : 'view'
 
   // Column filters are scoped to whichever tab is open — carrying them over
   // when switching status tabs made the new tab look stuck/empty.
@@ -1877,17 +1882,17 @@ export default function VoucherApprovalsPage() {
                 <div className="flex justify-between items-center pt-4 border-t border-slate-200">
                   <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
                   <div className="flex gap-3 flex-wrap">
-                    {canEdit && !editMode && Number(viewModal.is_payable) === 1 && (
+                    {canEdit && !editMode && Number(viewModal.is_payable) === 1 && (viewModal.status != 1 || canReviseApproved) && (
                       <Button variant="outline" onClick={openInPayables}>
                         <Pencil className="w-4 h-4" /> Edit in Payables
                       </Button>
                     )}
-                    {canEdit && jobPermissions.canEdit && !editMode && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                    {canEdit && jobPermissions.canEdit && !editMode && (viewModal.status != 1 || canReviseApproved) && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={openInJobCard} className="border-orange-300 text-orange-700 hover:bg-orange-50">
                         <Wrench className="w-4 h-4" /> Edit in Job Card
                       </Button>
                     )}
-                    {canEdit && !editMode && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                    {canEdit && !editMode && (viewModal.status != 1 || canReviseApproved) && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={() => setEditMode(true)}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>
@@ -1908,6 +1913,11 @@ export default function VoucherApprovalsPage() {
                     {canApprove && !editMode && viewModal.status == 0 && (
                       <Button variant="success" onClick={() => { handleApprove(viewModal); setViewModal(null) }}>
                         <CheckCircle className="w-4 h-4" /> Approve
+                      </Button>
+                    )}
+                    {canReviseApproved && !editMode && viewModal.status == 1 && (
+                      <Button variant="outline" onClick={() => { handleReopen(viewModal); setViewModal(null) }} className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                        <RotateCcw className="w-4 h-4" /> Revert to Pending
                       </Button>
                     )}
                     {canApprove && !editMode && viewModal.status == 2 && (

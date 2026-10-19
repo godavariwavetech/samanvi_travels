@@ -9,7 +9,7 @@ import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
-import { ledgerOption, todayISO, isApprovedTyre } from '@/lib/utils'
+import { ledgerOption, todayISO, isApprovedTyre, formatAmount } from '@/lib/utils'
 
 const EMPTY_FORM = { repair_date: '', vehicle_number: '', odometer: '', tyre_id: '', repair_type: '', has_cost: true, cost: '', vendor_id: '', remarks: '' }
 
@@ -122,7 +122,7 @@ export default function TyreRepairPage() {
     { label: 'Kms', key: 'odometer', align: 'right', filterable: true, render: (v) => <span className="text-sm">{v ? `${v} km` : '—'}</span> },
     { label: 'Repair Type', key: 'repair_type', filterable: true, render: (v) => <span className="text-slate-700 font-medium">{v || '—'}</span> },
     { label: 'Vendor', key: 'vendor_name', filterable: true, render: (v) => v ? <span className="text-slate-600">{String(v)}</span> : <span className="text-slate-300">—</span> },
-    { label: 'Cost', key: 'cost', align: 'right', filterable: true, render: (v) => Number(v) > 0 ? <span className="font-medium">₹{v}</span> : <span className="text-slate-300">—</span> },
+    { label: 'Cost', key: 'cost', align: 'right', filterable: true, render: (v) => Number(v) > 0 ? <span className="font-medium">₹{formatAmount(v)}</span> : <span className="text-slate-300">—</span> },
     { label: 'Remarks', key: 'remarks', filterable: true, render: (v) => <span className="text-slate-600">{v || '—'}</span> },
   ]
 

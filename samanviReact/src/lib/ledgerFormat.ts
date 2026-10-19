@@ -8,8 +8,13 @@ export function signedBalance(ob: { type?: string; amount?: number } | null | un
   return 0
 }
 
+// Indian digit grouping (1,23,456.00), always two decimals.
+export function fmtAmount(n: number): string {
+  return (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function balStr(b: number): string {
-  return b >= 0 ? `${b.toFixed(2)} Dr` : `${Math.abs(b).toFixed(2)} Cr`
+  return b >= 0 ? `${fmtAmount(b)} Dr` : `${fmtAmount(Math.abs(b))} Cr`
 }
 
 export function balCls(b: number): string {

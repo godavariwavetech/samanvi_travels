@@ -6,15 +6,15 @@ import { toast } from 'sonner'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO, formatAmount } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'PNR / Seat', key: 'pnr_no', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">Seat: {r.seatnumber}</div></div> },
   { label: 'Passenger', key: 'name' },
   { label: 'Service', key: 'servicenumber', render: (v, r: any) => <div><div className="font-medium text-blue-600">{String(v)}</div><div className="text-xs text-slate-500">{formatDate(r.date)}</div></div> },
   { label: 'Booked By', key: 'bookedby' },
-  { label: 'Fare', key: 'fare', render: (v) => <span className="font-medium">₹{v}</span> },
-  { label: 'Amount', key: 'finalamount', render: (v) => <span className="font-bold text-emerald-600">₹{v}</span> },
+  { label: 'Fare', key: 'fare', render: (v) => <span className="font-medium">₹{formatAmount(v)}</span> },
+  { label: 'Amount', key: 'finalamount', render: (v) => <span className="font-bold text-emerald-600">₹{formatAmount(v)}</span> },
   { label: 'Source', key: 'booking_source', render: (v) => <Badge variant="teal">{String(v).slice(0, 15)}</Badge> },
   { label: 'Status', key: 'agentstatus', render: (v) => <Badge variant={v == 1 ? 'success' : 'warning'}>{v == 1 ? 'Assigned' : 'Pending'}</Badge> },
 ]

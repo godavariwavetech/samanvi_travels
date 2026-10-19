@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
-import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
+import { formatCurrency, formatDate, todayISO, formatAmount } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'PNR', key: 'pnr_no', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
@@ -13,8 +13,8 @@ const cols: Column[] = [
   { label: 'Service', key: 'servicenumber' },
   { label: 'Date', key: 'date', render: (v) => formatDate(v) },
   { label: 'Booked By', key: 'bookedby' },
-  { label: 'Fare', key: 'fare', render: (v) => <span className="font-medium">₹{v}</span> },
-  { label: 'Final', key: 'finalamount', render: (v) => <span className="font-bold text-emerald-600">₹{v}</span> },
+  { label: 'Fare', key: 'fare', render: (v) => <span className="font-medium">₹{formatAmount(v)}</span> },
+  { label: 'Final', key: 'finalamount', render: (v) => <span className="font-bold text-emerald-600">₹{formatAmount(v)}</span> },
   { label: 'Agent', key: 'assigned_name', render: (v) => <Badge variant="info">{String(v)}</Badge> },
 ]
 

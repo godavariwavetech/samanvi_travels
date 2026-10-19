@@ -6,15 +6,15 @@ import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader }
 import type { Column } from '@/components/shared'
 import { payrollService } from '@/services/payroll.service'
 import { mastersService } from '@/services/masters.service'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatAmount } from '@/lib/utils'
 
 const cols: Column[] = [
   { label: 'Employee', key: 'name', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">{r.designation}</div></div> },
   { label: 'Month', key: 'month', render: (v) => <Badge variant="info">{String(v)}</Badge> },
-  { label: 'Basic', key: 'basic', render: (v) => <span className="font-medium">₹{v}</span> },
-  { label: 'Incentive', key: 'incentive', render: (v) => <span className="text-emerald-600 font-medium">+₹{v}</span> },
-  { label: 'Advance', key: 'advance', render: (v) => <span className="text-red-500 font-medium">-₹{v}</span> },
-  { label: 'Net Pay', key: 'net_pay', render: (v) => <span className="font-extrabold text-emerald-600 text-lg">₹{v}</span> },
+  { label: 'Basic', key: 'basic', render: (v) => <span className="font-medium">₹{formatAmount(v)}</span> },
+  { label: 'Incentive', key: 'incentive', render: (v) => <span className="text-emerald-600 font-medium">+₹{formatAmount(v)}</span> },
+  { label: 'Advance', key: 'advance', render: (v) => <span className="text-red-500 font-medium">-₹{formatAmount(v)}</span> },
+  { label: 'Net Pay', key: 'net_pay', render: (v) => <span className="font-extrabold text-emerald-600 text-lg">₹{formatAmount(v)}</span> },
   { label: 'Mode', key: 'payment_mode', render: (v) => <Badge variant="teal">{String(v)}</Badge> },
   { label: 'Status', key: 'status', render: (v) => <Badge variant={v === 'Paid' ? 'success' : 'warning'}>{String(v)}</Badge> },
 ]
