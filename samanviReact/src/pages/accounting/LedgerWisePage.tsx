@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { BookMarked, Search, X, ExternalLink, CreditCard, BookOpen, History, ChevronDown, RefreshCw } from 'lucide-react'
 import ActivityHistory from '@/components/shared/ActivityHistory'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useLocation } from 'react-router'
-import { GlassCard, Button, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
+import { GlassCard, Button, Label, PageHeader, ColumnFilterDropdown, FYSelector, DualScrollTable, ExportMenu, ReportColumnPicker, toggleInSet, reportQuantity, reportRate, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
 import { ledgerGroupName, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls } from '@/lib/ledgerFormat'
@@ -598,6 +598,9 @@ function LedgerSelectDropdown({ value, ledgers, onChange, onRefresh, refreshing 
   )
 }
 
+// Columns after Opp-Ledger that the reader can switch off, in table order.
+const OPTIONAL_COLS = ['Value Date', 'Vehicle No.', 'Trip Date', 'Quantity', 'Rate', 'Name'] as const
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const today = todayISO()
 const currentFY = getCurrentFY()
@@ -650,6 +653,9 @@ export default function LedgerWisePage() {
       user_id: localStorage.getItem('user_id'),
     }),
     enabled: !!applied,
+    // Changing the dates keeps the current table on screen until the new
+    // figures arrive, instead of blanking it to a skeleton.
+    placeholderData: keepPreviousData,
   })
 
   const ledgerList: any[] = ledgersRes?.data ?? []
@@ -771,11 +777,14 @@ export default function LedgerWisePage() {
   const closeModal = () => setModal({ open: false, entry: null, data: null, loading: false })
 
   // ─── Optional columns ──────────────────────────────────────────────────────
-  // Trip Date, Quantity and Rate, ticked on and off above the table the way
-  // Voucher Approvals' "Show columns" works; all three start visible.
-  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(REPORT_EXTRA_COLS))
+  // Everything between Opp-Ledger and Description is optional, ticked on and
+  // off above the table the way Voucher Approvals' "Show columns" works; all
+  // start visible. Ref No., Date, Voucher, Opp-Ledger, Description and the
+  // amounts stay.
+  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(OPTIONAL_COLS))
   const showCol = (c: string) => extraCols.has(c)
-  const extraCount = extraCols.size
+  const shownOptional = OPTIONAL_COLS.filter(showCol)
+  const extraCount = shownOptional.length
 
   // ─── Column filters ────────────────────────────────────────────────────────
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
@@ -846,15 +855,21 @@ export default function LedgerWisePage() {
 
   // ─── Excel Export ──────────────────────────────────────────────────────────
   const exportExcel = () => {
-    // The ticked optional columns go out too, after Vehicle No. as on screen.
-    const extras = REPORT_EXTRA_COLS.filter(showCol)
+    // Only the ticked optional columns go out, in the order shown on screen.
+    const extras = shownOptional
     const pad = extras.map(() => '')
-    const extraValues = (r: any) => extras.map((c) => c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '-') : c === 'Quantity' ? (reportQuantity(r) || '-') : (reportRate(r) || '-'))
+    const extraValues = (r: any) => extras.map((c) =>
+      c === 'Value Date' ? fmt(r.valueDate)
+      : c === 'Vehicle No.' ? ((r.vehicleNo || r.bus_no) || '-')
+      : c === 'Trip Date' ? (r.trip_date ? fmt(r.trip_date) : '-')
+      : c === 'Quantity' ? (reportQuantity(r) || '-')
+      : c === 'Rate' ? (reportRate(r) || '-')
+      : (r.name || '-'))
     const data: any[][] = [
-      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', 'Value Date', 'Vehicle No.', ...extras, 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
+      ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Group', ...extras, 'Description', 'Dr Amount', 'Cr Amount', 'R Balance'],
     ]
     if (showOB) {
-      data.push(['', '', '', '', 'Opening Balance', '', '', '', ...pad, '', '',
+      data.push(['', '', '', '', 'Opening Balance', '', ...pad, '',
         openingBalance >= 0 ? openingBalance : 0,
         openingBalance < 0 ? Math.abs(openingBalance) : 0,
         balStr(openingBalance),
@@ -863,28 +878,28 @@ export default function LedgerWisePage() {
     displayRows.forEach((r, i) => {
       data.push([
         i + 1, r.c_number || '-', fmt(resolveDisplayDate(r)), r.vouchertype || 'N/A',
-        r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers), fmt(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
+        r.opp_ledgers || 'N/A', oppLedgerGroup(r.opp_ledgers),
         ...extraValues(r),
-        r.name || '-', r.description || '-',
+        r.description || '-',
         r.debit, r.credit, balStr(r.runningBalance ?? 0),
       ])
     })
-    data.push(['', '', '', '', 'Total', '', '', '', ...pad, '', '', shownDebit, shownCredit, ''])
-    data.push(['', '', '', '', 'Closing Balance', '', '', '', ...pad, '', '',
+    data.push(['', '', '', '', 'Total', '', ...pad, '', shownDebit, shownCredit, ''])
+    data.push(['', '', '', '', 'Closing Balance', '', ...pad, '',
       closingBalance < 0 ? Math.abs(closingBalance) : 0,
       closingBalance >= 0 ? closingBalance : 0,
       balStr(closingBalance),
     ])
-    data.push(['', '', '', '', 'Grand Total', '', '', '', ...pad, '', '', grandDebit, grandCredit, ''])
+    data.push(['', '', '', '', 'Grand Total', '', ...pad, '', grandDebit, grandCredit, ''])
 
     const ws = XLSX.utils.aoa_to_sheet(data)
     ws['!cols'] = data[0].map((_: any, ci: number) => ({
       wch: Math.max(...data.map(r => String(r[ci] ?? '').length)) + 2,
     }))
-    // Dr/Cr Amount columns (10, 11) hold real numbers — format them so Excel
+    // Dr/Cr Amount columns hold real numbers — format them so Excel
     // treats them as numeric (right-aligned, summable via the status bar).
     for (let r = 1; r < data.length; r++) {
-      for (const c of [10 + extras.length, 11 + extras.length]) {
+      for (const c of [7 + extras.length, 8 + extras.length]) {
         const cellRef = XLSX.utils.encode_cell({ r, c })
         const cell = ws[cellRef]
         if (cell && typeof cell.v === 'number') cell.z = '#,##0.00'
@@ -943,15 +958,38 @@ export default function LedgerWisePage() {
 
     // jspdf-autotable's columnStyles only apply to the body section, so header
     // cells need their alignment set explicitly to match each column's data.
-    const colAlign = ['center', 'center', 'center', 'center', 'left', 'center', 'center', 'center', 'left', 'right', 'right', 'right'] as const
-    const headers = ['Sl No.', 'Ref No.', 'Date', 'Voucher', 'Opp-Ledger', 'Value Date', 'Vehicle No.', 'Name', 'Description', 'Dr Amount', 'Cr Amount', 'R Balance']
-      .map((h, i) => ({ content: h, styles: { halign: colAlign[i] } }))
+    // Value Date, Vehicle No. and Name follow the column picker; Trip Date,
+    // Quantity and Rate have never gone into the PDF. Width freed by a hidden
+    // column goes to Opp-Ledger so the table keeps its centred 257mm.
+    type PdfCol = { head: string; align: 'left' | 'center' | 'right'; width: number; cell: (r: any) => string }
+    const pdfOptional: PdfCol[] = ([
+      { head: 'Value Date', align: 'center', width: 17, cell: (r: any) => fmtShort(r.valueDate) },
+      { head: 'Vehicle No.', align: 'center', width: 16, cell: (r: any) => (r.vehicleNo || r.bus_no) || '-' },
+      { head: 'Name', align: 'center', width: 18, cell: (r: any) => r.name || '-' },
+    ] as PdfCol[]).filter(c => showCol(c.head))
+    const freed = 17 + 16 + 18 - pdfOptional.reduce((w, c) => w + c.width, 0)
+    const pdfCols: PdfCol[] = [
+      { head: 'Sl No.', align: 'center', width: 8, cell: () => '' },
+      { head: 'Ref No.', align: 'center', width: 15, cell: (r: any) => r.c_number || '-' },
+      { head: 'Date', align: 'center', width: 17, cell: (r: any) => fmtShort(resolveDisplayDate(r)) },
+      { head: 'Voucher', align: 'center', width: 16, cell: (r: any) => r.vouchertype || 'N/A' },
+      { head: 'Opp-Ledger', align: 'left', width: 46 + freed, cell: (r: any) => r.opp_ledgers || 'N/A' },
+      ...pdfOptional,
+      { head: 'Description', align: 'left', width: 34, cell: (r: any) => r.description || '-' },
+      { head: 'Dr Amount', align: 'right', width: 22, cell: () => '' },
+      { head: 'Cr Amount', align: 'right', width: 22, cell: () => '' },
+      { head: 'R Balance', align: 'right', width: 26, cell: () => '' },
+    ]
+    const headers = pdfCols.map(c => ({ content: c.head, styles: { halign: c.align } }))
+    // Summary rows: label under Opp-Ledger (column 4), blanks across the
+    // optional columns and Description, then the Dr / Cr / balance cells.
+    const midPad = Array(pdfOptional.length + 1).fill('')
     const body: any[] = []
 
     if (showOB) {
       body.push(['', '', '', '',
         { content: 'Opening Balance', styles: { fontStyle: 'bold', halign: 'right' } },
-        '', '', '', '',
+        ...midPad,
         { content: openingBalance >= 0 ? fmtN(openingBalance) : '0.00', styles: { halign: 'right' } },
         { content: openingBalance < 0 ? fmtN(Math.abs(openingBalance)) : '0.00', styles: { halign: 'right' } },
         { content: balStr(openingBalance), styles: { halign: 'right' } },
@@ -960,9 +998,8 @@ export default function LedgerWisePage() {
 
     displayRows.forEach((r, i) => {
       body.push([
-        String(i + 1), r.c_number || '-', fmtShort(resolveDisplayDate(r)), r.vouchertype || 'N/A',
-        r.opp_ledgers || 'N/A', fmtShort(r.valueDate), (r.vehicleNo || r.bus_no) || '-',
-        r.name || '-', r.description || '-',
+        String(i + 1),
+        ...pdfCols.slice(1, -3).map(c => c.cell(r)),
         { content: fmtN(r.debit), styles: { halign: 'right' } },
         { content: fmtN(r.credit), styles: { halign: 'right' } },
         { content: balStr(r.runningBalance ?? 0), styles: { halign: 'right' } },
@@ -970,18 +1007,18 @@ export default function LedgerWisePage() {
     })
 
     body.push(['', '', '', '',
-      { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
+      { content: 'Total', styles: { fontStyle: 'bold', halign: 'right' } }, ...midPad,
       { content: fmtN(shownDebit), styles: { fontStyle: 'bold', halign: 'right' } },
       { content: fmtN(shownCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
     body.push(['', '', '', '',
-      { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
+      { content: 'Closing Balance', styles: { fontStyle: 'bold', halign: 'right' } }, ...midPad,
       { content: closingBalance < 0 ? fmtN(Math.abs(closingBalance)) : '0.00', styles: { halign: 'right' } },
       { content: closingBalance >= 0 ? fmtN(closingBalance) : '0.00', styles: { halign: 'right' } },
       { content: balStr(closingBalance), styles: { halign: 'right' } },
     ])
     body.push(['', '', '', '',
-      { content: 'Grand Total', styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '',
+      { content: 'Grand Total', styles: { fontStyle: 'bold', halign: 'right' } }, ...midPad,
       { content: fmtN(grandDebit), styles: { fontStyle: 'bold', halign: 'right' } },
       { content: fmtN(grandCredit), styles: { fontStyle: 'bold', halign: 'right' } }, '',
     ])
@@ -992,17 +1029,9 @@ export default function LedgerWisePage() {
       styles: { fontSize: 7, cellPadding: 2 },
       margin: { left: marginX, right: marginX },
       tableWidth: TABLE_WIDTH_MM,
-      columnStyles: {
-        // Widths sum to ~257mm (TABLE_WIDTH_MM) — margin above centers that
-        // on the page instead of the table hugging the left edge. The Group
-        // column's freed width went to Opp-Ledger.
-        0: { cellWidth: 8, halign: 'center' },  1: { cellWidth: 15, halign: 'center' },
-        2: { cellWidth: 17, halign: 'center' }, 3: { cellWidth: 16, halign: 'center' },
-        4: { cellWidth: 46, halign: 'left' },   5: { cellWidth: 17, halign: 'center' },
-        6: { cellWidth: 16, halign: 'center' }, 7: { cellWidth: 18, halign: 'center' },
-        8: { cellWidth: 34, halign: 'left' },   9: { cellWidth: 22, halign: 'right' },
-        10: { cellWidth: 22, halign: 'right' }, 11: { cellWidth: 26, halign: 'right' },
-      },
+      // Widths sum to 257mm (TABLE_WIDTH_MM) whatever columns are shown -
+      // margin above centers that on the page.
+      columnStyles: Object.fromEntries(pdfCols.map((c, i) => [i, { cellWidth: c.width, halign: c.align }])),
     })
     doc.save(`${fileBaseName}_${downloadDate()}.pdf`)
   }
@@ -1029,7 +1058,7 @@ export default function LedgerWisePage() {
 
   const SummaryRow = ({ label, dr, cr, bal }: { label: string; dr?: number; cr?: number; bal?: number }) => (
     <tr className="bg-blue-50 border-t-2 border-blue-200 font-bold">
-      <td colSpan={9 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
+      <td colSpan={6 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{dr != null ? fmtAmt(dr) : ''}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{cr != null ? fmtAmt(cr) : ''}</td>
       <td className={`px-3 py-2.5 text-right tabular-nums ${bal != null ? obCbCls(bal) : ''}`}>
@@ -1040,7 +1069,7 @@ export default function LedgerWisePage() {
 
   const GrandRow = ({ label, dr, cr }: { label: string; dr: number; cr: number }) => (
     <tr className="bg-amber-50 border-t-2 border-amber-300 font-bold">
-      <td colSpan={9 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-amber-800 uppercase tracking-wide">{label}</td>
+      <td colSpan={6 + extraCount} className="px-3 py-2.5 text-right text-xs font-bold text-amber-800 uppercase tracking-wide">{label}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-red-700">{fmtAmt(dr)}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{fmtAmt(cr)}</td>
       <td />
@@ -1119,9 +1148,9 @@ export default function LedgerWisePage() {
               onChange={r => setFilter(f => ({ ...f, valuefrom: r.fromdate, valueto: r.todate }))}
             />
           </div>
-          <Button onClick={handleSearch} disabled={isLoading}>
+          <Button onClick={handleSearch} disabled={isFetching}>
             <Search className="w-4 h-4" />
-            {isLoading ? 'Loading…' : 'Search'}
+            {isFetching ? 'Loading…' : 'Search'}
           </Button>
           {applied && (
             <Button variant="outline" onClick={handleClear}>
@@ -1152,7 +1181,7 @@ export default function LedgerWisePage() {
             </div>
           </div>
 
-          <ReportColumnPicker options={REPORT_EXTRA_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
+          <ReportColumnPicker options={OPTIONAL_COLS} visible={extraCols} onToggle={(c) => setExtraCols((v) => toggleInSet(v, c))} />
 
           {/* Summary strip */}
           <SummaryStrip />
@@ -1183,12 +1212,12 @@ export default function LedgerWisePage() {
                   <TH filterKey="date">Date</TH>
                   <TH filterKey="vouchertype">Voucher Type</TH>
                   <TH filterKey="opp_ledgers">Opp-Ledger</TH>
-                  <TH filterKey="valueDate">Value Date</TH>
-                  <TH filterKey="vehicleNo">Vehicle No.</TH>
+                  {showCol('Value Date') && <TH filterKey="valueDate">Value Date</TH>}
+                  {showCol('Vehicle No.') && <TH filterKey="vehicleNo">Vehicle No.</TH>}
                   {showCol('Trip Date') && <TH filterKey="tripDate">Trip Date</TH>}
                   {showCol('Quantity') && <TH cls="text-right" filterKey="quantity">Quantity</TH>}
                   {showCol('Rate') && <TH cls="text-right" filterKey="rate">Rate</TH>}
-                  <TH filterKey="name">Name</TH>
+                  {showCol('Name') && <TH filterKey="name">Name</TH>}
                   <TH filterKey="description">Description</TH>
                   <TH cls="text-right" filterKey="debitAmount">Dr Amount</TH>
                   <TH cls="text-right" filterKey="creditAmount">Cr Amount</TH>
@@ -1199,7 +1228,7 @@ export default function LedgerWisePage() {
                 {/* Opening Balance */}
                 {showOB && (
                   <tr className="bg-sky-50 border-b border-sky-200">
-                    <td colSpan={9 + extraCount} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
+                    <td colSpan={6 + extraCount} className="px-3 py-2 text-right text-xs font-bold text-sky-700">
                       Opening Balance —{' '}
                       <span className={obCbCls(openingBalance)}>{balStr(openingBalance)}</span>
                     </td>
@@ -1215,13 +1244,13 @@ export default function LedgerWisePage() {
                     of swapping the whole card out for a blank message */}
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={12 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={9 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
                       No transactions found for the selected criteria.
                     </td>
                   </tr>
                 ) : displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={12 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={9 + extraCount} className="px-3 py-10 text-center text-slate-400 text-sm">
                       No rows match the active filters.
                     </td>
                   </tr>
@@ -1259,12 +1288,16 @@ export default function LedgerWisePage() {
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 max-w-[220px] truncate" title={row.opp_ledgers || 'N/A'}>
                       {row.opp_ledgers || 'N/A'}<LedgerGroupTag group={oppLedgerGroup(row.opp_ledgers)} />
                     </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
-                      {fmt(row.valueDate)}
-                    </td>
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
-                      {(row.vehicleNo || row.bus_no) || '-'}
-                    </td>
+                    {showCol('Value Date') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                        {fmt(row.valueDate)}
+                      </td>
+                    )}
+                    {showCol('Vehicle No.') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                        {(row.vehicleNo || row.bus_no) || '-'}
+                      </td>
+                    )}
                     {showCol('Trip Date') && (
                       <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{row.trip_date ? fmt(row.trip_date) : '-'}</td>
                     )}
@@ -1274,9 +1307,11 @@ export default function LedgerWisePage() {
                     {showCol('Rate') && (
                       <td className="px-3 py-2 border-b border-slate-100 text-slate-600 text-right tabular-nums whitespace-nowrap">{reportRate(row) || '-'}</td>
                     )}
-                    <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap" title={row.name || '-'}>
-                      {row.name || '-'}
-                    </td>
+                    {showCol('Name') && (
+                      <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap" title={row.name || '-'}>
+                        {row.name || '-'}
+                      </td>
+                    )}
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 max-w-[200px] truncate" title={row.description || '-'}>
                       {row.description || '-'}
                     </td>

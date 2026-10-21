@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from 'motion/react'
 import { ChevronDown, BarChart3, Search, X, Layers, BookOpen, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
@@ -171,6 +171,9 @@ export default function GroupWisePage() {
       ledger_id: null,
       user_id: userId,
     }),
+    // A new date range keeps the current table on screen until its figures
+    // arrive, so the selected group isn't torn down while it loads.
+    placeholderData: keepPreviousData,
   })
 
   // Everything posted before the From date, for the opening balance. Same
@@ -186,6 +189,7 @@ export default function GroupWisePage() {
       user_id: userId,
     }),
     enabled: !!applied.fromdate,
+    placeholderData: keepPreviousData,
   })
 
   const isLoading = l1 || l2 || l3 || l4 || l5 || l6 || l7
@@ -232,14 +236,14 @@ export default function GroupWisePage() {
   }, [txRes, openRes])
 
   // ── Build complete hierarchy ──────────────────────────────────────────────
-  const { roots, sectionMap } = useMemo(() => {
+  const { roots, sectionMap, nodeMap } = useMemo(() => {
     const mastersList:   any[] = mastersRes?.data   ?? []
     const groupsList:    any[] = groupsRes?.data    ?? []
     const subgroupsList: any[] = subgroupsRes?.data ?? []
     const childrenList:  any[] = childrenRes?.data  ?? []
     const ledgerList:    any[] = ledgersRes?.data   ?? []
 
-    if (!mastersList.length) return { roots: [], sectionMap: new Map<string, GWNode[]>() }
+    if (!mastersList.length) return { roots: [], sectionMap: new Map<string, GWNode[]>(), nodeMap: new Map<string, GWNode>() }
 
     // keyed lookup: "master_groups_{id}" etc.
     const nodeByKey = new Map<string, GWNode>()
@@ -380,7 +384,14 @@ export default function GroupWisePage() {
       ['EXPENSES',    allRoots.filter(r => r.district_id === '4')],
     ])
 
-    return { roots: allRoots, sectionMap }
+    // Every node by tableKey, virtual Reserve & Surplus included: the table and
+    // the dropdowns remember what's selected by key, so a change of dates can
+    // point them at the rebuilt nodes instead of starting over.
+    const nodeMap = new Map<string, GWNode>()
+    const index = (n: GWNode) => { nodeMap.set(n.tableKey, n); n.children.forEach(index) }
+    allRoots.forEach(index)
+
+    return { roots: allRoots, sectionMap, nodeMap }
   }, [mastersRes, groupsRes, subgroupsRes, childrenRes, ledgersRes, amountMap])
 
   // ── Flat search index ─────────────────────────────────────────────────────
@@ -400,32 +411,41 @@ export default function GroupWisePage() {
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [selectedSection, setSelectedSection] = useState('')
-  const [dropdowns, setDropdowns] = useState<DropdownOption[][]>([])
+  const [rawDropdowns, setDropdowns] = useState<DropdownOption[][]>([])
   const [selections, setSelections] = useState<(string | number)[]>([])
-  const [tableRows, setTableRows] = useState<TableRow[]>([])
-  const tableTotal = useMemo(() => tableRows.reduce((s, r) => s + r.total, 0), [tableRows])
-  const tableTotals = useMemo(() => tableRows.reduce(
-    (t, r) => ({ opening: t.opening + r.opening, debit: t.debit + r.debit, credit: t.credit + r.credit, closing: t.closing + r.closing }),
-    { opening: 0, debit: 0, credit: 0, closing: 0 }), [tableRows])
+  // The rows on the table are remembered as node keys (plus the parent group's
+  // name) and read off the current hierarchy, so loading another date range
+  // refreshes their figures in place.
+  const [rowSpec, setRowSpec] = useState<{ key: string; group: string }[]>([])
+  // Dropdown options carry node references from when they were built; point
+  // them at the nodes of the latest data.
+  const dropdowns = useMemo(
+    () => rawDropdowns.map(opts => opts.map(o => (o.node ? { ...o, node: nodeMap.get(o.node.tableKey) ?? o.node } : o))),
+    [rawDropdowns, nodeMap])
   const rowOf = (n: GWNode, group: string): TableRow => ({
     id: n.id, name: n.name, type: n.nodeType === 'group' ? 'Group' : 'Ledger',
     total: n.totalAmount, opening: n.opening, debit: n.debit, credit: n.credit, closing: n.closing, group,
     district_id: String(n.district_id ?? ''),
   })
+  const tableRows = useMemo<TableRow[]>(
+    () => rowSpec.flatMap(({ key, group }) => { const n = nodeMap.get(key); return n ? [rowOf(n, group)] : [] }),
+    [rowSpec, nodeMap])
+  const tableTotal = useMemo(() => tableRows.reduce((s, r) => s + r.total, 0), [tableRows])
+  const tableTotals = useMemo(() => tableRows.reduce(
+    (t, r) => ({ opening: t.opening + r.opening, debit: t.debit + r.debit, credit: t.credit + r.credit, closing: t.closing + r.closing }),
+    { opening: 0, debit: 0, credit: 0, closing: 0 }), [tableRows])
   // Every row on the table comes from the one section picked above, so the
   // totals row reads its signs the same way the rows do.
   const tableDistrict = tableRows[0]?.district_id ?? ''
 
-  // Selecting a financial year refetches the transaction totals (sectionMap
-  // recomputes from the new amounts), but tableRows is only ever set by
-  // walking the hierarchy in response to a section/dropdown click — it won't
-  // pick up the refreshed numbers on its own. Reset the drill-down so the
-  // user re-enters it against the now up-to-date data, same as Load does.
+  // Selecting a financial year moves the whole report to another year, so the
+  // drill-down starts over. (Load, by contrast, keeps the selection and just
+  // refreshes its figures for the new dates.)
   useEffect(() => {
     setSelectedSection('')
     setDropdowns([])
     setSelections([])
-    setTableRows([])
+    setRowSpec([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fyMin, fyMax])
 
@@ -502,11 +522,11 @@ export default function GroupWisePage() {
   }, [flatSearchItems, searchQuery])
 
   const showAll = (children: GWNode[], parent: GWNode | null = null) => {
-    setTableRows(children.map(c => rowOf(c, parent?.name ?? '')))
+    setRowSpec(children.map(c => ({ key: c.tableKey, group: parent?.name ?? '' })))
   }
 
   const showSingle = (node: GWNode, parent: GWNode | null = null) => {
-    setTableRows([rowOf(node, parent?.name ?? '')])
+    setRowSpec([{ key: node.tableKey, group: parent?.name ?? '' }])
   }
 
   const handleLedgerClick = (row: TableRow) => {
@@ -587,7 +607,7 @@ export default function GroupWisePage() {
     setSelectedSection(key)
     setDropdowns([])
     setSelections([])
-    setTableRows([])
+    setRowSpec([])
 
     const roots = sectionMap.get(key) ?? []
     if (!roots.length) { toast.info('No data for this section'); return }
@@ -596,7 +616,7 @@ export default function GroupWisePage() {
     roots.forEach(r => level2Groups.push(...r.children.filter(c => c.nodeType === 'group')))
 
     if (!level2Groups.length) {
-      setTableRows(roots.map(r => rowOf(r, '')))
+      setRowSpec(roots.map(r => ({ key: r.tableKey, group: '' })))
       return
     }
 
@@ -667,15 +687,9 @@ export default function GroupWisePage() {
   }
 
   // ── Reload on date change ─────────────────────────────────────────────────
-  const handleLoad = () => {
-    setApplied({ ...filter })
-    setSelectedSection('')
-    setDropdowns([])
-    setSelections([])
-    setTableRows([])
-    setColFilters({})
-    setAmountFilter('')
-  }
+  // Only the dates change: the section, the group dropdowns and the column
+  // filters stay as picked, and the table refreshes against the new range.
+  const handleLoad = () => setApplied({ ...filter })
 
   const downloadDate = () => fmtFileDate(new Date())
 

@@ -1,10 +1,10 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Plus, Pencil, Trash2, Check, X, FolderPlus, FileText, Info, ExternalLink, Search, Layers, BookOpen, RefreshCw } from 'lucide-react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu, DateRangePicker } from '@/components/shared'
 import { exportRows, type ExportCell, type ExportFormat } from '@/lib/tableExport'
 import { formatDate, todayISO } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
@@ -333,6 +333,17 @@ export default function ProfitAndLossPage() {
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
 
+  // The report covers the whole financial year until another range is loaded;
+  // selecting a financial year snaps the range back to that year's span.
+  const [{ fromdate, todate }, setRange] = useState({ fromdate: fyMin, todate: fyMax })
+  const [appliedDates, setAppliedDates] = useState({ fromdate: fyMin, todate: fyMax })
+  const fyMounted = useRef(false)
+  useEffect(() => {
+    if (!fyMounted.current) { fyMounted.current = true; return }
+    setRange({ fromdate: fyMin, todate: fyMax })
+    setAppliedDates({ fromdate: fyMin, todate: fyMax })
+  }, [fyMin, fyMax])
+
   const [allExpanded, setAllExpanded] = useState(false)
   const [sortMode, setSortMode]       = useState<'name' | 'name_desc'>('name')
   const [addModal, setAddModal]       = useState<{ parent: HierarchyNode; type: 'group' | 'ledger' } | null>(null)
@@ -349,8 +360,9 @@ export default function ProfitAndLossPage() {
   const { data: childrenRes, isFetching: f4, refetch: r4 }  = useQuery({ queryKey: ['pl-children'],  queryFn: () => accountingService.getMainMastersSubchild() })
   const { data: ledgersRes, isFetching: f5, refetch: r5 }   = useQuery({ queryKey: ['pl-ledgers'],   queryFn: () => accountingService.getLedgerData(qParams) })
   const { data: txRes, isFetching: f6, refetch: r6 }        = useQuery({
-    queryKey: ['pl-transactions', fyMin, fyMax],
-    queryFn: () => accountingService.getTransactionsReport({ fromdate: fyMin, todate: fyMax, ledger_name: '', ledger_id: null, user_id: userId }),
+    queryKey: ['pl-transactions', appliedDates],
+    queryFn: () => accountingService.getTransactionsReport({ fromdate: appliedDates.fromdate, todate: appliedDates.todate, ledger_name: '', ledger_id: null, user_id: userId }),
+    placeholderData: keepPreviousData,
   })
 
   const isRefreshing = f1 || f2 || f3 || f4 || f5 || f6
@@ -704,6 +716,15 @@ export default function ProfitAndLossPage() {
       {/* Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <FYSelector className="pb-4 border-b border-slate-100" />
+        <div className="flex items-end gap-4 flex-wrap">
+          <div>
+            <Label>Date</Label>
+            <DateRangePicker from={fromdate} to={todate} min={fyMin} max={fyMax} onChange={setRange} />
+          </div>
+          <Button onClick={() => setAppliedDates({ fromdate, todate })} className="bg-blue-600 hover:bg-blue-700">
+            <RefreshCw className="w-4 h-4" /> Load
+          </Button>
+        </div>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <button
             onClick={handleExpandAll}
@@ -721,7 +742,7 @@ export default function ProfitAndLossPage() {
                 // Closing line, as on the summary cards below the tree.
                 const net = income.reduce((s, n) => s + n.totalAmount, 0) - expenses.reduce((s, n) => s + n.totalAmount, 0)
                 rows.push(['', net >= 0 ? 'NET PROFIT' : 'NET LOSS', '', exportAmount(Math.abs(net), format)])
-                exportRows({ title: `Profit & Loss (${formatDate(fyMin)} to ${formatDate(fyMax)})`, fileName: 'Profit and Loss', headers: ['Sl No', 'Particulars', 'Type', 'Amount'], rows, format })
+                exportRows({ title: `Profit & Loss (${formatDate(appliedDates.fromdate)} to ${formatDate(appliedDates.todate)})`, fileName: 'Profit and Loss', headers: ['Sl No', 'Particulars', 'Type', 'Amount'], rows, format })
               }}
             />
             <button
