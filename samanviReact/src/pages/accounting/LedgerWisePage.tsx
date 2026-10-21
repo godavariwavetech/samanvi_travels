@@ -779,9 +779,9 @@ export default function LedgerWisePage() {
   // ─── Optional columns ──────────────────────────────────────────────────────
   // Everything between Opp-Ledger and Description is optional, ticked on and
   // off above the table the way Voucher Approvals' "Show columns" works; all
-  // start visible. Ref No., Date, Voucher, Opp-Ledger, Description and the
-  // amounts stay.
-  const [extraCols, setExtraCols] = useState<Set<string>>(new Set(OPTIONAL_COLS))
+  // start hidden and only appear when the reader ticks them. Ref No., Date,
+  // Voucher, Opp-Ledger, Description and the amounts always stay.
+  const [extraCols, setExtraCols] = useState<Set<string>>(new Set())
   const showCol = (c: string) => extraCols.has(c)
   const shownOptional = OPTIONAL_COLS.filter(showCol)
   const extraCount = shownOptional.length
