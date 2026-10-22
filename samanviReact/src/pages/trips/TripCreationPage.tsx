@@ -505,7 +505,11 @@ export default function TripCreationPage() {
     return !row?.driver1_name && !row?.opt_driver1_name
   })
 
+  // A second click lands before the button has re-rendered as disabled, so the
+  // lock is a ref: it flips at once and holds until the request settles.
+  const submitLock = useRef(false)
   const { mutate: submitGrid, isPending: submittingGrid } = useMutation({
+    onSettled: () => { submitLock.current = false },
     mutationFn: () => {
       const rows = submitRoutes.map((r) => {
         const row = gridRows[r.id]
@@ -589,6 +593,7 @@ export default function TripCreationPage() {
     .map((r) => ({ route: r, row: vanRows[r.id] as VanRow }))
 
   const { mutate: submitVanRows, isPending: submittingVan } = useMutation({
+    onSettled: () => { submitLock.current = false },
     mutationFn: () => {
       const rows = readyVanRows.map(({ route, row }) => {
         // Anything typed before the row was switched to Halt is dropped rather
@@ -727,12 +732,12 @@ export default function TripCreationPage() {
   // same button, so the count and the disabled state never disagree), with a
   // jump to the other end beside each.
   const submitButton = vehicleType === 'Van' ? (
-    <Button onClick={() => submitVanRows()} disabled={submittingVan || readyVanRows.length === 0} className="px-10 h-11">
+    <Button onClick={() => { if (submitLock.current) return; submitLock.current = true; submitVanRows() }} disabled={submittingVan || readyVanRows.length === 0} className="px-10 h-11">
       <Save className="w-4 h-4" />
       {submittingVan ? 'Submitting…' : `Submit ${readyVanRows.length > 0 ? `(${readyVanRows.length})` : ''}`}
     </Button>
   ) : (
-    <Button onClick={() => submitGrid()} disabled={submittingGrid || submitRoutes.length === 0 || incompleteRoutes.length > 0} className="px-10 h-11">
+    <Button onClick={() => { if (submitLock.current) return; submitLock.current = true; submitGrid() }} disabled={submittingGrid || submitRoutes.length === 0 || incompleteRoutes.length > 0} className="px-10 h-11">
       <Save className="w-4 h-4" />
       {submittingGrid ? 'Submitting…' : `Submit ${submitRoutes.length > 0 ? `(${submitRoutes.length})` : ''}`}
     </Button>
