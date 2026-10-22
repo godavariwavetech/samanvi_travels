@@ -5459,7 +5459,28 @@ exports.vanTripRowProblem = function (r, hired) {
 // filed from Trip Expenses, which links it back with `voucher_number`. Rows
 // that carry both ledgers are still listed in `voucherCandidates` for callers
 // that want to know, but the controller no longer acts on them.
+// Trip sheets are filed one at a time. The duplicate checks below read the day's
+// trips and the insert comes after, so two submits arriving together (a double
+// click, a retry) both passed the check and both inserted - the same trip twice
+// under one reference number. Each call now waits for the one before it, so the
+// second sees the first's rows and skips them.
+var tripCreateQueue = Promise.resolve();
 exports.bulkCreateTripsMdl = function (trip_date, rows, userId, usrNm, callback) {
+  var run = function () {
+    return new Promise(function (resolve) {
+      var done = false;
+      exports.bulkCreateTripsNow(trip_date, rows, userId, usrNm, function (err, res) {
+        if (done) return;
+        done = true;
+        resolve();
+        callback(err, res);
+      });
+    });
+  };
+  tripCreateQueue = tripCreateQueue.then(run, run);
+};
+
+exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback) {
   var cntxtDtls = 'in bulkCreateTripsMdl';
   // A Halt row records that the service did not run, so it legitimately has no
   // bus and no crew — filtering on bus_no alone silently threw those away and
