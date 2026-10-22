@@ -3074,7 +3074,9 @@ LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
 LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
+  AND vd.id = (SELECT MIN(x.id) FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type = 'Debit Account' AND x.d_in = 0)
 LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+  AND vc.id = (SELECT MIN(x.id) FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type = 'Credit Account' AND x.d_in = 0)
 LEFT JOIN driverone dn ON dn.id = t.service_no_id
 WHERE
   t.d_in = '0' AND t.admin_status != '1'
@@ -3547,7 +3549,9 @@ LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
 LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
+  AND vd.id = (SELECT MIN(x.id) FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type = 'Debit Account' AND x.d_in = 0)
 LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+  AND vc.id = (SELECT MIN(x.id) FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type = 'Credit Account' AND x.d_in = 0)
 LEFT JOIN driverone dn ON dn.id = t.service_no_id
 WHERE t.d_in = 0 AND t.trip_date BETWEEN '${data.fromdate}' AND '${data.todate}'
 ORDER BY t.id DESC`;
@@ -5786,7 +5790,9 @@ LEFT JOIN driver_register d3 ON t.paid_to_id = d3.id
 LEFT JOIN helper_register h2 ON t.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON t.paid_to_id = s2.id
 LEFT JOIN mainvoucher_subt vd ON vd.c_number = t.voucher_number AND vd.account_type = 'Debit Account' AND vd.d_in = 0
+  AND vd.id = (SELECT MIN(x.id) FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type = 'Debit Account' AND x.d_in = 0)
 LEFT JOIN mainvoucher_subt vc ON vc.c_number = t.voucher_number AND vc.account_type = 'Credit Account' AND vc.d_in = 0
+  AND vc.id = (SELECT MIN(x.id) FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type = 'Credit Account' AND x.d_in = 0)
 LEFT JOIN driverone dn ON dn.id = t.service_no_id
 WHERE
   t.d_in = '0'
