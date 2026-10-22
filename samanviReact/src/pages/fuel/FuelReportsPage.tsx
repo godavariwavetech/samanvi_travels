@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Search, X, Fuel } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, TotalsFooter, Badge, PageHeader, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
+import { fuelTotalItems, FuelTotalsCards } from './fuelTotals'
 import { fuelService } from '@/services/fuel.service'
 import { formatDate, formatDateTime, withStatusLabel, formatAmount, todayISO, toLocalISODate } from '@/lib/utils'
 
@@ -14,6 +15,9 @@ export default function FuelReportsPage() {
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [filter, setFilter] = useState({ fromdate: weekAgo, todate: today, admin_status: '1' })
   const [applied, setApplied] = useState(filter)
+  // Ids of the rows the table is showing after its search box and column
+  // filters, so the totals add up what is on screen.
+  const [visibleIds, setVisibleIds] = useState<Set<string> | null>(null)
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
 
   const { data, isLoading } = useQuery({
@@ -37,7 +41,8 @@ export default function FuelReportsPage() {
     { label: 'Ref #', key: 'c_number', filterable: true, render: (v, r: Record<string, unknown>) => (
         <button onClick={() => onView(r)} className="text-blue-600 hover:underline font-medium">{String(v)}</button>
       ) },
-    { label: 'Date', key: 'date', render: (v) => formatDate(v) },
+    { label: 'Date', key: 'date', filterable: true, render: (v) => formatDate(v) },
+    { label: 'Value Date', key: 'value_date', filterable: true, render: (v) => formatDate(v) },
     { label: 'Bus No', key: 'vehicle_number', filterable: true },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
@@ -60,8 +65,11 @@ export default function FuelReportsPage() {
     },
   ], [])
 
-  const totalBill = rows.reduce((s, r) => s + Number(r.total_bill || 0), 0)
-  const totalQty = rows.reduce((s, r) => s + Number(r.quantity_filled || 0), 0)
+  // Date and Value Date as plain dates (value date falls back to date for
+  // entries that predate the field) so the header filters list them cleanly.
+  const tableRows = useMemo<Record<string, unknown>[]>(() => rows.map((r) => ({ ...r, date: String(r.date ?? '').slice(0, 10), value_date: String(r.value_date || r.date || '').slice(0, 10) })), [rows])
+  const totalRows = visibleIds ? tableRows.filter((r) => visibleIds.has(String(r.id))) : tableRows
+  const totalItems = fuelTotalItems(totalRows)
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -91,28 +99,19 @@ export default function FuelReportsPage() {
         </div>
       </GlassCard>
 
-      {rows.length > 0 && (
-        <div className="flex gap-4 flex-wrap text-sm">
-          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Entries:</span> <b>{rows.length}</b>
-          </div>
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Litres:</span> <b>{totalQty.toFixed(2)} L</b>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2">
-            <span className="text-slate-600">Total Amount:</span> <b>₹{formatAmount(totalBill)}</b>
-          </div>
-        </div>
-      )}
+      <FuelTotalsCards items={totalItems} />
 
       <DataTable
         title="Filtered Fuel Entries"
         columns={columns} columnFilters={columnFilters} onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
-        data={withStatusLabel(rows)}
+        data={withStatusLabel(tableRows)}
+        onFilteredChange={(r) => setVisibleIds(new Set(r.map((x) => String((x as Record<string, unknown>).id))))}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
       />
+
+      <TotalsFooter title="Total" items={totalItems} />
 
       {/* View modal */}
       <AnimatePresence>
@@ -120,6 +119,7 @@ export default function FuelReportsPage() {
           <RecordModal size="lg" title="Fuel Entry" subtitle={String(viewRow.c_number ?? '')} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setViewRow(null)}>
             <DetailGrid>
               <DetailField label="Date" value={formatDate(String(viewRow.date ?? ''))} />
+              <DetailField label="Value Date" value={formatDate(String(viewRow.value_date || viewRow.date || ''))} />
               <DetailField label="Vehicle No" value={String(viewRow.vehicle_number ?? '—')} />
               <DetailField label="Quantity" value={`${String(viewRow.quantity_filled ?? 0)} L`} />
               <DetailField label="Price / Litre" value={`₹${formatAmount(viewRow.price_per_liter)}`} />

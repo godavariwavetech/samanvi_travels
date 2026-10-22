@@ -5,7 +5,8 @@ import { Fuel, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
-import type { Column, LedgerLine, ApprovalTab, TotalsFooterItem } from '@/components/shared'
+import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
+import { fuelTotalItems, FuelTotalsCards } from './fuelTotals'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
@@ -67,8 +68,6 @@ const today = todayISO()
 const FUEL_DEPENDENT_KEYS = ['fuel-', 'buses', 'ledger-wise', 'daybook', 'bs-transactions', 'pl-transactions', 'gw-transactions', 'gw-opening', 'trial-balance']
 const isFuelDependent = (key: unknown) => FUEL_DEPENDENT_KEYS.some((k) => String(key).startsWith(k))
 
-const num = (v: unknown) => Number(v) || 0
-const fmtQty = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 })
 // yyyy-mm-dd inside a range; an empty end is open.
 const inRange = (d: string, from: string, to: string) => (!from || d >= from) && (!to || d <= to)
 
@@ -209,20 +208,6 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
           Debit (₹{debitSum.toLocaleString('en-IN')}) and Credit (₹{creditSum.toLocaleString('en-IN')}) must both equal the bill (₹{bill.toLocaleString('en-IN')}) before saving.
         </p>
       )}
-    </div>
-  )
-}
-
-// The same totals as the bar under the table, as cards above it.
-function FuelTotalsCards({ items }: { items: TotalsFooterItem[] }) {
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
-      {items.map((it) => (
-        <div key={it.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">{it.label}</div>
-          <div className="text-lg font-bold text-slate-900 mt-0.5">{it.value}</div>
-        </div>
-      ))}
     </div>
   )
 }
@@ -431,8 +416,8 @@ export default function FuelEntryPage() {
   const entryColumns: Column[] = useMemo(() => [
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     { label: 'Ref #', key: 'c_number', filterable: true },
-    { label: 'Date', key: 'date', render: (v) => formatDate(String(v ?? '')) },
-    { label: 'Value Date', key: 'value_date', render: (v, r: Record<string, unknown>) => formatDate(String(v || r.date || '')) },
+    { label: 'Date', key: 'date', filterable: true, render: (v) => formatDate(String(v ?? '')) },
+    { label: 'Value Date', key: 'value_date', filterable: true, render: (v, r: Record<string, unknown>) => formatDate(String(v || r.date || '')) },
     { label: 'Vehicle No', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
     { label: 'Prev Odo', key: 'previous_odometer' },
     { label: 'Present Odo', key: 'present_odometer' },
@@ -480,24 +465,9 @@ export default function FuelEntryPage() {
   })
   const filtersActive = !!(dateFilter.from || dateFilter.to || valueDateFilter.from || valueDateFilter.to)
 
-  // Totals over the rows on screen. Both averages are weighted by litres:
-  // average bill = total bill / total quantity (rupees per litre) and average
-  // KMPL = total km / total quantity, not the mean of each row's own average.
+  // Totals over the rows on screen (shared with Fuel Approved Reports).
   const totalRows = visibleIds ? shownEntries.filter((r) => visibleIds.has(String(r.id))) : shownEntries
-  const totalQty = totalRows.reduce((s, r) => s + num(r.quantity_filled), 0)
-  const totalBill = totalRows.reduce((s, r) => s + num(r.total_bill), 0)
-  const totalKm = totalRows.reduce((s, r) => s + num(r.kilometers), 0)
-  const avgBill = totalQty > 0 ? totalBill / totalQty : 0
-  const avgKmpl = totalQty > 0 ? totalKm / totalQty : 0
-  const totalItems: TotalsFooterItem[] = [
-    { label: 'Entries', value: totalRows.length },
-    { label: 'Total Liters (Qty)', value: `${fmtQty(totalQty)} L` },
-    { label: 'Total Amount', value: `₹${formatAmount(totalBill)}` },
-    { label: 'Total KM', value: fmtQty(totalKm) },
-    { label: 'Average Bill (₹/L)', value: `₹${formatAmount(avgBill)}` },
-    { label: 'Average KMPL', value: avgKmpl.toFixed(2) },
-  ]
-  // Column filters are scoped to the open tab, as on Voucher Approvals -
+  const totalItems = fuelTotalItems(totalRows)  // Column filters are scoped to the open tab, as on Voucher Approvals -
   // carrying them over made the next tab look stuck or empty.
   const changeTab = (t: ApprovalTab) => { setTab(t); setColumnFilters({}); setSelectedRows([]) }
 
@@ -561,7 +531,7 @@ export default function FuelEntryPage() {
       <DataTable
         title={tab === 'pending' ? 'Fuel Entries Awaiting Approval' : tab === 'approved' ? 'Approved Fuel Entries' : 'Rejected Fuel Entries'}
         columns={entryColumns}
-        data={withStatusLabel(shownEntries)}
+        data={withStatusLabel(shownEntries.map((r) => ({ ...r, date: String(r.date ?? '').slice(0, 10), value_date: String(r.value_date || r.date || '').slice(0, 10) })))}
         loading={isLoading}
         onAction={() => {}}
         actions={[]}
