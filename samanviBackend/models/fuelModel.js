@@ -72,6 +72,25 @@ function nextRefNumber(connection, fuelDate, cb) {
   });
 }
 
+// A vehicle's odometer (busses.odometer, which pre-fills the next entry's
+// Previous Odometer and feeds the service reminders) is the present reading of
+// its latest live entry - by fill date, then entry order. It is re-derived
+// after every create, edit, delete and approve / reject rather than rolled by
+// hand, so a corrected reading, a removed entry or a rejected one cannot leave
+// the old figure behind. A vehicle with no live entry keeps what it has.
+function syncBusOdometer(db, busNo, cb) {
+  if (!busNo) return cb(null);
+  db.query(
+    'SELECT present_odometer FROM fuel_entry WHERE vehicle_number = ? AND d_in = 0 AND admin_status <> 2 ORDER BY date DESC, id DESC LIMIT 1',
+    [busNo],
+    function (err, rows) {
+      if (err) return cb(err);
+      if (!rows.length) return cb(null);
+      db.query('UPDATE busses SET odometer = ? WHERE bus_no = ?', [String(rows[0].present_odometer || 0), busNo], function (err2) { cb(err2); });
+    }
+  );
+}
+
 function insertSubtRows(connection, params, cb) {
   var { c_id, c_number, entry_by, user_id, vehicleNo, voucherdate, rows, accountType } = params;
   if (!rows || rows.length === 0) return cb(null);
@@ -180,20 +199,15 @@ exports.createFuelEntryMdl = function (data, callback) {
             if (err) return rollback(err);
             insertSubtRows(connection, Object.assign({}, subtParams, { rows: creditRows.map(function (r) { return { ledger: r.creditledger, amount: r.creditamount }; }), accountType: 'Credit Account' }), function (err) {
               if (err) return rollback(err);
-              // Roll bus odometer forward so the next fuel entry defaults to
-              // this reading — matches old app step 4 of submit.
-              connection.query(
-                'UPDATE busses SET odometer = ? WHERE bus_no = ?',
-                [String(data.presentOdometer || 0), data.vehicleNumber],
-                function (err) {
+              // The next fuel entry defaults to the vehicle's latest reading.
+              syncBusOdometer(connection, data.vehicleNumber, function (err) {
+                if (err) return rollback(err);
+                connection.commit(function (err) {
                   if (err) return rollback(err);
-                  connection.commit(function (err) {
-                    if (err) return rollback(err);
-                    connection.release();
-                    callback(null, { id: parentId, c_number: ref.c_number });
-                  });
-                }
-              );
+                  connection.release();
+                  callback(null, { id: parentId, c_number: ref.c_number });
+                });
+              });
             });
           });
         });
@@ -209,17 +223,17 @@ exports.createFuelEntryMdl = function (data, callback) {
 // API refuses too, so nothing else can do it by accident.
 var lockedError = function () { var e = new Error('Approved / rejected entries cannot be edited or deleted'); e.code = 'LOCKED'; return e; };
 function whenFuelEntryOpen(id, callback, run) {
-  sqldb.query('SELECT admin_status FROM fuel_entry WHERE id = ? AND d_in = 0', [Number(id)], function (err, rows) {
+  sqldb.query('SELECT admin_status, vehicle_number FROM fuel_entry WHERE id = ? AND d_in = 0', [Number(id)], function (err, rows) {
     if (err) return callback(err);
     if (rows.length && Number(rows[0].admin_status) !== 0) return callback(lockedError());
-    run();
+    run(rows[0]);
   });
 }
 
 exports.updateFuelEntryMdl = function (data, callback) {
-  whenFuelEntryOpen(data.id, callback, function () { updateFuelEntryOpen(data, callback); });
+  whenFuelEntryOpen(data.id, callback, function (before) { updateFuelEntryOpen(data, callback, before && before.vehicle_number); });
 };
-function updateFuelEntryOpen(data, callback) {
+function updateFuelEntryOpen(data, callback, oldVehicle) {
   sqldb.getConnection(function (err, connection) {
     if (err) return callback(err);
     connection.beginTransaction(function (err) {
@@ -266,10 +280,18 @@ function updateFuelEntryOpen(data, callback) {
             if (err) return rollback(err);
             insertSubtRows(connection, Object.assign({}, subtParams, { rows: creditRows.map(function (r) { return { ledger: r.creditledger, amount: r.creditamount }; }), accountType: 'Credit Account' }), function (err) {
               if (err) return rollback(err);
-              connection.commit(function (err) {
+              // The edit may have moved the latest reading, or the entry to
+              // another vehicle: bring both vehicles' odometers in line.
+              syncBusOdometer(connection, data.vehicleNumber, function (err) {
                 if (err) return rollback(err);
-                connection.release();
-                callback(null, { id: data.id });
+                syncBusOdometer(connection, oldVehicle && oldVehicle !== data.vehicleNumber ? oldVehicle : null, function (err) {
+                  if (err) return rollback(err);
+                  connection.commit(function (err) {
+                    if (err) return rollback(err);
+                    connection.release();
+                    callback(null, { id: data.id });
+                  });
+                });
               });
             });
           });
@@ -280,13 +302,17 @@ function updateFuelEntryOpen(data, callback) {
 };
 
 exports.deleteFuelEntryMdl = function (data, callback) {
-  whenFuelEntryOpen(data.id, callback, function () {
+  whenFuelEntryOpen(data.id, callback, function (before) {
     var now = moment().format('YYYY-MM-DD HH:mm:ss');
     sqldb.query(
       `UPDATE fuel_entry SET d_in=1, deletedby_id=?, deletedby_name=?, deletedby_date=? WHERE id=?;
        UPDATE fuelentry_subt SET d_in=1 WHERE lastinsert_id=?`,
       [String(data.user_id || 0), data.named || '', now, Number(data.id), String(data.id)],
-      callback
+      function (err, results) {
+        if (err) return callback(err);
+        // A deleted entry no longer counts towards the vehicle's odometer.
+        syncBusOdometer(sqldb, before && before.vehicle_number, function (err2) { callback(err2, results); });
+      }
     );
   });
 };
@@ -342,7 +368,15 @@ exports.updateFuelAdminStatusMdl = function (data, callback) {
      UPDATE fuelentry_subt SET admin_status=? WHERE lastinsert_id=?`,
     [status, String(data.user_id || 0), data.named || '', now].concat(reasonArg, [Number(data.id),
      status, String(data.id)]),
-    callback
+    function (err, results) {
+      if (err) return callback(err);
+      // A rejected entry stops counting towards the odometer; approving or
+      // reopening one puts it back.
+      sqldb.query('SELECT vehicle_number FROM fuel_entry WHERE id = ?', [Number(data.id)], function (err2, rows) {
+        if (err2 || !rows.length) return callback(err2, results);
+        syncBusOdometer(sqldb, rows[0].vehicle_number, function (err3) { callback(err3, results); });
+      });
+    }
   );
 };
 

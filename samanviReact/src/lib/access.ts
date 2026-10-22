@@ -162,7 +162,11 @@ export function permissionsFor(pathname: string, menu: MenuItem[] | undefined): 
   const canView = rule ? has('can_view') : true
   const canAdd = canView && has('can_add')
   const canEdit = canView && has('can_edit')
-  const canApprove = canView && grants.some(s => Number(s.can_view) === 1 && (Number(s.can_add) === 1 || Number(s.can_edit) === 1) &&
+  // Approving is its own grant (can_approve), not implied by Add or Edit. A
+  // server that predates the column sends none, and then the old write-grant
+  // rule still applies.
+  const canApprove = canView && grants.some(s => Number(s.can_view) === 1 &&
+    (s.can_approve === undefined ? Number(s.can_add) === 1 || Number(s.can_edit) === 1 : Number(s.can_approve) === 1) &&
     (!rule?.actionSubs?.approve || rule.actionSubs.approve.includes(Number(s.id))))
   return { canView, canAdd, canEdit, canDelete: canView && has('can_delete'), canApprove }
 }

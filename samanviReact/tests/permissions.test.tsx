@@ -65,3 +65,11 @@ const manager = menu(200, 19, { ...viewer, can_edit: 1 })
 assert.equal(permissionsFor('/garage/tracking', manager).canApprove, true)
 assert.equal(permissionsFor('/garage/tracking', manager).canEdit, false)
 console.log('Frontend permission and rendered control regression checks passed.')
+
+// Approving is its own grant: Add / Edit no longer imply it once the server
+// sends can_approve, and the grant on its own is enough (with View).
+const approveOnly = menu(61, 14, { ...viewer, can_approve: 1 } as typeof viewer)
+assert.equal(permissionsFor('/accounting/voucher-approvals', approveOnly).canApprove, true)
+assert.equal(permissionsFor('/accounting/voucher-approvals', approveOnly).canEdit, false)
+const editorNoApprove = menu(61, 14, { ...viewer, can_add: 1, can_edit: 1, can_approve: 0 } as typeof viewer)
+assert.equal(permissionsFor('/accounting/voucher-approvals', editorNoApprove).canApprove, false)

@@ -9,7 +9,7 @@ import { exportRows, type ExportCell, type ExportFormat } from '@/lib/tableExpor
 import { formatDate, todayISO } from '@/lib/utils'
 import { PayablesPopup } from './PayablesPopup'
 import { accountingService } from '@/services/accounting.service'
-import { getCurrentFY, defaultReportRange } from '@/lib/fy'
+import { getCurrentFY } from '@/lib/fy'
 import { useFYStore } from '@/store/fy.store'
 
 const hasGroupChildren = (n: HierarchyNode) => n.children?.some(c => c.nodeType === 'group') ?? false
@@ -330,12 +330,14 @@ export default function BalanceSheetPage() {
   const fyMin = selectedFY.fromDate
   const fyMax = selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate
 
-  const [{ fromdate, todate }, setRange] = useState(() => defaultReportRange(selectedFY, today))
-  const [appliedDates, setAppliedDates] = useState({ fromdate, todate })
+  // The report opens on the whole selected financial year (to today, for the
+  // current one) rather than a single day.
+  const [{ fromdate, todate }, setRange] = useState({ fromdate: fyMin, todate: fyMax })
+  const [appliedDates, setAppliedDates] = useState({ fromdate: fyMin, todate: fyMax })
 
   // Selecting a financial year snaps the range to that year's full span and
   // re-fetches immediately — otherwise the FY tabs look like they do nothing.
-  // (Not on first render: the page opens on today, not on the whole year.)
+  // (Not on first render: the state above already starts on the year.)
   const fyMounted = useRef(false)
   useEffect(() => {
     if (!fyMounted.current) { fyMounted.current = true; return }

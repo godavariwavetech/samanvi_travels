@@ -52,6 +52,30 @@ function voucherHeaderApproved(alias) {
   return "EXISTS (SELECT 1 FROM mainvoucher_t vh WHERE vh.c_number = " + alias + ".c_number AND vh.d_in = 0 AND vh.status = 1)";
 }
 
+// Approve / Reject is its own grant on a sub-module (permissions.can_approve),
+// no longer implied by Add or Edit. A database that already has people
+// approving gets the column filled once from the old rule (View + Add/Edit),
+// so nobody loses access on deploy; untick it per user on User Management.
+// `present` lets the queries below leave the column out if the ALTER could not
+// run, instead of failing login.
+var approveCol = { present: false };
+(function initApproveColumn() {
+  sqldb.query(`SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'permissions' AND COLUMN_NAME = 'can_approve'`, function (err, rows) {
+    if (err) return console.log('[DB] permissions.can_approve check:', err.message);
+    if (rows && rows[0] && Number(rows[0].c) > 0) { approveCol.present = true; return; }
+    sqldb.query(`ALTER TABLE permissions ADD COLUMN can_approve TINYINT(1) NOT NULL DEFAULT 0`, function (err) {
+      if (err) return console.log('[DB] permissions.can_approve migration:', err.message);
+      approveCol.present = true;
+      console.log('[DB] permissions.can_approve column added');
+      sqldb.query(`UPDATE permissions SET can_approve = 1 WHERE can_view = 1 AND (can_add = 1 OR can_edit = 1)`, function (err2) {
+        if (err2) console.log('[DB] permissions.can_approve backfill:', err2.message);
+      });
+    });
+  });
+})();
+// ps.can_approve in a SELECT list, or a constant 0 while the column is missing.
+function approveSel(alias) { return approveCol.present ? alias + '.can_approve' : '0 AS can_approve'; }
+
 // Garage approval workflow schema migration (runs once on startup)
 (function initGarageWorkflow() {
   sqldb.query(`CREATE TABLE IF NOT EXISTS job_approval_stages (
@@ -844,7 +868,7 @@ exports.getUserDataMdl = function (user_id, callback) {
   var cntxtDtls = "in getUserDataMdl";
   var m = [user_id, user_id];
   var QRY_TO_EXEC = `SELECT mm.* from main_modules as mm join permissions as ps on mm.id=ps.module_id  where ps.user_id =? and ps.d_in <> 1 and mm.d_in=0 group by  ps.module_id    ;
-	SELECT mm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in=0 and mm.d_in=0 order by module_order  ;
+	SELECT mm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete, ${approveSel('ps')} from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in=0 and mm.d_in=0 order by module_order  ;
 	`;
 
   if (callback && typeof callback == "function")
@@ -908,7 +932,7 @@ exports.houseimageeditMdl = function (imageupload1, img_ind1, callback) {
 exports.getusermainmodulesMdl = function (reqdata, callback) {
   var cntxtDtls = "in getusermainmodulesMdl";
   var m = [reqdata.user_id];
-  var QRY_TO_EXEC = `SELECT m.id as module_id,m.title as module_nm,m.icon as main_icon,sm.*,m.order_by,p.can_add,p.can_edit,p.can_delete,p.can_view FROM permissions as p 
+  var QRY_TO_EXEC = `SELECT m.id as module_id,m.title as module_nm,m.icon as main_icon,sm.*,m.order_by,p.can_add,p.can_edit,p.can_delete,p.can_view,${approveSel('p')} FROM permissions as p 
 JOIN sub_modules as sm ON p.sub_module_id=sm.id
 JOIN main_modules as m ON m.id=p.module_id
 WHERE p.user_id=? AND p.d_in=0 AND sm.d_in=0 and m.d_in=0 order by m.order_by,sm.module_order asc;`;
@@ -985,7 +1009,7 @@ exports.postusermenulistMdl = async function (data, usr_id, callback) {
     // Insert all rows in parallel using Promise.all
     var QRY_TO_EXEC = `
       INSERT INTO permissions 
-      (user_id, module_id, sub_module_id, entry_by, can_add, can_edit, can_view, can_delete)
+      (user_id, module_id, sub_module_id, entry_by, can_add, can_edit, can_view, can_delete${approveCol.present ? ', can_approve' : ''})
       VALUES (?)
     `;
 
@@ -994,7 +1018,7 @@ exports.postusermenulistMdl = async function (data, usr_id, callback) {
         dbutil.sqlinjection(
           sqldb,
           QRY_TO_EXEC,
-          item,
+          approveCol.present ? item : item.slice(0, 8),
           cntxtDtls,
           function (err, results) {
             if (err) reject(err);
@@ -14265,9 +14289,9 @@ exports.checkJobPermissionMdl = function (data, callback) {
   var QRY_TO_EXEC = `
     SELECT
       MAX(CASE WHEN (sm.id = 200 OR (u.role_type IN (0, 1) AND sm.id = 63))
-        AND p.can_view = 1 AND (p.can_add = 1 OR p.can_edit = 1) THEN 1 ELSE 0 END) AS can_approve,
+        AND p.can_view = 1 AND ${approveCol.present ? 'p.can_approve = 1' : '(p.can_add = 1 OR p.can_edit = 1)'} THEN 1 ELSE 0 END) AS can_approve,
       MAX(CASE WHEN (sm.id = 201 OR (u.role_type IN (0, 1) AND sm.id = 63))
-        AND p.can_view = 1 AND (p.can_add = 1 OR p.can_edit = 1) THEN 1 ELSE 0 END) AS can_complete
+        AND p.can_view = 1 AND ${approveCol.present ? 'p.can_approve = 1' : '(p.can_add = 1 OR p.can_edit = 1)'} THEN 1 ELSE 0 END) AS can_complete
     FROM permissions p
     JOIN users u ON u.id = p.user_id AND u.d_in = 0
     JOIN sub_modules sm ON sm.id = p.sub_module_id
