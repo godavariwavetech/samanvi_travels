@@ -16,6 +16,7 @@ interface SubModule {
   can_edit: number
   can_view: number
   can_delete: number
+  can_approve?: number
 }
 
 interface PermState {
@@ -24,11 +25,12 @@ interface PermState {
   can_add: boolean
   can_edit: boolean
   can_delete: boolean
+  can_approve: boolean
 }
 
-const PERMS: Array<keyof Omit<PermState, 'enabled'>> = ['can_view', 'can_add', 'can_edit', 'can_delete']
+const PERMS: Array<keyof Omit<PermState, 'enabled'>> = ['can_view', 'can_add', 'can_edit', 'can_delete', 'can_approve']
 const PERM_LABEL: Record<string, string> = {
-  can_view: 'View', can_add: 'Add', can_edit: 'Edit', can_delete: 'Delete',
+  can_view: 'View', can_add: 'Add', can_edit: 'Edit', can_delete: 'Delete', can_approve: 'Approve',
 }
 
 export default function RolesPage() {
@@ -67,6 +69,7 @@ export default function RolesPage() {
         can_add: sm.can_add === 1,
         can_edit: sm.can_edit === 1,
         can_delete: sm.can_delete === 1,
+        can_approve: sm.can_approve === 1,
       }
     })
     setPerms(initial)
@@ -98,7 +101,7 @@ export default function RolesPage() {
         // If enabling access, auto-enable view
         ...(key === 'enabled' && val ? { can_view: true } : {}),
         // If disabling access, clear all
-        ...(key === 'enabled' && !val ? { can_view: false, can_add: false, can_edit: false, can_delete: false } : {}),
+        ...(key === 'enabled' && !val ? { can_view: false, can_add: false, can_edit: false, can_delete: false, can_approve: false } : {}),
       },
     }))
 
@@ -111,6 +114,7 @@ export default function RolesPage() {
         can_add: enable,
         can_edit: enable,
         can_delete: enable,
+        can_approve: enable,
       }
     })
     setPerms((p) => ({ ...p, ...update }))
@@ -134,6 +138,7 @@ export default function RolesPage() {
         can_edit: perms[sm.id]?.can_edit ? 1 : 0,
         can_view: perms[sm.id]?.can_view ? 1 : 0,
         can_delete: perms[sm.id]?.can_delete ? 1 : 0,
+        can_approve: perms[sm.id]?.can_approve ? 1 : 0,
       }))
 
       return usersService.saveUserMenuList(payload)
@@ -253,18 +258,18 @@ export default function RolesPage() {
             {isOpen && (
               <div className="divide-y divide-slate-100">
                 {/* Column headers */}
-                <div className="grid grid-cols-[1fr_80px_80px_80px_80px_80px] px-5 py-2 bg-slate-50/50 text-xs font-bold text-slate-400 uppercase">
+                <div className="grid grid-cols-[1fr_80px_80px_80px_80px_80px_80px] px-5 py-2 bg-slate-50/50 text-xs font-bold text-slate-400 uppercase">
                   <span>Sub-Module</span>
                   <span className="text-center">Access</span>
                   {PERMS.map((p) => <span key={p} className="text-center">{PERM_LABEL[p]}</span>)}
                 </div>
 
                 {subs.map((sm) => {
-                  const p = perms[sm.id] ?? { enabled: false, can_view: false, can_add: false, can_edit: false, can_delete: false }
+                  const p = perms[sm.id] ?? { enabled: false, can_view: false, can_add: false, can_edit: false, can_delete: false, can_approve: false }
                   return (
                     <div
                       key={sm.id}
-                      className={`grid grid-cols-[1fr_80px_80px_80px_80px_80px] items-center px-5 py-3 transition-colors ${p.enabled ? 'bg-white' : 'bg-slate-50/40'}`}
+                      className={`grid grid-cols-[1fr_80px_80px_80px_80px_80px_80px] items-center px-5 py-3 transition-colors ${p.enabled ? 'bg-white' : 'bg-slate-50/40'}`}
                     >
                       <span className={`text-sm font-medium ${p.enabled ? 'text-slate-800' : 'text-slate-400'}`}>
                         {sm.title}

@@ -1,8 +1,13 @@
 // Resolve action rights from the authenticated user's current database grants.
-// Approval/rejection/reopening require a write grant; View alone never suffices.
+// Approval/rejection/reopening need the sub-module's own Approve grant
+// (permissions.can_approve); View, Add or Edit alone never suffice. Only a
+// database that has no can_approve column yet falls back to the old rule
+// (a write grant), so a failed migration does not lock approvers out.
 function allows(grants, action) {
   return grants.some(grant => Number(grant.can_view) === 1 && (action === 'approve'
-    ? Number(grant.can_add) === 1 || Number(grant.can_edit) === 1
+    ? (grant.can_approve === undefined
+        ? Number(grant.can_add) === 1 || Number(grant.can_edit) === 1
+        : Number(grant.can_approve) === 1)
     : Number(grant['can_' + action]) === 1));
 }
 
@@ -29,7 +34,7 @@ function requirePermission(rule, action, database) {
       return res.status(403).json({ status: 403, msg: 'Permission denied' });
     }
     const pool = database || require('../config/dbconnect');
-    pool.query(`SELECT p.can_view, p.can_add, p.can_edit, p.can_delete
+    pool.query(`SELECT p.*
       FROM permissions p
       JOIN users u ON u.id = p.user_id AND u.d_in = 0
       JOIN sub_modules sm ON sm.id = p.sub_module_id AND sm.d_in = 0

@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
-import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
+import type { Column, LedgerLine, ApprovalTab, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
@@ -59,6 +59,18 @@ const toApiRows = (f: { patientsTstdts: LedgerLine<Ledger>[]; creditaddrowdts: L
 type FormState = ReturnType<typeof emptyForm>
 
 const today = todayISO()
+
+// Fuel entries refresh everything that is built from them: the fuel reports,
+// the vehicle list (its odometer), and the accounting reports that read the
+// approved entries' ledger lines. The query cache keeps those for a couple of
+// minutes, so a change here has to invalidate them or they show the old figures.
+const FUEL_DEPENDENT_KEYS = ['fuel-', 'buses', 'ledger-wise', 'daybook', 'bs-transactions', 'pl-transactions', 'gw-transactions', 'gw-opening', 'trial-balance']
+const isFuelDependent = (key: unknown) => FUEL_DEPENDENT_KEYS.some((k) => String(key).startsWith(k))
+
+const num = (v: unknown) => Number(v) || 0
+const fmtQty = (n: number) => n.toLocaleString('en-IN', { maximumFractionDigits: 2 })
+// yyyy-mm-dd inside a range; an empty end is open.
+const inRange = (d: string, from: string, to: string) => (!from || d >= from) && (!to || d <= to)
 
 function ledgerLabel(l: Ledger) {
   return l.temple_name || l.subchildtwo || `Ledger #${l.id}`
@@ -201,6 +213,20 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
   )
 }
 
+// The same totals as the bar under the table, as cards above it.
+function FuelTotalsCards({ items }: { items: TotalsFooterItem[] }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+      {items.map((it) => (
+        <div key={it.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">{it.label}</div>
+          <div className="text-lg font-bold text-slate-900 mt-0.5">{it.value}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function FuelEntryPage() {
   const { canAdd, canEdit, canDelete, canApprove } = usePermissions()
   const qc = useQueryClient()
@@ -217,6 +243,14 @@ export default function FuelEntryPage() {
   const [rejectTarget, setRejectTarget] = useState<{ rows: Record<string, unknown>[] } | null>(null)
   const [bulkApproving, setBulkApproving] = useState(false)
   const [bulkRejecting, setBulkRejecting] = useState(false)
+  // Date and Value Date filters on the table; an empty end is open.
+  const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
+  const [valueDateFilter, setValueDateFilter] = useState({ from: '', to: '' })
+  // The rows the table is showing after its search box and column filters, so
+  // the totals above and below always add up what is on screen. Kept as ids:
+  // the table only reports when the set of rows changes, so an edited row's
+  // figures are read from the fresh list.
+  const [visibleIds, setVisibleIds] = useState<Set<string> | null>(null)
 
   const { data: entries, isLoading } = useQuery({
     queryKey: ['fuel-entries'],
@@ -246,7 +280,7 @@ export default function FuelEntryPage() {
     ?? ledgers.find((l) => String(l.staticname) === 'EXPENSES' && /diesel/i.test(String(l.temple_name ?? '')))
   const openNew = () => {
     if (!canAdd) return toast.error('You do not have Add permission')
-    setForm({ ...emptyForm(), ...(dieselLedger ? { patientsTstdts: [{ ledger: dieselLedger, amount: '', auto: true }] } : {}) })
+    setForm(blankForm())
     setShowForm(true)
   }
   // The form opens by itself when the screen is entered - once, after the
@@ -259,18 +293,24 @@ export default function FuelEntryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ledgersResp])
 
+  const refreshFuelData = () => qc.invalidateQueries({ predicate: (q) => isFuelDependent(q.queryKey[0]) })
+
+  // A fresh entry: Diesel already on the debit side, the rest blank.
+  const blankForm = (): FormState => ({ ...emptyForm(), ...(dieselLedger ? { patientsTstdts: [{ ledger: dieselLedger, amount: '', auto: true }] } : {}) })
+
   const { mutate: submit, isPending } = useMutation({
     mutationFn: () => fuelService.submitFuelEntry({ ...form, ...toApiRows(form), named, user_id }),
     onSuccess: (res) => {
       if (res?.status === 200) {
         toast.success(`Fuel entry saved (${res.data?.c_number || ''})`)
-        qc.invalidateQueries({ queryKey: ['fuel-entries'] })
         // Saving a fill rolls the vehicle's odometer on the server, and the next
         // entry pre-fills Previous Odometer from the vehicle list, so that list
-        // has to come back too - it used to show the old reading until a reload.
-        qc.invalidateQueries({ queryKey: ['buses'] })
-        setForm(emptyForm())
-        setShowForm(false)
+        // has to come back too (refreshFuelData covers it).
+        refreshFuelData()
+        // The screen stays as it is, with a fresh form for the next fill, rather
+        // than closing back to the list.
+        setForm(blankForm())
+        setShowForm(true)
       } else toast.error(res?.message || 'Failed to save')
     },
     onError: () => toast.error('Server error'),
@@ -281,11 +321,7 @@ export default function FuelEntryPage() {
     onSuccess: (res) => {
       if (res?.status === 200) {
         toast.success('Fuel entry updated')
-        qc.invalidateQueries({ queryKey: ['fuel-entries'] })
-        // Saving a fill rolls the vehicle's odometer on the server, and the next
-        // entry pre-fills Previous Odometer from the vehicle list, so that list
-        // has to come back too - it used to show the old reading until a reload.
-        qc.invalidateQueries({ queryKey: ['buses'] })
+        refreshFuelData()
         setEditForm(null)
       } else toast.error(res?.message || 'Failed to update')
     },
@@ -307,11 +343,7 @@ export default function FuelEntryPage() {
     update()
   }
 
-  const refreshAfterStatus = () => {
-    qc.invalidateQueries({ queryKey: ['fuel-entries'] })
-    qc.invalidateQueries({ queryKey: ['fuel-approved-reports'] })
-    qc.invalidateQueries({ queryKey: ['buses'] })
-  }
+  const refreshAfterStatus = () => refreshFuelData()
   const setStatus = (row: Record<string, unknown>, admin_status: number, rejection_reason = '') =>
     fuelService.updateFuelAdminStatus({ id: row.id, admin_status, rejection_reason, named, user_id })
   const onStatusChange = async (row: Record<string, unknown>, admin_status: number, rejection_reason = '') => {
@@ -354,8 +386,12 @@ export default function FuelEntryPage() {
       ledger: { id: Number(r.ledger_id), temple_name: String(r.expensives || '') } as Ledger,
       amount: String(r.amount || 0),
     })
-    const debits = rows.filter((r) => r.account_type === 'Debit Account').map(toLine)
-    const credits = rows.filter((r) => r.account_type === 'Credit Account').map(toLine)
+    // A side with one ledger carries the whole bill, so its amount keeps
+    // following the quantity and price as they are edited - otherwise changing
+    // either leaves the old amounts behind and the entry can no longer balance.
+    const followBill = (lines: LedgerLine<Ledger>[]) => (lines.length === 1 ? [{ ...lines[0], auto: true }] : lines)
+    const debits = followBill(rows.filter((r) => r.account_type === 'Debit Account').map(toLine))
+    const credits = followBill(rows.filter((r) => r.account_type === 'Credit Account').map(toLine))
     setEditForm({
       id: Number(row.id),
       c_id: String(row.c_id || ''),
@@ -382,8 +418,7 @@ export default function FuelEntryPage() {
     const res = await fuelService.deleteFuelEntry({ id: row.id, named, user_id })
     if (res?.status === 200) {
       toast.success('Entry deleted')
-      qc.invalidateQueries({ queryKey: ['fuel-entries'] })
-      qc.invalidateQueries({ queryKey: ['buses'] })
+      refreshFuelData()
     } else toast.error(res?.message || 'Failed')
   }
 
@@ -437,7 +472,31 @@ export default function FuelEntryPage() {
 
   const counts = { pending: 0, approved: 0, rejected: 0 } as Record<ApprovalTab, number>
   for (const r of entryList) counts[approvalTabOf(r.admin_status)]++
-  const shownEntries = entryList.filter((r) => approvalTabOf(r.admin_status) === tab)
+  const shownEntries = entryList.filter((r) => {
+    if (approvalTabOf(r.admin_status) !== tab) return false
+    const d = String(r.date ?? '').slice(0, 10)
+    const vd = String(r.value_date || r.date || '').slice(0, 10)
+    return inRange(d, dateFilter.from, dateFilter.to) && inRange(vd, valueDateFilter.from, valueDateFilter.to)
+  })
+  const filtersActive = !!(dateFilter.from || dateFilter.to || valueDateFilter.from || valueDateFilter.to)
+
+  // Totals over the rows on screen. Both averages are weighted by litres:
+  // average bill = total bill / total quantity (rupees per litre) and average
+  // KMPL = total km / total quantity, not the mean of each row's own average.
+  const totalRows = visibleIds ? shownEntries.filter((r) => visibleIds.has(String(r.id))) : shownEntries
+  const totalQty = totalRows.reduce((s, r) => s + num(r.quantity_filled), 0)
+  const totalBill = totalRows.reduce((s, r) => s + num(r.total_bill), 0)
+  const totalKm = totalRows.reduce((s, r) => s + num(r.kilometers), 0)
+  const avgBill = totalQty > 0 ? totalBill / totalQty : 0
+  const avgKmpl = totalQty > 0 ? totalKm / totalQty : 0
+  const totalItems: TotalsFooterItem[] = [
+    { label: 'Entries', value: totalRows.length },
+    { label: 'Total Liters (Qty)', value: `${fmtQty(totalQty)} L` },
+    { label: 'Total Amount', value: `₹${formatAmount(totalBill)}` },
+    { label: 'Total KM', value: fmtQty(totalKm) },
+    { label: 'Average Bill (₹/L)', value: `₹${formatAmount(avgBill)}` },
+    { label: 'Average KMPL', value: avgKmpl.toFixed(2) },
+  ]
   // Column filters are scoped to the open tab, as on Voucher Approvals -
   // carrying them over made the next tab look stuck or empty.
   const changeTab = (t: ApprovalTab) => { setTab(t); setColumnFilters({}); setSelectedRows([]) }
@@ -475,6 +534,30 @@ export default function FuelEntryPage() {
 
       <ApprovalStatusTabs tab={tab} onChange={changeTab} counts={counts} />
 
+      {/* Date and Value Date filters */}
+      <GlassCard className="p-4">
+        <div className="flex items-end gap-4 flex-wrap">
+          {([
+            { label: 'Date', value: dateFilter, set: setDateFilter },
+            { label: 'Value Date', value: valueDateFilter, set: setValueDateFilter },
+          ]).map(({ label, value, set }) => (
+            <div key={label} className="flex items-end gap-2">
+              <div><Label>{label} From</Label>
+                <Input type="date" value={value.from} max={value.to || undefined} onChange={(e) => set({ ...value, from: e.target.value })} /></div>
+              <div><Label>{label} To</Label>
+                <Input type="date" value={value.to} min={value.from || undefined} onChange={(e) => set({ ...value, to: e.target.value })} /></div>
+            </div>
+          ))}
+          {filtersActive && (
+            <Button variant="ghost" onClick={() => { setDateFilter({ from: '', to: '' }); setValueDateFilter({ from: '', to: '' }) }}>
+              <X className="w-4 h-4" /> Clear dates
+            </Button>
+          )}
+        </div>
+      </GlassCard>
+
+      <FuelTotalsCards items={totalItems} />
+
       <DataTable
         title={tab === 'pending' ? 'Fuel Entries Awaiting Approval' : tab === 'approved' ? 'Approved Fuel Entries' : 'Rejected Fuel Entries'}
         columns={entryColumns}
@@ -487,11 +570,14 @@ export default function FuelEntryPage() {
         selectable={canApprove && tab === 'pending'}
         sumKey="total_bill"
         onSelectionChange={(rows) => setSelectedRows(rows as Record<string, unknown>[])}
+        onFilteredChange={(rows) => setVisibleIds(new Set(rows.map((r) => String((r as Record<string, unknown>).id))))}
         selectionActions={canApprove && tab === 'pending' ? (
           <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
             onApprove={() => runBulk(selectedRows, 1)} onReject={() => askReject(selectedRows)} />
         ) : undefined}
       />
+
+      <TotalsFooter title="Total" items={totalItems} />
 
       <RejectReasonModal open={!!rejectTarget} onCancel={() => setRejectTarget(null)} onConfirm={confirmReject}
         subject={rejectTarget && rejectTarget.rows.length === 1

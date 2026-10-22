@@ -426,6 +426,7 @@ exports.createuserpermissionsCtrl = function (req, res) {
             obj.can_edit,
             obj.can_view,
             obj.can_delete,
+            obj.can_approve ? 1 : 0,
           ];
         });
         appmdl.postusermenulistMdl(
@@ -510,6 +511,7 @@ exports.geteditusermoduleslistCtrl = function (req, res) {
         mod.can_view = perm.can_view;
         mod.can_edit = perm.can_edit;
         mod.can_delete = perm.can_delete;
+        mod.can_approve = perm.can_approve ? 1 : 0;
       } else {
         // If no matching permissions, ensure defaults (optional)
         mod.check_sub_menu = 0;
@@ -517,6 +519,7 @@ exports.geteditusermoduleslistCtrl = function (req, res) {
         mod.can_view = 0;
         mod.can_edit = 0;
         mod.can_delete = 0;
+        mod.can_approve = 0;
       }
     });
 
@@ -543,6 +546,7 @@ exports.postusermenulistCtrl = function (req, res) {
       obj.can_edit,
       obj.can_view,
       obj.can_delete,
+      obj.can_approve ? 1 : 0,
     ];
   });
   appmdl.postusermenulistMdl(dataarr, user_id, function (err, results) {

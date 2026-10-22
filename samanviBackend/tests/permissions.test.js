@@ -63,3 +63,14 @@ test('case variants and trailing slashes cannot bypass mutation permissions', ()
   assert.deepEqual(permissionForOperation('GET', '/DELETEUSERS/3/'), [{ subs: [2] }, 'delete']);
   assert.equal(permissionForOperation('GET', '/getvoucherentrydata'), undefined);
 });
+
+test('with a can_approve column, approving needs that grant - Add/Edit no longer imply it', () => {
+  const writer = { ...viewer, can_add: 1, can_edit: 1, can_approve: 0 };
+  assert.equal(allows([writer], 'approve'), false);
+  assert.equal(check({ subs: [61] }, 'approve', [writer]).status, 403);
+  assert.equal(allows([{ ...viewer, can_approve: 1 }], 'approve'), true);
+  assert.equal(allows([{ ...viewer, can_approve: '1' }], 'approve'), true);
+  assert.equal(allows([{ ...writer, can_view: 0, can_approve: 1 }], 'approve'), false);
+  // the grant only covers approving, not the other actions
+  assert.equal(allows([{ ...viewer, can_approve: 1 }], 'edit'), false);
+});
