@@ -260,6 +260,8 @@ router.post("/deletelaundrytype",verifyToken,routcontroller.dellaundrytypemainma
 router.post("/updatevoucherentrystatus",verifyToken,routcontroller.updatevoucherentrystatusCtrl);
 router.get("/getvoucheraudit/:c_number",verifyToken,routcontroller.getVoucherAuditCtrl);
 router.post("/updatetripadminstatus",verifyToken,routcontroller.updatetripadminstatusCtrl);
+router.post("/authorizetrip",verifyToken,routcontroller.authorizeTripCtrl);
+router.post("/gettripaudit",verifyToken,routcontroller.getTripAuditCtrl);
 router.post('/updatefueladminstatus', verifyToken, fuelcontroller.updatefueladminstatusCtrl);
 router.post('/updatelaundryadminstatus', verifyToken, laundrycontroller.updatelaundryadminstatusCtrl);
 router.post('/deletelaundrybill', verifyToken, laundrycontroller.deletelaundrybillCtrl);

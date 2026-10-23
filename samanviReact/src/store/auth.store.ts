@@ -30,6 +30,7 @@ export interface SubMenuItem {
   can_delete: number
   /** Approve / Reject right; absent from a server that predates the column. */
   can_approve?: number
+  can_authorize?: number
 }
 
 interface AuthState {

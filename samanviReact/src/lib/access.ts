@@ -148,6 +148,8 @@ export interface ActionPermissions {
   canEdit: boolean
   canDelete: boolean
   canApprove: boolean
+  // The separate Authorize grant: checks a filed trip before the approver sees it.
+  canAuthorize: boolean
 }
 
 export function permissionsFor(pathname: string, menu: MenuItem[] | undefined): ActionPermissions {
@@ -168,5 +170,6 @@ export function permissionsFor(pathname: string, menu: MenuItem[] | undefined): 
   const canApprove = canView && grants.some(s => Number(s.can_view) === 1 &&
     (s.can_approve === undefined ? Number(s.can_add) === 1 || Number(s.can_edit) === 1 : Number(s.can_approve) === 1) &&
     (!rule?.actionSubs?.approve || rule.actionSubs.approve.includes(Number(s.id))))
-  return { canView, canAdd, canEdit, canDelete: canView && has('can_delete'), canApprove }
+  const canAuthorize = canView && grants.some(s => Number(s.can_view) === 1 && Number(s.can_authorize) === 1)
+  return { canView, canAdd, canEdit, canDelete: canView && has('can_delete'), canApprove, canAuthorize }
 }

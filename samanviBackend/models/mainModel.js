@@ -73,6 +73,52 @@ var approveCol = { present: false };
     });
   });
 })();
+// Authorize is a second grant beside Approve (permissions.can_authorize): the
+// person who checks a filed trip before the approver sees it. Nobody has it
+// until it is ticked on User Management, so adding the column changes nothing
+// for existing users.
+var authorizeCol = { present: false };
+(function initAuthorizeColumn() {
+  sqldb.query(`SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'permissions' AND COLUMN_NAME = 'can_authorize'`, function (err, rows) {
+    if (err) return console.log('[DB] permissions.can_authorize check:', err.message);
+    if (rows && rows[0] && Number(rows[0].c) > 0) { authorizeCol.present = true; return; }
+    sqldb.query(`ALTER TABLE permissions ADD COLUMN can_authorize TINYINT(1) NOT NULL DEFAULT 0`, function (err) {
+      if (err) return console.log('[DB] permissions.can_authorize migration:', err.message);
+      authorizeCol.present = true;
+      console.log('[DB] permissions.can_authorize column added');
+    });
+  });
+})();
+function authorizeSel(alias) { return authorizeCol.present ? alias + '.can_authorize' : '0 AS can_authorize'; }
+
+// Who authorized a trip and when. Kept in its own table - trip_created is on
+// the row-size limit and cannot take more columns. One row per trip.
+var tripAuthTable = { present: false };
+(function initTripAuthorizations() {
+  sqldb.query(`CREATE TABLE IF NOT EXISTS trip_authorizations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    c_number VARCHAR(40) NOT NULL,
+    trip_id INT DEFAULT NULL,
+    authorized_by_id INT DEFAULT NULL,
+    authorized_by_name VARCHAR(120) DEFAULT NULL,
+    authorized_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_trip_auth_c_number (c_number)
+  )`, function (err) {
+    if (err) return console.log('[DB] trip_authorizations create:', err.message);
+    tripAuthTable.present = true;
+  });
+})();
+// Authorization columns for the trip lists, or nothing while the table is missing.
+function tripAuthSelect() {
+  return tripAuthTable.present
+    ? `, ta.authorized_by_name AS authorized_by_name, ta.authorized_at AS authorized_at,
+  (SELECT COUNT(*) > 0 FROM permissions pa WHERE pa.can_authorize = 1 AND pa.can_view = 1 AND pa.d_in = 0) AS auth_required`
+    : '';
+}
+function tripAuthJoin() {
+  return tripAuthTable.present ? 'LEFT JOIN trip_authorizations ta ON ta.c_number = t.c_number' : '';
+}
+
 // ps.can_approve in a SELECT list, or a constant 0 while the column is missing.
 function approveSel(alias) { return approveCol.present ? alias + '.can_approve' : '0 AS can_approve'; }
 
@@ -868,7 +914,7 @@ exports.getUserDataMdl = function (user_id, callback) {
   var cntxtDtls = "in getUserDataMdl";
   var m = [user_id, user_id];
   var QRY_TO_EXEC = `SELECT mm.* from main_modules as mm join permissions as ps on mm.id=ps.module_id  where ps.user_id =? and ps.d_in <> 1 and mm.d_in=0 group by  ps.module_id    ;
-	SELECT mm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete, ${approveSel('ps')} from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in=0 and mm.d_in=0 order by module_order  ;
+	SELECT mm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete, ${approveSel('ps')}, ${authorizeSel('ps')} from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in=0 and mm.d_in=0 order by module_order  ;
 	`;
 
   if (callback && typeof callback == "function")
@@ -932,7 +978,7 @@ exports.houseimageeditMdl = function (imageupload1, img_ind1, callback) {
 exports.getusermainmodulesMdl = function (reqdata, callback) {
   var cntxtDtls = "in getusermainmodulesMdl";
   var m = [reqdata.user_id];
-  var QRY_TO_EXEC = `SELECT m.id as module_id,m.title as module_nm,m.icon as main_icon,sm.*,m.order_by,p.can_add,p.can_edit,p.can_delete,p.can_view,${approveSel('p')} FROM permissions as p 
+  var QRY_TO_EXEC = `SELECT m.id as module_id,m.title as module_nm,m.icon as main_icon,sm.*,m.order_by,p.can_add,p.can_edit,p.can_delete,p.can_view,${approveSel('p')},${authorizeSel('p')} FROM permissions as p 
 JOIN sub_modules as sm ON p.sub_module_id=sm.id
 JOIN main_modules as m ON m.id=p.module_id
 WHERE p.user_id=? AND p.d_in=0 AND sm.d_in=0 and m.d_in=0 order by m.order_by,sm.module_order asc;`;
@@ -1009,7 +1055,7 @@ exports.postusermenulistMdl = async function (data, usr_id, callback) {
     // Insert all rows in parallel using Promise.all
     var QRY_TO_EXEC = `
       INSERT INTO permissions 
-      (user_id, module_id, sub_module_id, entry_by, can_add, can_edit, can_view, can_delete${approveCol.present ? ', can_approve' : ''})
+      (user_id, module_id, sub_module_id, entry_by, can_add, can_edit, can_view, can_delete${approveCol.present ? ', can_approve' : ''}${authorizeCol.present ? ', can_authorize' : ''})
       VALUES (?)
     `;
 
@@ -1018,7 +1064,7 @@ exports.postusermenulistMdl = async function (data, usr_id, callback) {
         dbutil.sqlinjection(
           sqldb,
           QRY_TO_EXEC,
-          approveCol.present ? item : item.slice(0, 8),
+          item.slice(0, 8).concat(approveCol.present ? [item[8]] : [], authorizeCol.present ? [item[9] ? 1 : 0] : []),
           cntxtDtls,
           function (err, results) {
             if (err) reject(err);
@@ -3062,9 +3108,10 @@ exports.getexpensesMdl = function (data, callback) {
   dn.up_down AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
-  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
+  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
 FROM
   trip_created t
+${tripAuthJoin()}
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
 LEFT JOIN driver_register d2 ON t.driver2_id = d2.id
 LEFT JOIN helper_register h ON t.helper_id = h.id
@@ -5775,9 +5822,10 @@ exports.gettripceated1Mdl = function (callback) {
   dn.up_down AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
-  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
+  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
 FROM
   trip_created t
+${tripAuthJoin()}
 LEFT JOIN
   driver_register d1 ON t.driver1_id = d1.id
 LEFT JOIN
@@ -6539,7 +6587,57 @@ exports.getVoucherAuditMdl = function (c_number, callback) {
   var QRY_TO_EXEC = `SELECT * FROM mainvoucher_audit WHERE c_number = ? ORDER BY action_at ASC`;
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [c_number], cntxtDtls, callback);
 };
+// Once anyone holds the Authorize grant, a trip has to be authorized before it
+// can be approved. With nobody holding it the step does not exist, so approvals
+// keep working exactly as before.
 exports.updatetripadminstatusMdl = function (data, callback) {
+  if (!(tripAuthTable.present && authorizeCol.present && String(data.vouchervalue) === '1' && data.voucherdata)) {
+    return exports.updatetripadminstatusNow(data, callback);
+  }
+  sqldb.query(`SELECT (SELECT COUNT(*) FROM permissions WHERE can_authorize = 1 AND can_view = 1 AND d_in = 0) AS required,
+      (SELECT COUNT(*) FROM trip_authorizations WHERE c_number = ?) AS done`, [data.voucherdata.c_number], function (err, rows) {
+    if (err) return callback(err, null);
+    var r = (rows && rows[0]) || {};
+    if (Number(r.required) > 0 && Number(r.done) === 0) return callback(new Error('This trip has not been authorized yet'), 'NOT_AUTHORIZED');
+    exports.updatetripadminstatusNow(data, callback);
+  });
+};
+
+// Authorize a filed trip. Authorizing twice keeps the first authorization.
+exports.authorizeTripMdl = function (data, callback) {
+  if (!tripAuthTable.present) return callback(new Error('Authorization is not available'), null);
+  sqldb.query(`SELECT t.id, t.status, t.admin_status FROM trip_created t WHERE t.c_number = ? AND t.d_in = 0 LIMIT 1`, [data.c_number], function (err, rows) {
+    if (err) return callback(err, null);
+    if (!rows || !rows.length) return callback(null, { ok: false, msg: 'Trip not found' });
+    if (String(rows[0].status) !== '1') return callback(null, { ok: false, msg: 'File the trip expense before authorizing it' });
+    sqldb.query(`INSERT IGNORE INTO trip_authorizations (c_number, trip_id, authorized_by_id, authorized_by_name) VALUES (?, ?, ?, ?)`,
+      [data.c_number, rows[0].id, data.user_id, data.user_nm], function (err2) {
+        callback(err2, err2 ? null : { ok: true });
+      });
+  });
+};
+
+// Everything the ref-number popup shows: created, last edited, filed, authorized, approved.
+exports.getTripAuditMdl = function (data, callback) {
+  var authSel = tripAuthTable.present
+    ? `(SELECT JSON_OBJECT('by', ta.authorized_by_name, 'at', DATE_FORMAT(ta.authorized_at, '%Y-%m-%d %H:%i:%s')) FROM trip_authorizations ta WHERE ta.c_number = t.c_number LIMIT 1)`
+    : 'NULL';
+  sqldb.query(`SELECT t.c_number, t.created_name, t.cts, t.updatedby_name, t.updated_date, t.admin_status,
+      te.user_id AS filed_by_id, te.date AS filed_date, te.updatedby_name AS expense_edited_by, te.updatedby_date AS expense_edited_date,
+      te.action_by_name AS action_by_name, te.admin_action_date AS admin_action_date,
+      (SELECT u.name FROM users u WHERE u.id = te.user_id LIMIT 1) AS filed_by_name,
+      ${authSel} AS authorization
+    FROM trip_created t
+    LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
+    WHERE t.c_number = ? AND t.d_in = 0 LIMIT 1`, [data.c_number], function (err, rows) {
+    if (err) return callback(err, null);
+    var r = rows && rows[0] ? rows[0] : null;
+    if (r && typeof r.authorization === 'string') { try { r.authorization = JSON.parse(r.authorization); } catch (e) { r.authorization = null; } }
+    callback(null, r);
+  });
+};
+
+exports.updatetripadminstatusNow = function (data, callback) {
   var cntxtDtls = "in updatetripadminstatusMdl";
   let vouchervalue = "";
   var QRY_TO_EXEC = `

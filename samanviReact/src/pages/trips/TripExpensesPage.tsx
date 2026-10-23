@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import TripAuditModal from './TripAuditModal'
 import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -538,7 +539,10 @@ export default function TripExpensesPage() {
     const missing: string[] = []
     EXPENSE_KEYS.forEach((key) => {
       const amount = opts.amounts ? opts.amounts[key] : expenseAmount(key)
-      if (amount <= 0) return
+      // Parking typed as an explicit 0 keeps its ledger row, at 0, so it can be
+      // put back without hunting for the ledger; it never reaches the voucher
+      // because only rows above zero are posted.
+      if (amount <= 0 && !(key === 'parking' && String(form.parking_amt).trim() === '0')) return
       const ledger = findExpenseLedger(key)
       if (!ledger) { missing.push(EXPENSE_LEDGERS[key].name); return }
       derived.push({ ledger: toLedgerObj(ledger), amount: String(amount), personKey: key })
@@ -660,6 +664,13 @@ export default function TripExpensesPage() {
     form.driveronesudsalary, form.drivertwosudsalary, form.helpersudsalary, form.parking_amt,
   ].join('|')
   const lastAmountSig = useRef<string | null>(null)
+  // The Parking box stays on screen once it has shown, so typing 0 (or clearing
+  // it to retype) does not make it disappear under the cursor.
+  const [parkingShown, setParkingShown] = useState(false)
+  useEffect(() => {
+    if (!modal.mode) setParkingShown(false)
+    else if (Number(form.parking_amt) > 0 || String(form.parking_amt).trim() === '0') setParkingShown(true)
+  }, [modal.mode, form.parking_amt])
   useEffect(() => {
     if (!modal.mode || loadingModal) { lastAmountSig.current = null; return }
     if (lastAmountSig.current === null || lastAmountSig.current === amountSig) { lastAmountSig.current = amountSig; return }
@@ -1518,6 +1529,9 @@ export default function TripExpensesPage() {
   // for an unfiled trip. Unlike the eye-icon "view" action (which is meant
   // to error on an unfiled trip), this is the row's primary click target and
   // shouldn't dead-end with a toast.
+  // Who created, filed, authorized and approved a trip, from the (i) beside its ref.
+  const [auditRef, setAuditRef] = useState<string | null>(null)
+
   const handleReferenceClick = (row: any) => {
     if (row.status === 1) { openView(row); return }
     openAdd(row)
@@ -1568,6 +1582,7 @@ export default function TripExpensesPage() {
     {
       label: 'Ref No', key: 'c_number',
       render: (v, row: any) => (
+        <>
         <button
           type="button"
           onClick={() => handleReferenceClick(row)}
@@ -1575,6 +1590,11 @@ export default function TripExpensesPage() {
         >
           {String(v ?? '—')}
         </button>
+        {row.c_number && (
+          <button type="button" title="Created, authorized and approved by" onClick={() => setAuditRef(String(row.c_number))}
+            className="ml-1.5 text-slate-400 hover:text-blue-600 align-middle"><History className="w-3.5 h-3.5 inline" /></button>
+        )}
+        </>
       ),
     },
     { label: 'Date', key: 'trip_date', render: (v) => formatDate(v) },
@@ -1726,6 +1746,10 @@ export default function TripExpensesPage() {
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
       />
+
+      <AnimatePresence>
+        {auditRef && <TripAuditModal cNumber={auditRef} onClose={() => setAuditRef(null)} />}
+      </AnimatePresence>
 
       {/* ── Add / Edit modal ── */}
       <AnimatePresence>
@@ -1978,7 +2002,7 @@ export default function TripExpensesPage() {
                   {/* Parking is the one amount with no crew seat behind it — every
                       other beta now lives beside the dropdown that picked the
                       person it pays. */}
-                  {Number(form.parking_amt) > 0 && (
+                  {(parkingShown || Number(form.parking_amt) > 0) && (
                     <div className="max-w-xs pt-2 border-t border-slate-100">
                       <Label>Parking (₹)</Label>
                       <Input type="number" value={form.parking_amt} onChange={(e) => setForm((f) => ({ ...f, parking_amt: e.target.value }))} />

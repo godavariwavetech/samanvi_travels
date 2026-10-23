@@ -1,16 +1,27 @@
 import { usePermissions } from '@/lib/usePermissions'
 ﻿import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Clock, Search, X, User, FileText } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Search, X, User, FileText, ShieldCheck } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
+import TripAuditModal from './TripAuditModal'
 
 const today = todayISO()
 const firstOfMonth = today.slice(0, 8) + '01'
+
+// The step between filing and approval. It only exists once someone has been
+// given the Authorize grant (the server sends auth_required with every trip);
+// until then trips go straight to Approval as before.
+const authRequired = (t: any) => Number(t.auth_required) === 1
+const isAuthorized = (t: any) => !!t.authorized_at
+// Waiting for an authorizer: filed, pending, not authorized yet.
+const needsAuthorization = (t: any) => t.admin_status === 0 && authRequired(t) && !isAuthorized(t) && Number(t.status) === 1
+// Waiting for the approver: pending, and either no authorize step or it is done.
+const awaitingApproval = (t: any) => t.admin_status === 0 && (!authRequired(t) || isAuthorized(t))
 
 const tabs = ['Pending', 'Approved', 'Rejected']
 
@@ -98,9 +109,10 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
 }
 
 export default function AdminApprovalsPage() {
-  const { canApprove } = usePermissions()
+  const { canApprove, canAuthorize } = usePermissions()
   const [tab, setTab] = useState('Pending')
   const [viewTrip, setViewTrip] = useState<any>(null)
+  const [auditRef, setAuditRef] = useState<string | null>(null)
   const [fromDate, setFromDate] = useState(firstOfMonth)
   const [toDate, setToDate] = useState(today)
   const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
@@ -133,14 +145,32 @@ export default function AdminApprovalsPage() {
     onError: () => toast.error('Server error'),
   })
 
+  const { mutate: authorize, isPending: authorizing } = useMutation({
+    mutationFn: (row: any) => tripsService.authorizeTrip({
+      c_number: row.c_number,
+      user_id: localStorage.getItem('user_id'),
+      user_nm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res) => {
+      if (res?.status === 200) {
+        toast.success('Trip authorized')
+        qc.invalidateQueries({ queryKey: ['trips'] })
+        qc.invalidateQueries({ queryKey: ['trip-expenses'] })
+        qc.invalidateQueries({ queryKey: ['trip-audit'] })
+      } else toast.error(res?.data?.msg || 'Could not authorize')
+    },
+    onError: () => toast.error('Server error'),
+  })
+
   const allTrips: any[] = tripData?.data ?? []
 
   // Date-range filter + status filter
   const filtered = useMemo(() => {
-    const statusMap: Record<string, number> = { Pending: 0, Approved: 1, Rejected: 2 }
-    const targetStatus = statusMap[tab]
+    const statusMap: Record<string, number> = { Approved: 1, Rejected: 2 }
     return allTrips.filter((t) => {
-      if (t.admin_status !== targetStatus) return false
+      if (tab === 'To Authorize') { if (!needsAuthorization(t)) return false }
+      else if (tab === 'Pending') { if (!awaitingApproval(t)) return false }
+      else if (t.admin_status !== statusMap[tab]) return false
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
       if (!d) return true
       if (applied.from && d < applied.from) return false
@@ -149,7 +179,8 @@ export default function AdminApprovalsPage() {
     })
   }, [allTrips, tab, applied])
 
-  const pendingCount = allTrips.filter((t) => t.admin_status === 0).length
+  const pendingCount = allTrips.filter(awaitingApproval).length
+  const authorizeCount = allTrips.filter(needsAuthorization).length
   const approvedCount = allTrips.filter((t) => t.admin_status === 1).length
   const rejectedCount = allTrips.filter((t) => t.admin_status === 2).length
 
@@ -158,7 +189,8 @@ export default function AdminApprovalsPage() {
       label: 'Trip ID / Date', key: 'c_number',
       render: (v, r: any) => (
         <div>
-          <div className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</div>
+          <button type="button" onClick={() => r.c_number && setAuditRef(String(r.c_number))}
+            className="font-bold text-blue-600 hover:text-blue-800 hover:underline">{String(v ?? `#${r.id}`)}</button>
           <div className="text-xs text-slate-400">{formatDate(r.trip_date)}</div>
         </div>
       ),
@@ -201,7 +233,12 @@ export default function AdminApprovalsPage() {
       label: 'Action', key: 'id',
       render: (_, row: any) => (
         <div className="flex gap-2">
-          {canApprove && row.admin_status !== 1 && (
+          {canAuthorize && needsAuthorization(row) && (
+            <Button size="sm" disabled={authorizing} onClick={() => authorize(row)}>
+              <ShieldCheck className="w-3.5 h-3.5" /> Authorize
+            </Button>
+          )}
+          {canApprove && row.admin_status !== 1 && !needsAuthorization(row) && (
             <Button
               variant="success"
               size="sm"
@@ -227,6 +264,7 @@ export default function AdminApprovalsPage() {
   ]
 
   const tabLabels = [
+    ...(canAuthorize ? [{ label: 'To Authorize', count: authorizeCount, color: 'text-teal-600', bg: 'bg-teal-50', icon: ShieldCheck }] : []),
     { label: 'Pending', count: pendingCount, color: 'text-amber-600', bg: 'bg-amber-50', icon: Clock },
     { label: 'Approved', count: approvedCount, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: CheckCircle },
     { label: 'Rejected', count: rejectedCount, color: 'text-red-600', bg: 'bg-red-50', icon: XCircle },
@@ -237,7 +275,7 @@ export default function AdminApprovalsPage() {
       <PageHeader title="Trip Approvals" subtitle="Review pending trips and approve or reject them" />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-1 gap-4 ${canAuthorize ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
         {tabLabels.map((s) => (
           <GlassCard
             key={s.label}
@@ -277,7 +315,7 @@ export default function AdminApprovalsPage() {
       </GlassCard>
 
       {/* Tabs */}
-      <TopNavTabs tabs={tabs} activeTab={tab} onChange={setTab} />
+      <TopNavTabs tabs={canAuthorize ? ['To Authorize', ...tabs] : tabs} activeTab={tab} onChange={setTab} />
 
       {/* Table */}
       <DataTable
@@ -288,7 +326,8 @@ export default function AdminApprovalsPage() {
         onAction={(action, row) => { if (action === 'view') setViewTrip(row) }}
         actions={['view']}
         icon={
-          tab === 'Pending' ? <Clock className="w-5 h-5 text-amber-500" />
+          tab === 'To Authorize' ? <ShieldCheck className="w-5 h-5 text-teal-500" />
+          : tab === 'Pending' ? <Clock className="w-5 h-5 text-amber-500" />
           : tab === 'Approved' ? <CheckCircle className="w-5 h-5 text-emerald-500" />
           : <XCircle className="w-5 h-5 text-red-500" />
         }
@@ -297,6 +336,7 @@ export default function AdminApprovalsPage() {
       {/* View modal */}
       <AnimatePresence>
         {viewTrip && <TripViewModal trip={viewTrip} onClose={() => setViewTrip(null)} />}
+        {auditRef && <TripAuditModal cNumber={auditRef} onClose={() => setAuditRef(null)} />}
       </AnimatePresence>
     </motion.div>
   )

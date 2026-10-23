@@ -74,3 +74,11 @@ test('with a can_approve column, approving needs that grant - Add/Edit no longer
   // the grant only covers approving, not the other actions
   assert.equal(allows([{ ...viewer, can_approve: 1 }], 'edit'), false);
 });
+
+test('authorize is only ever an explicit can_authorize tick', () => {
+  const writer = { ...viewer, can_add: 1, can_edit: 1, can_approve: 1 };
+  assert.equal(allows([writer], 'authorize'), false);
+  assert.equal(allows([{ ...writer, can_authorize: 0 }], 'authorize'), false);
+  assert.equal(allows([{ ...viewer, can_authorize: 1 }], 'authorize'), true);
+  assert.equal(allows([{ can_view: 0, can_authorize: 1 }], 'authorize'), false);
+});
