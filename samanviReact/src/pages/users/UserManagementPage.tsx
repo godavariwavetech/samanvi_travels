@@ -129,7 +129,7 @@ function EditUserPanel({ user, onClose }: { user: any; onClose: () => void }) {
 }
 
 // ── Permission row type ───────────────────────────────────────────────────
-type PermKey = 'can_add' | 'can_edit' | 'can_delete' | 'can_view' | 'can_approve'
+type PermKey = 'can_add' | 'can_edit' | 'can_delete' | 'can_view' | 'can_approve' | 'can_authorize'
 interface PermRow {
   id: number
   module_id: number
@@ -141,6 +141,7 @@ interface PermRow {
   can_edit: number
   can_delete: number
   can_approve: number
+  can_authorize?: number
 }
 
 // ── Sub-module card (matches Angular's individual permission checkboxes) ──────
@@ -176,6 +177,7 @@ function SubModuleCard({ row, onToggle, onPerm, onCheckAll }: {
           { key: 'can_delete' as const, label: 'Delete', color: '#dc2626' },
           { key: 'can_view' as const,   label: 'View',   color: '#0891b2' },
           { key: 'can_approve' as const, label: 'Approve / Reject', color: '#7c3aed' },
+          { key: 'can_authorize' as const, label: 'Authorize', color: '#0d9488' },
         ]).map(({ key, label, color }) => (
           <label key={key} className="flex items-center gap-1.5 cursor-pointer select-none">
             <input
@@ -217,7 +219,7 @@ function ModuleGroup({ moduleName, rows, onChange }: {
 
   const toggleAll = () => {
     const next = allChecked ? 0 : 1
-    onChange(rows.map(r => ({ ...r, check_sub_menu: next, can_view: next, can_add: next, can_edit: next, can_delete: next, can_approve: next })))
+    onChange(rows.map(r => ({ ...r, check_sub_menu: next, can_view: next, can_add: next, can_edit: next, can_delete: next, can_approve: next, ...(next ? {} : { can_authorize: 0 }) })))
   }
 
   const update = (idx: number, patch: Partial<PermRow>) =>
@@ -225,7 +227,7 @@ function ModuleGroup({ moduleName, rows, onChange }: {
 
   const toggleRow = (idx: number) => {
     const r = rows[idx]; const next = r.check_sub_menu ? 0 : 1
-    update(idx, { check_sub_menu: next, can_view: next, can_add: next, can_edit: next, can_delete: next, can_approve: next })
+    update(idx, { check_sub_menu: next, can_view: next, can_add: next, can_edit: next, can_delete: next, can_approve: next, ...(next ? {} : { can_authorize: 0 }) })
   }
 
   const togglePerm = (idx: number, key: PermKey) =>
@@ -320,6 +322,7 @@ function PermissionsPanel({ user, onClose }: { user: any; onClose: () => void })
         can_view: p.can_view,
         can_delete: p.can_delete,
         can_approve: p.can_approve ? 1 : 0,
+        can_authorize: p.can_authorize ? 1 : 0,
       }))
       return usersService.saveUserMenuList(payload)
     },
@@ -355,7 +358,7 @@ function PermissionsPanel({ user, onClose }: { user: any; onClose: () => void })
     ...p, check_sub_menu: 1, can_view: 1, can_add: 1, can_edit: 1, can_delete: 1, can_approve: 1,
   })))
   const disableAll = () => setPerms(prev => prev.map(p => ({
-    ...p, check_sub_menu: 0, can_view: 0, can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0,
+    ...p, check_sub_menu: 0, can_view: 0, can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0, can_authorize: 0,
   })))
 
   return (
@@ -483,7 +486,7 @@ export default function UserManagementPage() {
     setCreatePerms(prev => prev.map(p => updated.find(x => x.id === p.id) ?? p))
 
   const enableCreateAll = () => setCreatePerms(prev => prev.map(p => ({ ...p, check_sub_menu: 1, can_view: 1, can_add: 1, can_edit: 1, can_delete: 1, can_approve: 1 })))
-  const disableCreateAll = () => setCreatePerms(prev => prev.map(p => ({ ...p, check_sub_menu: 0, can_view: 0, can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0 })))
+  const disableCreateAll = () => setCreatePerms(prev => prev.map(p => ({ ...p, check_sub_menu: 0, can_view: 0, can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0, can_authorize: 0 })))
   const enabledCreateCount = createPerms.filter(p => p.check_sub_menu).length
 
   const { mutate: createUser, isPending } = useMutation({
@@ -500,6 +503,7 @@ export default function UserManagementPage() {
           can_view: p.can_view ? 1 : 0,
           can_delete: p.can_delete ? 1 : 0,
           can_approve: p.can_approve ? 1 : 0,
+          can_authorize: p.can_authorize ? 1 : 0,
         }))
       const payload = {
         userdetails: {

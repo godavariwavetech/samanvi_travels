@@ -4,6 +4,8 @@
 // database that has no can_approve column yet falls back to the old rule
 // (a write grant), so a failed migration does not lock approvers out.
 function allows(grants, action) {
+  // Authorize is only ever an explicit tick, with no fallback to a write grant.
+  if (action === 'authorize') return grants.some(grant => Number(grant.can_view) === 1 && Number(grant.can_authorize) === 1);
   return grants.some(grant => Number(grant.can_view) === 1 && (action === 'approve'
     ? (grant.can_approve === undefined
         ? Number(grant.can_add) === 1 || Number(grant.can_edit) === 1
@@ -58,6 +60,7 @@ const API_PERMISSIONS = {
   '/deletevoucherentry': [{ subs: [36, 61] }, 'delete'],
   '/updatevoucherentrystatus': [{ subs: [61] }, 'approve'],
   '/updatetripadminstatus': [{ module: 18 }, 'approve'],
+  '/authorizetrip': [{ module: 18 }, 'authorize'],
   '/updatefueladminstatus': [{ subs: [31] }, 'approve'],
   '/updatelaundryadminstatus': [{ subs: [43] }, 'approve'],
   '/submitfuelentery': [{ subs: [31] }, 'add'],

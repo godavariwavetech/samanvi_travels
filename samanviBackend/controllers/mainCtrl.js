@@ -427,6 +427,7 @@ exports.createuserpermissionsCtrl = function (req, res) {
             obj.can_view,
             obj.can_delete,
             obj.can_approve ? 1 : 0,
+            obj.can_authorize ? 1 : 0,
           ];
         });
         appmdl.postusermenulistMdl(
@@ -512,6 +513,7 @@ exports.geteditusermoduleslistCtrl = function (req, res) {
         mod.can_edit = perm.can_edit;
         mod.can_delete = perm.can_delete;
         mod.can_approve = perm.can_approve ? 1 : 0;
+        mod.can_authorize = perm.can_authorize ? 1 : 0;
       } else {
         // If no matching permissions, ensure defaults (optional)
         mod.check_sub_menu = 0;
@@ -520,6 +522,7 @@ exports.geteditusermoduleslistCtrl = function (req, res) {
         mod.can_edit = 0;
         mod.can_delete = 0;
         mod.can_approve = 0;
+        mod.can_authorize = 0;
       }
     });
 
@@ -547,6 +550,7 @@ exports.postusermenulistCtrl = function (req, res) {
       obj.can_view,
       obj.can_delete,
       obj.can_approve ? 1 : 0,
+      obj.can_authorize ? 1 : 0,
     ];
   });
   appmdl.postusermenulistMdl(dataarr, user_id, function (err, results) {
@@ -3717,8 +3721,24 @@ exports.updatelaundrybillCtrl = function (req, res) {
   });
 };
 
+exports.authorizeTripCtrl = function (req, res) {
+  appmdl.authorizeTripMdl(req.body, function (err, results) {
+    if (err) return res.send({ status: 500, data: null });
+    res.send({ status: results && results.ok ? 200 : 400, data: results });
+  });
+};
+exports.getTripAuditCtrl = function (req, res) {
+  appmdl.getTripAuditMdl(req.body, function (err, results) {
+    if (err) return res.send({ status: 500, data: null });
+    res.send({ status: 200, data: results });
+  });
+};
 exports.updatetripadminstatusCtrl = function (req, res) {
   appmdl.updatetripadminstatusMdl(req.body, function (err, results) {
+    if (results === 'NOT_AUTHORIZED') {
+      res.send({ status: 409, data: 'This trip has not been authorized yet' });
+      return;
+    }
     if (err) {
       res.send({ status: 500, data: results });
       return;

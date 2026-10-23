@@ -28,7 +28,7 @@ for (const [path, id, moduleId] of [
 ] as const) {
   const grants = menu(id, moduleId)
   assert.deepEqual(permissionsFor(path, grants), {
-    canView: true, canAdd: false, canEdit: false, canDelete: false, canApprove: false,
+    canView: true, canAdd: false, canEdit: false, canDelete: false, canApprove: false, canAuthorize: false,
   })
   assert.equal(canAccess(path, buildAccess(grants)), true)
   for (const tab of ['pending', 'rejected'] as const) {

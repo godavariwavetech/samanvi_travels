@@ -27,6 +27,8 @@ export const tripsService = {
   // must be sent as plain JSON, not securePayload.
   updateTripAdminStatus: (data: unknown) =>
     api.post('/updatetripadminstatus', data).then((r) => r.data),
+  authorizeTrip: (data: unknown) => api.post('/authorizetrip', data).then((r) => r.data),
+  getTripAudit: (c_number: string) => api.post('/gettripaudit', { c_number }).then((r) => r.data),
 
   // ── Expenses ─────────────────────────────────────────────
   getExpenses: (data: unknown) => api.post('/getexpenses', data).then((r) => r.data),
