@@ -19,4 +19,14 @@ function guardApprovedVoucher(userId, cNumber, callback) {
   });
 }
 
-module.exports = { APPROVED_EDITOR_NUMBERS, guardApprovedVoucher };
+// True when the authenticated user is one of the approved editors. Used where the
+// lock is on something other than a voucher (an approved trip expense).
+function isApprovedEditor(userId, callback) {
+  pool.query("SELECT number FROM users WHERE id = ? AND d_in = 0", [userId], (err, users) => {
+    if (err) return callback(false);
+    const number = users && users[0] ? String(users[0].number).trim() : '';
+    callback(APPROVED_EDITOR_NUMBERS.includes(number));
+  });
+}
+
+module.exports = { APPROVED_EDITOR_NUMBERS, guardApprovedVoucher, isApprovedEditor };

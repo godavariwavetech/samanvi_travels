@@ -3585,8 +3585,9 @@ exports.getexpensesfiltere = function (data, callback) {
   dn.up_down AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
-  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status
+  (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
 FROM trip_created t
+${tripAuthJoin()}
 LEFT JOIN driver_register d1 ON t.driver1_id = d1.id
 LEFT JOIN driver_register d2 ON t.driver2_id = d2.id
 LEFT JOIN helper_register h ON t.helper_id = h.id
@@ -6610,10 +6611,30 @@ exports.authorizeTripMdl = function (data, callback) {
     if (err) return callback(err, null);
     if (!rows || !rows.length) return callback(null, { ok: false, msg: 'Trip not found' });
     if (String(rows[0].status) !== '1') return callback(null, { ok: false, msg: 'File the trip expense before authorizing it' });
+    if (Number(rows[0].admin_status) === 1) return callback(null, { ok: false, msg: 'This trip is already approved' });
+    if (Number(rows[0].admin_status) === 2) return callback(null, { ok: false, msg: 'This trip was rejected - it has to be corrected and filed again before it can be authorized' });
     sqldb.query(`INSERT IGNORE INTO trip_authorizations (c_number, trip_id, authorized_by_id, authorized_by_name) VALUES (?, ?, ?, ?)`,
       [data.c_number, rows[0].id, data.user_id, data.user_nm], function (err2) {
         callback(err2, err2 ? null : { ok: true });
       });
+  });
+};
+
+// An authorization vouches for the amounts as they were when it was given, so a
+// trip that is re-filed or deleted loses it and has to be authorized again.
+exports.clearTripAuthorizationMdl = function (c_number, callback) {
+  if (!tripAuthTable.present) return callback(null);
+  sqldb.query(`DELETE FROM trip_authorizations WHERE c_number = ?`, [String(c_number || '')], function (err) { callback(err || null); });
+};
+
+// A re-filed trip goes back to pending: authorization is dropped and, if it had
+// been approved or rejected, so is that decision (the new ledger lines are
+// pending, so leaving the trip marked approved would hide them from the books
+// with nothing left to approve).
+exports.resetTripApprovalMdl = function (c_number, callback) {
+  exports.clearTripAuthorizationMdl(c_number, function (err) {
+    if (err) return callback(err);
+    sqldb.query(`UPDATE trip_created SET admin_status = 0 WHERE c_number = ? AND d_in = 0`, [String(c_number || '')], function (e2) { callback(e2 || null); });
   });
 };
 
@@ -15084,92 +15105,14 @@ exports.createBatteryVoucherMdl = function (data, callback) {
   });
 };
 
-function _tripVoucherRows(debit, credit) {
-  return {
-    debit:  (debit  || []).filter(function (e) { return e.ledger_id && e.amount; }),
-    credit: (credit || []).filter(function (e) { return e.ledger_id && e.amount; }),
-  };
-}
-
-// Creates the accounting voucher for a trip's advance/booking amount. Mirrors
-// createBatteryVoucherMdl exactly (single non-repeating Journal voucher),
-// tagged source_type='trip' so Voucher Approvals can show it came from Trip
-// Creation. Bus rows: debit = Paid-To person's ledger, credit = the "Paid From"
-// ledger the user picked. Van rows: debit = the hirer's Receivables ledger,
-// credit = the "Booking Income Ledger" the user picked.
-exports.createTripVoucherMdl = function (data, callback) {
-  var moment   = require('moment');
-  var curDate  = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
-  var vDate    = moment().utcOffset('+05:30').format('YYYY-MM-DD');
-  var datePart = moment().utcOffset('+05:30').format('YYMMDD');
-  var rows = _tripVoucherRows(data.debit_ledgers, data.credit_ledgers);
-  if (rows.debit.length === 0 && rows.credit.length === 0) return callback(null, null);
-
-  dbutil.execupdateQuery(sqldb, `SELECT COUNT(*) as cnt FROM mainvoucher_t WHERE DATE(i_ts) = CURDATE()`, [], 'tripVoucherCount', function (err, countRes) {
-    if (err) return callback(err);
-    var baseCount = countRes && countRes[0] ? (parseInt(countRes[0].cnt) || 0) : 0;
-    // A trip has one voucher (the hire Journal posted at creation, later
-    // updated with the expense lines), so it carries the trip's own T-number,
-    // the way a fuel entry's voucher is the fuel number. Older trips without a
-    // T-number still get a V-number.
-    var tripNo    = String(data.trip_c_number || '');
-    var c_number  = /^T\d{9}$/.test(tripNo) ? tripNo : 'V' + datePart + String(baseCount + 1).padStart(3, '0');
-    var c_id      = baseCount + 1;
-    var totalAmt  = rows.debit.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
-    var descText  = ((data.description || '') + ' [Trip: ' + (data.trip_c_number || '') + ']').trim();
-
-    var mainRec = {
-      description: descText, name: data.entry_by || '', valueDate: vDate,
-      vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, i_ts: curDate,
-      vouchertype: 'Journal', voucherdate: vDate, c_number: c_number, c_id: c_id,
-      entry_by: data.entry_by || '', user_id: data.user_id || 0, d_in: 0, status: 0,
-      source_type: 'trip', trip_c_number: data.trip_c_number || null,
-    };
-
-    dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_t SET ?', mainRec, 'tripVoucherMain', function (err, result) {
-      if (err) return callback(err);
-      var lastId = result.insertId;
-      var subRows = [];
-      rows.debit.forEach(function (e) {
-        subRows.push({ lastinsert_id: lastId, account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
-      });
-      rows.credit.forEach(function (e) {
-        subRows.push({ lastinsert_id: lastId, account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, c_id: c_id, i_ts: curDate, description: descText, vehicleNo: data.vehicle_number || '', creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 });
-      });
-
-      var si = 0;
-      var insertNext = function () {
-        if (si >= subRows.length) return callback(null, c_number);
-        dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_subt SET ?', subRows[si], 'tripVoucherSub', function (err) {
-          if (err) return callback(err);
-          si++; insertNext();
-        });
-      };
-      insertNext();
-    });
-  });
-};
-
-exports.setTripVoucherNumberMdl = function (tripCNumber, voucherNumber, callback) {
-  // d_in=0 guard: c_number is minted from a count of active rows, so once older
-  // rows are soft-deleted the same c_number string can resurface — without this
-  // filter the UPDATE would also stamp the stale deleted row sharing it.
-  dbutil.execupdateQuery(sqldb, `UPDATE trip_created SET voucher_number = ? WHERE c_number = ? AND d_in = 0`, [voucherNumber, tripCNumber], 'setTripVoucherNumberMdl', function (err) {
-    callback(err);
-  });
-};
-
 exports.getTripVoucherNumberMdl = function (tripCNumber, callback) {
   dbutil.execupdateQuery(sqldb, `SELECT voucher_number FROM trip_created WHERE c_number = ? AND d_in = 0 LIMIT 1`, [tripCNumber], 'getTripVoucherNumberMdl', callback);
 };
 
-// Replaces the debit/credit lines of a trip's existing voucher (mirrors
-// updateBatteryVoucherMdl) — used when re-filing/editing a Trip Expense that
-// already posted a voucher on an earlier filing, so re-filing doesn't pile up
-// a fresh voucher every time.
-// Retires a trip's voucher when the expense is re-filed with nobody paid
-// through the books: its lines and header are soft-deleted and the trip forgets
-// the number, so a later re-filing that does post ledgers gets a fresh voucher.
+// Trip expenses no longer post a voucher - their ledger lines are the trip's own
+// expensive_details rows, like a fuel entry's fuelentry_subt rows. A trip filed
+// before that still points at a voucher; re-filing retires it (lines and header
+// soft-deleted, link cleared) so the books read the trip's rewritten lines.
 exports.voidTripVoucherMdl = function (voucherNumber, tripCNumber, callback) {
   dbutil.execupdateQuery(sqldb, `UPDATE mainvoucher_subt SET d_in = 1 WHERE c_number = ? AND d_in = 0`, [voucherNumber], 'voidTripVoucherSub', function (err) {
     if (err) return callback(err);
@@ -15179,56 +15122,6 @@ exports.voidTripVoucherMdl = function (voucherNumber, tripCNumber, callback) {
         callback(err);
       });
     });
-  });
-};
-
-exports.updateTripVoucherMdl = function (data, callback) {
-  var moment  = require('moment');
-  var curDate = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
-  var vDate   = moment().utcOffset('+05:30').format('YYYY-MM-DD');
-  var c_number = data.voucher_number;
-  var rows     = _tripVoucherRows(data.debit_ledgers, data.credit_ledgers);
-  var totalAmt = rows.debit.reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
-  var descText = ((data.description || '') + ' [Trip: ' + (data.trip_c_number || '') + ']').trim().replace(/'/g, "''");
-
-  // The header's id, c_id and status carry onto the replacement lines: without
-  // them the new lines lost their link to the header and came in pending under
-  // a header that could still read approved.
-  dbutil.execupdateQuery(sqldb, "SELECT id, c_id, status FROM mainvoucher_t WHERE c_number = ? AND d_in = 0 ORDER BY id DESC LIMIT 1", [c_number], 'tripVoucherUpdHeader', function (hErr, hRows) {
-  if (hErr) return callback(hErr);
-  var hdr = (hRows && hRows[0]) || {};
-  dbutil.execupdateQuery(sqldb,
-    "UPDATE mainvoucher_subt SET d_in=1 WHERE c_number='" + c_number + "' AND d_in=0",
-    [], 'tripVoucherUpdDelete',
-    function (err) {
-      if (err) return callback(err);
-      dbutil.execupdateQuery(sqldb,
-        "UPDATE mainvoucher_t SET description='" + descText + "', creditanddebitamount=" + totalAmt + " WHERE c_number='" + c_number + "' AND d_in=0",
-        [], 'tripVoucherUpdMain',
-        function (err) {
-          if (err) return callback(err);
-          var link = { lastinsert_id: hdr.id != null ? String(hdr.id) : null, c_id: hdr.c_id || 0, status: Number(hdr.status) || 0 };
-          var allEntries = [];
-          rows.debit.forEach(function (e) {
-            allEntries.push(Object.assign({ account_type: 'Debit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 }, link));
-          });
-          rows.credit.forEach(function (e) {
-            allEntries.push(Object.assign({ account_type: 'Credit Account', amount: parseFloat(e.amount) || 0, ledger_id: e.ledger_id, expensives: e.ledger_name || '', c_number: c_number, i_ts: curDate, description: descText, creditanddebitamount: totalAmt, vouchertype: 'Journal', voucherdate: vDate, user_id: data.user_id || 0, d_in: 0 }, link));
-          });
-          if (allEntries.length === 0) return callback(null);
-          var si = 0;
-          var insertNext = function () {
-            if (si >= allEntries.length) return callback(null);
-            dbutil.sqlinjection(sqldb, 'INSERT INTO mainvoucher_subt SET ?', allEntries[si], 'tripVoucherUpdSub', function (err) {
-              if (err) return callback(err);
-              si++; insertNext();
-            });
-          };
-          insertNext();
-        }
-      );
-    }
-  );
   });
 };
 

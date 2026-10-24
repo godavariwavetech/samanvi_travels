@@ -11,6 +11,8 @@ import { tripsService } from '@/services/trips.service'
 import { isVanVehicleType, formatDate, ledgerOption, todayISO, formatAmount } from '@/lib/utils'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
+import { usePermissions } from '@/lib/usePermissions'
+import { useCanReviseApproved } from '@/lib/approvedEditors'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type LedgerObj = {
@@ -159,7 +161,8 @@ const emptyLedgerRow = (): LedgerRow => ({ ledger: null, amount: '' })
 // An expense is open to edit or delete while it is filed and neither the trip
 // nor its voucher (Voucher Approvals) has been approved; a rejected trip goes
 // back On Review first.
-const canActOnExpense = (row: any) => row.status === 1 && row.admin_status !== 1 && row.admin_status !== 2 && Number(row.voucher_status) !== 1
+// The approved editors (see lib/approvedEditors.ts) may also act on an approved or rejected one.
+const canActOnExpense = (row: any, canRevise = false) => row.status === 1 && (canRevise || (row.admin_status !== 1 && row.admin_status !== 2 && Number(row.voucher_status) !== 1))
 
 const toLedgerObj = (item: any): LedgerObj => ({
   ledger_id: item.ledger_id, temple_name: item.expensives ?? item.temple_name,
@@ -170,6 +173,9 @@ const toLedgerObj = (item: any): LedgerObj => ({
 
 export default function TripExpensesPage() {
   const qc = useQueryClient()
+  // Approve / Reject is granted on Trip Approvals, not on this page.
+  const { canApprove: canApproveTrips } = usePermissions('/trips/approvals')
+  const canReviseApproved = useCanReviseApproved()
 
   // Date-range filter (blank = show all pending/on-review trips)
   const [fromDate, setFromDate] = useState('')
@@ -1314,7 +1320,6 @@ export default function TripExpensesPage() {
   // ours and its driver is opting (see openAdd); only a hired van's is a hire.
   const vanOptingPay = isVanTrip && !vanHired && isOptingRole('driver1') ? num(modal.row?.booking_amount) : 0
   const hireAmount = isVanTrip && !vanHired ? 0 : num(modal.row?.booking_amount)
-  const hirePosted = !!modal.row?.voucher_number
   const anyoneTicked = PERSON_KEYS.some((k) => isPersonChecked(k))
   const noVoucher = !anyoneTicked && !paidToActive && !creditRows.some((r) => r.ledger && num(r.amount) > 0)
   // Unticking hands the leftover back to the user to place manually; reticking
@@ -1520,7 +1525,10 @@ export default function TripExpensesPage() {
       user_nm: localStorage.getItem('usr_nm'),
       updated_date: nowStr(),
     }),
-    onSuccess: (res) => { if (res?.status === 200) { toast.success('Approval status updated'); refetch() } else toast.error('Failed to update status') },
+    onSuccess: (res) => {
+      if (res?.status === 200) { toast.success('Approval status updated'); refetch() }
+      else toast.error(res?.status === 409 && typeof res?.data === 'string' ? res.data : 'Failed to update status')
+    },
     onError: () => toast.error('Server error'),
   })
 
@@ -1540,7 +1548,7 @@ export default function TripExpensesPage() {
   const handleAction = (action: string, row: any) => {
     if (action === 'edit') {
       if (row.status === 0) { openAdd(row); return }
-      if (canActOnExpense(row)) { openEdit(row); return }
+      if (canActOnExpense(row, canReviseApproved)) { openEdit(row); return }
       toast.error(Number(row.voucher_status) === 1 && row.admin_status !== 1 && row.admin_status !== 2
         ? `Voucher ${row.voucher_number ?? ''} is already approved — reopen it in Voucher Approvals before editing this expense`
         : 'This expense is already approved/rejected and can no longer be edited')
@@ -1552,7 +1560,7 @@ export default function TripExpensesPage() {
       return
     }
     if (action === 'delete') {
-      if (!canActOnExpense(row)) { toast.error('Cannot delete — not filed yet, or already approved/rejected'); return }
+      if (!canActOnExpense(row, canReviseApproved)) { toast.error('Cannot delete — not filed yet, or already approved/rejected'); return }
       removeExpense(row)
     }
   }
@@ -1631,18 +1639,34 @@ export default function TripExpensesPage() {
     },
     {
       label: 'Approvals', key: 'admin_status',
-      render: (_v, row: any) => row.status === 1 ? (
-        <select
-          value={String(row.admin_status ?? 0)}
-          disabled={settingStatus}
-          onChange={(e) => setAdminStatus({ row, value: e.target.value })}
-          className="text-xs font-bold rounded-lg border px-2 py-1.5 bg-white"
-        >
-          <option value="0">On Review</option>
-          <option value="1">Approve</option>
-          <option value="2">Reject</option>
-        </select>
-      ) : <Badge variant="slate">Not Filed</Badge>,
+      render: (_v, row: any) => {
+        if (row.status !== 1) return <Badge variant="slate">Not Filed</Badge>
+        const state = Number(row.admin_status ?? 0)
+        // Once anyone holds the Authorize grant a filed trip has to be
+        // authorized (Trip Approvals) before it can be approved; the server
+        // refuses an earlier approval, so the option is shut here too.
+        const awaitingAuth = state === 0 && Number(row.auth_required) === 1 && !row.authorized_at
+        // Approving belongs to people with the Approve grant on Trip Approvals;
+        // everyone else just reads where the trip stands.
+        if (!canApproveTrips) {
+          return state === 1 ? <Badge variant="success">Approved</Badge>
+            : state === 2 ? <Badge variant="danger">Rejected</Badge>
+              : awaitingAuth ? <Badge variant="warning">Awaiting Authorization</Badge>
+                : <Badge variant="info">{Number(row.auth_required) === 1 ? 'Authorized' : 'On Review'}</Badge>
+        }
+        return (
+          <select
+            value={String(state)}
+            disabled={settingStatus}
+            onChange={(e) => setAdminStatus({ row, value: e.target.value })}
+            className="text-xs font-bold rounded-lg border px-2 py-1.5 bg-white"
+          >
+            <option value="0">{awaitingAuth ? 'Awaiting Authorization' : 'On Review'}</option>
+            <option value="1" disabled={awaitingAuth} title={awaitingAuth ? 'Authorize this trip on Trip Approvals first' : undefined}>Approve</option>
+            <option value="2">Reject</option>
+          </select>
+        )
+      },
     },
   ]
 
@@ -1950,19 +1974,19 @@ export default function TripExpensesPage() {
                     </>)}
                   </div>
 
-                  {/* A hired van's charge: either already on the books from the
-                      trip's own Journal, or seeded onto the Debit side above for
-                      this entry to carry. Either way it is stated, so a trip with
-                      no betas never reads as a trip with nothing in it. */}
+                  {/* A hired van's charge: seeded onto the Debit side above for
+                      this entry to carry, or - when the expense is being edited -
+                      already among the ledger entries below. Either way it is
+                      stated, so a trip with no betas never reads as a trip with
+                      nothing in it. */}
                   {hireAmount > 0 && (
-                    <div className={`rounded-xl border px-4 py-2.5 ${hirePosted ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
-                      <p className={`text-xs font-bold ${hirePosted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                    <div className={`rounded-xl border px-4 py-2.5 ${modal.mode === 'edit' ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60'}`}>
+                      <p className={`text-xs font-bold ${modal.mode === 'edit' ? 'text-emerald-700' : 'text-amber-700'}`}>
                         Hire charge ₹{hireAmount.toLocaleString('en-IN')}
-                        {hirePosted && <span className="font-mono font-semibold"> · {modal.row.voucher_number}</span>}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        {hirePosted
-                          ? `Already on the books under this trip's voucher: ${modal.row.hire_debit_ledger_name ?? 'Hire vehicle charges'} debited, ${modal.row.hire_credit_ledger_name ?? 'the owner ledger'} credited — it is not filed a second time.`
+                        {modal.mode === 'edit'
+                          ? 'Filed with this expense: Hire vehicle charges debited and the owner ledger credited in the ledger entries below.'
                           : hireCreditSeeded
                             ? `Filled in for you: Hire vehicle charges debited, ${hireCreditSeeded} credited — change either side below if that is not right.`
                             : 'Seeded on the Debit side as Hire vehicle charges — pick who it is owed to on the Credit side.'}
@@ -1972,12 +1996,12 @@ export default function TripExpensesPage() {
 
                   {/* A filed van expense whose posted total no longer matches the trip's
                       Amount (the Amount was changed on Trip Creation before that was
-                      locked): said out loud, so the voucher is corrected on purpose. */}
+                      locked): said out loud, so the ledger entries are corrected on purpose. */}
                   {modal.mode === 'edit' && isVanTrip && !noVoucher && num(modal.row?.booking_amount) > 0
                     && Math.round(num(modal.row?.booking_amount) * 100) !== Math.round(debitTotal * 100) && (
                     <div className="rounded-xl border border-red-200 bg-red-50/60 px-4 py-2.5">
-                      <p className="text-xs font-bold text-red-700">Trip amount ₹{num(modal.row?.booking_amount).toLocaleString('en-IN')} does not match this voucher (₹{debitTotal.toLocaleString('en-IN')})</p>
-                      <p className="text-[11px] text-slate-500">Set the ledger amounts below to the right figure — saving updates the trip's amount to the voucher total.</p>
+                      <p className="text-xs font-bold text-red-700">Trip amount ₹{num(modal.row?.booking_amount).toLocaleString('en-IN')} does not match these ledger entries (₹{debitTotal.toLocaleString('en-IN')})</p>
+                      <p className="text-[11px] text-slate-500">Set the ledger amounts below to the right figure — saving updates the trip's amount to the ledger total.</p>
                     </div>
                   )}
                   {/* An opting driver's pay on our own van, stated the same way. */}
@@ -2043,12 +2067,12 @@ export default function TripExpensesPage() {
                        saves the expense on its own. */
                     <div className="rounded-xl border-2 border-amber-200 bg-amber-50/60 p-4 space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-amber-800">No voucher</span>
+                        <span className="text-sm font-bold text-amber-800">No ledger entries</span>
                         <span className="text-xs text-amber-600 bg-amber-100 rounded-full px-2 py-0.5 font-medium">Nobody paid through the books</span>
                       </div>
                       <p className="text-xs text-slate-600">
                         No crew member is ticked and Paid To is off, so Submit saves the betas and remarks without posting any ledger entry.
-                        Tick a person, or turn Paid To on, to post a voucher instead.
+                        Tick a person, or turn Paid To on, to book the trip's ledger entries.
                         {modal.mode === 'edit' && modal.row?.voucher_number ? ` The voucher posted earlier for this trip (${modal.row.voucher_number}) will be removed.` : ''}
                       </p>
                     </div>

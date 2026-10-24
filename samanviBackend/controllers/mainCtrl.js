@@ -1,5 +1,13 @@
 var appmdl = require("../models/mainModel");
-const { guardApprovedVoucher } = require("../utils/approvedVouchers");
+const { guardApprovedVoucher, isApprovedEditor } = require("../utils/approvedVouchers");
+// An approved trip expense is locked for everyone except the approved editors
+// (see utils/approvedVouchers.js), who may still edit or delete it.
+function tripExpenseLock(req, c_number, callback) {
+  isApprovedEditor(req.auth && req.auth.usid, function (ok) {
+    if (ok) return callback(null, '');
+    appmdl.tripExpenseLockMdl(c_number, callback);
+  });
+}
 var jwt = require("jsonwebtoken");
 const axios = require("axios");
 var masterVldtr = require("../validators/mstrVldt");
@@ -2278,21 +2286,6 @@ exports.deleteexpensesdataCtrl = function (req, res) {
 //     });
 // };
 
-// Debit/credit rows arrive shaped for expensive_details (d_test_name/credit_name
-// carrying the full ledger object) — reshape into the {ledger_id, ledger_name,
-// amount} pairs createTripVoucherMdl/updateTripVoucherMdl expect.
-function buildTripVoucherLedgers(body) {
-  var debit_ledgers = (body.patientsTstdts || []).map(function (r) {
-    var l = r.d_test_name || {};
-    return { ledger_id: l.ledger_id, ledger_name: l.temple_name || l.expensives || '', amount: r.d_test_amount };
-  });
-  var credit_ledgers = (body.credit || []).map(function (r) {
-    var l = r.credit_name || {};
-    return { ledger_id: l.ledger_id, ledger_name: l.temple_name || l.expensives || '', amount: r.credit_amount };
-  });
-  return { debit_ledgers: debit_ledgers, credit_ledgers: credit_ledgers };
-}
-
 exports.addexpensesdetails = function (req, res) {
   // appmdl.maintripexpenseuniquenoMdl(async function (err, cresults1) {
   //   if (err) {
@@ -2365,31 +2358,15 @@ exports.addexpensesdetails = function (req, res) {
                         detail: err && (err.sqlMessage || err.message) || 'no result returned',
                       });
                   }
-                  var finish = function () {
-                    return res.status(200).send({
-                      status: 200,
-                      message: "Successfully added and updated expenses.",
-                      data: updateResult,
-                    });
-                  };
-                  // Post the accounting voucher for this trip's debit/credit
-                  // lines, then link it back onto trip_created.voucher_number.
-                  // The expense itself already saved fine above, so a voucher
-                  // failure here is logged and swallowed rather than failing
-                  // the whole request.
-                  var ledgers = buildTripVoucherLedgers(req.body);
-                  appmdl.createTripVoucherMdl({
-                    debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
-                    trip_c_number: c_number,
-                    entry_by: (req.body.expensedetails && req.body.expensedetails.named) || '',
-                    user_id: (req.body.expensedetails && req.body.expensedetails.user_id) || 0,
-                  }, function (voucherErr, voucherNumber) {
-                    if (voucherErr) {
-                      console.error('[createTripVoucherMdl] failed for trip ' + c_number + ':', voucherErr.message);
-                      return finish();
-                    }
-                    if (!voucherNumber) return finish();
-                    appmdl.setTripVoucherNumberMdl(c_number, voucherNumber, finish);
+                  // No voucher is posted: the debit/credit lines written to
+                  // expensive_details above ARE the trip's ledger entries, the
+                  // way a fuel entry's lines are in fuelentry_subt. They reach
+                  // Ledger Wise, Day Book and Payables once the trip is
+                  // approved (Authorize -> Approve on Trip Approvals).
+                  return res.status(200).send({
+                    status: 200,
+                    message: "Successfully added and updated expenses.",
+                    data: updateResult,
                   });
                 }
               );
@@ -2407,7 +2384,7 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
   // Approvals, is on the books: re-filing replaced the voucher's lines with
   // pending ones under a header still marked approved, and the payable
   // silently dropped out of Ledger Wise. Checked before anything is touched.
-  appmdl.tripExpenseLockMdl(req.body.c_number, function (lockErr, lockMsg) {
+  tripExpenseLock(req, req.body.c_number, function (lockErr, lockMsg) {
   if (lockErr) { res.status(500).send("Server Error"); return; }
   if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
   appmdl.deletetripexpensesMdl(req.body, function (err, cresults1) {
@@ -2475,49 +2452,28 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
                         data: updateResult,
                       });
                     };
-                    // The trip's own c_number is stable across edits (it's what
-                    // deletetripexpensesMdl above superseded the old row by) —
-                    // NOT the `c_number` in this closure, which is freshly minted
-                    // for the new tripexpenses_data row on every edit. Re-filing
-                    // replaces an existing voucher's lines instead of piling up
-                    // a new voucher each time.
+                    // The trip's lines live in expensive_details (rewritten
+                    // above), so a trip filed before this change that still
+                    // carries a voucher has it retired here - otherwise the
+                    // books would read the old voucher and ignore the edit
+                    // (tripRowsWithoutVoucher hides the trip's own lines while
+                    // a voucher exists). tripExpenseLockMdl has already
+                    // refused an approved voucher, so only a pending one is
+                    // ever voided. A re-filed trip is also no longer the
+                    // thing that was authorized, so authorization is cleared.
                     var tripCNumber = req.body.c_number;
-                    var ledgers = buildTripVoucherLedgers(req.body);
                     appmdl.getTripVoucherNumberMdl(tripCNumber, function (vErr, vRows) {
                       var existingVoucher = (!vErr && vRows && vRows[0] && vRows[0].voucher_number) || null;
-                      // Re-filed with nobody paid through the books: the
-                      // expense is saved above and no voucher is posted. One
-                      // from an earlier filing is retired rather than left
-                      // standing with no lines.
-                      if (ledgers.debit_ledgers.length === 0 && ledgers.credit_ledgers.length === 0) {
-                        if (!existingVoucher) return finish();
-                        return appmdl.voidTripVoucherMdl(existingVoucher, tripCNumber, function (vdErr) {
-                          if (vdErr) console.error('[voidTripVoucherMdl] failed for trip ' + tripCNumber + ':', vdErr.message);
+                      var clearAuth = function () {
+                        appmdl.resetTripApprovalMdl(tripCNumber, function (aErr) {
+                          if (aErr) console.error('[resetTripApprovalMdl] failed for trip ' + tripCNumber + ':', aErr.message);
                           finish();
                         });
-                      }
-                      if (existingVoucher) {
-                        appmdl.updateTripVoucherMdl({
-                          voucher_number: existingVoucher, trip_c_number: tripCNumber,
-                          debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
-                          user_id: req.body.updatedby_id || 0,
-                        }, function (uErr) {
-                          if (uErr) console.error('[updateTripVoucherMdl] failed for trip ' + tripCNumber + ':', uErr.message);
-                          finish();
-                        });
-                        return;
-                      }
-                      appmdl.createTripVoucherMdl({
-                        debit_ledgers: ledgers.debit_ledgers, credit_ledgers: ledgers.credit_ledgers,
-                        trip_c_number: tripCNumber,
-                        entry_by: req.body.updatedby_nm || '', user_id: req.body.updatedby_id || 0,
-                      }, function (cErr, voucherNumber) {
-                        if (cErr) {
-                          console.error('[createTripVoucherMdl] failed for trip ' + tripCNumber + ':', cErr.message);
-                          return finish();
-                        }
-                        if (!voucherNumber) return finish();
-                        appmdl.setTripVoucherNumberMdl(tripCNumber, voucherNumber, finish);
+                      };
+                      if (!existingVoucher) return clearAuth();
+                      appmdl.voidTripVoucherMdl(existingVoucher, tripCNumber, function (vdErr) {
+                        if (vdErr) console.error('[voidTripVoucherMdl] failed for trip ' + tripCNumber + ':', vdErr.message);
+                        clearAuth();
                       });
                     });
                   }
@@ -2536,15 +2492,30 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
 exports.deleteexpenseCtrl = function (req, res) {
   var data = req.body;
   // Same lock as editing: an approved expense or voucher is not deleted.
-  appmdl.tripExpenseLockMdl(data.c_number, function (lockErr, lockMsg) {
+  tripExpenseLock(req, data.c_number, function (lockErr, lockMsg) {
     if (lockErr) { res.send(500, "Server Error"); return; }
     if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
-    appmdl.deleteexpenseMdl(data, function (err, results) {
-      if (err) {
-        res.send(500, "Server Error");
-        return;
-      }
-      res.send({ status: 200, data: results });
+    // Read before the delete: deleteexpenseMdl soft-deletes the trip row, after
+    // which its voucher link can no longer be looked up.
+    appmdl.getTripVoucherNumberMdl(data.c_number, function (vErr, vRows) {
+      var legacyVoucher = (!vErr && vRows && vRows[0] && vRows[0].voucher_number) || null;
+      appmdl.deleteexpenseMdl(data, function (err, results) {
+        if (err) {
+          res.send(500, "Server Error");
+          return;
+        }
+        // A deleted expense takes its authorization with it, and a voucher
+        // posted for it before trips stopped posting one (never approved - the
+        // lock above) must not be left behind in Voucher Approvals.
+        appmdl.clearTripAuthorizationMdl(data.c_number, function (aErr) {
+          if (aErr) console.error('[clearTripAuthorizationMdl] failed for trip ' + data.c_number + ':', aErr.message);
+          if (!legacyVoucher) return res.send({ status: 200, data: results });
+          appmdl.voidTripVoucherMdl(legacyVoucher, data.c_number, function (vdErr) {
+            if (vdErr) console.error('[voidTripVoucherMdl] failed for trip ' + data.c_number + ':', vdErr.message);
+            res.send({ status: 200, data: results });
+          });
+        });
+      });
     });
   });
 };

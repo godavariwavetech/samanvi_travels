@@ -76,6 +76,7 @@ const API_PERMISSIONS = {
   '/deletetripcreated': [{ subs: [34] }, 'delete'],
   '/addexpensesdetails': [{ subs: [35] }, 'add'],
   '/updateexpensesdetails': [{ subs: [35] }, 'edit'],
+  '/deleteexpense': [{ subs: [35] }, 'delete'],
   '/addrepairentry': [{ subs: [62] }, 'add'],
   '/editrepairentry': [{ subs: [62, 63] }, 'edit'],
   '/updatejobvoucher': [{ subs: [63] }, 'edit'],
