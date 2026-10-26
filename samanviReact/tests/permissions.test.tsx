@@ -7,6 +7,8 @@ import { useAuthStore, type MenuItem } from '../src/store/auth.store'
 import { ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons } from '../src/components/shared/ApprovalFlow'
 import { DataTable } from '../src/components/shared/DataTable'
 import { Button } from '../src/components/shared/Button'
+import { useCanReviseApproved } from '../src/lib/approvedEditors'
+import { needsAuthorization, awaitingApproval } from '../src/lib/tripAuthorization'
 
 const viewer = { can_view: 1, can_add: 0, can_edit: 0, can_delete: 0 }
 const menu = (id: number, module_id: number, rights = viewer): MenuItem[] => [{
@@ -73,3 +75,25 @@ assert.equal(permissionsFor('/accounting/voucher-approvals', approveOnly).canApp
 assert.equal(permissionsFor('/accounting/voucher-approvals', approveOnly).canEdit, false)
 const editorNoApprove = menu(61, 14, { ...viewer, can_add: 1, can_edit: 1, can_approve: 0 } as typeof viewer)
 assert.equal(permissionsFor('/accounting/voucher-approvals', editorNoApprove).canApprove, false)
+
+function ApprovedEditProbe() {
+  return useCanReviseApproved() ? <Button permission="edit">Edit approved voucher</Button> : null
+}
+for (const role of [0, '0', 1, null, undefined, '']) {
+  useAuthStore.setState({ user: { role_type: role, number: '9999999999' } as any })
+  const html = render('/accounting/voucher-approvals', menu(61, 14), <ApprovedEditProbe />)
+  assert.equal(html.includes('Edit approved voucher'), role === 0 || role === '0')
+}
+useAuthStore.setState({ user: null })
+
+for (const status of [0, '0']) {
+  const trip = { admin_status: status, status: '1', auth_required: '1' }
+  assert.equal(needsAuthorization(trip), true)
+  assert.equal(awaitingApproval(trip), false)
+  assert.equal(needsAuthorization({ ...trip, authorized_at: '2026-10-26' }), false)
+  assert.equal(awaitingApproval({ ...trip, authorized_at: '2026-10-26' }), true)
+  assert.equal(awaitingApproval({ ...trip, auth_required: 0 }), true)
+  assert.equal(needsAuthorization({ ...trip, status: 0 }), false)
+  assert.equal(awaitingApproval({ ...trip, status: 0 }), false)
+}
+console.log('Approved voucher editing and trip authorization regression checks passed.')

@@ -82,3 +82,29 @@ test('authorize is only ever an explicit can_authorize tick', () => {
   assert.equal(allows([{ ...viewer, can_authorize: 1 }], 'authorize'), true);
   assert.equal(allows([{ can_view: 0, can_authorize: 1 }], 'authorize'), false);
 });
+
+test('voucher edit fallback uses the active database Super Admin role only', () => {
+  for (const role of [0, '0', 1, null, undefined, '']) {
+    const result = { allowed: false };
+    const database = { query(sql, values, callback) {
+      assert.equal(values[0], 17);
+      if (sql.startsWith('SELECT role_type')) {
+        assert.match(sql, /d_in = 0/);
+        callback(null, [{ role_type: role }]);
+      } else callback(null, [viewer]);
+    } };
+    const res = { status(code) { result.status = code; return this; }, json() {} };
+    requirePermission(...API_PERMISSIONS['/updatevoucherentry'], database)(
+      { auth: { usid: 17 }, body: { role_type: 0 } }, res, () => { result.allowed = true; });
+    assert.equal(result.allowed, role === 0 || role === '0');
+  }
+  assert.equal(API_PERMISSIONS['/authorizetrip'][0].superAdminEdit, undefined);
+  assert.equal(API_PERMISSIONS['/deletevoucherentry'][0].superAdminEdit, undefined);
+});
+
+test('trip authorization requirement excludes unrelated and inactive grants', () => {
+  const { tripAuthorizersSql } = require('../utils/tripAuthorization');
+  for (const clause of ['pa.module_id = 18', 'au.d_in = 0', 'asm.d_in = 0', 'am.d_in = 0', 'pa.d_in = 0', 'pa.can_authorize = 1', 'pa.can_view = 1']) {
+    assert.ok(tripAuthorizersSql.includes(clause), clause);
+  }
+});
