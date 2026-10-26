@@ -6568,12 +6568,13 @@ exports.updatevoucherentrystatusMdl = function (data, callback) {
 exports.insertVoucherAuditMdl = function (data, callback) {
   var cntxtDtls = "insertVoucherAuditMdl";
   var QRY_TO_EXEC = `INSERT INTO mainvoucher_audit (c_number, action, action_by_id, action_by_name, action_at, changes_note)
-     VALUES (?, ?, ?, ?, NOW(), ?)`;
+     VALUES (?, ?, ?, ?, ?, ?)`;
   var m = [
     data.c_number, 
     data.action, 
     data.action_by_id || '', 
     data.action_by_name || '', 
+    data.action_at || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss'),
     data.changes_note || ''
   ];
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, m, cntxtDtls, callback);
@@ -6609,8 +6610,8 @@ exports.authorizeTripMdl = function (data, callback) {
     if (String(rows[0].status) !== '1') return callback(null, { ok: false, msg: 'File the trip expense before authorizing it' });
     if (Number(rows[0].admin_status) === 1) return callback(null, { ok: false, msg: 'This trip is already approved' });
     if (Number(rows[0].admin_status) === 2) return callback(null, { ok: false, msg: 'This trip was rejected - it has to be corrected and filed again before it can be authorized' });
-    sqldb.query(`INSERT IGNORE INTO trip_authorizations (c_number, trip_id, authorized_by_id, authorized_by_name) VALUES (?, ?, ?, ?)`,
-      [data.c_number, rows[0].id, data.user_id, data.user_nm], function (err2) {
+    sqldb.query(`INSERT IGNORE INTO trip_authorizations (c_number, trip_id, authorized_by_id, authorized_by_name, authorized_at) VALUES (?, ?, ?, ?, ?)`,
+      [data.c_number, rows[0].id, data.user_id, data.user_nm, data.authorized_at], function (err2) {
         callback(err2, err2 ? null : { ok: true });
       });
   });
@@ -6637,16 +6638,16 @@ exports.resetTripApprovalMdl = function (c_number, callback) {
 // Everything the ref-number popup shows: created, last edited, filed, authorized, approved.
 exports.getTripAuditMdl = function (data, callback) {
   var authSel = tripAuthTable.present
-    ? `(SELECT JSON_OBJECT('by', ta.authorized_by_name, 'at', DATE_FORMAT(ta.authorized_at, '%Y-%m-%d %H:%i:%s')) FROM trip_authorizations ta WHERE ta.c_number = t.c_number LIMIT 1)`
+    ? `(SELECT JSON_OBJECT('id', ta.authorized_by_id, 'by', ta.authorized_by_name, 'at', DATE_FORMAT(ta.authorized_at, '%Y-%m-%d %H:%i:%s')) FROM trip_authorizations ta WHERE ta.c_number = t.c_number LIMIT 1)`
     : 'NULL';
-  sqldb.query(`SELECT t.c_number, t.created_name, t.cts, t.updatedby_name, t.updated_date, t.admin_status,
+  sqldb.query(`SELECT t.c_number, t.created_name, DATE_FORMAT(t.cts, '%Y-%m-%d %H:%i:%s') AS cts, t.updatedby_name, t.updated_date, t.admin_status,
       te.user_id AS filed_by_id, te.date AS filed_date, te.updatedby_name AS expense_edited_by, te.updatedby_date AS expense_edited_date,
-      te.action_by_name AS action_by_name, te.admin_action_date AS admin_action_date,
+      te.admin_action_by AS approved_by_id, te.action_by_name AS action_by_name, te.admin_action_date AS admin_action_date,
       (SELECT u.name FROM users u WHERE u.id = te.user_id LIMIT 1) AS filed_by_name,
       ${authSel} AS authorization
     FROM trip_created t
-    LEFT JOIN tripexpenses_data te ON te.id = (SELECT MAX(te2.id) FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number AND te2.d_in = 0)
-    WHERE t.c_number = ? AND t.d_in = 0 LIMIT 1`, [data.c_number], function (err, rows) {
+    LEFT JOIN tripexpenses_data te ON te.id = (SELECT te2.id FROM tripexpenses_data te2 WHERE te2.c_number = t.c_number ORDER BY (te2.d_in=0) DESC, te2.id DESC LIMIT 1)
+    WHERE t.c_number = ? ORDER BY (t.d_in = 0) DESC, t.id DESC LIMIT 1`, [data.c_number], function (err, rows) {
     if (err) return callback(err, null);
     var r = rows && rows[0] ? rows[0] : null;
     if (r && typeof r.authorization === 'string') { try { r.authorization = JSON.parse(r.authorization); } catch (e) { r.authorization = null; } }
@@ -14056,8 +14057,8 @@ exports.submitrepairtrackingMdl = function (data, callback) {
         current_stage = '${_stageLabel}',
         state = '${_targetState}'${_extraCols}
     WHERE id = '${data.id}';
-    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
-    VALUES ('${data.id}', '${data.job_card_number}', '${_stageActor}', '${_stageLabel}', '${data.user_id || 0}', '${_entryBy}', '${_stageRemarks}');
+    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks)
+    VALUES ('${data.id}', '${data.job_card_number}', '${_stageActor}', '${_stageLabel}', '${data.user_id || 0}', '${_entryBy}', '${data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss')}', '${_stageRemarks}');
   `;
 
   // 4️⃣ LEDGER ENTRIES — clear old then insert new
@@ -14103,8 +14104,8 @@ exports.quickCompleteJobMdl = function (data, callback) {
     UPDATE vehicle_jobs
     SET current_stage = 'completed', state = 'CLOSED', approval_remarks = '${desc}'
     WHERE id = '${jobId}';
-    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
-    VALUES ('${jobId}', '${jobNum}', 'accountant', 'quick_completed', '${userId}', '', '${desc}');
+    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks)
+    VALUES ('${jobId}', '${jobNum}', 'accountant', 'quick_completed', '${userId}', '${String(data.user_name || '').replace(/'/g, "''")}', '${data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss')}', '${desc}');
   `;
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [], 'quickCompleteJobMdl', callback);
 };
@@ -14269,19 +14270,19 @@ exports.changeJobSatusMdl = function (data, callback) {
     var finishById   = (data.user_id   || '0').toString().replace(/'/g, "''");
     var finishByName = (data.user_name || '').replace(/'/g, "''");
     QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='FINISHED', current_stage='finished', finish_remarks='${remarks}', is_repeated_job=${repeat}, next_job_date=${nextDate}, amount='${totalAmt}' WHERE id='${jobId}';`;
-    QRY_TO_EXEC += `INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks, d_in) VALUES ('${jobId}', '${jobNum}', 'technician', 'finished', '${finishById}', '${finishByName}', NOW(), '${remarks}', 0);`;
+    QRY_TO_EXEC += `INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks, d_in) VALUES ('${jobId}', '${jobNum}', 'technician', 'finished', '${finishById}', '${finishByName}', '${data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss')}', '${remarks}', 0);`;
   } else if (newState === 'APPROVED') {
     var approvalRemarks  = (data.approval_remarks || '').replace(/'/g, "''");
     var approveById      = (data.user_id   || '0').toString().replace(/'/g, "''");
     var approveByName    = (data.user_name || '').replace(/'/g, "''");
     QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='APPROVED', current_stage='approved', approval_remarks='${approvalRemarks}', amount='${totalAmt}' WHERE id='${jobId}';`;
-    QRY_TO_EXEC += `INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks, d_in) VALUES ('${jobId}', '${jobNum}', 'manager', 'approved', '${approveById}', '${approveByName}', NOW(), '${approvalRemarks}', 0);`;
+    QRY_TO_EXEC += `INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks, d_in) VALUES ('${jobId}', '${jobNum}', 'manager', 'approved', '${approveById}', '${approveByName}', '${data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss')}', '${approvalRemarks}', 0);`;
   } else if (newState === 'REJECTED') {
     var rejectRemarks  = (data.remarks || '').replace(/'/g, "''");
     var rejectById     = (data.user_id   || '0').toString().replace(/'/g, "''");
     var rejectByName   = (data.user_name || '').replace(/'/g, "''");
     QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='REJECTED', current_stage='rejected' WHERE id='${jobId}';`;
-    QRY_TO_EXEC += `INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks, d_in) VALUES ('${jobId}', '${jobNum}', 'manager', 'rejected', '${rejectById}', '${rejectByName}', NOW(), '${rejectRemarks}', 0);`;
+    QRY_TO_EXEC += `INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks, d_in) VALUES ('${jobId}', '${jobNum}', 'manager', 'rejected', '${rejectById}', '${rejectByName}', '${data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss')}', '${rejectRemarks}', 0);`;
   } else {
     QRY_TO_EXEC += `UPDATE vehicle_jobs SET state='${newState}' WHERE id='${jobId}';`;
   }
@@ -14432,8 +14433,8 @@ exports.jobWorkflowActionMdl = function (data, callback) {
   const safeName    = (data.user_name || '').replace(/'/g, "''");
   const QRY_TO_EXEC = `
     UPDATE vehicle_jobs SET current_stage = '${newStage}' WHERE id = '${data.job_card_id}';
-    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, remarks)
-    VALUES ('${data.job_card_id}', '${data.job_card_number}', '${stageLabels[data.action]}', '${actionLabels[data.action]}', '${data.user_id || 0}', '${safeName}', '${safeRemarks}');
+    INSERT INTO job_approval_stages (job_card_id, job_card_number, stage, action, action_by_id, action_by_name, action_at, remarks)
+    VALUES ('${data.job_card_id}', '${data.job_card_number}', '${stageLabels[data.action]}', '${actionLabels[data.action]}', '${data.user_id || 0}', '${safeName}', '${data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss')}', '${safeRemarks}');
   `;
   let m = [];
   if (callback && typeof callback === 'function')

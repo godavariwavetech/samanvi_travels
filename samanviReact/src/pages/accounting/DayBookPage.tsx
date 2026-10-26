@@ -1,3 +1,4 @@
+import { ReferenceDetailsLink } from '@/components/shared/ReferenceDetailsLink'
 ﻿import { useState, useMemo, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { Search, X, ExternalLink, Receipt, RefreshCw } from 'lucide-react'
@@ -437,7 +438,7 @@ export default function DayBookPage() {
                 {displayRows.map((row, idx) => (
                   <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{idx + 1}</td>
-                    <td className="px-3 py-2 border-b border-slate-100 font-medium text-blue-600 whitespace-nowrap">{row.c_number}</td>
+                    <td className="px-3 py-2 border-b border-slate-100 font-medium text-blue-600 whitespace-nowrap"><ReferenceDetailsLink value={row.c_number} /></td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-700 whitespace-nowrap">{row.vouchertype}</td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">{fmt(row.i_ts)}</td>
                     <td className="px-3 py-2 border-b border-slate-100 whitespace-nowrap">
