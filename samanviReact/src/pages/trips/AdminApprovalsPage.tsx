@@ -9,6 +9,7 @@ import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
 import TripAuditModal from './TripAuditModal'
+import { needsAuthorization, awaitingApproval } from '@/lib/tripAuthorization'
 
 const today = todayISO()
 const firstOfMonth = today.slice(0, 8) + '01'
@@ -16,12 +17,6 @@ const firstOfMonth = today.slice(0, 8) + '01'
 // The step between filing and approval. It only exists once someone has been
 // given the Authorize grant (the server sends auth_required with every trip);
 // until then trips go straight to Approval as before.
-const authRequired = (t: any) => Number(t.auth_required) === 1
-const isAuthorized = (t: any) => !!t.authorized_at
-// Waiting for an authorizer: filed, pending, not authorized yet.
-const needsAuthorization = (t: any) => t.admin_status === 0 && authRequired(t) && !isAuthorized(t) && Number(t.status) === 1
-// Waiting for the approver: pending, and either no authorize step or it is done.
-const awaitingApproval = (t: any) => t.admin_status === 0 && (!authRequired(t) || isAuthorized(t))
 
 const tabs = ['Pending', 'Approved', 'Rejected']
 
@@ -138,6 +133,9 @@ export default function AdminApprovalsPage() {
         toast.success('Status updated!')
         qc.invalidateQueries({ queryKey: ['trips'] })
         qc.invalidateQueries({ queryKey: ['trip-expenses'] })
+        for (const key of ['bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
+          qc.invalidateQueries({ queryKey: [key] })
+        }
       } else {
         toast.error('Failed to update status')
       }
@@ -170,7 +168,7 @@ export default function AdminApprovalsPage() {
     return allTrips.filter((t) => {
       if (tab === 'To Authorize') { if (!needsAuthorization(t)) return false }
       else if (tab === 'Pending') { if (!awaitingApproval(t)) return false }
-      else if (t.admin_status !== statusMap[tab]) return false
+      else if (Number(t.admin_status) !== statusMap[tab]) return false
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
       if (!d) return true
       if (applied.from && d < applied.from) return false
@@ -181,8 +179,8 @@ export default function AdminApprovalsPage() {
 
   const pendingCount = allTrips.filter(awaitingApproval).length
   const authorizeCount = allTrips.filter(needsAuthorization).length
-  const approvedCount = allTrips.filter((t) => t.admin_status === 1).length
-  const rejectedCount = allTrips.filter((t) => t.admin_status === 2).length
+  const approvedCount = allTrips.filter((t) => Number(t.admin_status) === 1).length
+  const rejectedCount = allTrips.filter((t) => Number(t.admin_status) === 2).length
 
   const buildCols = (): Column[] => [
     {
@@ -238,7 +236,7 @@ export default function AdminApprovalsPage() {
               <ShieldCheck className="w-3.5 h-3.5" /> Authorize
             </Button>
           )}
-          {canApprove && row.admin_status !== 1 && !needsAuthorization(row) && (
+          {canApprove && awaitingApproval(row) && (
             <Button
               variant="success"
               size="sm"
@@ -248,7 +246,7 @@ export default function AdminApprovalsPage() {
               <CheckCircle className="w-3.5 h-3.5" /> Approve
             </Button>
           )}
-          {canApprove && row.admin_status !== 2 && (
+          {canApprove && Number(row.admin_status) !== 2 && (
             <Button
               variant="danger"
               size="sm"

@@ -44,6 +44,16 @@ function requirePermission(rule, action, database) {
       WHERE p.user_id = ? AND p.d_in = 0 AND ${scope}`, values, (error, grants) => {
       if (error) return res.status(500).json({ status: 500, msg: 'Permission check failed' });
       if (!allows(grants || [], action)) {
+        // Voucher editing is an explicit Super Admin capability, even when
+        // this account has no per-screen Edit tick. Read the current DB role.
+        if (rule.superAdminEdit && action === 'edit') {
+          return pool.query('SELECT role_type FROM users WHERE id = ? AND d_in = 0', [userId], (roleError, users) => {
+            if (roleError) return res.status(500).json({ status: 500, msg: 'Permission check failed' });
+            const role = users && users[0] && users[0].role_type;
+            if (role === 0 || role === '0') return next();
+            return res.status(403).json({ status: 403, msg: 'Permission denied' });
+          });
+        }
         return res.status(403).json({ status: 403, msg: 'Permission denied' });
       }
       next();
@@ -56,7 +66,7 @@ const API_PERMISSIONS = {
   '/createuserpermissions': [{ subs: [2] }, 'add'],
   '/updateuser': [{ subs: [2] }, 'edit'],
   '/submitvoucherentrydata': [{ subs: [36] }, 'add'],
-  '/updatevoucherentry': [{ subs: [36, 61] }, 'edit'],
+  '/updatevoucherentry': [{ subs: [36, 61], superAdminEdit: true }, 'edit'],
   '/deletevoucherentry': [{ subs: [36, 61] }, 'delete'],
   '/updatevoucherentrystatus': [{ subs: [61] }, 'approve'],
   '/updatetripadminstatus': [{ module: 18 }, 'approve'],

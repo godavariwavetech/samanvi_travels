@@ -1526,7 +1526,12 @@ export default function TripExpensesPage() {
       updated_date: nowStr(),
     }),
     onSuccess: (res) => {
-      if (res?.status === 200) { toast.success('Approval status updated'); refetch() }
+      if (res?.status === 200) {
+        toast.success('Approval status updated'); refetch()
+        for (const key of ['trips', 'trip-expenses', 'bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
+          qc.invalidateQueries({ queryKey: [key] })
+        }
+      }
       else toast.error(res?.status === 409 && typeof res?.data === 'string' ? res.data : 'Failed to update status')
     },
     onError: () => toast.error('Server error'),

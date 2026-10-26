@@ -1,4 +1,6 @@
 var sqldb = require("../config/dbconnect");
+const { tripAuthorizersSql } = require('../utils/tripAuthorization');
+const { tripRowsWithoutVoucher } = require('../utils/tripAccounting');
 // config/dbconnect.js belongs to each server (deploys never overwrite it), so
 // the option that makes DATE columns (dob, dl_dob, reg_date, due_date, ...)
 // arrive as plain "YYYY-MM-DD" strings is enforced here, on the pool every
@@ -38,12 +40,6 @@ var driverMedicalValidity = ensureColumn(sqldb, 'driver_register', 'medical_vali
 // trip with no voucher (filed before vouchers were posted for trips, or filed
 // with nobody paid through the books), which is what this clause selects.
 // `alias` is the expensive_details alias in the query, or '' for a bare SELECT.
-function tripRowsWithoutVoucher(alias) {
-  // Always qualified: a bare c_number inside the subquery would resolve to
-  // trip_created's own column and match every row.
-  var col = (alias || 'expensive_details') + '.c_number';
-  return "NOT EXISTS (SELECT 1 FROM trip_created tc WHERE tc.c_number = " + col + " AND tc.d_in = 0 AND tc.voucher_number IS NOT NULL AND tc.voucher_number <> '')";
-}
 
 // A voucher line only counts once its voucher header is approved too. Lines
 // carry their own status copy, which can drift from the header (e.g. a trip
@@ -110,9 +106,9 @@ var tripAuthTable = { present: false };
 })();
 // Authorization columns for the trip lists, or nothing while the table is missing.
 function tripAuthSelect() {
-  return tripAuthTable.present
+  return tripAuthTable.present && authorizeCol.present
     ? `, ta.authorized_by_name AS authorized_by_name, ta.authorized_at AS authorized_at,
-  (SELECT COUNT(*) > 0 FROM permissions pa WHERE pa.can_authorize = 1 AND pa.can_view = 1 AND pa.d_in = 0) AS auth_required`
+  ((${tripAuthorizersSql}) > 0) AS auth_required`
     : '';
 }
 function tripAuthJoin() {
@@ -6595,7 +6591,7 @@ exports.updatetripadminstatusMdl = function (data, callback) {
   if (!(tripAuthTable.present && authorizeCol.present && String(data.vouchervalue) === '1' && data.voucherdata)) {
     return exports.updatetripadminstatusNow(data, callback);
   }
-  sqldb.query(`SELECT (SELECT COUNT(*) FROM permissions WHERE can_authorize = 1 AND can_view = 1 AND d_in = 0) AS required,
+  sqldb.query(`SELECT (${tripAuthorizersSql}) AS required,
       (SELECT COUNT(*) FROM trip_authorizations WHERE c_number = ?) AS done`, [data.voucherdata.c_number], function (err, rows) {
     if (err) return callback(err, null);
     var r = (rows && rows[0]) || {};
@@ -6659,30 +6655,7 @@ exports.getTripAuditMdl = function (data, callback) {
 };
 
 exports.updatetripadminstatusNow = function (data, callback) {
-  var cntxtDtls = "in updatetripadminstatusMdl";
-  let vouchervalue = "";
-  var QRY_TO_EXEC = `
-    update tripexpenses_data set admin_status='${data.vouchervalue}',admin_action_by='${data.user_id}',admin_action_date='${data.updated_date}',action_by_name='${data.user_nm}' where c_number='${data.voucherdata.c_number}';
-
-    update expensive_details set admin_status='${data.vouchervalue}',admin_action_by='${data.user_id}',admin_action_date='${data.updated_date}',action_by_name='${data.user_nm}' where c_number='${data.voucherdata.c_number}';
-
-
-    update trip_created set admin_status='${data.vouchervalue}' where id='${data.voucherdata.id}';`;
-  console.log(QRY_TO_EXEC, 6330);
-
-  // console.log(QRY_TO_EXEC)
-
-  if (callback && typeof callback == "function") {
-    dbutil.execQuery(
-      sqldb,
-      QRY_TO_EXEC,
-      cntxtDtls,
-      function (err, results) {
-        callback(err, results);
-        return;
-      }
-    );
-  } else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
+  require('../utils/tripApproval').updateTripApproval(sqldb, data, callback);
 };
 exports.updatefueladminstatusMdl = function (data, callback) {
   var cntxtDtls = "in updatefueladminstatusMdl";
