@@ -539,7 +539,7 @@ exports.getLaundryBillDetailsMdl = function (data, callback) {
 };
 
 exports.updateLaundryBillAdminStatusMdl = function (data, callback) {
-  var now = moment().format('YYYY-MM-DD HH:mm:ss');
+  var now = data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
   sqldb.query(
     // Ledger Wise reads the approval off the ledger rows (l.admin_status on
     // laundrybill_subt), as it does for fuel, so both tables are stamped -

@@ -1,3 +1,4 @@
+import { ReferenceDetailsLink } from '@/components/shared/ReferenceDetailsLink'
 ﻿import { useState, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
@@ -1941,13 +1942,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
                             {row.c_number && row.c_number !== '-' ? (
                               <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => openHistoryModal(row)}
-                                  title="View payment history for this transaction"
-                                  className="text-blue-600 hover:text-blue-800 font-medium text-sm underline underline-offset-2 transition-colors"
-                                >
-                                  {row.c_number}
-                                </button>
+                                <ReferenceDetailsLink value={row.c_number} onOtherClick={() => openHistoryModal(row)} />
                                 <button
                                   onClick={() => openRefNoModal(row)}
                                   disabled={modal.loading}

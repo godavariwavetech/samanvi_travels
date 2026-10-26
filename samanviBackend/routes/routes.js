@@ -262,6 +262,7 @@ router.get("/getvoucheraudit/:c_number",verifyToken,routcontroller.getVoucherAud
 router.post("/updatetripadminstatus",verifyToken,routcontroller.updatetripadminstatusCtrl);
 router.post("/authorizetrip",verifyToken,routcontroller.authorizeTripCtrl);
 router.post("/gettripaudit",verifyToken,routcontroller.getTripAuditCtrl);
+router.post('/getreferenceaudit', verifyToken, routcontroller.getReferenceAuditCtrl);
 router.post('/updatefueladminstatus', verifyToken, fuelcontroller.updatefueladminstatusCtrl);
 router.post('/updatelaundryadminstatus', verifyToken, laundrycontroller.updatelaundryadminstatusCtrl);
 router.post('/deletelaundrybill', verifyToken, laundrycontroller.deletelaundrybillCtrl);

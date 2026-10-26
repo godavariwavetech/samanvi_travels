@@ -3558,10 +3558,13 @@ exports.deletevouchernamectrl = function (req, res) {
 exports.updatevoucherentrystatusCtrl = function (req, res) {
   try {
     const { encryptedPayload, signature } = req.body;
-    const data = decryptPayload(encryptedPayload);
+    let data = decryptPayload(encryptedPayload);
     if (!data.voucherdata || !data.voucherdata.c_number) {
       return res.status(400).json({ status: 400, message: 'Missing voucherdata.c_number' });
     }
+    require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
+      if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+      data = recorded;
     // Approving is open to approvers; taking an approved voucher back out of
     // 'approved' (reopen/reject) is limited to the authorised users.
     const guard = data.vouchervalue == '1'
@@ -3584,6 +3587,7 @@ exports.updatevoucherentrystatusCtrl = function (req, res) {
           action: action,
           action_by_id: data.admin_status_by_id || '',
           action_by_name: data.admin_status_by_name || '',
+          action_at: data.admin_status_by_date,
           changes_note: changesNote
         }, function() {});
         res.send({ status: 200, data: results });
@@ -3601,6 +3605,7 @@ exports.updatevoucherentrystatusCtrl = function (req, res) {
       } else {
         finish();
       }
+    });
     });
     });
   } catch (e) {
@@ -3693,9 +3698,12 @@ exports.updatelaundrybillCtrl = function (req, res) {
 };
 
 exports.authorizeTripCtrl = function (req, res) {
-  appmdl.authorizeTripMdl(req.body, function (err, results) {
+  require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, req.body, function (actorError, data) {
+    if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+  appmdl.authorizeTripMdl(data, function (err, results) {
     if (err) return res.send({ status: 500, data: null });
     res.send({ status: results && results.ok ? 200 : 400, data: results });
+  });
   });
 };
 exports.getTripAuditCtrl = function (req, res) {
@@ -3704,8 +3712,17 @@ exports.getTripAuditCtrl = function (req, res) {
     res.send({ status: 200, data: results });
   });
 };
+exports.getReferenceAuditCtrl = function (req, res) {
+  const reference = String(req.body.c_number || '').trim();
+  if (!reference || reference.length > 100) return res.status(400).send({ status: 400, message: 'Invalid reference' });
+  require('../utils/referenceAudit').loadReferenceAudit(require('../config/dbconnect'), reference, appmdl.getTripAuditMdl)
+    .then(data => res.send({ status: 200, data }))
+    .catch(() => res.status(500).send({ status: 500, message: 'Could not load reference details' }));
+};
 exports.updatetripadminstatusCtrl = function (req, res) {
-  appmdl.updatetripadminstatusMdl(req.body, function (err, results) {
+  require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, req.body, function (actorError, data) {
+    if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+  appmdl.updatetripadminstatusMdl(data, function (err, results) {
     if (results === 'NOT_AUTHORIZED') {
       res.send({ status: 409, data: 'This trip has not been authorized yet' });
       return;
@@ -3715,6 +3732,7 @@ exports.updatetripadminstatusCtrl = function (req, res) {
       return;
     }
     res.send({ status: 200, data: results });
+  });
   });
 };
 exports.updatefueladminstatusCtrl = function (req, res) {
@@ -5887,6 +5905,9 @@ exports.editJobCtrl = function (req, res) { decryptedBody(req, res, appmdl.editJ
 exports.submitrepairtrackingCtrl = function (req, res) {
   var data;
   try { data = decryptPayload(req.body.encryptedPayload); } catch (e) { data = req.body; }
+  require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
+      if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+      data = recorded;
 
   if (data.quick_complete) {
     appmdl.quickCompleteJobMdl(data, function (err) {
@@ -5908,6 +5929,7 @@ exports.submitrepairtrackingCtrl = function (req, res) {
       if (err2) { console.log(err2); return res.send({ status: 200, voucher_numbers: [] }); }
       res.send({ status: 200, voucher_numbers: voucherNumbers || [] });
     });
+  });
   });
 };
 
@@ -5948,7 +5970,9 @@ exports.changeJobSatusCtrl = function (req, res) {
     : stage === 'CLOSED' || stage === 'COMPLETED' ? [201] : [63];
   const rule = { subs, ...(subs[0] !== 63 ? { adminFallback: [63] } : {}) };
   require('../utils/permissions').requirePermission(rule, 'approve')(req, res, () => {
-    data.user_id = req.auth.usid;
+    require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
+      if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+      data = recorded;
     console.log('[changeJobSatus] id:', data.id, '| state:', data.state);
     appmdl.changeJobSatusMdl(data, function (err, results) {
       if (err) {
@@ -5958,6 +5982,7 @@ exports.changeJobSatusCtrl = function (req, res) {
       }
       console.log('[changeJobSatus] affectedRows:', results && results.affectedRows);
       res.send({ status: 200, data: results });
+    });
     });
   });
 };
@@ -5988,10 +6013,13 @@ exports.jobWorkflowActionCtrl = function (req, res) {
   const approval = data.action === 'approve' || data.action === 'reject';
   const rule = approval ? { subs: [200], adminFallback: [63] } : { subs: [63] };
   require('../utils/permissions').requirePermission(rule, 'approve')(req, res, () => {
-    data.user_id = req.auth.usid;
+    require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
+      if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+      data = recorded;
     appmdl.jobWorkflowActionMdl(data, function (err, results) {
       if (err) { console.log(err); res.send({ status: 500 }); return; }
       res.send({ status: 200, data: results });
+    });
     });
   });
 };

@@ -7,6 +7,9 @@ import { useAuthStore, type MenuItem } from '../src/store/auth.store'
 import { ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons } from '../src/components/shared/ApprovalFlow'
 import { DataTable } from '../src/components/shared/DataTable'
 import { Button } from '../src/components/shared/Button'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import ReferenceAuditModal from '../src/components/shared/ReferenceAuditModal'
+import { formatAuditDate } from '../src/lib/auditDate'
 import { useCanReviseApproved } from '../src/lib/approvedEditors'
 import { needsAuthorization, awaitingApproval } from '../src/lib/tripAuthorization'
 
@@ -97,3 +100,27 @@ for (const status of [0, '0']) {
   assert.equal(awaitingApproval({ ...trip, status: 0 }), false)
 }
 console.log('Approved voucher editing and trip authorization regression checks passed.')
+
+assert.equal(formatAuditDate('2026-10-26 12:34:56'), '26/10/2026, 12:34:56 IST')
+assert.equal(formatAuditDate('2026-10-26'), '26/10/2026 (time not recorded)')
+assert.equal(formatAuditDate(null), 'Date and time not recorded')
+for (const reference of ['T261021021', 'V123', 'F123', 'L123']) {
+  const html = render('/accounting/daybook', menu(38, 14), <DataTable columns={[{ key: 'c_number', label: 'Ref No' }]}
+    data={[{ id: 1, c_number: reference }]} exportable={false} />)
+  assert.match(html, /View approval and authorization details/)
+}
+const client = new QueryClient()
+client.setQueryData(['reference-audit', 'T261021021'], { module: 'Trip', steps: [
+  { label: 'Authorized', who: 'Authorizer', when: '2026-10-26 11:22:33', state: 'done' },
+  { label: 'Approved', who: 'Approver', when: '2026-10-26 12:34:56', state: 'done' },
+] })
+const details = renderToStaticMarkup(<QueryClientProvider client={client}><ReferenceAuditModal reference="T261021021" onClose={noop} /></QueryClientProvider>)
+assert.match(details, /Authorizer/)
+assert.match(details, /Approver/)
+assert.match(details, /12:34:56 IST/)
+client.clear()
+console.log('Reference audit identity, timestamps and rendered links passed.')
+const actionCell = render('/laundry/bill', menu(43, 16), <DataTable
+  columns={[{ label: 'Actions', key: 'c_number', render: () => <button>Existing action</button> }]}
+  data={[{ c_number: 'L123' }]} exportable={false} />)
+assert.match(actionCell, /Existing action/)

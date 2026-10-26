@@ -356,7 +356,7 @@ exports.searchFuelEntriesMdl = function (data, callback) {
 };
 
 exports.updateFuelAdminStatusMdl = function (data, callback) {
-  var now = moment().format('YYYY-MM-DD HH:mm:ss');
+  var now = data.updated_date || moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
   // The reason travels with a rejection only; approving or reopening the
   // entry clears it, as it does on a voucher.
   var status = Number(data.admin_status);

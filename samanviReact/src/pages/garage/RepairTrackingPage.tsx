@@ -1,3 +1,4 @@
+import { ReferenceDetailsLink } from '@/components/shared/ReferenceDetailsLink'
 import { usePermissions } from '@/lib/usePermissions'
 import { useAuthStore } from '@/store/auth.store'
 import { useState, useEffect, useRef, useMemo } from 'react'
@@ -1076,12 +1077,7 @@ export default function RepairTrackingPage() {
                   <tr key={r.id} className={`${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} hover:bg-blue-50/40 transition-colors`}>
                     <td className="px-3 py-3 border-b border-slate-100 text-slate-500 text-center">{i + 1}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
-                      <button
-                        onClick={() => setHistoryModal({ open: true, job: r })}
-                        className="font-semibold text-blue-700 hover:text-blue-900 hover:underline transition-colors text-left block"
-                      >
-                        {r.job_card_number}
-                      </button>
+                      <ReferenceDetailsLink value={r.job_card_number} onOtherClick={() => setHistoryModal({ open: true, job: r })} />
                       {r.source_reminder_ref && (
                         <span
                           className="inline-flex items-center gap-1 mt-0.5 px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-[10px] font-bold border border-cyan-100"

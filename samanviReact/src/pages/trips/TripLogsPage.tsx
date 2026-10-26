@@ -41,7 +41,7 @@ export default function TripLogsPage() {
   const countsData: any = counts?.data ?? {}
 
   const { data: auditRes, isLoading: loadingAudit } = useQuery({
-    queryKey: ['trip-audit', viewModal?.c_number],
+    queryKey: ['trip-edit-history', viewModal?.c_number],
     queryFn: () => tripsService.getTripUpdatedModal({ serviceNo: viewModal.c_number }),
     enabled: !!viewModal,
   })

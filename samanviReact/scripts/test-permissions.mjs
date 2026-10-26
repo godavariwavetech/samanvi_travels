@@ -11,6 +11,7 @@ try {
   await build({
     absWorkingDir: root, entryPoints: ['tests/permissions.test.tsx'], outfile: output,
     bundle: true, platform: 'node', format: 'cjs', packages: 'external', jsx: 'automatic',
+    define: { 'import.meta.env': JSON.stringify({ BASE_URL: '/' }) },
     plugins: [{ name: 'source-alias', setup(builder) {
       builder.onResolve({ filter: /^@\// }, async args => {
         for (const extension of ['.ts', '.tsx']) {

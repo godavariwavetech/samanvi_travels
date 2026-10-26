@@ -1,3 +1,4 @@
+import { ReferenceDetailsLink } from '@/components/shared/ReferenceDetailsLink'
 import { useState, useMemo } from 'react'
 import { motion } from 'motion/react'
 import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, History, Clock } from 'lucide-react'
@@ -523,13 +524,7 @@ export default function RepairEntryPage() {
                         <tr key={r.id} className={`${rowBg} hover:bg-blue-50/40 transition-colors`}>
                           <td className="px-3 py-3 border-b border-slate-100 text-slate-500 text-center">{i + 1}</td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
-                            <button
-                              onClick={() => setHistoryModal({ open: true, job: r, jobCardId: r.id })}
-                              className="font-semibold text-blue-700 hover:text-blue-900 hover:underline underline-offset-2 transition-colors flex items-center gap-1"
-                            >
-                              <History className="w-3 h-3 opacity-60" />
-                              {r.job_card_number}
-                            </button>
+                            <ReferenceDetailsLink value={r.job_card_number} onOtherClick={() => setHistoryModal({ open: true, job: r, jobCardId: r.id })} />
                           </td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{fmtDate(r.job_date || r.created_at)}</td>
                           <td className="px-3 py-3 border-b border-slate-100 text-center">

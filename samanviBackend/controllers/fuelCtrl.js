@@ -98,9 +98,12 @@ exports.updatefueladminstatusCtrl = function (req, res) {
   var data;
   try { data = readBody(req); } catch (e) { return res.status(400).send({ status: 400, message: e.message }); }
   if (!data.id || data.admin_status === undefined) return res.send({ status: 400, message: 'id and admin_status are required' });
-  fuelmdl.updateFuelAdminStatusMdl(data, function (err, results) {
+  require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
+    if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+  fuelmdl.updateFuelAdminStatusMdl(recorded, function (err, results) {
     if (err) { console.error('updateFuelAdminStatus failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
+  });
   });
 };
 

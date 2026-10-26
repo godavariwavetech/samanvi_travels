@@ -1,3 +1,4 @@
+import { ReferenceDetailsLink } from '@/components/shared/ReferenceDetailsLink'
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
@@ -1270,14 +1271,7 @@ export default function LedgerWisePage() {
                   >
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{idx + 1}</td>
                     <td className="px-3 py-2 border-b border-slate-100 whitespace-nowrap">
-                      <button
-                        onClick={() => openRef(row)}
-                        className="inline-flex items-center gap-1 text-blue-600 font-bold hover:text-blue-800 hover:underline"
-                        title="Click to view details"
-                      >
-                        {row.c_number || '-'}
-                        <ExternalLink className="w-3 h-3 opacity-60" />
-                      </button>
+                      <ReferenceDetailsLink value={row.c_number} onOtherClick={() => openRef(row)} />
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {fmt(resolveDisplayDate(row))}

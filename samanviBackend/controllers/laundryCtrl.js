@@ -202,8 +202,11 @@ exports.updatelaundryadminstatusCtrl = function (req, res) {
   var data;
   try { data = readBody(req); } catch (e) { return res.status(400).send({ status: 400, message: e.message }); }
   if (!data.c_number || data.admin_status === undefined) return res.send({ status: 400, message: 'c_number and admin_status are required' });
-  lndmdl.updateLaundryBillAdminStatusMdl(data, function (err, results) {
+  require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
+    if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
+  lndmdl.updateLaundryBillAdminStatusMdl(recorded, function (err, results) {
     if (err) { console.error('updateLaundryBillAdminStatus failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
+  });
   });
 };

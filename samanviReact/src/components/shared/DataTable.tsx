@@ -10,6 +10,7 @@ import { ExportMenu } from './ExportMenu'
 import { cn } from '@/lib/utils'
 import { usePermissions } from '@/lib/usePermissions'
 import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
+import { ReferenceDetailsLink } from './ReferenceDetailsLink'
 
 export interface Column<T = Record<string, unknown>> {
   label: string
@@ -527,7 +528,10 @@ export function DataTable<T extends Record<string, unknown>>({
                       key={j}
                       className={`p-4 align-middle ${alignText[col.align ?? 'left']} ${j === 0 && !selectable ? 'pl-6 font-semibold text-slate-900' : 'text-slate-600 text-sm'}`}
                     >
-                      {col.render ? col.render(row[col.key], row, i) : String(row[col.key] ?? '')}
+                      {['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'parent_job_card_number', 'generated_reminder_ref'].includes(col.key)
+                        && !/^actions?$/i.test(col.label.trim()) && !!row[col.key]
+                        ? <ReferenceDetailsLink value={row[col.key]} />
+                        : col.render ? col.render(row[col.key], row, i) : String(row[col.key] ?? '')}
                     </td>
                   ))}
                   {actionButtons.length > 0 && (
