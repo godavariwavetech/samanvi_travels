@@ -202,7 +202,18 @@ function waitForPermissionColumns(attempt = 0) {
     });
 }
 const initializeRolePermissions = (index) => {
-    if (index >= rolePermissionStatements.length) { waitForPermissionColumns(); return; }
+    if (index >= rolePermissionStatements.length) {
+        sqldb_init.query(`SELECT COUNT(*) AS c FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='app_user_roles' AND COLUMN_NAME='can_authorize_trips'`, function (checkErr, rows) {
+            if (checkErr) { console.error('Trip authorization permission check failed:', checkErr.message); waitForPermissionColumns(); return; }
+            if (Number(rows && rows[0] && rows[0].c) > 0) { waitForPermissionColumns(); return; }
+            sqldb_init.query(`ALTER TABLE app_user_roles ADD COLUMN can_authorize_trips TINYINT NOT NULL DEFAULT 0`, function (alterErr) {
+                if (alterErr) console.error('Trip authorization permission migration failed:', alterErr.message);
+                else console.log('Added app_user_roles.can_authorize_trips');
+                waitForPermissionColumns();
+            });
+        });
+        return;
+    }
     sqldb_init.query(rolePermissionStatements[index], function(err) {
         if (err) { console.error('Role permission schema initialization failed:', err.message); rolePermissionsReady = true; }
         else initializeRolePermissions(index + 1);

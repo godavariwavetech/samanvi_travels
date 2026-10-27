@@ -909,7 +909,7 @@ exports.checkUserExistMdl = function (number, callback) {
 exports.getUserDataMdl = function (user_id, callback) {
   var cntxtDtls = "in getUserDataMdl";
   var m = [user_id, user_id];
-  var effective = `(SELECT p.user_id,p.module_id,p.sub_module_id,p.can_add,p.can_edit,p.can_delete,p.can_view,p.can_approve,p.can_authorize FROM permissions p WHERE p.d_in=0 AND NOT EXISTS (SELECT 1 FROM app_user_roles ur WHERE ur.user_id=p.user_id) UNION ALL SELECT ur.user_id,rp.module_id,rp.sub_module_id,rp.can_add,rp.can_edit,rp.can_delete,rp.can_view,rp.can_approve,CASE WHEN ur.role_id IN (1,2) THEN 0 ELSE rp.can_authorize END AS can_authorize FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id)`;
+  var effective = `(SELECT p.user_id,p.module_id,p.sub_module_id,p.can_add,p.can_edit,p.can_delete,p.can_view,p.can_approve,p.can_authorize FROM permissions p WHERE p.d_in=0 AND NOT EXISTS (SELECT 1 FROM app_user_roles ur WHERE ur.user_id=p.user_id) UNION ALL SELECT ur.user_id,rp.module_id,rp.sub_module_id,rp.can_add,rp.can_edit,rp.can_delete,rp.can_view,rp.can_approve,CASE WHEN ur.role_id IN (1,2) THEN 0 WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 ELSE rp.can_authorize END AS can_authorize FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id)`;
   var QRY_TO_EXEC = `SELECT mm.* from main_modules as mm join ${effective} as ps on mm.id=ps.module_id where ps.user_id =? and ps.can_view=1 and mm.d_in=0 group by ps.module_id;
 	SELECT sm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete, ${approveSel('ps')}, ${authorizeSel('ps')} from sub_modules as sm join ${effective} as ps on sm.id=ps.sub_module_id where ps.user_id =? and ps.can_view=1 and sm.d_in=0 order by module_order;
 	`;
@@ -1280,7 +1280,7 @@ exports.getdata = function (data, callback) {
 
 exports.getAllUsersMdl = function (callback) {
   var cntxtDtls = "in getAllUsersMdl";
-  var QRY_TO_EXEC = `SELECT u.id, u.name, u.number, u.email, u.role_type, u.department_id, u.department_name, u.designation, u.d_in, u.i_ts, ur.role_id, ar.name AS role_name FROM users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id WHERE u.d_in=0 ORDER BY u.id DESC;`;
+  var QRY_TO_EXEC = `SELECT u.id, u.name, u.number, u.email, u.role_type, u.department_id, u.department_name, u.designation, u.d_in, u.i_ts, ur.role_id, COALESCE(ur.can_authorize_trips,0) AS can_authorize_trips, ar.name AS role_name FROM users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id WHERE u.d_in=0 ORDER BY u.id DESC;`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
       callback(err, results);

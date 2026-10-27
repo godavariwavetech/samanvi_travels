@@ -70,7 +70,7 @@ export default function UserManagementPage() {
     onError: () => toast.error('Unable to create user'),
   })
   const assignRole = useMutation({
-    mutationFn: ({ user_id, role_id }: { user_id: number; role_id: number }) => usersService.assignUserRole({ user_id, role_id }),
+    mutationFn: ({ user_id, role_id, can_authorize_trips }: { user_id: number; role_id: number; can_authorize_trips?: boolean | number }) => usersService.assignUserRole({ user_id, role_id, can_authorize_trips }),
     onSuccess: (res) => { if (res.status === 200) { toast.success('User role updated'); qc.invalidateQueries({ queryKey: ['users'] }); qc.invalidateQueries({ queryKey: ['my-menu'] }) } else toast.error(res.message ?? 'Unable to assign role') },
     onError: () => toast.error('Unable to assign role'),
   })
@@ -84,7 +84,8 @@ export default function UserManagementPage() {
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span>{i + 1}</span> },
     { label: 'User', key: 'name', render: (value, row: any) => <div><b>{String(value ?? '—')}</b><div className="text-xs text-slate-500">{row.number}</div></div> },
     { label: 'Department', key: 'department_name' },
-    { label: 'Assigned Role', key: 'role_id', render: (value, row: any) => <Select aria-label={`Role for ${row.name}`} value={value ? String(value) : ''} disabled={assignRole.isPending} onChange={(e) => { if (e.target.value) assignRole.mutate({ user_id: Number(row.id), role_id: Number(e.target.value) }) }}><option value="">Select role</option>{roles.map((role: any) => <option key={role.id} value={role.id}>{role.name}</option>)}</Select> },
+    { label: 'Assigned Role', key: 'role_id', render: (value, row: any) => <Select aria-label={`Role for ${row.name}`} value={value ? String(value) : ''} disabled={assignRole.isPending} onChange={(e) => { if (e.target.value) { const roleId = Number(e.target.value); assignRole.mutate({ user_id: Number(row.id), role_id: roleId, can_authorize_trips: roleId <= 2 ? false : row.can_authorize_trips }) } }}><option value="">Select role</option>{roles.map((role: any) => <option key={role.id} value={role.id}>{role.name}</option>)}</Select> },
+    { label: 'Authorize Trips', key: 'can_authorize_trips', render: (value, row: any) => <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" aria-label={`Authorize trips for ${row.name}`} checked={Number(value) === 1} disabled={!row.role_id || Number(row.role_id) <= 2 || assignRole.isPending} onChange={(e) => assignRole.mutate({ user_id: Number(row.id), role_id: Number(row.role_id), can_authorize_trips: e.target.checked })} className="h-4 w-4 accent-teal-600 disabled:opacity-40" />Allow</label> },
     { label: 'Status', key: 'd_in', render: (value) => <Badge variant={value == 0 ? 'success' : 'danger'}>{value == 0 ? 'Active' : 'Inactive'}</Badge> },
   ]
 

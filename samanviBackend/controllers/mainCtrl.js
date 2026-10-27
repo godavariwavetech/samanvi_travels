@@ -721,12 +721,14 @@ exports.assignUserRoleCtrl = function (req, res) {
   const payload = rolePayload(req, res);
   if (!payload) return;
   const userId = Number(payload.user_id), roleId = Number(payload.role_id);
+  const canAuthorizeTrips = payload.can_authorize_trips === true || Number(payload.can_authorize_trips) === 1 ? 1 : 0;
   if (!Number.isSafeInteger(userId) || userId <= 0 || !ROLE_IDS.has(roleId)) return res.status(400).send({ status: 400, message: "Invalid user or role" });
+  if (roleId <= 2 && canAuthorizeTrips) return res.status(400).send({ status: 400, message: "Data Entry roles cannot authorize trips" });
   const actorId = Number(req.auth && req.auth.usid);
   sqldb.query("SELECT id FROM users WHERE id=? AND d_in=0", [userId], function (findErr, users) {
     if (findErr) return res.status(500).send({ status: 500, message: "Unable to assign role" });
     if (!users || !users.length) return res.status(404).send({ status: 404, message: "User not found" });
-    sqldb.query("INSERT INTO app_user_roles (user_id,role_id,assigned_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE role_id=VALUES(role_id), assigned_by=VALUES(assigned_by), assigned_at=CURRENT_TIMESTAMP", [userId, roleId, actorId], function (err) {
+    sqldb.query("INSERT INTO app_user_roles (user_id,role_id,can_authorize_trips,assigned_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE role_id=VALUES(role_id), can_authorize_trips=VALUES(can_authorize_trips), assigned_by=VALUES(assigned_by), assigned_at=CURRENT_TIMESTAMP", [userId, roleId, canAuthorizeTrips, actorId], function (err) {
       if (err) return res.status(500).send({ status: 500, message: "Unable to assign role" });
       res.send({ status: 200, message: "Role assigned" });
     });
