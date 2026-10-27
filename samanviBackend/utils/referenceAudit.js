@@ -49,7 +49,11 @@ async function loadReferenceAudit(pool, reference, getTripAudit) {
     const rows = await query(`SELECT * FROM ${source.table} WHERE ${source.key}=? ORDER BY (d_in=0) DESC, id DESC LIMIT 1`, [reference]);
     if (!rows.length) continue;
     const steps = source.build(rows[0]);
+    let report = { record: rows[0], ledger: [] };
     if (source.module === 'Voucher') {
+      report.ledger = await query(`SELECT id, account_type, amount_type, amount, expensives, ledger_id,
+        paid_to_name, description, vehicleNo, vouchertype, voucherdate, i_ts
+        FROM mainvoucher_subt WHERE c_number=? AND d_in=0 ORDER BY id`, [reference]);
       const events = await query('SELECT action, action_by_id, action_by_name, action_at FROM mainvoucher_audit WHERE c_number=? ORDER BY id', [reference]);
       const decision = Number(rows[0].status) === 1 ? 'approved' : Number(rows[0].status) === 2 ? 'rejected' : null;
       const last = [...events].reverse().find(event => event.action === decision);
@@ -68,7 +72,7 @@ async function loadReferenceAudit(pool, reference, getTripAudit) {
       steps.push(...events.map(e => step(`${e.stage}: ${e.action}`, e.action_by_name, e.action_at, 'done', e.action_by_id)));
       if (!events.length) steps.push(step('Approval history', null, null, 'unknown'));
     }
-    return { reference, module: source.module, steps };
+    return { reference, module: source.module, steps, report };
   }
   return null;
 }

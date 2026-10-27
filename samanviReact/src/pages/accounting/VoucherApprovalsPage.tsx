@@ -599,6 +599,7 @@ import { useCanReviseApproved } from '@/lib/approvedEditors'
 export default function VoucherApprovalsPage() {
   const { canEdit, canApprove } = usePermissions()
   const canReviseApproved = useCanReviseApproved()
+  const canEditVoucher = canEdit || canReviseApproved
   const jobPermissions = usePermissions('/garage/tracking')
   const navigate = useNavigate()
   const selectedFY = useFYStore(s => s.selectedFY)
@@ -1882,22 +1883,22 @@ export default function VoucherApprovalsPage() {
                 <div className="flex justify-between items-center pt-4 border-t border-slate-200">
                   <Button variant="ghost" onClick={() => setViewModal(null)}>Close</Button>
                   <div className="flex gap-3 flex-wrap">
-                    {canEdit && !editMode && Number(viewModal.is_payable) === 1 && (viewModal.status != 1 || canReviseApproved) && (
+                    {canEditVoucher && !editMode && Number(viewModal.is_payable) === 1 && (viewModal.status != 1 || canReviseApproved) && (
                       <Button variant="outline" onClick={openInPayables}>
                         <Pencil className="w-4 h-4" /> Edit in Payables
                       </Button>
                     )}
-                    {canEdit && jobPermissions.canEdit && !editMode && (viewModal.status != 1 || canReviseApproved) && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                    {canEditVoucher && jobPermissions.canEdit && !editMode && (viewModal.status != 1 || canReviseApproved) && (viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={openInJobCard} className="border-orange-300 text-orange-700 hover:bg-orange-50">
                         <Wrench className="w-4 h-4" /> Edit in Job Card
                       </Button>
                     )}
-                    {canEdit && !editMode && (viewModal.status != 1 || canReviseApproved) && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
+                    {canEditVoucher && !editMode && (viewModal.status != 1 || canReviseApproved) && Number(viewModal.is_payable) !== 1 && !(viewModal.source_type === 'job' || viewModal.job_card_number) && (
                       <Button variant="outline" onClick={() => setEditMode(true)}>
                         <Pencil className="w-4 h-4" /> Edit
                       </Button>
                     )}
-                    {canEdit && editMode && (
+                    {canEditVoucher && editMode && (
                       <>
                         <Button variant="ghost" onClick={() => setEditMode(false)}>Cancel</Button>
                         <Button variant="purple" onClick={() => { if (validateEditForm()) saveEdit() }} disabled={saving}>
