@@ -108,6 +108,8 @@ export default function AdminApprovalsPage() {
   const [tab, setTab] = useState('Pending')
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [auditRef, setAuditRef] = useState<string | null>(null)
+  const [selectedTrips, setSelectedTrips] = useState<any[]>([])
+  const [bulkApproving, setBulkApproving] = useState(false)
   const [fromDate, setFromDate] = useState(firstOfMonth)
   const [toDate, setToDate] = useState(today)
   const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
@@ -161,6 +163,31 @@ export default function AdminApprovalsPage() {
   })
 
   const allTrips: any[] = tripData?.data ?? []
+
+  const approveSelected = async () => {
+    const rows = selectedTrips.filter(awaitingApproval)
+    if (!canApprove || !rows.length || bulkApproving) return
+    setBulkApproving(true)
+    let approved = 0
+    for (const row of rows) {
+      const result = await tripsService.updateTripAdminStatus({
+        vouchervalue: 1,
+        voucherdata: { id: row.id, c_number: row.c_number },
+        user_id: localStorage.getItem('user_id'),
+        user_nm: localStorage.getItem('usr_nm'),
+        updated_date: localDateTime(),
+      }).catch(() => null)
+      if (result?.status === 200) approved++
+    }
+    setBulkApproving(false)
+    setSelectedTrips([])
+    toast.success(`${approved} of ${rows.length} trips approved`)
+    for (const key of ['trips', 'trip-expenses', 'bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
+      qc.invalidateQueries({ queryKey: [key] })
+    }
+  }
+
+  const changeTab = (next: string) => { setTab(next); setSelectedTrips([]) }
 
   // Date-range filter + status filter
   const filtered = useMemo(() => {
@@ -246,7 +273,7 @@ export default function AdminApprovalsPage() {
               <CheckCircle className="w-3.5 h-3.5" /> Approve
             </Button>
           )}
-          {canApprove && Number(row.admin_status) !== 2 && (
+          {canApprove && awaitingApproval(row) && Number(row.admin_status) !== 2 && (
             <Button
               variant="danger"
               size="sm"
@@ -278,7 +305,7 @@ export default function AdminApprovalsPage() {
           <GlassCard
             key={s.label}
             className={`p-5 cursor-pointer transition-all ${s.bg} ${tab === s.label ? 'ring-2 ring-offset-1 ring-current' : 'opacity-80 hover:opacity-100'}`}
-            onClick={() => setTab(s.label)}
+            onClick={() => changeTab(s.label)}
           >
             <div className="flex items-center justify-between">
               <s.icon className={`w-5 h-5 ${s.color}`} />
@@ -313,7 +340,7 @@ export default function AdminApprovalsPage() {
       </GlassCard>
 
       {/* Tabs */}
-      <TopNavTabs tabs={canAuthorize ? ['To Authorize', ...tabs] : tabs} activeTab={tab} onChange={setTab} />
+      <TopNavTabs tabs={canAuthorize ? ['To Authorize', ...tabs] : tabs} activeTab={tab} onChange={changeTab} />
 
       {/* Table */}
       <DataTable
@@ -323,6 +350,13 @@ export default function AdminApprovalsPage() {
         loading={isLoading}
         onAction={(action, row) => { if (action === 'view') setViewTrip(row) }}
         actions={['view']}
+        selectable={canApprove && tab === 'Pending'}
+        onSelectionChange={(rows) => setSelectedTrips(rows as any[])}
+        selectionActions={canApprove && tab === 'Pending' ? (
+          <Button variant="success" size="sm" disabled={bulkApproving || selectedTrips.length === 0} onClick={approveSelected}>
+            <CheckCircle className="w-3.5 h-3.5" />{bulkApproving ? 'Approving…' : `Approve Selected${selectedTrips.length ? ` (${selectedTrips.length})` : ''}`}
+          </Button>
+        ) : undefined}
         icon={
           tab === 'To Authorize' ? <ShieldCheck className="w-5 h-5 text-teal-500" />
           : tab === 'Pending' ? <Clock className="w-5 h-5 text-amber-500" />

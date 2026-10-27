@@ -11,6 +11,8 @@ import { SearchableSelect } from './SearchableSelect'
 // placeholder and stays pickable, exactly as it was in the native control.
 type SelectProps = Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'onChange'> & {
   onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void
+  /** Styles the visible searchable-select trigger without styling its wrapper. */
+  buttonClassName?: string
 }
 
 function collectOptions(children: React.ReactNode): { value: string; label: string }[] {
@@ -31,7 +33,7 @@ function collectOptions(children: React.ReactNode): { value: string; label: stri
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, children, value, onChange, disabled, ...rest }, _ref) => {
+  ({ className, buttonClassName, children, value, onChange, disabled, ...rest }, _ref) => {
     const all = collectOptions(children)
     const empty = all.find((o) => o.value === '')
     // The "— Select —" row is the placeholder, not a choice: it shows as grey
@@ -52,7 +54,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         placeholder={empty?.label || 'Select…'}
         disabled={disabled}
         className={className}
-        buttonClassName="bg-white"
+        buttonClassName={`bg-white ${buttonClassName ?? ''}`}
       />
     )
   }

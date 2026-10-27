@@ -1210,8 +1210,12 @@ export default function TripExpensesPage() {
     // A ledger matching a crew member is tagged as that person; the Paid To
     // ledger, when it is nobody on the crew, as Paid To.
     const tagFor = (ledgerId: string): RowTag | undefined =>
-      PERSON_KEYS.find((k) => savedLedgerIds[k] && savedLedgerIds[k] === ledgerId)
-      ?? (savedPaidToLedgerId && savedPaidToLedgerId === ledgerId ? 'paidTo' : undefined)
+      // If Paid To is also a crew member, the saved voucher has a single row
+      // for that ledger. Treat it as Paid To on edit instead of splitting it
+      // into a crew payment plus a Paid To remainder: doing so checked both
+      // controls and made the same person appear to be paid twice.
+      (savedPaidToLedgerId && savedPaidToLedgerId === ledgerId ? 'paidTo' : undefined)
+      ?? PERSON_KEYS.find((k) => savedLedgerIds[k] && savedLedgerIds[k] === ledgerId)
     // A crew member who was also the Paid To was posted as one row on their
     // ledger: their own share plus the leftover. It is split back into the two
     // rows the modal works with - the person's share, and the rest as Paid To -
@@ -1668,7 +1672,7 @@ export default function TripExpensesPage() {
           >
             <option value="0">{awaitingAuth ? 'Awaiting Authorization' : 'On Review'}</option>
             <option value="1" disabled={awaitingAuth} title={awaitingAuth ? 'Authorize this trip on Trip Approvals first' : undefined}>Approve</option>
-            <option value="2">Reject</option>
+            <option value="2" disabled={awaitingAuth} title={awaitingAuth ? 'Authorize this trip on Trip Approvals first' : undefined}>Reject</option>
           </select>
         )
       },

@@ -14,7 +14,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/accounting/voucher-approvals': 'Voucher Approvals',
   '/accounting/profit-loss': 'Profit & Loss',
   '/users': 'User Management',
-  '/roles': 'Roles & Permissions',
+  '/mainmasters/roles': 'Roles & Permissions',
   '/masters/service-for': 'Service For',
   '/masters/bus-no': 'Bus Numbers',
   '/masters/service-no': 'Service Numbers',

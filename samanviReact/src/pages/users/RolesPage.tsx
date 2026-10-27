@@ -1,315 +1,108 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
-import { Shield, Save, ChevronDown, ChevronRight, CheckSquare, Square } from 'lucide-react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ChevronRight, Save, Shield, Square, CheckSquare } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Select, Label, Badge, PageHeader } from '@/components/shared'
+import { Badge, Button, GlassCard, Label, PageHeader, Select } from '@/components/shared'
 import { usersService } from '@/services/users.service'
 
-interface SubModule {
-  id: number
-  module_id: number
-  module_nm: string
-  title: string
-  check_sub_menu: number
-  can_add: number
-  can_edit: number
-  can_view: number
-  can_delete: number
-  can_approve?: number
-  can_authorize?: number
+type Role = { id: number; name: string }
+type ModulePermission = {
+  id: number; module_id: number; module_nm: string; title: string; check_sub_menu: number
+  can_view: number; can_add: number; can_edit: number; can_delete: number; can_approve: number; can_authorize: number
 }
-
-interface PermState {
-  enabled: boolean
-  can_view: boolean
-  can_add: boolean
-  can_edit: boolean
-  can_delete: boolean
-  can_approve: boolean
-  can_authorize: boolean
-}
-
-const PERMS: Array<keyof Omit<PermState, 'enabled'>> = ['can_view', 'can_add', 'can_edit', 'can_delete', 'can_approve', 'can_authorize']
-const PERM_LABEL: Record<string, string> = {
-  can_view: 'View', can_add: 'Add', can_edit: 'Edit', can_delete: 'Delete', can_approve: 'Approve', can_authorize: 'Authorize',
-}
+const RIGHTS: Array<[keyof ModulePermission, string]> = [
+  ['can_view', 'View'], ['can_add', 'Add'], ['can_edit', 'Edit'], ['can_delete', 'Delete'],
+  ['can_approve', 'Approve'], ['can_authorize', 'Authorize'],
+]
 
 export default function RolesPage() {
   const qc = useQueryClient()
-  const [selectedUserId, setSelectedUserId] = useState('')
-  const [perms, setPerms] = useState<Record<number, PermState>>({})
+  const [roleId, setRoleId] = useState('')
+  const [rows, setRows] = useState<ModulePermission[]>([])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-
-  const currentUserId = localStorage.getItem('user_id') ?? '1'
-
-  const { data: usersData } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => usersService.getUsers(),
+  const isDataEntryRole = roleId === '1' || roleId === '2'
+  const rolesQuery = useQuery({ queryKey: ['roles'], queryFn: usersService.getRoles })
+  const modulesQuery = useQuery({
+    queryKey: ['role-modules', roleId],
+    queryFn: () => usersService.getRoleModules({ role_id: Number(roleId) }),
+    enabled: !!roleId,
   })
-
-  // Load all sub-modules + current permissions for the selected user
-  const { data: moduleData, isLoading: loadingModules } = useQuery({
-    queryKey: ['edit-user-modules', selectedUserId],
-    queryFn: () => usersService.getEditUserModules({
-      user_id: selectedUserId,
-      role_type: 0,         // role_type 0 → backend returns ALL sub-modules
-      entry_by: currentUserId,
-    }),
-    enabled: !!selectedUserId,
-  })
-
-  // When module data loads, initialise perm state from the returned data
   useEffect(() => {
-    const modules: SubModule[] = moduleData?.data ?? []
-    if (!modules.length) return
-    const initial: Record<number, PermState> = {}
-    modules.forEach((sm) => {
-      initial[sm.id] = {
-        enabled: sm.check_sub_menu === 1,
-        can_view: sm.can_view === 1,
-        can_add: sm.can_add === 1,
-        can_edit: sm.can_edit === 1,
-        can_delete: sm.can_delete === 1,
-        can_approve: sm.can_approve === 1,
-        can_authorize: sm.can_authorize === 1,
-      }
-    })
-    setPerms(initial)
-    // Auto-expand all module groups
-    const groups: Record<string, boolean> = {}
-    modules.forEach((sm) => { groups[sm.module_nm] = true })
-    setExpanded(groups)
-  }, [moduleData])
+    const data: ModulePermission[] = modulesQuery.data?.data ?? []
+    setRows(data.map((row) => ({ ...row })))
+    setExpanded(Object.fromEntries(data.map((row) => [row.module_nm, true])))
+  }, [modulesQuery.data])
 
-  // Group sub-modules by main module name
-  const moduleList: SubModule[] = (moduleData?.data as SubModule[] | undefined) ?? []
-  const grouped: [string, SubModule[]][] = Object.entries(
-    moduleList.reduce<Record<string, SubModule[]>>((acc, sm) => {
-      if (!acc[sm.module_nm]) acc[sm.module_nm] = []
-      acc[sm.module_nm].push(sm)
-      return acc
-    }, {})
-  )
-
-  const toggleModule = (moduleNm: string) =>
-    setExpanded((e) => ({ ...e, [moduleNm]: !e[moduleNm] }))
-
-  const setSmPerm = (smId: number, key: keyof PermState, val: boolean) =>
-    setPerms((p) => ({
-      ...p,
-      [smId]: {
-        ...p[smId],
-        [key]: val,
-        // If enabling access, auto-enable view
-        ...(key === 'enabled' && val ? { can_view: true } : {}),
-        // If disabling access, clear all
-        ...(key === 'enabled' && !val ? { can_view: false, can_add: false, can_edit: false, can_delete: false, can_approve: false, can_authorize: false } : {}),
-      },
-    }))
-
-  const toggleModuleAll = (sms: SubModule[], enable: boolean) => {
-    const update: Record<number, PermState> = {}
-    sms.forEach((sm) => {
-      update[sm.id] = {
-        enabled: enable,
-        can_view: enable,
-        can_add: enable,
-        can_edit: enable,
-        can_delete: enable,
-        can_approve: enable,
-        can_authorize: enable ? !!perms[sm.id]?.can_authorize : false,
-      }
-    })
-    setPerms((p) => ({ ...p, ...update }))
-  }
-
-  const { mutate: save, isPending } = useMutation({
-    mutationFn: () => {
-      const allSubs: SubModule[] = moduleData?.data ?? []
-      const enabled = allSubs.filter((sm) => perms[sm.id]?.enabled)
-
-      if (!enabled.length) {
-        throw new Error('no_modules')
-      }
-
-      const payload = enabled.map((sm) => ({
-        user_id: Number(selectedUserId),
-        module_id: sm.module_id,
-        id: sm.id,              // sub_module_id — controller reads obj.id
-        entry_by: Number(currentUserId),
-        can_add: perms[sm.id]?.can_add ? 1 : 0,
-        can_edit: perms[sm.id]?.can_edit ? 1 : 0,
-        can_view: perms[sm.id]?.can_view ? 1 : 0,
-        can_delete: perms[sm.id]?.can_delete ? 1 : 0,
-        can_approve: perms[sm.id]?.can_approve ? 1 : 0,
-        can_authorize: perms[sm.id]?.can_authorize ? 1 : 0,
-      }))
-
-      return usersService.saveUserMenuList(payload)
-    },
+  const saveMutation = useMutation({
+    mutationFn: () => usersService.saveRoleModules({ role_id: Number(roleId), modules: rows }),
     onSuccess: (res) => {
-      if (res?.status === 200) {
-        toast.success('Permissions saved!')
-        qc.invalidateQueries({ queryKey: ['edit-user-modules', selectedUserId] })
-        qc.invalidateQueries({ queryKey: ['my-menu'] })
-      } else {
-        toast.error('Failed to save permissions')
-      }
+      if (res?.status !== 200) return toast.error(res?.message ?? 'Could not save role permissions')
+      toast.success('Role permissions saved. Changes apply to every assigned user.')
+      qc.invalidateQueries({ queryKey: ['role-modules', roleId] })
+      qc.invalidateQueries({ queryKey: ['my-menu'] })
+      qc.invalidateQueries({ queryKey: ['users'] })
     },
-    onError: (e: any) => {
-      if (e?.message === 'no_modules') {
-        toast.error('Enable at least one module before saving')
-      } else {
-        toast.error('Server error — check backend logs')
-      }
-    },
+    onError: () => toast.error('Could not save role permissions'),
   })
+  const groups = Object.entries(rows.reduce<Record<string, ModulePermission[]>>((acc, row) => {
+    (acc[row.module_nm] ??= []).push(row)
+    return acc
+  }, {}))
+  const updateRow = (id: number, key: keyof ModulePermission, enabled: boolean) => {
+    if (isDataEntryRole && key === 'can_authorize') return
+    setRows((prev) => prev.map((row) => {
+    if (row.id !== id) return row
+    if (key === 'check_sub_menu') {
+      return { ...row, check_sub_menu: enabled ? 1 : 0, can_view: enabled ? 1 : 0,
+        ...(enabled ? {} : { can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0, can_authorize: 0 }) }
+    }
+    return { ...row, [key]: enabled ? 1 : 0,
+      ...(key === 'can_view' ? { check_sub_menu: enabled ? 1 : 0 } : {}) }
+    }))
+  }
+  const toggleGroup = (groupRows: ModulePermission[], enabled: boolean) => setRows((prev) => prev.map((row) =>
+    groupRows.some((item) => item.id === row.id)
+      ? { ...row, check_sub_menu: enabled ? 1 : 0, can_view: enabled ? 1 : 0, can_add: enabled ? 1 : 0,
+          can_edit: enabled ? 1 : 0, can_delete: enabled ? 1 : 0, can_approve: enabled ? 1 : 0, can_authorize: 0 }
+      : row))
 
-  const userList: any[] = usersData?.data ?? []
-  const selectedUser = userList.find((u) => String(u.id) === selectedUserId)
-  const enabledCount = Object.values(perms).filter((p) => p.enabled).length
-
-  return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <PageHeader title="Roles & Permissions" subtitle="Assign per-module access rights for each user" />
-
-      {/* User selector */}
-      <GlassCard className="p-5" colorBar="bg-gradient-to-r from-purple-500 to-violet-600">
-        <div className="flex items-end gap-4 flex-wrap">
-          <div className="flex-1 min-w-[220px] max-w-sm">
-            <Label>Select User *</Label>
-            <Select
-              value={selectedUserId}
-              onChange={(e) => { setSelectedUserId(e.target.value); setPerms({}) }}
-            >
-              <option value="">— Choose a user —</option>
-              {userList.map((u) => (
-                <option key={u.id} value={u.id}>{u.name} · {u.number} · {u.department_name}</option>
-              ))}
-            </Select>
-          </div>
-
-          {selectedUserId && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold text-slate-700">
-                {enabledCount} module{enabledCount !== 1 ? 's' : ''} enabled
-              </span>
-              <Button
-                permission="edit"
-                onClick={() => save()}
-                disabled={isPending || !enabledCount}
-                variant="purple"
-              >
-                <Save className="w-4 h-4" />
-                {isPending ? 'Saving…' : 'Save Permissions'}
-              </Button>
-            </div>
-          )}
+  return <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+    <PageHeader title="Roles & Permissions" subtitle="Set shared module access for each role" />
+    <GlassCard className="p-5" colorBar="bg-gradient-to-r from-purple-500 to-violet-600">
+      <div className="flex items-end gap-4 flex-wrap">
+        <div className="min-w-[260px]"><Label>Select Role</Label>
+          <Select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+            <option value="">Choose a role</option>
+            {(rolesQuery.data?.data ?? []).map((role: Role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+          </Select>
         </div>
+        {roleId && <Button permission="edit" variant="purple" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || modulesQuery.isLoading}>
+          <Save className="w-4 h-4" />{saveMutation.isPending ? 'Saving…' : 'Save Role Permissions'}
+        </Button>}
+      </div>
+    </GlassCard>
+    {!roleId && <GlassCard className="p-10 text-center"><Shield className="w-10 h-10 text-slate-200 mx-auto mb-3" /><p className="text-slate-500">Choose a role to edit its shared permissions.</p></GlassCard>}
+    {modulesQuery.isLoading && <GlassCard className="p-8 text-center text-slate-400">Loading modules…</GlassCard>}
+    {roleId && !modulesQuery.isLoading && groups.map(([name, groupRows]) => {
+      const enabled = groupRows.filter((row) => row.check_sub_menu).length
+      return <GlassCard key={name} className="overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b cursor-pointer" onClick={() => setExpanded((v) => ({ ...v, [name]: !v[name] }))}>
+          <div className="flex items-center gap-2">{expanded[name] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}<b>{name}</b><Badge variant={enabled ? 'success' : 'default'}>{enabled}/{groupRows.length} enabled</Badge></div>
+          <div className="flex gap-3" onClick={(e) => e.stopPropagation()}>
+            <button className="text-xs text-emerald-700" onClick={() => toggleGroup(groupRows, true)}>Enable All</button>
+            <button className="text-xs text-red-600" onClick={() => toggleGroup(groupRows, false)}>Disable All</button>
+          </div>
+        </div>
+        {expanded[name] && <div className="divide-y">
+          <div className="grid grid-cols-[minmax(180px,1fr)_80px_repeat(6,80px)] px-5 py-2 text-xs font-bold text-slate-400 uppercase"><span>Sub-module</span><span className="text-center">Access</span>{RIGHTS.map(([, label]) => <span key={label} className="text-center">{label}</span>)}</div>
+          {groupRows.map((row) => <div key={row.id} className="grid grid-cols-[minmax(180px,1fr)_80px_repeat(6,80px)] items-center px-5 py-3">
+            <span className="text-sm font-medium">{row.title}</span>
+            <button className="flex justify-center" onClick={() => updateRow(row.id, 'check_sub_menu', !row.check_sub_menu)}>{row.check_sub_menu ? <CheckSquare className="w-5 h-5 text-emerald-500" /> : <Square className="w-5 h-5 text-slate-300" />}</button>
+            {RIGHTS.map(([key, label]) => <div key={key} className="flex justify-center"><input type="checkbox" aria-label={`${label} ${row.title}`} checked={Boolean(row[key])} disabled={!row.check_sub_menu || (isDataEntryRole && key === 'can_authorize')} onChange={(e) => updateRow(row.id, key, e.target.checked)} className="w-4 h-4 accent-purple-600 disabled:opacity-30" /></div>)}
+          </div>)}
+        </div>}
       </GlassCard>
-
-      {/* Permission matrix */}
-      {!selectedUserId && (
-        <GlassCard className="p-12 text-center">
-          <Shield className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 font-medium">Select a user above to manage their module permissions.</p>
-        </GlassCard>
-      )}
-
-      {selectedUserId && loadingModules && (
-        <GlassCard className="p-8 text-center text-slate-400">Loading modules…</GlassCard>
-      )}
-
-      {selectedUserId && !loadingModules && grouped.length === 0 && (
-        <GlassCard className="p-8 text-center text-slate-400">No modules found.</GlassCard>
-      )}
-
-      {selectedUserId && !loadingModules && grouped.map(([moduleName, subs]) => {
-        const isOpen = expanded[moduleName] ?? true
-        const allEnabled = subs.every((sm) => perms[sm.id]?.enabled)
-        const someEnabled = subs.some((sm) => perms[sm.id]?.enabled)
-
-        return (
-          <GlassCard key={moduleName} className="overflow-hidden">
-            {/* Module group header */}
-            <div
-              className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors"
-              onClick={() => toggleModule(moduleName)}
-            >
-              <div className="flex items-center gap-3">
-                {isOpen ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
-                <span className="font-bold text-slate-800">{moduleName}</span>
-                <Badge variant={allEnabled ? 'success' : someEnabled ? 'warning' : 'default'}>
-                  {subs.filter((sm) => perms[sm.id]?.enabled).length}/{subs.length} enabled
-                </Badge>
-              </div>
-              <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={() => toggleModuleAll(subs, true)}
-                  className="text-xs text-emerald-600 hover:underline font-semibold px-2 py-1"
-                >
-                  Enable All
-                </button>
-                <button
-                  onClick={() => toggleModuleAll(subs, false)}
-                  className="text-xs text-red-500 hover:underline font-semibold px-2 py-1"
-                >
-                  Disable All
-                </button>
-              </div>
-            </div>
-
-            {isOpen && (
-              <div className="divide-y divide-slate-100">
-                {/* Column headers */}
-                <div className="grid grid-cols-[1fr_80px_80px_80px_80px_80px_80px_80px] px-5 py-2 bg-slate-50/50 text-xs font-bold text-slate-400 uppercase">
-                  <span>Sub-Module</span>
-                  <span className="text-center">Access</span>
-                  {PERMS.map((p) => <span key={p} className="text-center">{PERM_LABEL[p]}</span>)}
-                </div>
-
-                {subs.map((sm) => {
-                  const p = perms[sm.id] ?? { enabled: false, can_view: false, can_add: false, can_edit: false, can_delete: false, can_approve: false, can_authorize: false }
-                  return (
-                    <div
-                      key={sm.id}
-                      className={`grid grid-cols-[1fr_80px_80px_80px_80px_80px_80px_80px] items-center px-5 py-3 transition-colors ${p.enabled ? 'bg-white' : 'bg-slate-50/40'}`}
-                    >
-                      <span className={`text-sm font-medium ${p.enabled ? 'text-slate-800' : 'text-slate-400'}`}>
-                        {sm.title}
-                      </span>
-
-                      {/* Access toggle */}
-                      <div className="flex justify-center">
-                        <button onClick={() => setSmPerm(sm.id, 'enabled', !p.enabled)}>
-                          {p.enabled
-                            ? <CheckSquare className="w-5 h-5 text-emerald-500" />
-                            : <Square className="w-5 h-5 text-slate-300" />
-                          }
-                        </button>
-                      </div>
-
-                      {/* Permission checkboxes — only active when module is enabled */}
-                      {PERMS.map((key) => (
-                        <div key={key} className="flex justify-center">
-                          <input
-                            type="checkbox"
-                            checked={!!(p as any)[key]}
-                            disabled={!p.enabled}
-                            onChange={(e) => setSmPerm(sm.id, key, e.target.checked)}
-                            className="w-4 h-4 accent-purple-600 rounded disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </GlassCard>
-        )
-      })}
-    </motion.div>
-  )
+    })}
+  </motion.div>
 }

@@ -132,7 +132,6 @@ export const router = createBrowserRouter([
       { path: 'dashboard/analysis', element: <AnalysisPage /> },
       { path: 'helpdesk', element: <HelpDeskPage /> },
       { path: 'users', element: <UserManagementPage /> },
-      { path: 'roles', element: <RolesPage /> },
       // Validations: Drivers and Vehicles. The old single-page link still lands on Vehicles.
       { path: 'validations', element: <Navigate to="/validations/vehicles" replace /> },
       { path: 'validations/drivers', element: <DriverValidationsPage /> },
@@ -234,6 +233,7 @@ export const router = createBrowserRouter([
       { path: 'mainmasters/line-code',        element: <LineCodePage /> },
       { path: 'mainmasters/route-id',         element: <RouteIdPage /> },
       { path: 'mainmasters/designation',      element: <DesignationPage /> },
+      { path: 'mainmasters/roles',            element: <RolesPage /> },
       // Group pages — each level gets its own path so NavLink active state works
       { path: 'mainmasters/groups',           element: <GroupPage /> },
       { path: 'mainmasters/main-group',       element: <GroupPage viewLevel={2} /> },

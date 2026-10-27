@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import { FileText, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
@@ -7,26 +7,18 @@ import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
 import { formatCurrency, formatDate, todayISO } from '@/lib/utils'
-
-const cols: Column[] = [
-  { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
-  { label: 'Date', key: 'date', render: (v) => formatDate(v) },
-  { label: 'Bus / Route', key: 'bus_no', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">{r.service_no}</div></div> },
-  { label: 'Driver', key: 'driver_name' },
-  { label: 'Total Exp', key: 'total_amount', render: (v) => <span className="font-bold text-red-600">{formatCurrency(Number(v))}</span> },
-  { label: 'Income', key: 'income', render: (v) => <span className="font-bold text-green-600">{formatCurrency(Number(v))}</span> },
-  { label: 'Status', key: 'admin_status', render: (v) => <Badge variant={v == 1 ? 'success' : 'warning'}>{v == 1 ? 'Approved' : 'Pending'}</Badge> },
-]
+import TripAuditModal from './TripAuditModal'
 
 const today = todayISO()
 
 export default function TripReportsPage() {
+  const [auditRef, setAuditRef] = useState<string | null>(null)
   const [filter, setFilter] = useState({ bus_no: '', service_no: '', from_date: '', to_date: '' })
   const [applied, setApplied] = useState(filter)
 
   const { data, isLoading } = useQuery({
     queryKey: ['trip-reports', applied],
-    queryFn: () => tripsService.getExpensesReport(applied),
+    queryFn: () => tripsService.getExpensesReport({ ...applied, type: 'approved' }),
   })
   const { data: buses } = useQuery({ queryKey: ['buses'], queryFn: () => mastersService.getBuses() })
   const { data: routes } = useQuery({ queryKey: ['routes'], queryFn: () => mastersService.getServiceRoutes() })
@@ -34,6 +26,15 @@ export default function TripReportsPage() {
   const reportList: any[] = data?.data ?? []
   const totalExp = reportList.reduce((s, r) => s + (Number(r.total_amount) || 0), 0)
   const totalInc = reportList.reduce((s, r) => s + (Number(r.income) || 0), 0)
+  const cols: Column[] = [
+    { label: 'Trip No', key: 'c_number', render: (v) => <button type="button" onClick={() => setAuditRef(String(v))} className="font-bold text-blue-600 hover:underline">{String(v)}</button> },
+    { label: 'Date', key: 'date', render: (v) => formatDate(v) },
+    { label: 'Bus / Route', key: 'bus_no', render: (v, r: any) => <div><div className="font-bold">{String(v)}</div><div className="text-xs text-slate-500">{r.service_no}</div></div> },
+    { label: 'Driver', key: 'driver_name' },
+    { label: 'Total Exp', key: 'total_amount', render: (v) => <span className="font-bold text-red-600">{formatCurrency(Number(v))}</span> },
+    { label: 'Income', key: 'income', render: (v) => <span className="font-bold text-green-600">{formatCurrency(Number(v))}</span> },
+    { label: 'Status', key: 'admin_status', render: (v) => <Badge variant={v == 1 ? 'success' : 'warning'}>{v == 1 ? 'Approved' : 'Pending'}</Badge> },
+  ]
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -52,10 +53,10 @@ export default function TripReportsPage() {
               <option value="">All Routes</option>
               {(routes?.data ?? []).map((r: any) => <option key={r.id} value={r.serviceNo}>{r.serviceNo}</option>)}
             </Select></div>
-          <div><Label>From Date</Label><Input type="date" max={today} value={filter.from_date} onChange={(e) => setFilter({ ...filter, from_date: e.target.value })} /></div>
-          <div><Label>To Date</Label><Input type="date" max={today} value={filter.to_date} onChange={(e) => setFilter({ ...filter, to_date: e.target.value })} /></div>
+          <div><Label>From Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={filter.from_date} onChange={(e) => setFilter({ ...filter, from_date: e.target.value })} /></div>
+          <div><Label>To Date <span className="text-red-500">*</span></Label><Input type="date" min={filter.from_date || undefined} max={today} value={filter.to_date} onChange={(e) => setFilter({ ...filter, to_date: e.target.value })} /></div>
         </div>
-        <Button onClick={() => setApplied(filter)}><Search className="w-4 h-4" /> Generate Report</Button>
+        <Button disabled={!filter.from_date || !filter.to_date || filter.to_date < filter.from_date} onClick={() => setApplied(filter)}><Search className="w-4 h-4" /> Generate Report</Button>
       </GlassCard>
 
       {reportList.length > 0 && (
@@ -73,7 +74,8 @@ export default function TripReportsPage() {
         </div>
       )}
 
-      <DataTable title="Trip Reports" columns={cols} data={reportList} loading={isLoading} onAction={() => {}} actions={['view', 'pdf', 'print']} />
+      <DataTable title="Trip Reports" columns={cols} data={reportList} loading={isLoading} onAction={(action, row: any) => { if (action === 'view') setAuditRef(String(row.c_number)) }} actions={['view', 'pdf', 'print']} />
+      <AnimatePresence>{auditRef && <TripAuditModal cNumber={auditRef} onClose={() => setAuditRef(null)} />}</AnimatePresence>
     </motion.div>
   )
 }

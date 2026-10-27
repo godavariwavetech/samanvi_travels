@@ -6,6 +6,8 @@ export interface AuthUser {
   name: string
   number: string
   role_type: number
+  role_id?: number | null
+  role_name?: string | null
   department_id: number
   department_name: string
 }
@@ -42,6 +44,7 @@ interface AuthState {
   logout: () => void
   /** The menu as the server has it now (permissions may change after login). */
   setMenu: (menu: MenuItem[]) => void
+  setUser: (user: Partial<AuthUser>) => void
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -65,6 +68,7 @@ export const useAuthStore = create<AuthState>()(
         set({ user: null, token: null, menu: [], isAuthenticated: false })
       },
       setMenu: (menu) => set({ menu }),
+      setUser: (user) => set((state) => ({ user: state.user ? { ...state.user, ...user } : state.user })),
     }),
     { name: 'samanvi-auth' }
   )

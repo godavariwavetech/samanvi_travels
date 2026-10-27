@@ -11,7 +11,7 @@ import { authService } from '@/services/auth.service'
 import { buildAccess, canAccess } from '@/lib/access'
 
 export function AppLayout() {
-  const { isAuthenticated, menu, setMenu } = useAuthStore()
+  const { isAuthenticated, menu, setMenu, setUser } = useAuthStore()
   const location = useLocation()
 
   // Permissions are re-read from the server (on load, and when the tab regains
@@ -25,8 +25,11 @@ export function AppLayout() {
     refetchOnWindowFocus: 'always',
   })
   useEffect(() => {
-    if (freshMenu?.status === 200 && Array.isArray(freshMenu.data)) setMenu(freshMenu.data)
-  }, [freshMenu, setMenu])
+    if (freshMenu?.status === 200 && Array.isArray(freshMenu.data)) {
+      setMenu(freshMenu.data)
+      if (freshMenu.usr_data?.[0]) setUser(freshMenu.usr_data[0])
+    }
+  }, [freshMenu, setMenu, setUser])
   const access = useMemo(() => buildAccess(menu), [menu])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   // Desktop: the side menu can be folded away so a wide sheet (the trip

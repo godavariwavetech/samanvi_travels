@@ -185,6 +185,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Line Code',          path: '/mainmasters/line-code' },
       { label: 'Route ID',           path: '/mainmasters/route-id' },
       { label: 'Designation',        path: '/mainmasters/designation' },
+      { label: 'Roles & Permissions', path: '/mainmasters/roles' },
     ],
   },
 ]

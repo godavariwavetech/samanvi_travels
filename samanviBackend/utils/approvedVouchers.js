@@ -8,12 +8,14 @@ const pool = require('../config/dbconnect');
 function isEditor(user) {
   if (!user) return false;
   // role_type can come back null/''; Number() would read both as 0.
-  const superAdmin = user.role_type !== null && user.role_type !== undefined && String(user.role_type).trim() !== '' && Number(user.role_type) === 0;
+  const superAdmin = user.role_id != null
+    ? Number(user.role_id) === 5
+    : user.role_type !== null && user.role_type !== undefined && String(user.role_type).trim() !== '' && Number(user.role_type) === 0;
   return superAdmin || APPROVED_EDITOR_NUMBERS.includes(String(user.number).trim());
 }
 
 function loadUser(userId, callback) {
-  pool.query("SELECT number, role_type FROM users WHERE id = ? AND d_in = 0", [userId], callback);
+  pool.query("SELECT u.number,u.role_type,ur.role_id,ar.name AS role_name FROM users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id WHERE u.id=? AND u.d_in=0", [userId], callback);
 }
 
 // Calls back with an error response to send, or null when the action may go on.

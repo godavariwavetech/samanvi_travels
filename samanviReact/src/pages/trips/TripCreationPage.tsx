@@ -220,6 +220,7 @@ export default function TripCreationPage() {
   const [gridRows, setGridRows] = useState<Record<number, GridRow>>({})
   const [vehicleType, setVehicleType] = useState<'Bus' | 'Van'>('Bus')
   const [serviceForFilter, setServiceForFilter] = useState('')
+  const [recordsDateRange, setRecordsDateRange] = useState({ from: '', to: '' })
   // Keyed by van service-number id, exactly like the bus roster's gridRows: the
   // Van tab lists every van service for the date rather than starting empty.
   const [vanRows, setVanRows] = useState<Record<number, VanRow>>({})
@@ -276,8 +277,8 @@ export default function TripCreationPage() {
   const vanOptions = toVehicleOptions(buses.filter(isVanVehicle))
   // One dropdown per role, listing everyone — the separate "Opting" selects that
   // used to sit beside each of these drew from these very same lists, so folding
-  // them away costs no one their place in the list. Driver type and staff
-  // designation ride along in the label so a substitute is still identifiable.
+  // them away costs no one their place in the list. Driver type rides along in
+  // the driver label; staff dropdowns show the Aadhaar name by itself.
   const withSuffix = (name: string, suffix?: string) =>
     suffix && String(suffix).trim() ? `${name} — ${String(suffix).trim()}` : name
   // "NA" is a real entry rather than just a placeholder, so an unfilled slot
@@ -337,7 +338,7 @@ export default function TripCreationPage() {
   const conductorName = (c: any) => String(c?.fullName || c?.nickName || '')
   const conductorOptions = [NA_OPTION, optingOption(OPTING_CONDUCTOR), ...conductors.map((c: any) => ({
     value: String(c.id),
-    label: withSuffix(conductorName(c), c.designation),
+    label: conductorName(c),
   }))]
   const paidToOptions = paidToList.map((p: any) => ({
     value: p.paid_to_id + '_' + p.paid_to_type, label: p.paid_to_name + ' (' + p.paid_to_type + ')',
@@ -386,7 +387,12 @@ export default function TripCreationPage() {
   // The records table shows the trips of the kind the tab above is on: bus
   // trips under Bus, van trips under Van. A row's kind is its stored
   // vehicle_type; rows from before that column existed are bus trips.
-  const shownTrips = allTrips.filter((t) => (String(t.vehicle_type ?? '') === 'van') === (vehicleType === 'Van'))
+  const shownTrips = allTrips.filter((t) => {
+    if ((String(t.vehicle_type ?? '') === 'van') !== (vehicleType === 'Van')) return false
+    const date = String(t.trip_date ?? t.cts ?? '').split('T')[0]
+    return (!recordsDateRange.from || date >= recordsDateRange.from)
+      && (!recordsDateRange.to || date <= recordsDateRange.to)
+  })
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
     .filter((r) => !serviceForFilter || r.serviceFor === serviceForFilter)
@@ -436,6 +442,10 @@ export default function TripCreationPage() {
     })
     return busOptions.filter((o) => o.value === String(editRow.bus_no ?? '') || !taken.has(o.value))
   }, [editRow, allTrips, busOptions])
+  const editVehicleOptions = useMemo(() => editRow?.vehicle_type === 'van'
+    ? vanOptions
+    : [{ value: 'N/A', label: 'N/A (Release bus)' }, ...editBusOptions],
+  [editRow, vanOptions, editBusOptions])
 
   // Picking a new date starts a fresh roster — already-created rows come from existingByRoute instead
   useEffect(() => { setGridRows({}); setVanRows({}) }, [tripDate])
@@ -667,7 +677,7 @@ export default function TripCreationPage() {
   // Same rule as the Van grid: the amount is live for a hired van or an opting
   // driver, and cleared for an own van with a registered driver.
   // A halted van has no driver, hirer or amount here either.
-  const editHalted = editRow?.vehicle_type === 'van' && editForm.trip_run_status === 'Halt'
+  const editHalted = editForm.trip_run_status === 'Halt'
   const editAmountActive = !editHalted && (isHireBus(editForm.bus_no) || isOptingName(editForm.driver1_name))
   const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
   const editOptingActive = !editHalted && !isHireBus(editForm.bus_no) && isOptingName(editForm.driver1_name)
@@ -1190,6 +1200,17 @@ export default function TripCreationPage() {
         icon={<Map className="w-5 h-5 text-blue-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        filterBar={(
+          <div className="flex items-end gap-3 flex-wrap">
+            <div><Label>From Date</Label><Input type="date" value={recordsDateRange.from}
+              max={recordsDateRange.to || undefined}
+              onChange={(e) => setRecordsDateRange((r) => ({ ...r, from: e.target.value }))} /></div>
+            <div><Label>To Date</Label><Input type="date" value={recordsDateRange.to}
+              min={recordsDateRange.from || undefined}
+              onChange={(e) => setRecordsDateRange((r) => ({ ...r, to: e.target.value }))} /></div>
+            {(recordsDateRange.from || recordsDateRange.to) && <Button variant="outline" onClick={() => setRecordsDateRange({ from: '', to: '' })}>Clear dates</Button>}
+          </div>
+        )}
       />
 
       {/* ── Edit a created trip (Bus or Van) ── */}
@@ -1236,8 +1257,8 @@ export default function TripCreationPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Bus No <span className="text-red-500">*</span></Label>
-                  <SearchableSelect placeholder="Select" options={editRow.vehicle_type === 'van' ? vanOptions : editBusOptions} disabled={vanFiled}
+                  <Label>Bus No {!editHalted && <span className="text-red-500">*</span>}</Label>
+                  <SearchableSelect placeholder="Select" options={editVehicleOptions} disabled={vanFiled}
                     value={editForm.bus_no}
                     onChange={(v) => patchEdit(editRow.vehicle_type !== 'van'
                       ? { bus_no: v }
@@ -1250,6 +1271,9 @@ export default function TripCreationPage() {
                         ? { bus_no: v, driver1_id: '', driver1_name: '', opt_driver1_id: '', opt_driver1_name: '', opt_driver1_mobile: '', booking_amount: '' }
                         : { bus_no: v, hirer_name: '', phone_number: '', booking_amount: '' })}
                     onClear={() => patchEdit({ bus_no: '' })} />
+                  {editRow.vehicle_type !== 'van' && /^n\/?a$/i.test(String(editForm.bus_no).trim()) && (
+                    <p className="mt-1 text-[11px] font-semibold text-emerald-700">This trip will have no bus assigned; the current bus will be available for another trip on this date.</p>
+                  )}
                 </div>
 
                 {editRow.vehicle_type === 'van' ? (
@@ -1385,7 +1409,7 @@ export default function TripCreationPage() {
                 <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
                 <Button
                   onClick={() => saveEdit()}
-                  disabled={savingEdit || !editForm.bus_no || hirePostedConflict ||
+                  disabled={savingEdit || (!editForm.bus_no && !editHalted) || hirePostedConflict ||
                     (editRow.vehicle_type === 'van'
                       ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name)
                         || (editHirerActive && !!editForm.phone_number && !isValidMobile(editForm.phone_number))

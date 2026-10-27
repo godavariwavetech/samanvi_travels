@@ -530,10 +530,12 @@ export default function VoucherEntryPage() {
   const allStaff = (employeesRes?.data ?? []).flat().map((s: any) => ({
     id: s.staff_id,
     type: s.type as string,
-    name: (s.fullName || s.helper_name || s.driver_name || '—') as string,
+    // Driver nickname is the Aadhaar name; prefer it over the register name
+    // so every Staff Name picker presents the identity name consistently.
+    name: (s.nickname || s.fullName || s.helper_name || s.driver_name || '—') as string,
   }))
   const staffOptions = allStaff.map((s: { id: any; type: string; name: string }) => ({
-    label: `${s.name} (${s.type})`,
+    label: s.name,
     value: `${s.id}|${s.type}|${s.name}`,
   }))
 

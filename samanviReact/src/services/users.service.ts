@@ -3,6 +3,10 @@ import { securePayload } from '@/lib/crypto'
 
 export const usersService = {
   getUsers: () => api.get('/getallusers').then((r) => r.data),
+  getRoles: () => api.post('/getroles', securePayload({})).then((r) => r.data),
+  getRoleModules: (data: unknown) => api.post('/getrolemodulepermissions', securePayload(data)).then((r) => r.data),
+  saveRoleModules: (data: unknown) => api.post('/saverolemodules', securePayload(data)).then((r) => r.data),
+  assignUserRole: (data: unknown) => api.post('/assignuserrole', securePayload(data)).then((r) => r.data),
   createUser: (data: unknown) =>
     api.post('/createuserpermissions', securePayload(data)).then((r) => r.data),
   getUserModules: (data: unknown) =>

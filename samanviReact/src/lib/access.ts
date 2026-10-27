@@ -29,7 +29,7 @@ export const PATH_ACCESS: Record<string, AccessRule> = {
   '/dashboard': { module: M.dashboard },
 
   '/users': { subs: [2] },
-  '/roles': { subs: [2] },
+  '/mainmasters/roles': { subs: [2] },
 
   '/masters/bus-no': { subs: [55] },
   '/masters/service-no': { subs: [56] },
