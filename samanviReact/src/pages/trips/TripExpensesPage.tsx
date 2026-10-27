@@ -1536,7 +1536,11 @@ export default function TripExpensesPage() {
           qc.invalidateQueries({ queryKey: [key] })
         }
       }
-      else toast.error(res?.status === 409 && typeof res?.data === 'string' ? res.data : 'Failed to update status')
+      else {
+        const message = typeof res?.data === 'string' ? res.data
+          : res?.message || res?.msg || res?.data?.message || res?.data?.msg
+        toast.error(message || 'Failed to update status')
+      }
     },
     onError: () => toast.error('Server error'),
   })
