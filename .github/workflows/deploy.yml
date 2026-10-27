@@ -104,6 +104,27 @@ jobs:
           ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
             set -e
+            export PATH="$HOME/bin:$HOME/.npm-global/bin:$PATH"
+            production_ids=$(FUEL_API_ENTRY="${{ secrets.BACKEND_PATH }}/app.js" node -e "
+              const path = require(\"path\");
+              const cp = require(\"child_process\");
+              const expected = path.resolve(process.env.FUEL_API_ENTRY);
+              const apps = JSON.parse(cp.execFileSync(\"pm2\", [\"jlist\"], {encoding: \"utf8\"}));
+              const ids = apps.filter(a => path.resolve(a.pm2_env.pm_exec_path || \".\") === expected).map(a => a.pm_id);
+              if (!ids.length) { console.error(\"Production /api/app.js is not registered in PM2\"); process.exit(1); }
+              process.stdout.write(ids.join(\" \"));
+            ")
+            restart_production() {
+              restart_status=$?
+              trap - EXIT
+              for production_id in $production_ids; do
+                PORT=8945 FRONTEND_DIR="" pm2 restart "$production_id" --update-env || true
+              done
+              exit "$restart_status"
+            }
+            trap restart_production EXIT
+            for production_id in $production_ids; do pm2 stop "$production_id"; done
+            sleep 2
             FUEL_DB_CONFIG="${{ secrets.BACKEND_PATH }}/config/dbconnect.js" node -e "
               const db = require(process.env.FUEL_DB_CONFIG);
               const values = [\"fuel_entry\", \"value_date\"];
@@ -115,7 +136,7 @@ jobs:
                 db.end();
               }
               function retry(error) {
-                if (/too many connections/i.test(error.message) && attempts < 60) {
+                if (/too many connections/i.test(error.message) && attempts < 10) {
                   console.log(\"Database is at its connection limit; retrying fuel migration in 2 seconds\");
                   return setTimeout(ensure, 2000);
                 }
