@@ -43,7 +43,7 @@ interface NavItem {
 // ── Nav data ──────────────────────────────────────────────────────────────────
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { id: 'users', label: 'Users', icon: Users, path: '/users' },
+  { id: 'users', label: 'User Management', icon: Users, path: '/users' },
   {
     id: 'masters', label: 'Masters', icon: Settings,
     children: [
