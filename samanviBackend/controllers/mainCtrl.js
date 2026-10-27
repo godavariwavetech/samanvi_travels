@@ -723,7 +723,6 @@ exports.assignUserRoleCtrl = function (req, res) {
   const userId = Number(payload.user_id), roleId = Number(payload.role_id);
   const canAuthorizeTrips = payload.can_authorize_trips === true || Number(payload.can_authorize_trips) === 1 ? 1 : 0;
   if (!Number.isSafeInteger(userId) || userId <= 0 || !ROLE_IDS.has(roleId)) return res.status(400).send({ status: 400, message: "Invalid user or role" });
-  if (roleId <= 2 && canAuthorizeTrips) return res.status(400).send({ status: 400, message: "Data Entry roles cannot authorize trips" });
   const actorId = Number(req.auth && req.auth.usid);
   sqldb.query("SELECT id FROM users WHERE id=? AND d_in=0", [userId], function (findErr, users) {
     if (findErr) return res.status(500).send({ status: 500, message: "Unable to assign role" });
@@ -746,7 +745,7 @@ exports.getUserPermissionOverridesCtrl = function (req, res) {
       CASE WHEN ov.id IS NOT NULL THEN ov.can_edit WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_edit,0) ELSE COALESCE(p.can_edit,0) END AS can_edit,
       CASE WHEN ov.id IS NOT NULL THEN ov.can_delete WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_delete,0) ELSE COALESCE(p.can_delete,0) END AS can_delete,
       CASE WHEN ov.id IS NOT NULL THEN ov.can_approve WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_approve,0) ELSE COALESCE(p.can_approve,0) END AS can_approve,
-      CASE WHEN ov.id IS NOT NULL THEN ov.can_authorize WHEN ur.user_id IS NOT NULL THEN CASE WHEN ur.role_id IN (1,2) THEN 0 WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 ELSE COALESCE(rp.can_authorize,0) END ELSE COALESCE(p.can_authorize,0) END AS can_authorize
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_authorize WHEN ur.user_id IS NOT NULL THEN CASE WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 WHEN ur.role_id IN (1,2) THEN 0 ELSE COALESCE(rp.can_authorize,0) END ELSE COALESCE(p.can_authorize,0) END AS can_authorize
     FROM sub_modules sm JOIN main_modules mm ON mm.id=sm.module_id AND mm.d_in=0
     LEFT JOIN app_user_roles ur ON ur.user_id=?
     LEFT JOIN app_role_permissions rp ON rp.role_id=ur.role_id AND rp.sub_module_id=sm.id
@@ -770,10 +769,10 @@ exports.saveUserPermissionOverridesCtrl = function (req, res) {
       res.send({ status: 200, message: "User permissions reset" });
     });
   });
-  sqldb.query("SELECT role_id FROM app_user_roles WHERE user_id=?", [userId], function (roleErr, roles) {
+  sqldb.query("SELECT id FROM users WHERE id=? AND d_in=0", [userId], function (roleErr, users) {
     if (roleErr) return res.status(500).send({ status: 500, message: "Unable to save user permissions" });
-    const dataEntry = roles && roles.length && Number(roles[0].role_id) <= 2;
-    const rows = modules.map((m) => [userId, Number(m.module_id), Number(m.id), ...["can_add", "can_edit", "can_delete", "can_view", "can_approve"].map((k) => m[k] ? 1 : 0), dataEntry ? 0 : (m.can_authorize ? 1 : 0)]);
+    if (!users || !users.length) return res.status(404).send({ status: 404, message: "User not found" });
+    const rows = modules.map((m) => [userId, Number(m.module_id), Number(m.id), ...["can_add", "can_edit", "can_delete", "can_view", "can_approve"].map((k) => m[k] ? 1 : 0), m.can_authorize ? 1 : 0]);
     if (rows.some((r) => !Number.isSafeInteger(r[1]) || !Number.isSafeInteger(r[2]) || r[1] <= 0 || r[2] <= 0)) return res.status(400).send({ status: 400, message: "Invalid module list" });
     sqldb.getConnection(function (connErr, connection) {
       if (connErr) return res.status(500).send({ status: 500, message: "Unable to save user permissions" });

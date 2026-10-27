@@ -64,7 +64,7 @@ function UserPermissionsPanel({ user, onClose }: { user: any; onClose: () => voi
           {items.map((row: any) => <React.Fragment key={row.id}>
             <span className="self-center text-xs font-medium text-slate-700">{row.title}</span>
             {rights.map(([key, label]) => <label key={key} className="flex justify-center self-center" title={`${label} ${row.title}`}>
-              <input type="checkbox" aria-label={`${label} ${row.title} for ${user.name}`} checked={Number(row[key]) === 1} disabled={(key !== 'can_view' && !row.can_view) || (key === 'can_authorize' && Number(user.role_id) <= 2)} onChange={(e) => toggle(Number(row.id), key, e.target.checked)} className="h-4 w-4 accent-teal-600 disabled:opacity-40" />
+              <input type="checkbox" aria-label={`${label} ${row.title} for ${user.name}`} checked={Number(row[key]) === 1} disabled={(key !== 'can_view' && !row.can_view)} onChange={(e) => toggle(Number(row.id), key, e.target.checked)} className="h-4 w-4 accent-teal-600 disabled:opacity-40" />
             </label>)}
           </React.Fragment>)}
         </div>
@@ -145,8 +145,8 @@ export default function UserManagementPage() {
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span>{i + 1}</span> },
     { label: 'User', key: 'name', render: (value, row: any) => <div><b>{String(value ?? '—')}</b><div className="text-xs text-slate-500">{row.number}</div></div> },
     { label: 'Department', key: 'department_name' },
-    { label: 'Assigned Role', key: 'role_id', render: (value, row: any) => <Select aria-label={`Role for ${row.name}`} value={value ? String(value) : ''} disabled={assignRole.isPending} onChange={(e) => { if (e.target.value) { const roleId = Number(e.target.value); assignRole.mutate({ user_id: Number(row.id), role_id: roleId, can_authorize_trips: roleId <= 2 ? false : row.can_authorize_trips }) } }}><option value="">Select role</option>{roles.map((role: any) => <option key={role.id} value={role.id}>{role.name}</option>)}</Select> },
-    { label: 'Authorize Trips', key: 'can_authorize_trips', render: (value, row: any) => <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" aria-label={`Authorize trips for ${row.name}`} checked={Number(value) === 1} disabled={!row.role_id || Number(row.role_id) <= 2 || assignRole.isPending} onChange={(e) => assignRole.mutate({ user_id: Number(row.id), role_id: Number(row.role_id), can_authorize_trips: e.target.checked })} className="h-4 w-4 accent-teal-600 disabled:opacity-40" />Allow</label> },
+    { label: 'Assigned Role', key: 'role_id', render: (value, row: any) => <Select aria-label={`Role for ${row.name}`} value={value ? String(value) : ''} disabled={assignRole.isPending} onChange={(e) => { if (e.target.value) assignRole.mutate({ user_id: Number(row.id), role_id: Number(e.target.value), can_authorize_trips: row.can_authorize_trips }) }}><option value="">Select role</option>{roles.map((role: any) => <option key={role.id} value={role.id}>{role.name}</option>)}</Select> },
+    { label: 'Authorize Trips', key: 'can_authorize_trips', render: (value, row: any) => <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" aria-label={`Authorize trips for ${row.name}`} checked={Number(value) === 1} disabled={!row.role_id || assignRole.isPending} onChange={(e) => assignRole.mutate({ user_id: Number(row.id), role_id: Number(row.role_id), can_authorize_trips: e.target.checked })} className="h-4 w-4 accent-teal-600" />Allow</label> },
     { label: 'Service Access', key: 'service_access', render: (_value, row: any) => <Button variant="outline" size="sm" onClick={() => setCustomizing(row)}><SlidersHorizontal className="w-3.5 h-3.5" />Customize</Button> },
     { label: 'Status', key: 'd_in', render: (value) => <Badge variant={value == 0 ? 'success' : 'danger'}>{value == 0 ? 'Active' : 'Inactive'}</Badge> },
   ]
