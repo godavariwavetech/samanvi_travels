@@ -325,6 +325,7 @@ ensureColumn('driver_register', 'dl_linked_mobile', '`dl_linked_mobile` VARCHAR(
 ensureColumn('helper_register', 'dob', '`dob` DATE NULL');
 ensureColumn('helper_register', 'address', '`address` TEXT NULL');
 ensureColumn('fuelentry_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
+ensureColumn('fuel_entry', 'value_date', '`value_date` DATE DEFAULT NULL');
 ensureColumn('laundrybill_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
 ensureColumn('parts_master', 'part_number', '`part_number` varchar(50) DEFAULT NULL');
 ensureColumn('job_parts_used', 'qty',  '`qty`  DECIMAL(10,2) DEFAULT 1');
