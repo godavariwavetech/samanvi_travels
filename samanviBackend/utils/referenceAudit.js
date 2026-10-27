@@ -67,6 +67,12 @@ async function loadReferenceAudit(pool, reference, getTripAudit) {
         current.userId = last.action_by_id || current.userId;
       }
     }
+    if (source.module === 'Fuel') {
+      report.ledger = await query('SELECT * FROM fuelentry_subt WHERE c_number=? AND d_in=0 ORDER BY id', [reference]);
+    }
+    if (source.module === 'Laundry') {
+      report.ledger = await query('SELECT * FROM laundrybill_subt WHERE c_number=? AND d_in=0 ORDER BY id', [reference]);
+    }
     if (source.module === 'Garage') {
       const events = await query('SELECT stage, action, action_by_id, action_by_name, action_at FROM job_approval_stages WHERE job_card_number=? AND d_in=0 ORDER BY id', [reference]);
       steps.push(...events.map(e => step(`${e.stage}: ${e.action}`, e.action_by_name, e.action_at, 'done', e.action_by_id)));
