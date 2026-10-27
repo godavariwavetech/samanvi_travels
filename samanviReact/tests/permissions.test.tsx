@@ -80,12 +80,21 @@ const editorNoApprove = menu(61, 14, { ...viewer, can_add: 1, can_edit: 1, can_a
 assert.equal(permissionsFor('/accounting/voucher-approvals', editorNoApprove).canApprove, false)
 
 function ApprovedEditProbe() {
-  return useCanReviseApproved() ? <Button permission="edit">Edit approved voucher</Button> : null
+  return useCanReviseApproved() ? <button>Edit approved voucher</button> : null
 }
 for (const role of [0, '0', 1, null, undefined, '']) {
   useAuthStore.setState({ user: { role_type: role, number: '9999999999' } as any })
   const html = render('/accounting/voucher-approvals', menu(61, 14), <ApprovedEditProbe />)
   assert.equal(html.includes('Edit approved voucher'), role === 0 || role === '0')
+}
+for (const [user, expected] of [
+  [{ role_id: 5, role_type: 1, number: '9999999999' }, true],
+  [{ role_id: 3, role_type: 0, number: '9999999999' }, false],
+  [{ role_id: 3, role_type: 1, number: '7032285554' }, true],
+] as const) {
+  useAuthStore.setState({ user: user as any })
+  const html = render('/accounting/voucher-approvals', menu(61, 14), <ApprovedEditProbe />)
+  assert.equal(html.includes('Edit approved voucher'), expected)
 }
 useAuthStore.setState({ user: null })
 

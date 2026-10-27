@@ -37,6 +37,17 @@ function DetailGrid({ record, fields }: { record: any; fields: Array<[string, st
   })}</div>
 }
 
+function RecordGrid({ record }: { record: Record<string, unknown> }) {
+  const hidden = /^(id|user_id|updatedby_id|updatedid|updated_by|admin_status_by_id|d_in|lastinsert_id)$/i
+  const rows = Object.entries(record || {}).filter(([key, value]) => !hidden.test(key) && value !== null && value !== undefined && String(value).trim() !== '')
+  if (!rows.length) return <p className="text-sm text-slate-500">No additional record details.</p>
+  const label = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">{rows.map(([key, value]) => <div key={key}>
+    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label(key)}</p>
+    <p className="text-sm text-slate-800 whitespace-pre-wrap break-words">{/date|_at$|^cts$/i.test(key) ? formatAuditDate(value) : String(value)}</p>
+  </div>)}</div>
+}
+
 export default function ReferenceAuditModal({ reference, onClose }: { reference: string; onClose: () => void }) {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['reference-audit', reference],
@@ -60,15 +71,27 @@ export default function ReferenceAuditModal({ reference, onClose }: { reference:
       </header>
       <div className="p-5 space-y-5">
         {data?.report && <>
-          <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
-            <h3 className="text-sm font-bold text-slate-800">Trip Details</h3>
-            <DetailGrid record={data.report.trip} fields={TRIP_FIELDS} />
-          </section>
-          <section className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
-            <h3 className="text-sm font-bold text-slate-800">Filed Expense</h3>
-            <DetailGrid record={data.report.expense} fields={EXPENSE_FIELDS} />
-          </section>
+          {data.report.record && <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">{data.module} Details</h3>
+            <RecordGrid record={data.report.record} />
+          </section>}
           {data.report.ledger?.length > 0 && <section className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Ledger Entries</h3>
+            <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-[10px] uppercase text-slate-400"><th className="py-2 pr-3">Ledger</th><th className="py-2 pr-3">Account</th><th className="py-2 pr-3 text-right">Debit</th><th className="py-2 pr-3 text-right">Credit</th><th className="py-2 pr-3">Description</th><th className="py-2">Date</th></tr></thead><tbody>
+              {data.report.ledger.map((line: any) => <tr key={line.id} className="border-t border-slate-100"><td className="py-2 pr-3">{line.expensives || line.ledger_name || '—'}</td><td className="py-2 pr-3">{line.account_type || line.amount_type || '—'}</td><td className="py-2 pr-3 text-right">{line.account_type === 'Debit Account' ? line.amount ?? '—' : '—'}</td><td className="py-2 pr-3 text-right">{line.account_type === 'Credit Account' ? line.amount ?? '—' : '—'}</td><td className="py-2 pr-3">{line.description || '—'}</td><td className="py-2">{formatAuditDate(line.i_ts || line.voucherdate)}</td></tr>)}
+            </tbody></table></div>
+          </section>}
+          {data.report.trip && <>
+            <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4 space-y-3">
+              <h3 className="text-sm font-bold text-slate-800">Trip Details</h3>
+              <DetailGrid record={data.report.trip} fields={TRIP_FIELDS} />
+            </section>
+            <section className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-3">
+              <h3 className="text-sm font-bold text-slate-800">Filed Expense</h3>
+              <DetailGrid record={data.report.expense} fields={EXPENSE_FIELDS} />
+            </section>
+          </>}
+          {data.report.trip && data.report.ledger?.length > 0 && <section className="rounded-xl border border-slate-200 p-4 space-y-3">
             <h3 className="text-sm font-bold text-slate-800">Expense Ledger Lines</h3>
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-[10px] uppercase text-slate-400"><th className="py-2 pr-3">Ledger</th><th className="py-2 pr-3">Side</th><th className="py-2 pr-3 text-right">Debit</th><th className="py-2 pr-3 text-right">Credit</th><th className="py-2 pr-3">Paid To</th><th className="py-2">Date</th></tr></thead><tbody>
               {data.report.ledger.map((line: any) => <tr key={line.id} className="border-t border-slate-100"><td className="py-2 pr-3">{line.expensives || '—'}</td><td className="py-2 pr-3">{line.account_type || line.amount_type || '—'}</td><td className="py-2 pr-3 text-right">{line.amount ?? '—'}</td><td className="py-2 pr-3 text-right">{line.credit_amount ?? '—'}</td><td className="py-2 pr-3">{line.paid_to_name || '—'}</td><td className="py-2">{formatAuditDate(line.i_ts)}</td></tr>)}
