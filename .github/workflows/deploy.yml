@@ -108,23 +108,35 @@ jobs:
               const db = require(process.env.FUEL_DB_CONFIG);
               const values = [\"fuel_entry\", \"value_date\"];
               const checkSql = \"SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?\";
+              let attempts = 0;
               function finish(error) {
                 if (error) { console.error(\"Fuel value_date migration failed:\", error.message); process.exitCode = 1; }
                 else console.log(\"Production fuel_entry.value_date column is ready\");
                 db.end();
               }
+              function retry(error) {
+                if (/too many connections/i.test(error.message) && attempts < 60) {
+                  console.log(\"Database is at its connection limit; retrying fuel migration in 2 seconds\");
+                  return setTimeout(ensure, 2000);
+                }
+                finish(error);
+              }
               function verify(alterError) {
                 db.query(checkSql, values, (error, rows) => {
-                  if (error) return finish(error);
+                  if (error) return retry(error);
                   if (Number(rows[0] && rows[0].count) > 0) return finish(null);
-                  finish(alterError || new Error(\"column is still missing after ALTER TABLE\"));
+                  retry(alterError || new Error(\"column is still missing after ALTER TABLE\"));
                 });
               }
-              db.query(checkSql, values, (error, rows) => {
-                if (error) return finish(error);
-                if (Number(rows[0] && rows[0].count) > 0) return finish(null);
-                db.query(\"ALTER TABLE fuel_entry ADD COLUMN value_date DATE DEFAULT NULL\", alterError => verify(alterError));
-              });
+              function ensure() {
+                attempts++;
+                db.query(checkSql, values, (error, rows) => {
+                  if (error) return retry(error);
+                  if (Number(rows[0] && rows[0].count) > 0) return finish(null);
+                  db.query(\"ALTER TABLE fuel_entry ADD COLUMN value_date DATE DEFAULT NULL\", alterError => verify(alterError));
+                });
+              }
+              ensure();
             "
           '
 
@@ -171,11 +183,13 @@ jobs:
                 console.error(\"Production backend did not start successfully\"); process.exit(1);
               }
               const db = require(path.join(path.dirname(expected), \"config/dbconnect.js\"));
-              db.query(\"SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?\", [\"fuel_entry\", \"value_date\"], (error, rows) => {
-                if (error || !rows[0].count) { console.error(\"Fuel value_date migration is missing\"); process.exitCode = 1; }
+              const verifyFuelColumn = (attempt = 0) => db.query(\"SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?\", [\"fuel_entry\", \"value_date\"], (error, rows) => {
+                if (error && /too many connections/i.test(error.message) && attempt < 30) return setTimeout(() => verifyFuelColumn(attempt + 1), 2000);
+                if (error || !Number(rows[0] && rows[0].count)) { console.error(\"Fuel value_date migration is missing\", error ? error.message : \"\"); process.exitCode = 1; }
                 else console.log(\"Production backend online; fuel value_date column verified\");
                 db.end();
               });
+              verifyFuelColumn();
             "
             pm2 save
           '
