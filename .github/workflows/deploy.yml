@@ -99,6 +99,35 @@ jobs:
             ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ secrets.BACKEND_PATH }}/
 
       # ── 5. Restart PM2 ────────────────────────────────────────────────────
+      - name: Ensure production fuel value-date column
+        run: |
+          ssh -i "$HOME/.ssh/deploy_key" -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            set -e
+            FUEL_DB_CONFIG="${{ secrets.BACKEND_PATH }}/config/dbconnect.js" node -e "
+              const db = require(process.env.FUEL_DB_CONFIG);
+              const values = [\"fuel_entry\", \"value_date\"];
+              const checkSql = \"SELECT COUNT(*) AS count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?\";
+              function finish(error) {
+                if (error) { console.error(\"Fuel value_date migration failed:\", error.message); process.exitCode = 1; }
+                else console.log(\"Production fuel_entry.value_date column is ready\");
+                db.end();
+              }
+              function verify(alterError) {
+                db.query(checkSql, values, (error, rows) => {
+                  if (error) return finish(error);
+                  if (Number(rows[0] && rows[0].count) > 0) return finish(null);
+                  finish(alterError || new Error(\"column is still missing after ALTER TABLE\"));
+                });
+              }
+              db.query(checkSql, values, (error, rows) => {
+                if (error) return finish(error);
+                if (Number(rows[0] && rows[0].count) > 0) return finish(null);
+                db.query(\"ALTER TABLE fuel_entry ADD COLUMN value_date DATE DEFAULT NULL\", alterError => verify(alterError));
+              });
+            "
+          '
+
       # Deliberately NOT running `npm install` here. node_modules on this
       # server has drifted from package-lock.json in a working way (see the
       # canvas note above) — some packages there were hand-upgraded past what
