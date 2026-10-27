@@ -88,9 +88,9 @@ test('voucher edit fallback uses the active database Super Admin role only', () 
     const result = { allowed: false };
     const database = { query(sql, values, callback) {
       assert.equal(values[0], 17);
-      if (sql.startsWith('SELECT role_type')) {
+      if (sql.startsWith('SELECT u.role_type')) {
         assert.match(sql, /d_in = 0/);
-        callback(null, [{ role_type: role }]);
+        callback(null, [{ role_type: role, role_id: null }]);
       } else callback(null, [viewer]);
     } };
     const res = { status(code) { result.status = code; return this; }, json() {} };
