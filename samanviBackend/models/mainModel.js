@@ -890,7 +890,7 @@ exports.check_user_mobilenoMdl = function (data, callback) {
 exports.checkUserExistMdl = function (number, callback) {
   var cntxtDtls = "in checkUserExistMdl";
   var m = [number[0], number[1]];
-  var QRY_TO_EXEC = ` SELECT id,name,role_type,department_id,department_name from users where number =?  and password = ? and d_in=0;`;
+  var QRY_TO_EXEC = ` SELECT u.id,u.name,u.role_type,u.department_id,u.department_name,ur.role_id,ar.name AS role_name from users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id where u.number =? and u.password = ? and u.d_in=0;`;
 
   if (callback && typeof callback == "function") {
     dbutil.execupdateQuery(
@@ -909,8 +909,9 @@ exports.checkUserExistMdl = function (number, callback) {
 exports.getUserDataMdl = function (user_id, callback) {
   var cntxtDtls = "in getUserDataMdl";
   var m = [user_id, user_id];
-  var QRY_TO_EXEC = `SELECT mm.* from main_modules as mm join permissions as ps on mm.id=ps.module_id  where ps.user_id =? and ps.d_in <> 1 and mm.d_in=0 group by  ps.module_id    ;
-	SELECT mm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete, ${approveSel('ps')}, ${authorizeSel('ps')} from sub_modules as mm join permissions as ps on mm.id=ps.sub_module_id  where ps.user_id =? and ps.d_in=0 and mm.d_in=0 order by module_order  ;
+  var effective = `(SELECT p.user_id,p.module_id,p.sub_module_id,p.can_add,p.can_edit,p.can_delete,p.can_view,p.can_approve,p.can_authorize FROM permissions p WHERE p.d_in=0 AND NOT EXISTS (SELECT 1 FROM app_user_roles ur WHERE ur.user_id=p.user_id) UNION ALL SELECT ur.user_id,rp.module_id,rp.sub_module_id,rp.can_add,rp.can_edit,rp.can_delete,rp.can_view,rp.can_approve,CASE WHEN ur.role_id IN (1,2) THEN 0 ELSE rp.can_authorize END AS can_authorize FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id)`;
+  var QRY_TO_EXEC = `SELECT mm.* from main_modules as mm join ${effective} as ps on mm.id=ps.module_id where ps.user_id =? and ps.can_view=1 and mm.d_in=0 group by ps.module_id;
+	SELECT sm.*, ps.can_view, ps.can_add, ps.can_edit, ps.can_delete, ${approveSel('ps')}, ${authorizeSel('ps')} from sub_modules as sm join ${effective} as ps on sm.id=ps.sub_module_id where ps.user_id =? and ps.can_view=1 and sm.d_in=0 order by module_order;
 	`;
 
   if (callback && typeof callback == "function")
@@ -1279,7 +1280,7 @@ exports.getdata = function (data, callback) {
 
 exports.getAllUsersMdl = function (callback) {
   var cntxtDtls = "in getAllUsersMdl";
-  var QRY_TO_EXEC = `SELECT id, name, number, email, role_type, department_id, department_name, designation, d_in, i_ts FROM users WHERE d_in = 0 ORDER BY id DESC;`;
+  var QRY_TO_EXEC = `SELECT u.id, u.name, u.number, u.email, u.role_type, u.department_id, u.department_name, u.designation, u.d_in, u.i_ts, ur.role_id, ar.name AS role_name FROM users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id WHERE u.d_in=0 ORDER BY u.id DESC;`;
   if (callback && typeof callback == "function")
     dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls, function (err, results) {
       callback(err, results);
@@ -1289,7 +1290,7 @@ exports.getAllUsersMdl = function (callback) {
 
 exports.getActiveUserMdl = function (id, callback) {
   var cntxtDtls = "in getActiveUserMdl";
-  var QRY_TO_EXEC = `SELECT id, name, number, role_type, department_id, department_name FROM users WHERE id = ? AND d_in = 0;`;
+  var QRY_TO_EXEC = `SELECT u.id, u.name, u.number, u.role_type, u.department_id, u.department_name, ur.role_id, ar.name AS role_name FROM users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id WHERE u.id = ? AND u.d_in = 0;`;
   dbutil.execupdateQuery(sqldb, QRY_TO_EXEC, [id], cntxtDtls, function (err, results) {
     callback(err, results);
   });
@@ -3149,6 +3150,9 @@ exports.getexpensesreportMdl = function (data, callback) {
   } else {
     check = ' and admin_status= "2"';
   }
+  const authorizationGate = tripAuthTable.present && authorizeCol.present
+    ? ` AND ((${tripAuthorizersSql}) = 0 OR EXISTS (SELECT 1 FROM trip_authorizations ta WHERE ta.c_number=te.c_number))`
+    : '';
 
   var QRY_TO_EXEC = `SELECT 
     te.*, 
@@ -3172,7 +3176,7 @@ exports.getexpensesreportMdl = function (data, callback) {
 LEFT JOIN helper_register h2 ON te.paid_to_id = h2.id
 LEFT JOIN staff_register s2 ON te.paid_to_id = s2.id
   WHERE 
-    te.d_in = '0' ${check}`;
+    te.d_in = '0' ${check} ${authorizationGate}`;
 
   console.log(QRY_TO_EXEC);
 
@@ -3665,7 +3669,11 @@ exports.getexpensesreportsfiltereMdl = function (data, callback) {
     check = " and admin_status=2";
   }
 
-  var QRY_TO_EXEC = `SELECT * FROM tripexpenses_data WHERE d_in = 0  ${check2}  ${check} ORDER BY id DESC `;
+  const authorizationGate = tripAuthTable.present && authorizeCol.present
+    ? ` AND ((${tripAuthorizersSql}) = 0 OR EXISTS (SELECT 1 FROM trip_authorizations ta WHERE ta.c_number=tripexpenses_data.c_number))`
+    : '';
+
+  var QRY_TO_EXEC = `SELECT * FROM tripexpenses_data WHERE d_in = 0  ${check2}  ${check} ${authorizationGate} ORDER BY id DESC `;
   if (callback && typeof callback == "function")
     dbutil.execQuery(
       sqldb,
@@ -5350,7 +5358,8 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
     // trip has it.
     var guardBus = function (next) {
       var newBus = data.bus_no;
-      if (String(before.vehicle_type || '') === 'van' || newBus === undefined || !String(newBus || '') || String(newBus) === String(before.bus_no || '')) return next();
+      var releaseBus = /^n\/?a$/i.test(String(newBus || '').trim());
+      if (String(before.vehicle_type || '') === 'van' || newBus === undefined || !String(newBus || '') || releaseBus || String(newBus) === String(before.bus_no || '')) return next();
       sqldb.query("SELECT c_number FROM trip_created WHERE d_in = 0 AND trip_date = ? AND bus_no = ? AND (vehicle_type IS NULL OR vehicle_type <> 'van') AND id <> ? LIMIT 1",
         [before.trip_date, newBus, Number(data.id)], function (gErr, gRows) {
           if (!gErr && gRows && gRows.length) return callback(null, { affectedRows: 0, conflict: 'Bus ' + newBus + ' is already on trip ' + gRows[0].c_number + ' that day' });
@@ -6589,7 +6598,7 @@ exports.getVoucherAuditMdl = function (c_number, callback) {
 // can be approved. With nobody holding it the step does not exist, so approvals
 // keep working exactly as before.
 exports.updatetripadminstatusMdl = function (data, callback) {
-  if (!(tripAuthTable.present && authorizeCol.present && String(data.vouchervalue) === '1' && data.voucherdata)) {
+  if (!(tripAuthTable.present && authorizeCol.present && ['1', '2'].includes(String(data.vouchervalue)) && data.voucherdata)) {
     return exports.updatetripadminstatusNow(data, callback);
   }
   sqldb.query(`SELECT (${tripAuthorizersSql}) AS required,
@@ -6651,7 +6660,20 @@ exports.getTripAuditMdl = function (data, callback) {
     if (err) return callback(err, null);
     var r = rows && rows[0] ? rows[0] : null;
     if (r && typeof r.authorization === 'string') { try { r.authorization = JSON.parse(r.authorization); } catch (e) { r.authorization = null; } }
-    callback(null, r);
+    if (!r) return callback(null, null);
+    sqldb.query('SELECT * FROM trip_created WHERE c_number=? ORDER BY (d_in=0) DESC,id DESC LIMIT 1', [data.c_number], function (tripErr, tripRows) {
+      if (tripErr) return callback(tripErr, null);
+      sqldb.query('SELECT * FROM tripexpenses_data WHERE c_number=? ORDER BY (d_in=0) DESC,id DESC LIMIT 1', [data.c_number], function (expenseErr, expenseRows) {
+        if (expenseErr) return callback(expenseErr, null);
+        sqldb.query(`SELECT id,serial_no,expensives,amount,credit_amount,amount_type,account_type,ledger_id,
+            paid_to_name,paid_to_type,bus_no,service_no,trip_date,i_ts
+          FROM expensive_details WHERE c_number=? AND d_in=0 ORDER BY id`, [data.c_number], function (ledgerErr, ledgerRows) {
+          if (ledgerErr) return callback(ledgerErr, null);
+          r.report = { trip: tripRows && tripRows[0] || null, expense: expenseRows && expenseRows[0] || null, ledger: ledgerRows || [] };
+          callback(null, r);
+        });
+      });
+    });
   });
 };
 
@@ -7133,8 +7155,13 @@ exports.submitfuelentrymaindata = function (c_number, c_id, data, callback) {
     price_per_liter: data.pricePerLitre,
     total_bill: data.totalBill,
     avg_kmpl: data.averageKMPL,
-    debit_account: data.patientsTstdts[0].d_test_amount,
-    credit_account: data.creditaddrowdts[0].creditamount,
+    // The main fuel row stores the side totals, while fuelentry_subt stores
+    // each ledger allocation. Using only row zero made the displayed debit / credit
+    // figures stale or incomplete whenever an entry had multiple ledgers.
+    debit_account: (Array.isArray(data.patientsTstdts) ? data.patientsTstdts : [])
+      .reduce((sum, row) => sum + (Number(row && row.d_test_amount) || 0), 0),
+    credit_account: (Array.isArray(data.creditaddrowdts) ? data.creditaddrowdts : [])
+      .reduce((sum, row) => sum + (Number(row && row.creditamount) || 0), 0),
     d_in: 0,
     c_number: c_number,
     c_id: c_id,
@@ -7682,8 +7709,10 @@ exports.updatemaintablesubtablerefeMdl = function (c_id, data, callback) {
     price_per_liter: data.pricePerLitre,
     total_bill: data.totalBill,
     avg_kmpl: data.averageKMPL,
-    debit_account: data.patientsTstdts[0].d_test_amount,
-    credit_account: data.creditaddrowdts[0].creditamount,
+    debit_account: (Array.isArray(data.patientsTstdts) ? data.patientsTstdts : [])
+      .reduce((sum, row) => sum + (Number(row && row.d_test_amount) || 0), 0),
+    credit_account: (Array.isArray(data.creditaddrowdts) ? data.creditaddrowdts : [])
+      .reduce((sum, row) => sum + (Number(row && row.creditamount) || 0), 0),
     d_in: 0,
     c_number: c_number,
     c_id: c_id,
@@ -14408,12 +14437,19 @@ exports.checkJobPermissionMdl = function (data, callback) {
   var userId   = data.user_id   || 0;
   var QRY_TO_EXEC = `
     SELECT
-      MAX(CASE WHEN (sm.id = 200 OR (u.role_type IN (0, 1) AND sm.id = 63))
+      MAX(CASE WHEN (sm.id = 200 OR ((ur.role_id IN (3,5) OR (ur.user_id IS NULL AND u.role_type IN (0,1))) AND sm.id = 63))
         AND p.can_view = 1 AND ${approveCol.present ? 'p.can_approve = 1' : '(p.can_add = 1 OR p.can_edit = 1)'} THEN 1 ELSE 0 END) AS can_approve,
-      MAX(CASE WHEN (sm.id = 201 OR (u.role_type IN (0, 1) AND sm.id = 63))
+      MAX(CASE WHEN (sm.id = 201 OR ((ur.role_id IN (3,5) OR (ur.user_id IS NULL AND u.role_type IN (0,1))) AND sm.id = 63))
         AND p.can_view = 1 AND ${approveCol.present ? 'p.can_approve = 1' : '(p.can_add = 1 OR p.can_edit = 1)'} THEN 1 ELSE 0 END) AS can_complete
-    FROM permissions p
+    FROM (
+      SELECT p.user_id,p.module_id,p.sub_module_id,p.can_view,p.can_add,p.can_edit,p.can_approve,p.d_in
+      FROM permissions p WHERE p.d_in=0 AND NOT EXISTS (SELECT 1 FROM app_user_roles ur WHERE ur.user_id=p.user_id)
+      UNION ALL
+      SELECT ur.user_id,rp.module_id,rp.sub_module_id,rp.can_view,rp.can_add,rp.can_edit,rp.can_approve,0 AS d_in
+      FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id
+    ) p
     JOIN users u ON u.id = p.user_id AND u.d_in = 0
+    LEFT JOIN app_user_roles ur ON ur.user_id=u.id
     JOIN sub_modules sm ON sm.id = p.sub_module_id
     WHERE p.user_id = ? AND sm.module_id = 19 AND sm.d_in = 0 AND p.d_in = 0
   `;

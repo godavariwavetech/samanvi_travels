@@ -24,7 +24,7 @@ async function loadReferenceAudit(pool, reference, getTripAudit) {
   const query = (sql, values) => new Promise((resolve, reject) => pool.query(sql, values, (err, rows) => err ? reject(err) : resolve(rows)));
   if (/^T\d+$/i.test(reference)) {
     const trip = await new Promise((resolve, reject) => getTripAudit({ c_number: reference }, (err, row) => err ? reject(err) : resolve(row)));
-    if (trip) return { reference, module: 'Trip', steps: tripSteps(trip) };
+    if (trip) return { reference, module: 'Trip', steps: tripSteps(trip), report: trip.report || null };
   }
   const sources = [
     { table: 'mainvoucher_t', key: 'c_number', module: 'Voucher', build: r => [

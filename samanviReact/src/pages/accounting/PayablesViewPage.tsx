@@ -102,6 +102,7 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [rect, setRect] = useState<DOMRect | null>(null)
+  const [highlighted, setHighlighted] = useState(0)
   const btnRef = useRef<HTMLButtonElement>(null)
   const PANEL_MAX_H = 240
 
@@ -109,6 +110,7 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
     if (btnRef.current) setRect(btnRef.current.getBoundingClientRect())
     setOpen(true)
     setSearch('')
+    setHighlighted(Math.max(0, options.findIndex(o => o.value === value)))
   }
 
   useEffect(() => {
@@ -137,6 +139,14 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
     : options
   const selectedOpt = options.find(o => o.value === value)
 
+  useEffect(() => { setHighlighted(0) }, [search])
+  const onSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') { e.preventDefault(); setOpen(false); setSearch(''); btnRef.current?.focus() }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(i => filtered.length ? (i + 1) % filtered.length : 0) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlighted(i => filtered.length ? (i - 1 + filtered.length) % filtered.length : 0) }
+    else if (e.key === 'Enter') { e.preventDefault(); if (filtered[highlighted]) { onChange(filtered[highlighted].value); setOpen(false); setSearch(''); btnRef.current?.focus() } }
+  }
+
   const panel = open && rect && createPortal(
     <div id="payables-simple-portal-panel" style={{
       position: 'fixed',
@@ -147,17 +157,17 @@ function SimpleDropdown({ value, options, placeholder = 'Select…', searchable,
       {searchable && (
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 flex-shrink-0">
           <Search className="w-4 h-4 text-slate-400 flex-shrink-0" />
-          <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+          <input autoFocus value={search} onChange={e => setSearch(e.target.value)} onKeyDown={onSearchKeyDown}
             placeholder="Search…"
             className="flex-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 bg-transparent" />
         </div>
       )}
       <div className="overflow-y-auto flex-1">
         {filtered.length === 0 && <div className="px-4 py-3 text-sm text-slate-400 text-center">No options found</div>}
-        {filtered.map(opt => (
-          <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch('') }}
+        {filtered.map((opt, index) => (
+          <div key={opt.value} onMouseDown={() => { onChange(opt.value); setOpen(false); setSearch(''); btnRef.current?.focus() }} onMouseEnter={() => setHighlighted(index)}
             className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${
-              value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
+              index === highlighted ? 'bg-blue-600 text-white font-semibold' : value === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800 hover:bg-slate-50'
             }`}>{opt.label}<LedgerGroupTag group={opt.hint} /></div>
         ))}
       </div>

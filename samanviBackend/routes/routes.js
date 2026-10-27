@@ -25,6 +25,10 @@ router.post('/createuserpermissions',verifyToken, routcontroller.createuserpermi
 router.post('/geteditusermoduleslist',verifyToken, routcontroller.geteditusermoduleslistCtrl);
 router.post('/postusermenulist', verifyToken,routcontroller.postusermenulistCtrl);
 router.post('/getusermoduleslist', verifyToken, routcontroller.getusermoduleslistCtrl);
+router.post('/getroles', verifyToken, routcontroller.getRolesCtrl);
+router.post('/getrolemodulepermissions', verifyToken, routcontroller.getRoleModulesCtrl);
+router.post('/saverolemodules', verifyToken, routcontroller.saveRoleModulesCtrl);
+router.post('/assignuserrole', verifyToken, routcontroller.assignUserRoleCtrl);
 
 //------------------------------------------------------------------------------- permissions End -------------------------------------------------------------------------------//
 //////////////////////////////////////////// help desk /////////////////////////////////////////

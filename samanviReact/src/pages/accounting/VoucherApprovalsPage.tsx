@@ -689,8 +689,8 @@ export default function VoucherApprovalsPage() {
   const voucherTypeList: any[] = voucherTypesRes?.data ?? []
   const busList = (busesRes?.data ?? []).map((b: any) => ({ label: b.bus_no, value: b.bus_no }))
   const staffOptions = (employeesRes?.data ?? []).flat().map((s: any) => ({
-    label: `${s.fullName || s.helper_name || s.driver_name || '—'} (${s.type})`,
-    value: `${s.staff_id}|${s.type}|${s.fullName || s.helper_name || s.driver_name || ''}`,
+    label: s.nickname || s.fullName || s.helper_name || s.driver_name || '—',
+    value: `${s.staff_id}|${s.type}|${s.nickname || s.fullName || s.helper_name || s.driver_name || ''}`,
   }))
   const voucherTypeFilterOpts = voucherTypeList.map((v: any) => ({ label: v.voucher_type, value: v.voucher_type }))
   const staffFilterOpts = [...new Set(

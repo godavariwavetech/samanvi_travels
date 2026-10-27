@@ -1,4 +1,5 @@
 var appmdl = require("../models/mainModel");
+const sqldb = require("../config/dbconnect");
 const { guardApprovedVoucher, isApprovedEditor } = require("../utils/approvedVouchers");
 // An approved trip expense is locked for everyone except the approved editors
 // (see utils/approvedVouchers.js), who may still edit or delete it.
@@ -378,6 +379,7 @@ exports.createuserpermissionsCtrl = function (req, res) {
   var pdata = payload;
   var userdetails = pdata.userdetails;
   var permissionmodules = pdata.permissionmodules;
+  var requestedRoleId = Number(pdata.role_id);
   var uploadind = pdata.uploadind;
   var document = pdata.document;
   var imageuploadlao = "";
@@ -421,9 +423,16 @@ exports.createuserpermissionsCtrl = function (req, res) {
           res.send({ status: 500, data: results });
           return;
         }
-        res.send({ status: 200, data: results });
         var date = moment().utcOffset("+05:30").format("YYYY-MM-DD HH:mm:ss");
         var user_id = results.insertId;
+        const respondCreated = () => res.send({ status: 200, data: results });
+        if (ROLE_IDS.has(requestedRoleId)) {
+          sqldb.query("INSERT INTO app_user_roles (user_id,role_id,assigned_by) VALUES (?,?,?)", [user_id, requestedRoleId, Number(userdetails.entry_by) || null], function (roleErr) {
+            if (roleErr) return res.status(500).send({ status: 500, message: "User created but role assignment failed" });
+            respondCreated();
+          });
+        } else respondCreated();
+        if (!Array.isArray(permissionmodules)) permissionmodules = [];
         permissionmodules = permissionmodules.map((obj) => {
           return [
             user_id,
@@ -438,11 +447,7 @@ exports.createuserpermissionsCtrl = function (req, res) {
             obj.can_authorize ? 1 : 0,
           ];
         });
-        appmdl.postusermenulistMdl(
-          permissionmodules,
-          user_id,
-          function (err, results2) { }
-        );
+        if (permissionmodules.length) appmdl.postusermenulistMdl(permissionmodules, user_id, function () { });
 
         var req = unirest(
           "POST",
@@ -638,6 +643,93 @@ exports.getAllUsersCtrl = function (req, res) {
   appmdl.getAllUsersMdl(function (err, results) {
     if (err) { res.send({ status: 500, data: null }); return; }
     res.send({ status: 200, data: results });
+  });
+};
+
+const ROLE_IDS = new Set([1, 2, 3, 4, 5]);
+function rolePayload(req, res) {
+  try {
+    const { encryptedPayload, signature } = req.body || {};
+    validateSignature(encryptedPayload, signature);
+    return decryptPayload(encryptedPayload);
+  } catch (e) {
+    res.status(400).send({ status: 400, message: "Invalid request" });
+    return null;
+  }
+}
+
+exports.getRolesCtrl = function (_req, res) {
+  sqldb.query("SELECT id, name FROM app_roles WHERE d_in=0 ORDER BY id", function (err, rows) {
+    if (err) return res.status(500).send({ status: 500, message: "Unable to load roles" });
+    res.send({ status: 200, data: rows });
+  });
+};
+
+exports.getRoleModulesCtrl = function (req, res) {
+  const payload = rolePayload(req, res);
+  if (!payload) return;
+  const roleId = Number(payload.role_id);
+  if (!ROLE_IDS.has(roleId)) return res.status(400).send({ status: 400, message: "Invalid role" });
+  sqldb.query(`SELECT sm.id, sm.module_id, mm.title AS module_nm, sm.title, sm.path, sm.module_order,
+      COALESCE(rp.can_view,0) AS check_sub_menu, COALESCE(rp.can_add,0) AS can_add,
+      COALESCE(rp.can_edit,0) AS can_edit, COALESCE(rp.can_delete,0) AS can_delete,
+      COALESCE(rp.can_view,0) AS can_view, COALESCE(rp.can_approve,0) AS can_approve,
+      COALESCE(rp.can_authorize,0) AS can_authorize
+    FROM sub_modules sm JOIN main_modules mm ON mm.id=sm.module_id
+    LEFT JOIN app_role_permissions rp ON rp.role_id=? AND rp.sub_module_id=sm.id
+    WHERE sm.d_in=0 AND mm.d_in=0 ORDER BY mm.order_by, sm.module_order`, [roleId], function (err, rows) {
+    if (err) return res.status(500).send({ status: 500, message: "Unable to load role permissions" });
+    res.send({ status: 200, data: rows });
+  });
+};
+
+exports.saveRoleModulesCtrl = function (req, res) {
+  const payload = rolePayload(req, res);
+  if (!payload) return;
+  const roleId = Number(payload.role_id);
+  const modules = payload.modules;
+  if (!ROLE_IDS.has(roleId) || !Array.isArray(modules)) return res.status(400).send({ status: 400, message: "Invalid role permissions" });
+  const rows = modules.map((m) => [roleId, Number(m.module_id), Number(m.id), ...["can_add", "can_edit", "can_delete", "can_view", "can_approve"].map((k) => m[k] ? 1 : 0), roleId <= 2 ? 0 : (m.can_authorize ? 1 : 0)]);
+  if (rows.some((r) => !Number.isSafeInteger(r[1]) || !Number.isSafeInteger(r[2]) || r[1] <= 0 || r[2] <= 0)) {
+    return res.status(400).send({ status: 400, message: "Invalid module list" });
+  }
+  sqldb.getConnection(function (connErr, connection) {
+    if (connErr) return res.status(500).send({ status: 500, message: "Unable to save role permissions" });
+    connection.beginTransaction(function (txErr) {
+      if (txErr) { connection.release(); return res.status(500).send({ status: 500, message: "Unable to save role permissions" }); }
+      connection.query("DELETE FROM app_role_permissions WHERE role_id=?", [roleId], function (deleteErr) {
+        if (deleteErr) return connection.rollback(() => { connection.release(); res.status(500).send({ status: 500, message: "Unable to save role permissions" }); });
+        const insert = rows.length ? connection.query("INSERT INTO app_role_permissions (role_id,module_id,sub_module_id,can_add,can_edit,can_delete,can_view,can_approve,can_authorize) VALUES ?", [rows], function (insertErr) {
+          if (insertErr) return connection.rollback(() => { connection.release(); res.status(500).send({ status: 500, message: "Unable to save role permissions" }); });
+          connection.commit((commitErr) => {
+            connection.release();
+            if (commitErr) return res.status(500).send({ status: 500, message: "Unable to save role permissions" });
+            res.send({ status: 200, message: "Role permissions saved" });
+          });
+        }) : null;
+        if (!insert) connection.commit((commitErr) => {
+          connection.release();
+          if (commitErr) return res.status(500).send({ status: 500, message: "Unable to save role permissions" });
+          res.send({ status: 200, message: "Role permissions saved" });
+        });
+      });
+    });
+  });
+};
+
+exports.assignUserRoleCtrl = function (req, res) {
+  const payload = rolePayload(req, res);
+  if (!payload) return;
+  const userId = Number(payload.user_id), roleId = Number(payload.role_id);
+  if (!Number.isSafeInteger(userId) || userId <= 0 || !ROLE_IDS.has(roleId)) return res.status(400).send({ status: 400, message: "Invalid user or role" });
+  const actorId = Number(req.auth && req.auth.usid);
+  sqldb.query("SELECT id FROM users WHERE id=? AND d_in=0", [userId], function (findErr, users) {
+    if (findErr) return res.status(500).send({ status: 500, message: "Unable to assign role" });
+    if (!users || !users.length) return res.status(404).send({ status: 404, message: "User not found" });
+    sqldb.query("INSERT INTO app_user_roles (user_id,role_id,assigned_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE role_id=VALUES(role_id), assigned_by=VALUES(assigned_by), assigned_at=CURRENT_TIMESTAMP", [userId, roleId, actorId], function (err) {
+      if (err) return res.status(500).send({ status: 500, message: "Unable to assign role" });
+      res.send({ status: 200, message: "Role assigned" });
+    });
   });
 };
 

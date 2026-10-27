@@ -27,6 +27,8 @@ export const authService = {
           name: usr_data[0].name,
           number: usr_data[0].number,
           role_type: usr_data[0].role_type,
+          role_id: usr_data[0].role_id,
+          role_name: usr_data[0].role_name,
           department_id: usr_data[0].department_id,
           department_name: usr_data[0].department_name,
         },

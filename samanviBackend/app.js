@@ -1,6 +1,7 @@
 var express = require('express');
 const cron = require("node-cron");
 var app = express();
+let rolePermissionsReady = false;
 // Behind a reverse proxy (typical cPanel/Apache Node.js app setup) the proxy
 // terminates TLS and forwards plain HTTP internally — without this, req.protocol
 // always reports 'http' even on the live https:// site, which would make
@@ -124,6 +125,10 @@ app.use(logErrors);
 // front of the server; a cached GET made a just-saved fuel entry invisible
 // on the list until a hard refresh.
 app.use('/nodeapp', function (req, res, next) { res.set('Cache-Control', 'no-store'); next(); });
+app.use('/nodeapp', function (req, res, next) {
+    if (!rolePermissionsReady) return res.status(503).json({ status: 503, msg: 'Application is initializing' });
+    next();
+});
 app.use('/nodeapp', require('./routes/routes'));
 
 function logErrors(err, req, res, next) {
@@ -181,6 +186,29 @@ console.log('Empty Api Server is listening on port ' + PORT);
 
 // Auto-create voucher audit table if not exists
 var sqldb_init = require('./config/dbconnect');
+// Central role permissions are additive to the existing per-user permission
+// table. Unassigned accounts continue using their legacy grants.
+const rolePermissionStatements = require('./utils/rolePermissionsSchema');
+function waitForPermissionColumns(attempt = 0) {
+    sqldb_init.query(`SELECT COUNT(*) AS ready FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='permissions' AND COLUMN_NAME IN ('can_approve','can_authorize')`, function(err, rows) {
+        if (err) { console.error('Permission column readiness check failed:', err.message); rolePermissionsReady = true; return; }
+        if (Number(rows && rows[0] && rows[0].ready) === 2) { rolePermissionsReady = true; return; }
+        if (attempt >= 300) {
+            console.error('Permission columns are still unavailable after 30 seconds');
+            rolePermissionsReady = true;
+            return;
+        }
+        setTimeout(() => waitForPermissionColumns(attempt + 1), 100);
+    });
+}
+const initializeRolePermissions = (index) => {
+    if (index >= rolePermissionStatements.length) { waitForPermissionColumns(); return; }
+    sqldb_init.query(rolePermissionStatements[index], function(err) {
+        if (err) { console.error('Role permission schema initialization failed:', err.message); rolePermissionsReady = true; }
+        else initializeRolePermissions(index + 1);
+    });
+};
+initializeRolePermissions(0);
 sqldb_init.query(`
     CREATE TABLE IF NOT EXISTS mainvoucher_audit (
         id INT AUTO_INCREMENT PRIMARY KEY,

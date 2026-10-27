@@ -292,10 +292,8 @@ export default function FuelEntryPage() {
         // entry pre-fills Previous Odometer from the vehicle list, so that list
         // has to come back too (refreshFuelData covers it).
         refreshFuelData()
-        // The screen stays as it is, with a fresh form for the next fill, rather
-        // than closing back to the list.
         setForm(blankForm())
-        setShowForm(true)
+        setShowForm(false)
       } else toast.error(res?.message || 'Failed to save')
     },
     onError: () => toast.error('Server error'),

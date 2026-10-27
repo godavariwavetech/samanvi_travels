@@ -413,7 +413,7 @@ export default function RepairEntryPage() {
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <Select value={r.priority} onChange={(e) => updateJobRow(i, 'priority')(e.target.value)}>
+                    <Select value={r.priority} onChange={(e) => updateJobRow(i, 'priority')(e.target.value)} buttonClassName={r.priority === 'High' ? 'border-red-300 bg-red-50 text-red-700 font-semibold' : r.priority === 'Medium' ? 'border-amber-300 bg-amber-50 text-amber-700 font-semibold' : 'border-emerald-300 bg-emerald-50 text-emerald-700 font-semibold'}>
                       <option>High</option><option>Medium</option><option>Low</option>
                     </Select>
                   </div>

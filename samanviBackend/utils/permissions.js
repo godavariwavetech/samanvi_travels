@@ -25,7 +25,7 @@ function requirePermission(rule, action, database) {
       scope = 'p.sub_module_id IN (' + rule.subs.map(() => '?').join(',') + ')';
       values.push(...rule.subs);
       if (rule.adminFallback && rule.adminFallback.length) {
-        scope = '(' + scope + ' OR (u.role_type IN (0, 1) AND p.sub_module_id IN (' +
+        scope = '(' + scope + ' OR ((ur.role_id IN (3, 5) OR (ur.user_id IS NULL AND u.role_type IN (0, 1))) AND p.sub_module_id IN (' +
           rule.adminFallback.map(() => '?').join(',') + ')))';
         values.push(...rule.adminFallback);
       }
@@ -37,8 +37,18 @@ function requirePermission(rule, action, database) {
     }
     const pool = database || require('../config/dbconnect');
     pool.query(`SELECT p.*
-      FROM permissions p
+      FROM (
+        SELECT legacy.user_id, legacy.module_id, legacy.sub_module_id, legacy.can_add, legacy.can_edit,
+          legacy.can_delete, legacy.can_view, legacy.can_approve, legacy.can_authorize, legacy.d_in
+        FROM permissions legacy
+        WHERE legacy.d_in=0 AND NOT EXISTS (SELECT 1 FROM app_user_roles ur WHERE ur.user_id=legacy.user_id)
+        UNION ALL
+        SELECT ur.user_id, rp.module_id, rp.sub_module_id, rp.can_add, rp.can_edit,
+          rp.can_delete, rp.can_view, rp.can_approve, CASE WHEN ur.role_id IN (1,2) THEN 0 ELSE rp.can_authorize END AS can_authorize, 0 AS d_in
+        FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id
+      ) p
       JOIN users u ON u.id = p.user_id AND u.d_in = 0
+      LEFT JOIN app_user_roles ur ON ur.user_id=u.id
       JOIN sub_modules sm ON sm.id = p.sub_module_id AND sm.d_in = 0
       JOIN main_modules m ON m.id = p.module_id AND m.d_in = 0
       WHERE p.user_id = ? AND p.d_in = 0 AND ${scope}`, values, (error, grants) => {
@@ -47,10 +57,10 @@ function requirePermission(rule, action, database) {
         // Voucher editing is an explicit Super Admin capability, even when
         // this account has no per-screen Edit tick. Read the current DB role.
         if (rule.superAdminEdit && action === 'edit') {
-          return pool.query('SELECT role_type FROM users WHERE id = ? AND d_in = 0', [userId], (roleError, users) => {
+          return pool.query('SELECT u.role_type, ar.id AS role_id FROM users u LEFT JOIN app_user_roles ur ON ur.user_id=u.id LEFT JOIN app_roles ar ON ar.id=ur.role_id WHERE u.id = ? AND u.d_in = 0', [userId], (roleError, users) => {
             if (roleError) return res.status(500).json({ status: 500, msg: 'Permission check failed' });
             const role = users && users[0] && users[0].role_type;
-            if (role === 0 || role === '0') return next();
+            if (Number(users[0].role_id) === 5 || (users[0].role_id == null && (role === 0 || role === '0'))) return next();
             return res.status(403).json({ status: 403, msg: 'Permission denied' });
           });
         }
@@ -63,6 +73,10 @@ function requirePermission(rule, action, database) {
 
 const API_PERMISSIONS = {
   '/postusermenulist': [{ subs: [2] }, 'edit'],
+  '/getroles': [{ subs: [2] }, 'edit'],
+  '/getrolemodulepermissions': [{ subs: [2] }, 'edit'],
+  '/saverolemodules': [{ subs: [2] }, 'edit'],
+  '/assignuserrole': [{ subs: [2] }, 'edit'],
   '/createuserpermissions': [{ subs: [2] }, 'add'],
   '/updateuser': [{ subs: [2] }, 'edit'],
   '/submitvoucherentrydata': [{ subs: [36] }, 'add'],
