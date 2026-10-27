@@ -42,10 +42,16 @@ function requirePermission(rule, action, database) {
           legacy.can_delete, legacy.can_view, legacy.can_approve, legacy.can_authorize, legacy.d_in
         FROM permissions legacy
         WHERE legacy.d_in=0 AND NOT EXISTS (SELECT 1 FROM app_user_roles ur WHERE ur.user_id=legacy.user_id)
+          AND NOT EXISTS (SELECT 1 FROM app_user_permission_overrides ov WHERE ov.user_id=legacy.user_id AND ov.sub_module_id=legacy.sub_module_id)
         UNION ALL
         SELECT ur.user_id, rp.module_id, rp.sub_module_id, rp.can_add, rp.can_edit,
           rp.can_delete, rp.can_view, rp.can_approve, CASE WHEN ur.role_id IN (1,2) THEN 0 WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 ELSE rp.can_authorize END AS can_authorize, 0 AS d_in
         FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id
+        WHERE NOT EXISTS (SELECT 1 FROM app_user_permission_overrides ov WHERE ov.user_id=ur.user_id AND ov.sub_module_id=rp.sub_module_id)
+        UNION ALL
+        SELECT ov.user_id, ov.module_id, ov.sub_module_id, ov.can_add, ov.can_edit,
+          ov.can_delete, ov.can_view, ov.can_approve, ov.can_authorize, 0 AS d_in
+        FROM app_user_permission_overrides ov
       ) p
       JOIN users u ON u.id = p.user_id AND u.d_in = 0
       LEFT JOIN app_user_roles ur ON ur.user_id=u.id
@@ -77,6 +83,8 @@ const API_PERMISSIONS = {
   '/getrolemodulepermissions': [{ subs: [2] }, 'edit'],
   '/saverolemodules': [{ subs: [2] }, 'edit'],
   '/assignuserrole': [{ subs: [2] }, 'edit'],
+  '/getuserpermissionoverrides': [{ subs: [2] }, 'edit'],
+  '/saveuserpermissionoverrides': [{ subs: [2] }, 'edit'],
   '/createuserpermissions': [{ subs: [2] }, 'add'],
   '/updateuser': [{ subs: [2] }, 'edit'],
   '/submitvoucherentrydata': [{ subs: [36] }, 'add'],

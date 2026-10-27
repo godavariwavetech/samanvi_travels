@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import { Eye, EyeOff, Pencil, Save, UserCircle, Users } from 'lucide-react'
+import { Eye, EyeOff, Pencil, Save, UserCircle, Users, SlidersHorizontal } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Badge, Button, DataTable, GlassCard, Input, Label, PageHeader, Select } from '@/components/shared'
@@ -12,6 +12,66 @@ import { isValidMobile } from '@/lib/utils'
 const DEPT_MAP: Record<string, string> = { '1': 'Administration', '2': 'Operations', '3': 'Accounts', '4': 'Chairman', '5': 'Supervisor' }
 const digitsOnly = (value: string) => value.replace(/\D/g, '').slice(0, 10)
 const emptyUser = { name: '', number: '', email: '', password: '', department_id: '1', role_id: '' }
+
+function UserPermissionsPanel({ user, onClose }: { user: any; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [rows, setRows] = useState<any[]>([])
+  const permissionsQuery = useQuery({
+    queryKey: ['user-permission-overrides', user.id],
+    queryFn: () => usersService.getUserPermissionOverrides({ user_id: user.id }),
+  })
+  useEffect(() => { setRows(permissionsQuery.data?.data ?? []) }, [permissionsQuery.data])
+  const save = useMutation({
+    mutationFn: () => usersService.saveUserPermissionOverrides({ user_id: user.id, modules: rows }),
+    onSuccess: (res) => {
+      if (res?.status !== 200) return toast.error(res?.message || 'Could not save service access')
+      toast.success(`Service access saved for ${user.name}`)
+      qc.invalidateQueries({ queryKey: ['user-permission-overrides', user.id] })
+      onClose()
+    },
+    onError: () => toast.error('Could not save service access'),
+  })
+  const reset = useMutation({
+    mutationFn: () => usersService.saveUserPermissionOverrides({ user_id: user.id, reset: true }),
+    onSuccess: (res) => {
+      if (res?.status !== 200) return toast.error(res?.message || 'Could not restore role access')
+      toast.success(`Role access restored for ${user.name}`)
+      qc.invalidateQueries({ queryKey: ['user-permission-overrides', user.id] })
+      qc.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: () => toast.error('Could not restore role access'),
+  })
+  const groups = Object.entries(rows.reduce<Record<string, any[]>>((acc, row) => {
+    (acc[row.module_nm] ??= []).push(row)
+    return acc
+  }, {}))
+  const toggle = (id: number, key: string, enabled: boolean) => setRows((prev) => prev.map((row) => {
+    if (Number(row.id) !== id) return row
+    if (key === 'can_view' && !enabled) return { ...row, can_view: 0, can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0, can_authorize: 0 }
+    return { ...row, [key]: enabled ? 1 : 0, ...(key !== 'can_view' && enabled ? { can_view: 1 } : {}) }
+  }))
+  const rights: Array<[string, string]> = [['can_view', 'View'], ['can_add', 'Add'], ['can_edit', 'Edit'], ['can_delete', 'Delete'], ['can_approve', 'Approve'], ['can_authorize', 'Authorize']]
+  return <GlassCard className="p-5" colorBar="bg-gradient-to-r from-teal-500 to-cyan-500">
+    <div className="flex items-start justify-between gap-4 mb-4">
+      <div><h2 className="font-bold text-lg"><SlidersHorizontal className="inline w-4 h-4 mr-2" />Customize Services — {user.name}</h2><p className="text-xs text-slate-500 mt-1">These per-user selections override the assigned role. Turn off View to remove a service from this user.</p></div>
+      <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={() => reset.mutate()} disabled={reset.isPending || permissionsQuery.isLoading}>Reset to Role</Button><Button variant="secondary" size="sm" onClick={onClose}>Close</Button><Button size="sm" variant="teal" disabled={save.isPending || permissionsQuery.isLoading} onClick={() => save.mutate()}><Save className="w-4 h-4" />{save.isPending ? 'Saving…' : 'Save Access'}</Button></div>
+    </div>
+    {permissionsQuery.isLoading ? <p className="p-6 text-center text-sm text-slate-400">Loading services…</p> : <div className="space-y-3 max-h-[60vh] overflow-auto pr-1">
+      {groups.map(([name, items]) => <section key={name} className="rounded-xl border border-slate-200 overflow-hidden">
+        <h3 className="px-4 py-2 bg-slate-50 text-sm font-bold">{name}</h3>
+        <div className="grid grid-cols-[minmax(140px,1fr)_repeat(6,minmax(54px,72px))] gap-y-1 px-3 py-2 text-[10px] font-bold uppercase text-slate-400">
+          <span>Service</span>{rights.map(([, label]) => <span key={label} className="text-center">{label}</span>)}
+          {items.map((row: any) => <React.Fragment key={row.id}>
+            <span className="self-center text-xs font-medium text-slate-700">{row.title}</span>
+            {rights.map(([key, label]) => <label key={key} className="flex justify-center self-center" title={`${label} ${row.title}`}>
+              <input type="checkbox" aria-label={`${label} ${row.title} for ${user.name}`} checked={Number(row[key]) === 1} disabled={(key !== 'can_view' && !row.can_view) || (key === 'can_authorize' && Number(user.role_id) <= 2)} onChange={(e) => toggle(Number(row.id), key, e.target.checked)} className="h-4 w-4 accent-teal-600 disabled:opacity-40" />
+            </label>)}
+          </React.Fragment>)}
+        </div>
+      </section>)}
+    </div>}
+  </GlassCard>
+}
 
 function EditUserPanel({ user, onClose }: { user: any; onClose: () => void }) {
   const qc = useQueryClient()
@@ -50,6 +110,7 @@ export default function UserManagementPage() {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<any>(null)
+  const [customizing, setCustomizing] = useState<any>(null)
   const [form, setForm] = useState(emptyUser)
   const [showPassword, setShowPassword] = useState(false)
   const usersQuery = useQuery({ queryKey: ['users'], queryFn: usersService.getUsers })
@@ -86,6 +147,7 @@ export default function UserManagementPage() {
     { label: 'Department', key: 'department_name' },
     { label: 'Assigned Role', key: 'role_id', render: (value, row: any) => <Select aria-label={`Role for ${row.name}`} value={value ? String(value) : ''} disabled={assignRole.isPending} onChange={(e) => { if (e.target.value) { const roleId = Number(e.target.value); assignRole.mutate({ user_id: Number(row.id), role_id: roleId, can_authorize_trips: roleId <= 2 ? false : row.can_authorize_trips }) } }}><option value="">Select role</option>{roles.map((role: any) => <option key={role.id} value={role.id}>{role.name}</option>)}</Select> },
     { label: 'Authorize Trips', key: 'can_authorize_trips', render: (value, row: any) => <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><input type="checkbox" aria-label={`Authorize trips for ${row.name}`} checked={Number(value) === 1} disabled={!row.role_id || Number(row.role_id) <= 2 || assignRole.isPending} onChange={(e) => assignRole.mutate({ user_id: Number(row.id), role_id: Number(row.role_id), can_authorize_trips: e.target.checked })} className="h-4 w-4 accent-teal-600 disabled:opacity-40" />Allow</label> },
+    { label: 'Service Access', key: 'service_access', render: (_value, row: any) => <Button variant="outline" size="sm" onClick={() => setCustomizing(row)}><SlidersHorizontal className="w-3.5 h-3.5" />Customize</Button> },
     { label: 'Status', key: 'd_in', render: (value) => <Badge variant={value == 0 ? 'success' : 'danger'}>{value == 0 ? 'Active' : 'Inactive'}</Badge> },
   ]
 
@@ -100,6 +162,7 @@ export default function UserManagementPage() {
       </div><div className="flex justify-end mt-5"><Button permission="add" onClick={() => create.mutate()} disabled={!validCreate || create.isPending}><Save className="w-4 h-4" />{create.isPending ? 'Saving…' : 'Save User'}</Button></div>
     </GlassCard></motion.div>}</AnimatePresence>
     <AnimatePresence>{editing && <EditUserPanel key={editing.id} user={editing} onClose={() => setEditing(null)} />}</AnimatePresence>
+    {customizing && <UserPermissionsPanel key={customizing.id} user={customizing} onClose={() => setCustomizing(null)} />}
     <DataTable title={`System Users (${users.length})`} columns={columns} data={users} loading={usersQuery.isLoading} onAction={(action, row: any) => {
       if (action === 'edit') setEditing(row)
       if (action === 'delete') { if (String(authUser?.id) === String(row.id)) toast.error('You cannot deactivate your own account'); else remove.mutate(Number(row.id)) }

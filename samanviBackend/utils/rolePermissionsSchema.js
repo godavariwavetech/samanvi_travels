@@ -27,6 +27,20 @@ module.exports = [
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_user_roles_role (role_id)
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS app_user_permission_overrides (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    module_id INT NOT NULL,
+    sub_module_id INT NOT NULL,
+    can_add TINYINT NOT NULL DEFAULT 0,
+    can_edit TINYINT NOT NULL DEFAULT 0,
+    can_delete TINYINT NOT NULL DEFAULT 0,
+    can_view TINYINT NOT NULL DEFAULT 0,
+    can_approve TINYINT NOT NULL DEFAULT 0,
+    can_authorize TINYINT NOT NULL DEFAULT 0,
+    UNIQUE KEY uq_user_submodule_override (user_id, sub_module_id),
+    KEY idx_user_override_submodule (sub_module_id)
+  ) ENGINE=InnoDB`,
   `INSERT IGNORE INTO app_roles (id, name) VALUES
     (1, 'Data Entry 1'), (2, 'Data Entry 2'), (3, 'Admin'), (4, 'GM'), (5, 'Super Admin')`,
   `INSERT IGNORE INTO app_role_permissions

@@ -29,6 +29,8 @@ router.post('/getroles', verifyToken, routcontroller.getRolesCtrl);
 router.post('/getrolemodulepermissions', verifyToken, routcontroller.getRoleModulesCtrl);
 router.post('/saverolemodules', verifyToken, routcontroller.saveRoleModulesCtrl);
 router.post('/assignuserrole', verifyToken, routcontroller.assignUserRoleCtrl);
+router.post('/getuserpermissionoverrides', verifyToken, routcontroller.getUserPermissionOverridesCtrl);
+router.post('/saveuserpermissionoverrides', verifyToken, routcontroller.saveUserPermissionOverridesCtrl);
 
 //------------------------------------------------------------------------------- permissions End -------------------------------------------------------------------------------//
 //////////////////////////////////////////// help desk /////////////////////////////////////////

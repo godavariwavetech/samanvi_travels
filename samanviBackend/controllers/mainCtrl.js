@@ -735,6 +735,69 @@ exports.assignUserRoleCtrl = function (req, res) {
   });
 };
 
+exports.getUserPermissionOverridesCtrl = function (req, res) {
+  const payload = rolePayload(req, res);
+  if (!payload) return;
+  const userId = Number(payload.user_id);
+  if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).send({ status: 400, message: "Invalid user" });
+  sqldb.query(`SELECT sm.id, sm.module_id, mm.title AS module_nm, sm.title,
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_view WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_view,0) ELSE COALESCE(p.can_view,0) END AS can_view,
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_add WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_add,0) ELSE COALESCE(p.can_add,0) END AS can_add,
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_edit WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_edit,0) ELSE COALESCE(p.can_edit,0) END AS can_edit,
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_delete WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_delete,0) ELSE COALESCE(p.can_delete,0) END AS can_delete,
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_approve WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_approve,0) ELSE COALESCE(p.can_approve,0) END AS can_approve,
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_authorize WHEN ur.user_id IS NOT NULL THEN CASE WHEN ur.role_id IN (1,2) THEN 0 WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 ELSE COALESCE(rp.can_authorize,0) END ELSE COALESCE(p.can_authorize,0) END AS can_authorize
+    FROM sub_modules sm JOIN main_modules mm ON mm.id=sm.module_id AND mm.d_in=0
+    LEFT JOIN app_user_roles ur ON ur.user_id=?
+    LEFT JOIN app_role_permissions rp ON rp.role_id=ur.role_id AND rp.sub_module_id=sm.id
+    LEFT JOIN permissions p ON p.user_id=? AND p.sub_module_id=sm.id AND p.d_in=0
+    LEFT JOIN app_user_permission_overrides ov ON ov.user_id=? AND ov.sub_module_id=sm.id
+    WHERE sm.d_in=0 ORDER BY mm.order_by, sm.module_order`, [userId, userId, userId], function (err, rows) {
+    if (err) return res.status(500).send({ status: 500, message: "Unable to load user permissions" });
+    res.send({ status: 200, data: rows });
+  });
+};
+
+exports.saveUserPermissionOverridesCtrl = function (req, res) {
+  const payload = rolePayload(req, res);
+  if (!payload) return;
+  const userId = Number(payload.user_id), modules = payload.modules;
+  if (!Number.isSafeInteger(userId) || userId <= 0 || (!Array.isArray(modules) && payload.reset !== true)) return res.status(400).send({ status: 400, message: "Invalid user permissions" });
+  if (payload.reset === true) return sqldb.query("DELETE FROM app_user_permission_overrides WHERE user_id=?", [userId], function (err) {
+    if (err) return res.status(500).send({ status: 500, message: "Unable to reset user permissions" });
+    sqldb.query("UPDATE app_user_roles SET can_authorize_trips=0 WHERE user_id=?", [userId], function (resetErr) {
+      if (resetErr) return res.status(500).send({ status: 500, message: "Unable to reset user permissions" });
+      res.send({ status: 200, message: "User permissions reset" });
+    });
+  });
+  sqldb.query("SELECT role_id FROM app_user_roles WHERE user_id=?", [userId], function (roleErr, roles) {
+    if (roleErr) return res.status(500).send({ status: 500, message: "Unable to save user permissions" });
+    const dataEntry = roles && roles.length && Number(roles[0].role_id) <= 2;
+    const rows = modules.map((m) => [userId, Number(m.module_id), Number(m.id), ...["can_add", "can_edit", "can_delete", "can_view", "can_approve"].map((k) => m[k] ? 1 : 0), dataEntry ? 0 : (m.can_authorize ? 1 : 0)]);
+    if (rows.some((r) => !Number.isSafeInteger(r[1]) || !Number.isSafeInteger(r[2]) || r[1] <= 0 || r[2] <= 0)) return res.status(400).send({ status: 400, message: "Invalid module list" });
+    sqldb.getConnection(function (connErr, connection) {
+      if (connErr) return res.status(500).send({ status: 500, message: "Unable to save user permissions" });
+      connection.beginTransaction(function (txErr) {
+        if (txErr) { connection.release(); return res.status(500).send({ status: 500, message: "Unable to save user permissions" }); }
+        connection.query("DELETE FROM app_user_permission_overrides WHERE user_id=?", [userId], function (deleteErr) {
+          if (deleteErr) return connection.rollback(() => { connection.release(); res.status(500).send({ status: 500, message: "Unable to save user permissions" }); });
+          const insertRows = rows;
+          const finish = (insertErr) => {
+            if (insertErr) return connection.rollback(() => { connection.release(); res.status(500).send({ status: 500, message: "Unable to save user permissions" }); });
+            connection.commit((commitErr) => {
+              connection.release();
+              if (commitErr) return res.status(500).send({ status: 500, message: "Unable to save user permissions" });
+              res.send({ status: 200, message: "User permissions saved" });
+            });
+          };
+          if (!insertRows.length) return finish(null);
+          connection.query("INSERT INTO app_user_permission_overrides (user_id,module_id,sub_module_id,can_add,can_edit,can_delete,can_view,can_approve,can_authorize) VALUES ?", [insertRows], function (insertErr) { finish(insertErr); });
+        });
+      });
+    });
+  });
+};
+
 // The signed-in user's current menu (modules + permitted sub-modules), in the
 // same shape login returns. The app re-reads it so a permission change or a
 // deactivation takes effect without signing out. The user comes from the

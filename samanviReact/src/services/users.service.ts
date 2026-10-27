@@ -7,6 +7,8 @@ export const usersService = {
   getRoleModules: (data: unknown) => api.post('/getrolemodulepermissions', securePayload(data)).then((r) => r.data),
   saveRoleModules: (data: unknown) => api.post('/saverolemodules', securePayload(data)).then((r) => r.data),
   assignUserRole: (data: unknown) => api.post('/assignuserrole', securePayload(data)).then((r) => r.data),
+  getUserPermissionOverrides: (data: unknown) => api.post('/getuserpermissionoverrides', securePayload(data)).then((r) => r.data),
+  saveUserPermissionOverrides: (data: unknown) => api.post('/saveuserpermissionoverrides', securePayload(data)).then((r) => r.data),
   createUser: (data: unknown) =>
     api.post('/createuserpermissions', securePayload(data)).then((r) => r.data),
   getUserModules: (data: unknown) =>
