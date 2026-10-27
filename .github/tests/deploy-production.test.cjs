@@ -43,8 +43,14 @@ test('production deploy selects only /api, even when /test_api shares its PM2 na
   assert.equal(execute(scripts[0], apps.slice(1)).exitCode, 1);
 });
 
-test('deployment rejects an errored production process or missing value-date migration', () => {
+test('deployment rejects an errored production process', () => {
   assert.equal(execute(scripts[1], apps).exitCode, 0);
   assert.equal(execute(scripts[1], [{ ...apps[0], pm2_env: { ...apps[0].pm2_env, status: 'errored' } }]).exitCode, 1);
-  assert.equal(execute(scripts[1], apps, false).exitCode, 1);
+});
+
+test('production migration adds and verifies fuel value_date before restart', () => {
+  assert.match(workflow, /Ensure production fuel value-date column/);
+  assert.match(workflow, /ALTER TABLE fuel_entry ADD COLUMN value_date DATE DEFAULT NULL/);
+  assert.match(workflow, /Production fuel_entry\.value_date column is ready/);
+  assert.match(workflow, /Fuel value_date migration failed/);
 });
