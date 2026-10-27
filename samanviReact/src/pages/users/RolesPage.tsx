@@ -13,8 +13,9 @@ type ModulePermission = {
 }
 const RIGHTS: Array<[keyof ModulePermission, string]> = [
   ['can_view', 'View'], ['can_add', 'Add'], ['can_edit', 'Edit'], ['can_delete', 'Delete'],
-  ['can_approve', 'Approve'], ['can_authorize', 'Authorize'],
+  ['can_approve', 'Approve'],
 ]
+const AUTHORIZE_RIGHT: [keyof ModulePermission, string] = ['can_authorize', 'Authorize']
 
 export default function RolesPage() {
   const qc = useQueryClient()
@@ -57,8 +58,12 @@ export default function RolesPage() {
       return { ...row, check_sub_menu: enabled ? 1 : 0, can_view: enabled ? 1 : 0,
         ...(enabled ? {} : { can_add: 0, can_edit: 0, can_delete: 0, can_approve: 0, can_authorize: 0 }) }
     }
+    if (key === 'can_authorize') {
+      return { ...row, can_authorize: enabled ? 1 : 0,
+        ...(enabled ? { check_sub_menu: 1, can_view: 1 } : {}) }
+    }
     return { ...row, [key]: enabled ? 1 : 0,
-      ...(key === 'can_view' ? { check_sub_menu: enabled ? 1 : 0 } : {}) }
+      ...(key === 'can_view' ? { check_sub_menu: enabled ? 1 : 0, ...(enabled ? {} : { can_authorize: 0 }) } : {}) }
     }))
   }
   const toggleGroup = (groupRows: ModulePermission[], enabled: boolean) => setRows((prev) => prev.map((row) =>
@@ -84,8 +89,11 @@ export default function RolesPage() {
     </GlassCard>
     {!roleId && <GlassCard className="p-10 text-center"><Shield className="w-10 h-10 text-slate-200 mx-auto mb-3" /><p className="text-slate-500">Choose a role to edit its shared permissions.</p></GlassCard>}
     {modulesQuery.isLoading && <GlassCard className="p-8 text-center text-slate-400">Loading modules…</GlassCard>}
+    {roleId && <p className="px-1 text-xs text-slate-500">Trip authorization is set under Trip Management. Assign the role to users in User Management for the grant to apply. Data Entry 1 and Data Entry 2 cannot authorize trips.</p>}
     {roleId && !modulesQuery.isLoading && groups.map(([name, groupRows]) => {
       const enabled = groupRows.filter((row) => row.check_sub_menu).length
+      const rights = groupRows.some((row) => Number(row.module_id) === 18) ? [...RIGHTS, AUTHORIZE_RIGHT] : RIGHTS
+      const gridStyle = { gridTemplateColumns: `minmax(180px,1fr) 80px repeat(${rights.length},80px)` }
       return <GlassCard key={name} className="overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b cursor-pointer" onClick={() => setExpanded((v) => ({ ...v, [name]: !v[name] }))}>
           <div className="flex items-center gap-2">{expanded[name] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}<b>{name}</b><Badge variant={enabled ? 'success' : 'default'}>{enabled}/{groupRows.length} enabled</Badge></div>
@@ -95,11 +103,11 @@ export default function RolesPage() {
           </div>
         </div>
         {expanded[name] && <div className="divide-y">
-          <div className="grid grid-cols-[minmax(180px,1fr)_80px_repeat(6,80px)] px-5 py-2 text-xs font-bold text-slate-400 uppercase"><span>Sub-module</span><span className="text-center">Access</span>{RIGHTS.map(([, label]) => <span key={label} className="text-center">{label}</span>)}</div>
-          {groupRows.map((row) => <div key={row.id} className="grid grid-cols-[minmax(180px,1fr)_80px_repeat(6,80px)] items-center px-5 py-3">
+          <div className="grid px-5 py-2 text-xs font-bold text-slate-400 uppercase" style={gridStyle}><span>Sub-module</span><span className="text-center">Access</span>{rights.map(([, label]) => <span key={label} className="text-center">{label}</span>)}</div>
+          {groupRows.map((row) => <div key={row.id} className="grid items-center px-5 py-3" style={gridStyle}>
             <span className="text-sm font-medium">{row.title}</span>
-            <button className="flex justify-center" onClick={() => updateRow(row.id, 'check_sub_menu', !row.check_sub_menu)}>{row.check_sub_menu ? <CheckSquare className="w-5 h-5 text-emerald-500" /> : <Square className="w-5 h-5 text-slate-300" />}</button>
-            {RIGHTS.map(([key, label]) => <div key={key} className="flex justify-center"><input type="checkbox" aria-label={`${label} ${row.title}`} checked={Boolean(row[key])} disabled={!row.check_sub_menu || (isDataEntryRole && key === 'can_authorize')} onChange={(e) => updateRow(row.id, key, e.target.checked)} className="w-4 h-4 accent-purple-600 disabled:opacity-30" /></div>)}
+            <button type="button" aria-label={`Access ${row.title}`} aria-pressed={Boolean(row.check_sub_menu)} className="flex justify-center" onClick={() => updateRow(row.id, 'check_sub_menu', !row.check_sub_menu)}>{row.check_sub_menu ? <CheckSquare className="w-5 h-5 text-emerald-500" /> : <Square className="w-5 h-5 text-slate-300" />}</button>
+            {rights.map(([key, label]) => <div key={key} className="flex justify-center"><input type="checkbox" aria-label={`${label} ${row.title}`} checked={Boolean(row[key])} disabled={(key !== 'can_authorize' && !row.check_sub_menu) || (isDataEntryRole && key === 'can_authorize')} onChange={(e) => updateRow(row.id, key, e.target.checked)} className="w-4 h-4 accent-purple-600 disabled:opacity-30" /></div>)}
           </div>)}
         </div>}
       </GlassCard>
