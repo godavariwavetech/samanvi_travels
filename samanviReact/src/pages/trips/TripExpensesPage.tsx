@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import TripAuditModal from './TripAuditModal'
-import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock } from 'lucide-react'
+import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock, ShieldCheck } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
@@ -174,7 +174,7 @@ const toLedgerObj = (item: any): LedgerObj => ({
 export default function TripExpensesPage() {
   const qc = useQueryClient()
   // Approve / Reject is granted on Trip Approvals, not on this page.
-  const { canApprove: canApproveTrips } = usePermissions('/trips/approvals')
+  const { canApprove: canApproveTrips, canAuthorize: canAuthorizeTrips } = usePermissions('/trips/approvals')
   const canReviseApproved = useCanReviseApproved()
 
   // Date-range filter (blank = show all pending/on-review trips)
@@ -1545,6 +1545,22 @@ export default function TripExpensesPage() {
     onError: () => toast.error('Server error'),
   })
 
+  const { mutate: authorizeTrip, isPending: authorizingTrip } = useMutation({
+    mutationFn: (row: any) => tripsService.authorizeTrip({
+      c_number: row.c_number,
+      user_id: localStorage.getItem('user_id'),
+      user_nm: localStorage.getItem('usr_nm'),
+    }),
+    onSuccess: (res) => {
+      if (res?.status === 200) {
+        toast.success('Trip authorized')
+        refetch()
+        for (const key of ['trips', 'trip-expenses', 'trip-audit']) qc.invalidateQueries({ queryKey: [key] })
+      } else toast.error(res?.data?.msg || res?.message || 'Could not authorize trip')
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.msg || 'Could not authorize trip'),
+  })
+
   // Reference No click: always opens *a* modal — View if an expense was
   // already filed, otherwise the same File-Expense modal the edit icon opens
   // for an unfiled trip. Unlike the eye-icon "view" action (which is meant
@@ -1659,6 +1675,11 @@ export default function TripExpensesPage() {
         // authorized (Trip Approvals) before it can be approved; the server
         // refuses an earlier approval, so the option is shut here too.
         const awaitingAuth = state === 0 && Number(row.auth_required) === 1 && !row.authorized_at
+        if (awaitingAuth && canAuthorizeTrips) return (
+          <Button size="sm" variant="outline" disabled={authorizingTrip} onClick={() => authorizeTrip(row)}>
+            <ShieldCheck className="w-3.5 h-3.5" />{authorizingTrip ? 'Authorizing…' : 'Authorize'}
+          </Button>
+        )
         // Approving belongs to people with the Approve grant on Trip Approvals;
         // everyone else just reads where the trip stands.
         if (!canApproveTrips) {
