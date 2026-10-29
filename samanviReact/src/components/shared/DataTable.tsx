@@ -11,6 +11,10 @@ import { cn } from '@/lib/utils'
 import { usePermissions } from '@/lib/usePermissions'
 import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 import { ReferenceDetailsLink } from './ReferenceDetailsLink'
+import ReferenceAuditModal from './ReferenceAuditModal'
+
+const REFERENCE_KEYS = ['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'parent_job_card_number', 'generated_reminder_ref', 'ref_no', 'reference_no', 'bill_no', 'pnr_no']
+const AUDIT_REFERENCE_KEYS = new Set(['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'generated_reminder_ref'])
 
 export interface Column<T = Record<string, unknown>> {
   label: string
@@ -181,6 +185,7 @@ export function DataTable<T extends Record<string, unknown>>({
   }
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
+  const [referenceView, setReferenceView] = useState<{ reference: string; row: T; loadAudit: boolean } | null>(null)
 
   const scrollTopRef = useRef<HTMLDivElement>(null)
   const scrollBodyRef = useRef<HTMLDivElement>(null)
@@ -316,6 +321,14 @@ export function DataTable<T extends Record<string, unknown>>({
 
   const handleAction = (action: ActionType, row: T) => {
     if (action === 'delete') { setConfirmDelete(row); return }
+    if (action === 'view') {
+      const record = row as any
+      const referenceKey = REFERENCE_KEYS.find(key => record[key] !== null && record[key] !== undefined && String(record[key]).trim() !== '')
+      const fallbackKey = ['name', 'title', 'serial_no', 'pnr_no', 'bus_no', 'vehicle_number', 'id'].find(key => record[key] !== null && record[key] !== undefined && String(record[key]).trim() !== '')
+      const reference = referenceKey ? String(record[referenceKey]) : fallbackKey ? `Record ${String(record[fallbackKey])}` : 'Record Details'
+      setReferenceView({ reference, row, loadAudit: Boolean(referenceKey && AUDIT_REFERENCE_KEYS.has(referenceKey)) })
+      return
+    }
     onAction?.(action, row)
   }
 
@@ -528,9 +541,9 @@ export function DataTable<T extends Record<string, unknown>>({
                       key={j}
                       className={`p-4 align-middle ${alignText[col.align ?? 'left']} ${j === 0 && !selectable ? 'pl-6 font-semibold text-slate-900' : 'text-slate-600 text-sm'}`}
                     >
-                      {['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'parent_job_card_number', 'generated_reminder_ref'].includes(col.key)
+                      {REFERENCE_KEYS.includes(col.key)
                         && !/^actions?$/i.test(col.label.trim()) && !!row[col.key]
-                        ? <ReferenceDetailsLink value={row[col.key]} />
+                        ? <ReferenceDetailsLink value={row[col.key]} initialRecord={row} moduleLabel={title} loadAudit={AUDIT_REFERENCE_KEYS.has(col.key)} />
                         : col.render ? col.render(row[col.key], row, i) : String(row[col.key] ?? '')}
                     </td>
                   ))}
@@ -606,6 +619,7 @@ export function DataTable<T extends Record<string, unknown>>({
         </AnimatePresence>,
         document.body
       )}
+      {referenceView && <ReferenceAuditModal reference={referenceView.reference} initialRecord={referenceView.row} moduleLabel={title} loadAudit={referenceView.loadAudit} onClose={() => setReferenceView(null)} />}
     </GlassCard>
   )
 }

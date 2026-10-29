@@ -1367,28 +1367,28 @@ export default function RepairTrackingPage() {
 
       {/* ── View Details Modal ────────────────────────────────────────────────── */}
       {viewModal.open && viewModal.job && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-3 sm:p-6">
+          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-[26px] bg-white shadow-2xl">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white z-10">
+            <div className="flex shrink-0 items-center justify-between gap-4 bg-gradient-to-r from-fuchsia-500 via-purple-600 to-violet-700 px-6 py-4 text-white sm:px-7">
               <div>
-                <h3 className="text-base font-bold text-slate-800">Job Card Details</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{viewModal.job.job_card_number} · {viewModal.job.vehicle_number}</p>
+                <h3 className="text-lg font-extrabold sm:text-2xl">{viewModal.job.job_card_number || 'Job Card Details'}</h3>
+                <p className="mt-1 text-sm text-white/80">{viewModal.job.job_card_number} · {viewModal.job.vehicle_number}</p>
                 {viewModal.job.source_reminder_ref && (
                   <span
-                    className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-[10px] font-bold border border-cyan-100"
+                    className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-white/15 text-white text-[10px] font-bold border border-white/20"
                     title={`Created from Service Reminder ${viewModal.job.source_reminder_ref}`}
                   >
                     <BellRing className="w-2.5 h-2.5" /> From Service Reminder: {viewModal.job.source_reminder_ref}
                   </span>
                 )}
               </div>
-              <button onClick={() => setViewModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1">
+              <button onClick={() => setViewModal({ open: false, job: null })} aria-label="Close job details" className="rounded-full p-2 text-white/75 hover:bg-white/15 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7 space-y-5">
               {/* Basic info */}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                 {[
@@ -1399,9 +1399,9 @@ export default function RepairTrackingPage() {
                   ['Status',   (() => { const s = viewModal.job.state || 'OPEN'; if (s === 'CLOSED' || s === 'COMPLETED') return 'Completed'; if (s === 'REJECTED') return 'Rejected'; if (s === 'APPROVED') return 'Approved'; if (s === 'FINISHED') return 'Finished'; return 'Open' })()],
                   ['Amount',   `₹${viewModal.job.total_amount ?? 0}`],
                 ].map(([k, v]) => (
-                  <div key={k} className="bg-slate-50 rounded-xl px-4 py-3">
-                    <div className="text-xs text-slate-400 font-semibold mb-0.5">{k}</div>
-                    <div className="font-bold text-slate-800">{v}</div>
+                  <div key={k} className="rounded-full bg-slate-50 px-5 py-3.5">
+                    <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wide">{k}</div>
+                    <div className="mt-0.5 truncate text-sm font-bold text-slate-900">{v}</div>
                   </div>
                 ))}
               </div>
@@ -1542,8 +1542,9 @@ export default function RepairTrackingPage() {
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center sticky bottom-0 bg-white">
-              <div className="flex gap-2">
+            <div className="flex shrink-0 items-center justify-between gap-4 border-t border-slate-100 bg-white px-5 py-3 sm:px-7">
+              <Button variant="ghost" onClick={() => setViewModal({ open: false, job: null })}>Close</Button>
+              <div className="flex flex-wrap justify-end gap-2">
                 {(() => {
                   const vs = viewModal.job.state || 'OPEN'
                   const notDone = vs !== 'CLOSED' && vs !== 'COMPLETED' && vs !== 'REJECTED'

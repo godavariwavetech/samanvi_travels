@@ -11,6 +11,7 @@ import { mastersService } from '@/services/masters.service'
 import { tripsService } from '@/services/trips.service'
 import { accountingService } from '@/services/accounting.service'
 import { formatDate, withStatusLabel, formatAmount, formatDateTime, todayISO } from '@/lib/utils'
+import ReferenceAuditModal from '@/components/shared/ReferenceAuditModal'
 
 const Req = () => <span className="text-red-500">*</span>
 
@@ -772,10 +773,7 @@ export default function LaundryBillPage() {
     } else toast.error(res?.message || 'Failed')
   }
 
-  const onView = async (row: Record<string, unknown>) => {
-    const res = await laundryService.getLaundryBillSubData({ c_number: row.c_number })
-    setViewRow({ ...row, _details: res?.data || { vehicles: [], accounts: [] } })
-  }
+  const onView = (row: Record<string, unknown>) => setViewRow(row)
 
   const cols: Column[] = useMemo(() => [
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
@@ -889,10 +887,9 @@ export default function LaundryBillPage() {
 
       {/* View modal */}
       <AnimatePresence>
-        {viewRow && (
-          <LaundryBillView row={viewRow} onClose={() => setViewRow(null)}
-            onApprove={() => onStatusChange(viewRow, 1)} onReject={() => askReject([viewRow])} onReopen={() => onStatusChange(viewRow, 0)} />
-        )}
+        {viewRow && <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Laundry Bill"
+          onClose={() => setViewRow(null)} footerActions={<ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
+            onApprove={() => onStatusChange(viewRow, 1)} onReject={() => askReject([viewRow])} onReopen={() => onStatusChange(viewRow, 0)} />} />}
       </AnimatePresence>
     </motion.div>
   )

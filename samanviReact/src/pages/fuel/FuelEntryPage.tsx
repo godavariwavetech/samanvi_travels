@@ -11,6 +11,7 @@ import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { formatDate, withStatusLabel, formatAmount, formatDateTime, todayISO } from '@/lib/utils'
+import ReferenceAuditModal from '@/components/shared/ReferenceAuditModal'
 
 // Required-field marker, the same red asterisk every other form uses.
 const Req = () => <span className="text-red-500">*</span>
@@ -405,10 +406,7 @@ export default function FuelEntryPage() {
     } else toast.error(res?.message || 'Failed')
   }
 
-  const onView = async (row: Record<string, unknown>) => {
-    const accRes = await fuelService.getFuelAccounts({ id: row.id })
-    setViewRow({ ...row, _accounts: accRes?.data || [] })
-  }
+  const onView = (row: Record<string, unknown>) => setViewRow(row)
 
   // Columns kept in same order as old Angular table minus Target / Driver 1 / Driver 2.
   const entryColumns: Column[] = useMemo(() => [
@@ -555,28 +553,9 @@ export default function FuelEntryPage() {
       {/* View modal */}
       <AnimatePresence>
         {viewRow && (
-          <RecordModal size="lg" title="Fuel Entry" subtitle={String(viewRow.c_number ?? '')} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setViewRow(null)}>
-            <DetailGrid>
-              <DetailField label="Date" value={formatDate(String(viewRow.date ?? ''))} />
-              <DetailField label="Value Date" value={formatDate(String(viewRow.value_date || viewRow.valueDate || viewRow.date || ''))} />
-              <DetailField label="Vehicle No" value={String(viewRow.vehicle_number ?? '—')} />
-              <DetailField label="Quantity" value={`${String(viewRow.quantity_filled ?? 0)} L`} />
-              <DetailField label="Price / Litre" value={`₹${formatAmount(viewRow.price_per_liter)}`} />
-              <DetailField label="Bill" value={`₹${formatAmount(viewRow.total_bill)}`} strong />
-              <DetailField label="Avg KMPL" value={String(viewRow.avg_kmpl ?? '—')} />
-              <DetailField label="Previous Odometer" value={String(viewRow.previous_odometer || viewRow.prev_odometer || '—')} />
-              <DetailField label="Present Odometer" value={String(viewRow.present_odometer ?? '—')} />
-              <DetailField label="Kilometres" value={String(viewRow.kilometers ?? '—')} />
-              <DetailField label="Status" value={<Badge variant={Number(viewRow.admin_status) === 1 ? 'success' : Number(viewRow.admin_status) === 2 ? 'danger' : 'warning'}>{Number(viewRow.admin_status) === 1 ? 'Approved' : Number(viewRow.admin_status) === 2 ? 'Rejected' : 'Pending'}</Badge>} />
-              {Number(viewRow.admin_status) !== 0 && <DetailField label="Action By" value={String(viewRow.admin_status_byname || '—')} />}
-              {Number(viewRow.admin_status) !== 0 && <DetailField label="Action Date" value={viewRow.admin_status_bydate ? formatDateTime(String(viewRow.admin_status_bydate)) : '—'} />}
-            </DetailGrid>
-            <RemarksBlock text={viewRow.remarks} />
-            <RejectionReasonNote reason={viewRow.rejection_reason} />
-            <LedgerSideLists rows={(viewRow._accounts as Array<Record<string, unknown>>) || []} />
-            <ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
-              onApprove={() => onStatusChange(viewRow, 1)} onReject={() => askReject([viewRow])} onReopen={() => onStatusChange(viewRow, 0)} />
-          </RecordModal>
+          <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Fuel Entry"
+            onClose={() => setViewRow(null)} footerActions={<ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
+              onApprove={() => onStatusChange(viewRow, 1)} onReject={() => askReject([viewRow])} onReopen={() => onStatusChange(viewRow, 0)} />} />
         )}
       </AnimatePresence>
 
