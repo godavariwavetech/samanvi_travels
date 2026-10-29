@@ -46,4 +46,14 @@ module.exports = [
     (role_id,module_id,sub_module_id,can_add,can_edit,can_delete,can_view,can_approve,can_authorize)
    SELECT 5,sm.module_id,sm.id,1,1,1,1,1,1 FROM sub_modules sm
    JOIN main_modules mm ON mm.id=sm.module_id WHERE sm.d_in=0 AND mm.d_in=0`,
+  // Super Admin always has every grant on every screen, including screens added
+  // after the first seed and anything narrowed on the Roles page or by a
+  // per-user override. Runs on every start.
+  `INSERT INTO app_role_permissions
+    (role_id,module_id,sub_module_id,can_add,can_edit,can_delete,can_view,can_approve,can_authorize)
+   SELECT 5,sm.module_id,sm.id,1,1,1,1,1,1 FROM sub_modules sm
+   JOIN main_modules mm ON mm.id=sm.module_id WHERE sm.d_in=0 AND mm.d_in=0
+   ON DUPLICATE KEY UPDATE can_add=1,can_edit=1,can_delete=1,can_view=1,can_approve=1,can_authorize=1`,
+  `UPDATE app_user_permission_overrides ov JOIN app_user_roles ur ON ur.user_id=ov.user_id AND ur.role_id=5
+   SET ov.can_add=1,ov.can_edit=1,ov.can_delete=1,ov.can_view=1,ov.can_approve=1,ov.can_authorize=1`,
 ]
