@@ -45,7 +45,7 @@ function requirePermission(rule, action, database) {
           AND NOT EXISTS (SELECT 1 FROM app_user_permission_overrides ov WHERE ov.user_id=legacy.user_id AND ov.sub_module_id=legacy.sub_module_id)
         UNION ALL
         SELECT ur.user_id, rp.module_id, rp.sub_module_id, rp.can_add, rp.can_edit,
-          rp.can_delete, rp.can_view, rp.can_approve, CASE WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 WHEN ur.role_id IN (1,2) THEN 0 ELSE rp.can_authorize END AS can_authorize, 0 AS d_in
+          rp.can_delete, rp.can_view, rp.can_approve, CASE WHEN ur.role_id IN (1,2) THEN 0 ELSE rp.can_authorize END AS can_authorize, 0 AS d_in
         FROM app_user_roles ur JOIN app_role_permissions rp ON rp.role_id=ur.role_id
         WHERE NOT EXISTS (SELECT 1 FROM app_user_permission_overrides ov WHERE ov.user_id=ur.user_id AND ov.sub_module_id=rp.sub_module_id)
         UNION ALL

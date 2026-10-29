@@ -89,10 +89,10 @@ export default function RolesPage() {
     </GlassCard>
     {!roleId && <GlassCard className="p-10 text-center"><Shield className="w-10 h-10 text-slate-200 mx-auto mb-3" /><p className="text-slate-500">Choose a role to edit its shared permissions.</p></GlassCard>}
     {modulesQuery.isLoading && <GlassCard className="p-8 text-center text-slate-400">Loading modules…</GlassCard>}
-    {roleId && <p className="px-1 text-xs text-slate-500">Trip authorization is set under Trip Management. Assign the role to users in User Management for the grant to apply. Data Entry 1 and Data Entry 2 cannot authorize trips.</p>}
+    {roleId && <p className="px-1 text-xs text-slate-500">Set Authorize independently for each sub-module. Data Entry 1 and Data Entry 2 cannot authorize.</p>}
     {roleId && !modulesQuery.isLoading && groups.map(([name, groupRows]) => {
       const enabled = groupRows.filter((row) => row.check_sub_menu).length
-      const rights = groupRows.some((row) => Number(row.module_id) === 18) ? [...RIGHTS, AUTHORIZE_RIGHT] : RIGHTS
+      const rights = [...RIGHTS, AUTHORIZE_RIGHT]
       const gridStyle = { gridTemplateColumns: `minmax(180px,1fr) 80px repeat(${rights.length},80px)` }
       return <GlassCard key={name} className="overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b cursor-pointer" onClick={() => setExpanded((v) => ({ ...v, [name]: !v[name] }))}>

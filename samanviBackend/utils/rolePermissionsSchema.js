@@ -22,7 +22,6 @@ module.exports = [
   `CREATE TABLE IF NOT EXISTS app_user_roles (
     user_id INT NOT NULL PRIMARY KEY,
     role_id INT NOT NULL,
-    can_authorize_trips TINYINT NOT NULL DEFAULT 0,
     assigned_by INT NULL,
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     KEY idx_user_roles_role (role_id)

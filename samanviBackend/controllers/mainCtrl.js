@@ -721,13 +721,12 @@ exports.assignUserRoleCtrl = function (req, res) {
   const payload = rolePayload(req, res);
   if (!payload) return;
   const userId = Number(payload.user_id), roleId = Number(payload.role_id);
-  const canAuthorizeTrips = payload.can_authorize_trips === true || Number(payload.can_authorize_trips) === 1 ? 1 : 0;
   if (!Number.isSafeInteger(userId) || userId <= 0 || !ROLE_IDS.has(roleId)) return res.status(400).send({ status: 400, message: "Invalid user or role" });
   const actorId = Number(req.auth && req.auth.usid);
   sqldb.query("SELECT id FROM users WHERE id=? AND d_in=0", [userId], function (findErr, users) {
     if (findErr) return res.status(500).send({ status: 500, message: "Unable to assign role" });
     if (!users || !users.length) return res.status(404).send({ status: 404, message: "User not found" });
-    sqldb.query("INSERT INTO app_user_roles (user_id,role_id,can_authorize_trips,assigned_by) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE role_id=VALUES(role_id), can_authorize_trips=VALUES(can_authorize_trips), assigned_by=VALUES(assigned_by), assigned_at=CURRENT_TIMESTAMP", [userId, roleId, canAuthorizeTrips, actorId], function (err) {
+    sqldb.query("INSERT INTO app_user_roles (user_id,role_id,assigned_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE role_id=VALUES(role_id), assigned_by=VALUES(assigned_by), assigned_at=CURRENT_TIMESTAMP", [userId, roleId, actorId], function (err) {
       if (err) return res.status(500).send({ status: 500, message: "Unable to assign role" });
       res.send({ status: 200, message: "Role assigned" });
     });
@@ -745,7 +744,7 @@ exports.getUserPermissionOverridesCtrl = function (req, res) {
       CASE WHEN ov.id IS NOT NULL THEN ov.can_edit WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_edit,0) ELSE COALESCE(p.can_edit,0) END AS can_edit,
       CASE WHEN ov.id IS NOT NULL THEN ov.can_delete WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_delete,0) ELSE COALESCE(p.can_delete,0) END AS can_delete,
       CASE WHEN ov.id IS NOT NULL THEN ov.can_approve WHEN ur.user_id IS NOT NULL THEN COALESCE(rp.can_approve,0) ELSE COALESCE(p.can_approve,0) END AS can_approve,
-      CASE WHEN ov.id IS NOT NULL THEN ov.can_authorize WHEN ur.user_id IS NOT NULL THEN CASE WHEN ur.can_authorize_trips=1 AND rp.module_id=18 THEN 1 WHEN ur.role_id IN (1,2) THEN 0 ELSE COALESCE(rp.can_authorize,0) END ELSE COALESCE(p.can_authorize,0) END AS can_authorize
+      CASE WHEN ov.id IS NOT NULL THEN ov.can_authorize WHEN ur.user_id IS NOT NULL THEN CASE WHEN ur.role_id IN (1,2) THEN 0 ELSE COALESCE(rp.can_authorize,0) END ELSE COALESCE(p.can_authorize,0) END AS can_authorize
     FROM sub_modules sm JOIN main_modules mm ON mm.id=sm.module_id AND mm.d_in=0
     LEFT JOIN app_user_roles ur ON ur.user_id=?
     LEFT JOIN app_role_permissions rp ON rp.role_id=ur.role_id AND rp.sub_module_id=sm.id
@@ -764,10 +763,7 @@ exports.saveUserPermissionOverridesCtrl = function (req, res) {
   if (!Number.isSafeInteger(userId) || userId <= 0 || (!Array.isArray(modules) && payload.reset !== true)) return res.status(400).send({ status: 400, message: "Invalid user permissions" });
   if (payload.reset === true) return sqldb.query("DELETE FROM app_user_permission_overrides WHERE user_id=?", [userId], function (err) {
     if (err) return res.status(500).send({ status: 500, message: "Unable to reset user permissions" });
-    sqldb.query("UPDATE app_user_roles SET can_authorize_trips=0 WHERE user_id=?", [userId], function (resetErr) {
-      if (resetErr) return res.status(500).send({ status: 500, message: "Unable to reset user permissions" });
-      res.send({ status: 200, message: "User permissions reset" });
-    });
+    res.send({ status: 200, message: "User permissions reset" });
   });
   sqldb.query("SELECT id FROM users WHERE id=? AND d_in=0", [userId], function (roleErr, users) {
     if (roleErr) return res.status(500).send({ status: 500, message: "Unable to save user permissions" });
