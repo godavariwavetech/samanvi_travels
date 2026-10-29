@@ -116,10 +116,10 @@ assert.equal(formatAuditDate(null), 'Date and time not recorded')
 for (const reference of ['T261021021', 'V123', 'F123', 'L123']) {
   const html = render('/accounting/daybook', menu(38, 14), <DataTable columns={[{ key: 'c_number', label: 'Ref No' }]}
     data={[{ id: 1, c_number: reference }]} exportable={false} />)
-  assert.match(html, /View approval and authorization details/)
+  assert.match(html, /View record details and activity/)
 }
 const client = new QueryClient()
-client.setQueryData(['reference-audit', 'T261021021'], { module: 'Trip', steps: [
+client.setQueryData(['reference-audit', 'T261021021'], { module: 'Trip', report: { record: { c_number: 'T261021021' }, ledger: [] }, steps: [
   { label: 'Authorized', who: 'Authorizer', when: '2026-10-26 11:22:33', state: 'done' },
   { label: 'Approved', who: 'Approver', when: '2026-10-26 12:34:56', state: 'done' },
 ] })
