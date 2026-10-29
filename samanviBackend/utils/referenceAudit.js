@@ -51,7 +51,7 @@ async function loadReferenceAudit(pool, reference, getTripAudit) {
     const steps = source.build(rows[0]);
     let report = { record: rows[0], ledger: [] };
     if (source.module === 'Voucher') {
-      report.ledger = await query(`SELECT id, account_type, amount_type, amount, expensives, ledger_id,
+      report.ledger = await query(`SELECT id, account_type, amount, expensives, ledger_id,
         name AS paid_to_name, description, vehicleNo, vouchertype, voucherdate, i_ts
         FROM mainvoucher_subt WHERE c_number=? AND d_in=0 ORDER BY id`, [reference]);
       const events = await query('SELECT action, action_by_id, action_by_name, action_at FROM mainvoucher_audit WHERE c_number=? ORDER BY id', [reference]);
