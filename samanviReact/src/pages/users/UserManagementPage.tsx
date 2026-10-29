@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { Eye, EyeOff, Pencil, Save, UserCircle, Users, SlidersHorizontal } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Badge, Button, DataTable, GlassCard, Input, Label, PageHeader, Select } from '@/components/shared'
+import { Badge, Button, DataTable, FormModal, GlassCard, Input, Label, PageHeader, Select } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { usersService } from '@/services/users.service'
 import { useAuthStore } from '@/store/auth.store'
@@ -51,7 +51,7 @@ function UserPermissionsPanel({ user, onClose }: { user: any; onClose: () => voi
     return { ...row, [key]: enabled ? 1 : 0, ...(key !== 'can_view' && enabled ? { can_view: 1 } : {}) }
   }))
   const rights: Array<[string, string]> = [['can_view', 'View'], ['can_add', 'Add'], ['can_edit', 'Edit'], ['can_delete', 'Delete'], ['can_approve', 'Approve'], ['can_authorize', 'Authorize']]
-  return <GlassCard className="p-5" colorBar="bg-gradient-to-r from-teal-500 to-cyan-500">
+  return <FormModal size="xl"><GlassCard className="p-5" colorBar="bg-gradient-to-r from-teal-500 to-cyan-500">
     <div className="flex items-start justify-between gap-4 mb-4">
       <div><h2 className="font-bold text-lg"><SlidersHorizontal className="inline w-4 h-4 mr-2" />Customize Services — {user.name}</h2><p className="text-xs text-slate-500 mt-1">These per-user selections override the assigned role. Turn off View to remove a service from this user.</p></div>
       <div className="flex gap-2"><Button variant="secondary" size="sm" onClick={() => reset.mutate()} disabled={reset.isPending || permissionsQuery.isLoading}>Reset to Role</Button><Button variant="secondary" size="sm" onClick={onClose}>Close</Button><Button size="sm" variant="teal" disabled={save.isPending || permissionsQuery.isLoading} onClick={() => save.mutate()}><Save className="w-4 h-4" />{save.isPending ? 'Saving…' : 'Save Access'}</Button></div>
@@ -70,7 +70,7 @@ function UserPermissionsPanel({ user, onClose }: { user: any; onClose: () => voi
         </div>
       </section>)}
     </div>}
-  </GlassCard>
+  </GlassCard></FormModal>
 }
 
 function EditUserPanel({ user, onClose }: { user: any; onClose: () => void }) {
