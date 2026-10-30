@@ -6613,13 +6613,27 @@ exports.updatetripadminstatusMdl = function (data, callback) {
   });
 };
 
-// Authorize a filed trip. Authorizing twice keeps the first authorization.
+// A trip is created, then authorized (Trip Approvals > To Authorize), and only
+// then can its expense be filed. Answers true while a trip that has not had an
+// expense filed still waits for authorization; with nobody holding the
+// Authorize grant the step does not exist.
+exports.tripAwaitingAuthorizationMdl = function (c_number, callback) {
+  if (!(tripAuthTable.present && authorizeCol.present)) return callback(null, false);
+  sqldb.query(`SELECT (${tripAuthorizersSql}) AS required,
+      (SELECT COUNT(*) FROM trip_authorizations WHERE c_number = ?) AS done,
+      (SELECT COUNT(*) FROM trip_created WHERE c_number = ? AND d_in = 0 AND status = 1) AS filed`, [String(c_number || ''), String(c_number || '')], function (err, rows) {
+    if (err) return callback(err, false);
+    var r = (rows && rows[0]) || {};
+    callback(null, Number(r.required) > 0 && Number(r.done) === 0 && Number(r.filed) === 0);
+  });
+};
+
+// Authorize a trip. Authorizing twice keeps the first authorization.
 exports.authorizeTripMdl = function (data, callback) {
   if (!tripAuthTable.present) return callback(new Error('Authorization is not available'), null);
   sqldb.query(`SELECT t.id, t.status, t.admin_status FROM trip_created t WHERE t.c_number = ? AND t.d_in = 0 LIMIT 1`, [data.c_number], function (err, rows) {
     if (err) return callback(err, null);
     if (!rows || !rows.length) return callback(null, { ok: false, msg: 'Trip not found' });
-    if (String(rows[0].status) !== '1') return callback(null, { ok: false, msg: 'File the trip expense before authorizing it' });
     if (Number(rows[0].admin_status) === 1) return callback(null, { ok: false, msg: 'This trip is already approved' });
     if (Number(rows[0].admin_status) === 2) return callback(null, { ok: false, msg: 'This trip was rejected - it has to be corrected and filed again before it can be authorized' });
     sqldb.query(`INSERT IGNORE INTO trip_authorizations (c_number, trip_id, authorized_by_id, authorized_by_name, authorized_at) VALUES (?, ?, ?, ?, ?)`,
@@ -6629,22 +6643,19 @@ exports.authorizeTripMdl = function (data, callback) {
   });
 };
 
-// An authorization vouches for the amounts as they were when it was given, so a
-// trip that is re-filed or deleted loses it and has to be authorized again.
+// An authorization is for the trip itself and comes before its expense is filed,
+// so re-filing or deleting the expense keeps it; only deleting the trip clears it.
 exports.clearTripAuthorizationMdl = function (c_number, callback) {
   if (!tripAuthTable.present) return callback(null);
   sqldb.query(`DELETE FROM trip_authorizations WHERE c_number = ?`, [String(c_number || '')], function (err) { callback(err || null); });
 };
 
-// A re-filed trip goes back to pending: authorization is dropped and, if it had
-// been approved or rejected, so is that decision (the new ledger lines are
-// pending, so leaving the trip marked approved would hide them from the books
-// with nothing left to approve).
+// A re-filed trip goes back to pending: if it had been approved or rejected, so
+// is that decision (the new ledger lines are pending, so leaving the trip marked
+// approved would hide them from the books with nothing left to approve). Its
+// authorization stays.
 exports.resetTripApprovalMdl = function (c_number, callback) {
-  exports.clearTripAuthorizationMdl(c_number, function (err) {
-    if (err) return callback(err);
-    sqldb.query(`UPDATE trip_created SET admin_status = 0 WHERE c_number = ? AND d_in = 0`, [String(c_number || '')], function (e2) { callback(e2 || null); });
-  });
+  sqldb.query(`UPDATE trip_created SET admin_status = 0 WHERE c_number = ? AND d_in = 0`, [String(c_number || '')], function (e2) { callback(e2 || null); });
 };
 
 // Everything the ref-number popup shows: created, last edited, filed, authorized, approved.

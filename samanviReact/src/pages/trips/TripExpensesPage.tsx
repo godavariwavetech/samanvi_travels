@@ -13,6 +13,7 @@ import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { usePermissions } from '@/lib/usePermissions'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
+import { awaitingAuthorizationBeforeExpense } from '@/lib/tripAuthorization'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type LedgerObj = {
@@ -272,7 +273,9 @@ export default function TripExpensesPage() {
   // uses for its "add ledger under this node" action.
   const { data: subchildData } = useQuery({ queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild() })
 
-  const trips: any[] = listData?.data ?? []
+  // A new trip goes to Trip Approvals to be authorized first; it appears here
+  // once authorized, ready for its expense.
+  const trips: any[] = (listData?.data ?? []).filter((t: any) => !awaitingAuthorizationBeforeExpense(t))
   const isVan = (t: any) => String(t.vehicle_type ?? '').toLowerCase() === 'van'
   const isFiled = (t: any) => Number(t.status) === 1
   const vehicleTrips = vehicleTab === 'Van' ? trips.filter(isVan) : trips.filter((t) => !isVan(t))

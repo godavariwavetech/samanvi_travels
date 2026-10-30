@@ -2539,6 +2539,10 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
   tripExpenseLock(req, req.body.c_number, function (lockErr, lockMsg) {
   if (lockErr) { res.status(500).send("Server Error"); return; }
   if (lockMsg) { res.send({ status: 409, message: lockMsg }); return; }
+  // The expense of a trip comes after its authorization (Trip Approvals).
+  appmdl.tripAwaitingAuthorizationMdl(req.body.c_number, function (authErr, waiting) {
+  if (authErr) { res.status(500).send("Server Error"); return; }
+  if (waiting) { res.send({ status: 409, message: "This trip has to be authorized in Trip Approvals before its expense can be filed" }); return; }
   appmdl.deletetripexpensesMdl(req.body, function (err, cresults1) {
     if (err) {
       //console.log()"err " + err);
@@ -2638,6 +2642,7 @@ exports.updateexpensesdetailsCtrl = function (req, res) {
     );
   });
   });
+  });
 };
 
 
@@ -2656,7 +2661,7 @@ exports.deleteexpenseCtrl = function (req, res) {
           res.send(500, "Server Error");
           return;
         }
-        // A deleted expense takes its authorization with it, and a voucher
+        // A deleted expense deletes the trip, so its authorization goes with it, and a voucher
         // posted for it before trips stopped posting one (never approved - the
         // lock above) must not be left behind in Voucher Approvals.
         appmdl.clearTripAuthorizationMdl(data.c_number, function (aErr) {

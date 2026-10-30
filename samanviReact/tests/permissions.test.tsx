@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ReferenceAuditModal from '../src/components/shared/ReferenceAuditModal'
 import { formatAuditDate } from '../src/lib/auditDate'
 import { useCanReviseApproved } from '../src/lib/approvedEditors'
-import { needsAuthorization, awaitingApproval } from '../src/lib/tripAuthorization'
+import { needsAuthorization, awaitingApproval, awaitingAuthorizationBeforeExpense } from '../src/lib/tripAuthorization'
 
 const viewer = { can_view: 1, can_add: 0, can_edit: 0, can_delete: 0 }
 const menu = (id: number, module_id: number, rights = viewer): MenuItem[] => [{
@@ -105,7 +105,13 @@ for (const status of [0, '0']) {
   assert.equal(needsAuthorization({ ...trip, authorized_at: '2026-10-26' }), false)
   assert.equal(awaitingApproval({ ...trip, authorized_at: '2026-10-26' }), true)
   assert.equal(awaitingApproval({ ...trip, auth_required: 0 }), true)
-  assert.equal(needsAuthorization({ ...trip, status: 0 }), false)
+  // Authorization comes before the expense: an unfiled trip waits for it too,
+  // but it cannot be approved until its expense is filed.
+  assert.equal(needsAuthorization({ ...trip, status: 0 }), true)
+  assert.equal(needsAuthorization({ ...trip, status: 0, authorized_at: '2026-10-26' }), false)
+  assert.equal(awaitingAuthorizationBeforeExpense({ ...trip, status: 0 }), true)
+  assert.equal(awaitingAuthorizationBeforeExpense({ ...trip, status: 0, authorized_at: '2026-10-26' }), false)
+  assert.equal(awaitingAuthorizationBeforeExpense(trip), false)
   assert.equal(awaitingApproval({ ...trip, status: 0 }), false)
 }
 console.log('Approved voucher editing and trip authorization regression checks passed.')
