@@ -105,7 +105,7 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
 
 export default function AdminApprovalsPage() {
   const { canApprove, canAuthorize } = usePermissions()
-  const [tab, setTab] = useState('To Authorize')
+  const [tab, setTab] = useState(canAuthorize ? 'To Authorize' : 'Pending')
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [auditRef, setAuditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
