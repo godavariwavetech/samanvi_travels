@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
+import { useSearchParams } from 'react-router'
 import TripAuditModal from './TripAuditModal'
 import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock, ShieldCheck } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -272,6 +273,10 @@ export default function TripExpensesPage() {
   // fetch is needed to build the addLedgerData payload — same shape GroupPage
   // uses for its "add ledger under this node" action.
   const { data: subchildData } = useQuery({ queryKey: ['ledger-subchild-containers'], queryFn: () => accountingService.getMainMastersSubchild() })
+
+  // Admin Approvals links here with ?edit=<trip ref> to open that expense.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const editRef = searchParams.get('edit')
 
   // A new trip goes to Trip Approvals to be authorized first; it appears here
   // once authorized, ready for its expense.
@@ -1576,6 +1581,17 @@ export default function TripExpensesPage() {
     if (row.status === 1) { openView(row); return }
     openAdd(row)
   }
+
+  // Open the expense named by ?edit= once, then drop the parameter.
+  useEffect(() => {
+    if (!editRef || isLoading || !listData) return
+    const row = trips.find((t) => t.c_number === editRef)
+    setSearchParams({}, { replace: true })
+    if (!row) { toast.error(`Trip ${editRef} has no filed expense to edit`); return }
+    if (row.status === 0) openAdd(row)
+    else if (canActOnExpense(row, canReviseApproved)) openEdit(row)
+    else toast.error('This expense can no longer be edited')
+  }, [editRef, isLoading, listData])
 
   const handleAction = (action: string, row: any) => {
     if (action === 'edit') {

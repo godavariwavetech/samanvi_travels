@@ -1,7 +1,9 @@
 import { usePermissions } from '@/lib/usePermissions'
 ﻿import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Clock, Search, X, User, FileText, ShieldCheck } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, Search, X, User, FileText, ShieldCheck, Pencil } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
@@ -114,6 +116,8 @@ export default function AdminApprovalsPage() {
   const [toDate, setToDate] = useState(today)
   const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
   const qc = useQueryClient()
+  const navigate = useNavigate()
+  const canReviseApproved = useCanReviseApproved()
 
   // All trips from trip_created table (same source as TripCreationPage)
   const { data: tripData, isLoading } = useQuery({
@@ -261,6 +265,11 @@ export default function AdminApprovalsPage() {
       label: 'Action', key: 'id',
       render: (_, row: any) => (
         <div className="flex gap-2">
+          {canReviseApproved && Number(row.status) === 1 && (
+            <Button size="sm" variant="outline" onClick={() => navigate(`/trips/expenses?edit=${encodeURIComponent(row.c_number)}`)}>
+              <Pencil className="w-3.5 h-3.5" /> Edit
+            </Button>
+          )}
           {canAuthorize && needsAuthorization(row) && (
             <Button size="sm" disabled={authorizing} onClick={() => authorize(row)}>
               <ShieldCheck className="w-3.5 h-3.5" /> Authorize
