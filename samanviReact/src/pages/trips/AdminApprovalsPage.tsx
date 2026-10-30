@@ -105,7 +105,7 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
 
 export default function AdminApprovalsPage() {
   const { canApprove, canAuthorize } = usePermissions()
-  const [tab, setTab] = useState('Pending')
+  const [tab, setTab] = useState('To Authorize')
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [auditRef, setAuditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
@@ -196,6 +196,9 @@ export default function AdminApprovalsPage() {
       if (tab === 'To Authorize') { if (!needsAuthorization(t)) return false }
       else if (tab === 'Pending') { if (!awaitingApproval(t)) return false }
       else if (Number(t.admin_status) !== statusMap[tab]) return false
+      // Everything still waiting for authorization is listed, whatever its
+      // date, so no older trip is left out of sight behind the date range.
+      if (tab === 'To Authorize') return true
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
       if (!d) return true
       if (applied.from && d < applied.from) return false
