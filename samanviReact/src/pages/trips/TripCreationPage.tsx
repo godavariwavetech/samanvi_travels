@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
+import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, DateRangePicker, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { isVanVehicleType, formatDate, isValidMobile, todayISO, localDateTime } from '@/lib/utils'
@@ -221,7 +221,7 @@ export default function TripCreationPage() {
   const [gridRows, setGridRows] = useState<Record<number, GridRow>>({})
   const [vehicleType, setVehicleType] = useState<'Bus' | 'Van'>('Bus')
   const [serviceForFilter, setServiceForFilter] = useState('')
-  const [recordsDate, setRecordsDate] = useState('')
+  const [recordsDateRange, setRecordsDateRange] = useState({ from: '', to: '' })
   const canReviseApproved = useCanReviseApproved()
   // An authorized or decided trip is locked: only the approved editors (Super
   // Admin and the designated numbers) may change it.
@@ -395,7 +395,8 @@ export default function TripCreationPage() {
   const shownTrips = allTrips.filter((t) => {
     if ((String(t.vehicle_type ?? '') === 'van') !== (vehicleType === 'Van')) return false
     const date = String(t.trip_date ?? t.cts ?? '').split('T')[0]
-    return !recordsDate || date === recordsDate
+    return (!recordsDateRange.from || date >= recordsDateRange.from)
+      && (!recordsDateRange.to || date <= recordsDateRange.to)
   })
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
@@ -1212,9 +1213,10 @@ export default function TripCreationPage() {
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
         filterBar={(
           <div className="flex items-end gap-3 flex-wrap">
-            <div><Label>Date</Label><Input type="date" value={recordsDate}
-              onChange={(e) => setRecordsDate(e.target.value)} /></div>
-            {recordsDate && <Button variant="outline" onClick={() => setRecordsDate('')}>Clear date</Button>}
+            <div><Label>Date / Date range</Label>
+              <DateRangePicker from={recordsDateRange.from} to={recordsDateRange.to}
+                onChange={(r) => setRecordsDateRange({ from: r.fromdate, to: r.todate })} /></div>
+            {(recordsDateRange.from || recordsDateRange.to) && <Button variant="outline" onClick={() => setRecordsDateRange({ from: '', to: '' })}>Clear dates</Button>}
           </div>
         )}
       />
