@@ -10,6 +10,7 @@ import { isVanVehicleType, formatDate, isValidMobile, todayISO, localDateTime } 
 import { mastersService } from '@/services/masters.service'
 import { accountingService } from '@/services/accounting.service'
 import { balStr, balCls, signedBalance } from '@/lib/ledgerFormat'
+import { useCanReviseApproved } from '@/lib/approvedEditors'
 
 const today = todayISO()
 
@@ -220,7 +221,11 @@ export default function TripCreationPage() {
   const [gridRows, setGridRows] = useState<Record<number, GridRow>>({})
   const [vehicleType, setVehicleType] = useState<'Bus' | 'Van'>('Bus')
   const [serviceForFilter, setServiceForFilter] = useState('')
-  const [recordsDateRange, setRecordsDateRange] = useState({ from: '', to: '' })
+  const [recordsDate, setRecordsDate] = useState('')
+  const canReviseApproved = useCanReviseApproved()
+  // An authorized or decided trip is locked: only the approved editors (Super
+  // Admin and the designated numbers) may change it.
+  const tripLocked = (t: any) => !canReviseApproved && (!!t?.authorized_at || Number(t?.admin_status) === 1 || Number(t?.admin_status) === 2)
   // Keyed by van service-number id, exactly like the bus roster's gridRows: the
   // Van tab lists every van service for the date rather than starting empty.
   const [vanRows, setVanRows] = useState<Record<number, VanRow>>({})
@@ -390,8 +395,7 @@ export default function TripCreationPage() {
   const shownTrips = allTrips.filter((t) => {
     if ((String(t.vehicle_type ?? '') === 'van') !== (vehicleType === 'Van')) return false
     const date = String(t.trip_date ?? t.cts ?? '').split('T')[0]
-    return (!recordsDateRange.from || date >= recordsDateRange.from)
-      && (!recordsDateRange.to || date <= recordsDateRange.to)
+    return !recordsDate || date === recordsDate
   })
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
@@ -499,7 +503,7 @@ export default function TripCreationPage() {
 
   const pickBus = (routeId: number, busNo: string) => {
     updateRow(routeId, { bus_no: busNo })
-    if (busNo) loadLastCrew({ routeId, busNo })
+    if (busNo && !/^n\/?a$/i.test(busNo.trim())) loadLastCrew({ routeId, busNo })
   }
 
   // A running row needs a bus before it counts as filled. A Halt row is the
@@ -892,14 +896,14 @@ export default function TripCreationPage() {
                                 </td>
                                 <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
                                 <td className="py-2 px-3">
-                                  <button
+                                  {!tripLocked(existing) && <button
                                     type="button"
                                     onClick={() => openEdit(existing)}
                                     title="Edit this trip"
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors"
                                   >
                                     <Pencil className="w-3.5 h-3.5" /> Edit
-                                  </button>
+                                  </button>}
                                 </td>
                               </tr>
                             )
@@ -1058,14 +1062,14 @@ export default function TripCreationPage() {
                               <td className="py-2 px-3 text-slate-600 text-xs">{existing.paid_to_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs truncate max-w-[9rem]">{existing.remarks || '—'}</td>
                               <td className="py-2 px-3">
-                                <button
+                                {!tripLocked(existing) && <button
                                   type="button"
                                   onClick={() => openEdit(existing)}
                                   title="Edit this trip"
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 hover:bg-blue-100 transition-colors"
                                 >
                                   <Pencil className="w-3.5 h-3.5" /> Edit
-                                </button>
+                                </button>}
                               </td>
                             </tr>
                           )
@@ -1080,7 +1084,11 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <select
                                 value={row.status}
-                                onChange={(e) => updateRow(r.id, { status: e.target.value as TripRunStatus })}
+                                onChange={(e) => {
+                                  const status = e.target.value as TripRunStatus
+                                  // N/A is only a choice for a halted service.
+                                  updateRow(r.id, status !== 'Halt' && /^n\/?a$/i.test(String(row.bus_no).trim()) ? { status, bus_no: '' } : { status })
+                                }}
                                 className="w-full h-11 rounded-xl border border-slate-200 bg-white text-sm px-3 shadow-sm transition-all hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
                               >
                                 <option value="Running">Running</option>
@@ -1089,7 +1097,8 @@ export default function TripCreationPage() {
                               </select>
                             </td>
                             <td className="py-2 px-3">
-                              <SearchableSelect className="min-w-[13rem]" placeholder="Select" options={busOptionsForRoute(r.id)}
+                              <SearchableSelect className="min-w-[13rem]" placeholder="Select"
+                                options={row.status === 'Halt' ? [{ value: 'N/A', label: 'N/A (No bus)' }, ...busOptionsForRoute(r.id)] : busOptionsForRoute(r.id)}
                                 value={row.bus_no} onChange={(v) => pickBus(r.id, v)} onClear={() => updateRow(r.id, { bus_no: '' })} />
                             </td>
                             <td className="py-2 px-3">
@@ -1195,20 +1204,17 @@ export default function TripCreationPage() {
         columns={columns}
         data={shownTrips}
         loading={isLoading}
-        onAction={(action, row) => { if (action === 'edit') openEdit(row) }}
+        onAction={(action, row) => { if (action === 'edit' && !tripLocked(row)) openEdit(row) }}
         actions={['edit']}
+        rowActionAllowed={(_action, row) => !tripLocked(row)}
         icon={<Map className="w-5 h-5 text-blue-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
         filterBar={(
           <div className="flex items-end gap-3 flex-wrap">
-            <div><Label>From Date</Label><Input type="date" value={recordsDateRange.from}
-              max={recordsDateRange.to || undefined}
-              onChange={(e) => setRecordsDateRange((r) => ({ ...r, from: e.target.value }))} /></div>
-            <div><Label>To Date</Label><Input type="date" value={recordsDateRange.to}
-              min={recordsDateRange.from || undefined}
-              onChange={(e) => setRecordsDateRange((r) => ({ ...r, to: e.target.value }))} /></div>
-            {(recordsDateRange.from || recordsDateRange.to) && <Button variant="outline" onClick={() => setRecordsDateRange({ from: '', to: '' })}>Clear dates</Button>}
+            <div><Label>Date</Label><Input type="date" value={recordsDate}
+              onChange={(e) => setRecordsDate(e.target.value)} /></div>
+            {recordsDate && <Button variant="outline" onClick={() => setRecordsDate('')}>Clear date</Button>}
           </div>
         )}
       />

@@ -5557,7 +5557,10 @@ exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback)
   var skipped = 0, skippedBus = 0, skippedInactive = 0, skippedInvalid = 0, invalidReasons = [];
   var isVanRow = function (r) { return String(r.vehicle_type || '') === 'van'; };
   var serviceIds = toInsert.map(function (r) { return r.service_no_id; }).filter(function (v) { return v != null && v !== ''; });
-  var busNos = toInsert.filter(function (r) { return !isVanRow(r) && r.bus_no; }).map(function (r) { return r.bus_no; });
+  // A halted service is saved with bus N/A (no bus ran), so N/A is not a bus
+  // that can be double-booked - any number of halted services may carry it.
+  var noBus = function (v) { return /^n\/?a$/i.test(String(v || '').trim()); };
+  var busNos = toInsert.filter(function (r) { return !isVanRow(r) && r.bus_no && !noBus(r.bus_no); }).map(function (r) { return r.bus_no; });
   var dedupe = function (next) {
     var byService = function (then) {
       if (!serviceIds.length) return then();
@@ -5578,7 +5581,7 @@ exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback)
         var out = {};
         (rows || []).forEach(function (x) { out[String(x.bus_no)] = true; });
         toInsert = toInsert.filter(function (r) {
-          if (isVanRow(r) || !r.bus_no) return true;
+          if (isVanRow(r) || !r.bus_no || noBus(r.bus_no)) return true;
           if (out[String(r.bus_no)]) { skippedBus++; return false; }
           out[String(r.bus_no)] = true;
           return true;

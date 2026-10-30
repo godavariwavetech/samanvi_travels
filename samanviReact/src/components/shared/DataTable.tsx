@@ -38,6 +38,8 @@ interface DataTableProps<T extends Record<string, unknown>> {
   onAction?: (action: ActionType, row: T) => void
   loading?: boolean
   actions?: ActionType[]
+  /** Hides an action's button on rows where it is not allowed (a locked record). */
+  rowActionAllowed?: (action: ActionType, row: T) => boolean
   icon?: ReactNode
   selectable?: boolean
   sumKey?: string
@@ -144,6 +146,7 @@ export function DataTable<T extends Record<string, unknown>>({
   onAction,
   loading = false,
   actions: requestedActions = ['view', 'edit', 'delete'],
+  rowActionAllowed,
   icon,
   selectable = false,
   sumKey,
@@ -550,7 +553,7 @@ export function DataTable<T extends Record<string, unknown>>({
                   {actionButtons.length > 0 && (
                     <td className="p-4 align-middle text-right pr-6">
                       <div className="flex items-center justify-end gap-1.5">
-                        {actionButtons.map(({ type, icon: Icon, cls }) => (
+                        {actionButtons.filter(({ type }) => !rowActionAllowed || rowActionAllowed(type, row)).map(({ type, icon: Icon, cls }) => (
                           <button
                             key={type}
                             onClick={() => handleAction(type, row)}
