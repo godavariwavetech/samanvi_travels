@@ -209,12 +209,34 @@ interface FilterOpts {
 }
 
 // Required columns — always visible, no checkbox in the picker.
-const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Voucher Date', 'Dr. Ledger', 'Cr. Ledger', 'Amount'] as const
+const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Source', 'Voucher Date', 'Dr. Ledger', 'Cr. Ledger', 'Amount'] as const
 // Optional columns — user can toggle visibility via checkboxes.
 const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
 const ALL_VOUCHER_COLS = [...REQUIRED_VOUCHER_COLS, ...OPTIONAL_VOUCHER_COLS] as const
 type VoucherColId = typeof ALL_VOUCHER_COLS[number]
 const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver'])
+
+// Where a voucher came from, as the badges beside its type show it: a payable,
+// or the module that posted it (Job card, Battery, Tyre, Trip, Fuel, Laundry);
+// anything else was keyed in by hand. One value per voucher so it can be filtered.
+const SOURCE_OPTIONS = ['Payable', 'Trip', 'Fuel', 'Job', 'Battery', 'Tyre', 'Laundry', 'Manual'].map((v) => ({ label: v, value: v }))
+const voucherSource = (row: any): string => {
+  if (Number(row.is_payable) === 1) return 'Payable'
+  const t = String(row.source_type ?? '').toLowerCase()
+  if (t === 'job' || row.job_card_number) return 'Job'
+  if (t === 'battery' || row.battery_code) return 'Battery'
+  if (t === 'tyre' || row.tyre_code) return 'Tyre'
+  if (t === 'trip' || row.trip_c_number) return 'Trip'
+  if (t === 'fuel' || /^F\d/.test(String(row.c_number ?? ''))) return 'Fuel'
+  if (t === 'laundry') return 'Laundry'
+  return 'Manual'
+}
+const SOURCE_STYLE: Record<string, string> = {
+  Payable: 'bg-purple-100 text-purple-700 border-purple-200', Trip: 'bg-blue-100 text-blue-700 border-blue-200',
+  Fuel: 'bg-amber-100 text-amber-700 border-amber-200', Job: 'bg-orange-100 text-orange-600 border-orange-200',
+  Battery: 'bg-teal-100 text-teal-700 border-teal-200', Tyre: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  Laundry: 'bg-sky-100 text-sky-700 border-sky-200', Manual: 'bg-slate-100 text-slate-600 border-slate-200',
+}
 
 const buildCols = (
   onApprove: (row: any) => void,
@@ -278,6 +300,15 @@ const buildCols = (
         )}
       </div>
     ),
+  })
+
+  if (show('Source')) cols.push({
+    label: 'Source', key: 'source_label', filterable: true, filterType: 'select',
+    filterOptions: SOURCE_OPTIONS,
+    render: (_v: any, row: any) => {
+      const src = voucherSource(row)
+      return <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${SOURCE_STYLE[src]}`}>{src}</span>
+    },
   })
 
   if (show('Voucher Date')) cols.push({
@@ -1284,7 +1315,7 @@ export default function VoucherApprovalsPage() {
           entryByOpts,
           ledgerGroupOf,
         }, optionalCols) as any}
-        data={getList()}
+        data={getList().map((r: any) => ({ ...r, source_label: voucherSource(r) }))}
         loading={loadSearch}
         onAction={() => {}}
         actions={[]}
