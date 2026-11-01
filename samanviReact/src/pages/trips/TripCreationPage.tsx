@@ -221,7 +221,10 @@ export default function TripCreationPage() {
   const [gridRows, setGridRows] = useState<Record<number, GridRow>>({})
   const [vehicleType, setVehicleType] = useState<'Bus' | 'Van'>('Bus')
   const [serviceForFilter, setServiceForFilter] = useState('')
-  const [recordsDateRange, setRecordsDateRange] = useState({ from: '', to: '' })
+  // Follows the Trip Date of the creation form above (see the effect below), so
+  // the records show the day being worked on; the table's own picker can still
+  // widen it to a range or clear it.
+  const [recordsDateRange, setRecordsDateRange] = useState({ from: today, to: today })
   const canReviseApproved = useCanReviseApproved()
   // An authorized or decided trip is locked: only the approved editors (Super
   // Admin and the designated numbers) may change it.
@@ -453,7 +456,10 @@ export default function TripCreationPage() {
   [editRow, vanOptions, editBusOptions])
 
   // Picking a new date starts a fresh roster — already-created rows come from existingByRoute instead
-  useEffect(() => { setGridRows({}); setVanRows({}) }, [tripDate])
+  useEffect(() => {
+    setGridRows({}); setVanRows({})
+    if (tripDate) setRecordsDateRange({ from: tripDate, to: tripDate })
+  }, [tripDate])
 
   const updateRow = (routeId: number, patch: Partial<GridRow>) =>
     setGridRows((g) => ({ ...g, [routeId]: { ...(g[routeId] ?? makeEmptyGridRow()), ...patch } }))
