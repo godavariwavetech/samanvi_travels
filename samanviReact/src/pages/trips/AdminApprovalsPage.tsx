@@ -216,51 +216,42 @@ export default function AdminApprovalsPage() {
   const approvedCount = allTrips.filter((t) => Number(t.admin_status) === 1).length
   const rejectedCount = allTrips.filter((t) => Number(t.admin_status) === 2).length
 
+  const dash = (v: unknown) => String(v ?? '').trim() ? String(v) : <span className="text-slate-300">—</span>
+  const money = (v: unknown) => Number(v) ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>
+  // Same columns, in the same order, as the Trip Records table on Trip Creation;
+  // the money columns are picked out with a green header.
   const buildCols = (): Column[] => [
+    { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
     {
-      label: 'Trip ID / Date', key: 'c_number',
+      label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
+      filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
+      render: (_v, r: any) => r.vehicle_type === 'van' ? <Badge variant="purple">Van</Badge> : <Badge variant="info">Bus</Badge>,
+    },
+    {
+      label: 'Ref ID', key: 'c_number', filterable: true,
       render: (v, r: any) => (
-        <div>
-          <button type="button" onClick={() => r.c_number && setAuditRef(String(r.c_number))}
-            className="font-bold text-blue-600 hover:text-blue-800 hover:underline">{String(v ?? `#${r.id}`)}</button>
-          <div className="text-xs text-slate-400">{formatDate(r.trip_date)}</div>
-        </div>
+        <button type="button" onClick={() => r.c_number && setAuditRef(String(r.c_number))}
+          className="font-bold text-blue-600 hover:text-blue-800 hover:underline">{String(v ?? `#${r.id}`)}</button>
       ),
     },
+    { label: 'Date', key: 'trip_date', render: (v) => formatDate(v) },
     {
-      label: 'Bus / Service', key: 'bus_no',
-      render: (v, r: any) => (
-        <div>
-          <div className="font-semibold">{String(v ?? '—')}</div>
-          <div className="text-xs text-slate-500">{r.service_no} · {r.trip_for}</div>
-        </div>
-      ),
+      label: 'Status', key: 'trip_run_status', filterable: true,
+      filterOptions: [{ label: 'Running', value: 'Running' }, { label: 'Full Trip', value: 'Full Trip' }, { label: 'Halt', value: 'Halt' }],
+      render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v ?? 'Running')}</Badge>,
     },
-    {
-      label: 'Crew', key: 'driver1_name',
-      render: (v, r: any) => (
-        <div className="text-xs space-y-0.5">
-          {v && <div>D1: <span className="font-medium">{String(v)}</span></div>}
-          {r.driver2_name && <div>D2: <span className="font-medium">{r.driver2_name}</span></div>}
-          {r.helper_name && <div>H: <span className="font-medium">{r.helper_name}</span></div>}
-        </div>
-      ),
-    },
-    { label: 'Paid To', key: 'paid_to_name', render: (v) => <span className="text-sm">{String(v ?? '—')}</span> },
-    {
-      label: 'Description', key: 'remarks',
-      render: (v) => v
-        ? <span className="text-sm text-slate-600 line-clamp-2 max-w-[180px]">{String(v)}</span>
-        : <span className="text-slate-300 text-sm">—</span>,
-    },
-    {
-      label: 'Status', key: 'admin_status',
-      render: (v) => (
-        <Badge variant={v == 1 ? 'success' : v == 2 ? 'danger' : 'warning'}>
-          {v == 1 ? 'Approved' : v == 2 ? 'Rejected' : 'Pending'}
-        </Badge>
-      ),
-    },
+    { label: 'Bus No', key: 'bus_no', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
+    { label: 'Service No', key: 'service_no', filterable: true, render: dash },
+    { label: 'Up/Down', key: 'up_down', filterable: true, render: dash },
+    { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v, r: any) => dash(v || r.opt_driver1_name) },
+    { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v, r: any) => dash(v || r.opt_driver2_name) },
+    { label: 'Helper', key: 'helper_name', filterable: true, render: (v, r: any) => dash(v || r.opt_helper_name) },
+    { label: 'Conductor', key: 'conductor_name', filterable: true, render: dash },
+    { label: 'Paid To', key: 'paid_to_name', filterable: true, render: dash },
+    { label: 'Amount', key: 'booking_amount', headerClassName: 'bg-emerald-600', render: (v, r: any) => money(v || r.total_amount) },
+    { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: dash },
+    { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: dash },
+    { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
     {
       label: 'Action', key: 'id',
       render: (_, row: any) => (

@@ -23,6 +23,8 @@ export interface Column<T = Record<string, unknown>> {
   filterType?: 'text' | 'select' | 'date'
   filterOptions?: { label: string; value: string }[]
   align?: 'left' | 'center' | 'right'
+  /** Header background in place of the default blue, e.g. 'bg-emerald-600'. */
+  headerClassName?: string
   render?: (value: any, row: T, index: number) => ReactNode
 }
 
@@ -473,7 +475,7 @@ export function DataTable<T extends Record<string, unknown>>({
               {columns.map((col, i) => (
                 <th
                   key={i}
-                  className={`sticky top-0 z-10 bg-blue-600 p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${alignText[col.align ?? 'left']} ${!selectable && i === 0 ? 'pl-6' : ''}`}
+                  className={`sticky top-0 z-10 ${col.headerClassName ?? 'bg-blue-600'} p-4 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap ${alignText[col.align ?? 'left']} ${!selectable && i === 0 ? 'pl-6' : ''}`}
                 >
                   <div className={`flex items-center gap-1.5 ${alignJustify[col.align ?? 'left']}`}>
                     {col.label}

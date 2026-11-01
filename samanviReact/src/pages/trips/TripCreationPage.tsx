@@ -173,6 +173,8 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van', moveColumn: C
       </div>
     ),
   },
+  // Set on the service route (Masters > Service Routes).
+  { label: 'Up/Down', key: 'up_down', filterable: true, render: dashOr },
   { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
   { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
   { label: 'Helper', key: 'helper_name', filterable: true, render: (v) => <span className="text-slate-500 text-sm">{String(v ?? '—')}</span> },
@@ -1095,6 +1097,7 @@ export default function TripCreationPage() {
                   <table className="table-fixed w-max text-sm border-collapse">
                     <thead>
                       <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
+                        <th className="py-2.5 px-3 w-12">Sl.No</th>
                         <th className="py-2.5 px-3 w-48">Service No</th>
                         <th className="py-2.5 px-3 w-32">Status</th>
                         <th className="py-2.5 px-3 w-52">Bus No</th>
@@ -1108,11 +1111,12 @@ export default function TripCreationPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {busRoutes.map((r) => {
+                      {busRoutes.map((r, i) => {
                         const existing = existingByRoute[String(r.id)]
                         if (existing) {
                           return (
                             <tr key={r.id} className="border-b border-slate-100 bg-emerald-50/40">
+                              <td className="py-2 px-3 text-slate-500">{i + 1}</td>
                               <td className="py-2 px-3">
                                 <div className="font-semibold text-slate-700">{r.serviceNo}</div>
                                 <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
@@ -1141,6 +1145,7 @@ export default function TripCreationPage() {
                         const row = gridRows[r.id] ?? makeEmptyGridRow()
                         return (
                           <tr key={r.id} className="border-b border-slate-100 align-top">
+                            <td className="py-2 px-3 text-slate-500">{i + 1}</td>
                             <td className="py-2 px-3">
                               <div className="font-semibold text-slate-700">{r.serviceNo}</div>
                               <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
