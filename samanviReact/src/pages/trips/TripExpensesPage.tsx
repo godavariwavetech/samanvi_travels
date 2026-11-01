@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { useSearchParams } from 'react-router'
 import TripAuditModal from './TripAuditModal'
-import { Receipt, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock, ShieldCheck } from 'lucide-react'
+import { Receipt, CheckCircle, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock, ShieldCheck } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
@@ -14,7 +14,7 @@ import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { usePermissions } from '@/lib/usePermissions'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
-import { awaitingAuthorizationBeforeExpense } from '@/lib/tripAuthorization'
+import { awaitingAuthorizationBeforeExpense, awaitingApproval } from '@/lib/tripAuthorization'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type LedgerObj = {
@@ -1565,6 +1565,36 @@ export default function TripExpensesPage() {
     onError: () => toast.error('Server error'),
   })
 
+  // Multi-approve, as on Fuel: tick filed trips in the table and approve them
+  // together. Only a filed trip that is actually waiting for approval counts
+  // (not one still awaiting authorization, already approved or rejected).
+  const [selectedTrips, setSelectedTrips] = useState<any[]>([])
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const approveSelected = async () => {
+    const rows = selectedTrips.filter(awaitingApproval)
+    if (!canApproveTrips || !rows.length || bulkApproving) return
+    setBulkApproving(true)
+    let approved = 0
+    for (const row of rows) {
+      const result = await tripsService.updateTripAdminStatus({
+        vouchervalue: 1,
+        voucherdata: { c_number: row.c_number, id: row.id },
+        user_id: localStorage.getItem('user_id'),
+        user_nm: localStorage.getItem('usr_nm'),
+        updated_date: nowStr(),
+      }).catch(() => null)
+      if (result?.status === 200) approved++
+    }
+    setBulkApproving(false)
+    setSelectedTrips([])
+    if (approved === rows.length) toast.success(`${approved} trip${approved === 1 ? '' : 's'} approved`)
+    else toast.error(`${approved} of ${rows.length} trips approved`)
+    refetch()
+    for (const key of ['trips', 'trip-expenses', 'bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
+      qc.invalidateQueries({ queryKey: [key] })
+    }
+  }
+
   const { mutate: authorizeTrip, isPending: authorizingTrip } = useMutation({
     mutationFn: (row: any) => tripsService.authorizeTrip({
       c_number: row.c_number,
@@ -1885,6 +1915,13 @@ export default function TripExpensesPage() {
         icon={<Receipt className="w-5 h-5 text-red-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
+        selectable={canApproveTrips}
+        onSelectionChange={(rows) => setSelectedTrips(rows as any[])}
+        selectionActions={canApproveTrips ? (
+          <Button variant="success" size="sm" disabled={bulkApproving || selectedTrips.filter(awaitingApproval).length === 0} onClick={approveSelected}>
+            <CheckCircle className="w-3.5 h-3.5" />{bulkApproving ? 'Approving…' : `Approve Selected${selectedTrips.filter(awaitingApproval).length ? ` (${selectedTrips.filter(awaitingApproval).length})` : ''}`}
+          </Button>
+        ) : undefined}
       />
 
       <AnimatePresence>
