@@ -1,12 +1,12 @@
 import { usePermissions } from '@/lib/usePermissions'
 ﻿import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle, XCircle, Clock, Search, X, User, FileText, ShieldCheck, Pencil } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, X, User, FileText, ShieldCheck, Pencil } from 'lucide-react'
 import { useNavigate } from 'react-router'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Label, DataTable, Badge, TopNavTabs, PageHeader, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
@@ -112,8 +112,6 @@ export default function AdminApprovalsPage() {
   const [auditRef, setAuditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
   const [bulkApproving, setBulkApproving] = useState(false)
-  const [fromDate, setFromDate] = useState(firstOfMonth)
-  const [toDate, setToDate] = useState(today)
   const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -323,22 +321,13 @@ export default function AdminApprovalsPage() {
       <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
         <div className="flex items-end gap-3 flex-wrap">
           <div>
-            <Label>From Date</Label>
-            <Input type="date" max={today} value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-36" />
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={applied.from} to={applied.to}
+              onChange={(r) => setApplied({ from: r.fromdate, to: r.todate })} />
           </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" max={today} value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-36" />
-          </div>
-          <Button onClick={() => setApplied({ from: fromDate, to: toDate })}>
-            <Search className="w-4 h-4" /> Apply Filter
-          </Button>
-          <button
-            onClick={() => { setFromDate(''); setToDate(''); setApplied({ from: '', to: '' }) }}
-            className="text-xs text-slate-500 hover:text-red-500 font-medium underline"
-          >
-            Clear
-          </button>
+          {(applied.from || applied.to) && (
+            <Button variant="outline" onClick={() => setApplied({ from: '', to: '' })}>Clear dates</Button>
+          )}
         </div>
       </GlassCard>
 
