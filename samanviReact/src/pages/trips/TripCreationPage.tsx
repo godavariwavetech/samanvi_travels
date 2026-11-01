@@ -33,6 +33,8 @@ type GridRow = {
   // gotten to yet". Separate from the auto-disable below (all three checked).
   paid_to_skip: boolean
   remarks: string
+  // Up / Down, chosen on the sheet; '' falls back to the service route's own.
+  up_down: string
 }
 
 // Van trip rows are added manually (no pre-defined roster like the Bus grid) —
@@ -76,9 +78,8 @@ const runStatusBadge = (v: unknown) => {
 }
 const dashOr = (v: unknown) => String(v ?? '').trim() ? String(v) : <span className="text-slate-300">—</span>
 
-const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van', moveColumn: Column): Column[] => (kind === 'Van' ? [
+const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => (kind === 'Van' ? [
   slNoColumn,
-  moveColumn,
   {
     label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
     filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
@@ -144,7 +145,6 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van', moveColumn: C
   { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
 ] : [
   slNoColumn,
-  moveColumn,
   {
     label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
     filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
@@ -371,7 +371,7 @@ export default function TripCreationPage() {
     opt_helper_id: '', opt_helper_name: '',
     conductor_id: '', conductor_name: '', conductor_checked: true,
     paid_to_id: '', paid_to_name: '', paid_to_type: '', paid_to_ledger_id: '', paid_to_skip: false,
-    remarks: '',
+    remarks: '', up_down: '',
   })
   const makeEmptyVanRow = (): VanRow => ({
     status: 'Running', line_code: '', bus_no: '',
@@ -410,43 +410,7 @@ export default function TripCreationPage() {
     [buses])
   const isHireBus = (busNo: string) => hireBusNos.has(String(busNo))
   // The hire is owed to the van's owner, so picking a hired van fills the Pay
-  // Up / down arrows beside Sl No reorder the rows on screen only (nothing is
-  // saved, a refresh restores the default order). A row swaps with its neighbour
-  // among the rows currently visible, so column filters don't make it a no-op.
-  const [manualOrder, setManualOrder] = useState<string[]>([])
-  const visibleIdsRef = useRef<string[]>([])
-  const orderedRef = useRef<string[]>([])
-  const moveRow = (id: string, dir: -1 | 1) => {
-    const vis = visibleIdsRef.current
-    const pos = vis.indexOf(id)
-    const other = vis[pos + dir]
-    if (pos < 0 || !other) return
-    const base = [...orderedRef.current]
-    const a = base.indexOf(id), b = base.indexOf(other)
-    if (a < 0 || b < 0) return
-    ;[base[a], base[b]] = [base[b], base[a]]
-    setManualOrder(base)
-  }
-  const moveRowRef = useRef(moveRow)
-  moveRowRef.current = moveRow
-  const moveColumn = useMemo<Column>(() => ({
-    label: 'Move', key: '_move', align: 'center',
-    render: (_v, r: any, i) => (
-      <div className="inline-flex flex-col">
-        <button type="button" title="Move up" aria-label="Move up" disabled={i === 0}
-          onClick={() => moveRowRef.current(String(r.id), -1)}
-          className="p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400">
-          <ArrowUp className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Move down" aria-label="Move down"
-          onClick={() => moveRowRef.current(String(r.id), 1)}
-          className="p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
-          <ArrowDown className="w-3.5 h-3.5" />
-        </button>
-      </div>
-    ),
-  }), [])
-  const columns = useMemo(() => makeColumns(hireBusNos, vehicleType, moveColumn), [hireBusNos, vehicleType, moveColumn])
+  const columns = useMemo(() => makeColumns(hireBusNos, vehicleType), [hireBusNos, vehicleType])
   // The records table shows the trips of the kind the tab above is on: bus
   // trips under Bus, van trips under Van. A row's kind is its stored
   // vehicle_type; rows from before that column existed are bus trips.
@@ -456,12 +420,6 @@ export default function TripCreationPage() {
     return (!recordsDateRange.from || date >= recordsDateRange.from)
       && (!recordsDateRange.to || date <= recordsDateRange.to)
   })
-  const orderedTrips = useMemo(() => {
-    const rank: Record<string, number> = {}
-    manualOrder.forEach((id, i) => { rank[id] = i })
-    return [...shownTrips].sort((x, y) => (rank[String(x.id)] ?? 1e9) - (rank[String(y.id)] ?? 1e9))
-  }, [shownTrips, manualOrder])
-  orderedRef.current = orderedTrips.map((t) => String(t.id))
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
     .filter((r) => !serviceForFilter || normSf(r.serviceFor) === normSf(serviceForFilter))
@@ -614,6 +572,7 @@ export default function TripCreationPage() {
           helper_paid_direct: row.helper_checked ? 1 : 0,
           conductor_paid_direct: row.conductor_checked ? 1 : 0,
           remarks: row.remarks, trip_run_status: row.status,
+          up_down: row.up_down || r.up_down || '',
         }
       })
       return tripsService.bulkCreateTrips({
@@ -742,6 +701,7 @@ export default function TripCreationPage() {
       paid_to_skip: '',
       hirer_name: String(row.hirer_name ?? ''), phone_number: String(row.phone_number ?? ''),
       line_code: String(row.line_code ?? ''),
+      up_down: String(row.up_down ?? ''),
       booking_amount: row.booking_amount ? String(row.booking_amount) : '',
       remarks: String(row.remarks ?? ''),
     })
@@ -787,7 +747,7 @@ export default function TripCreationPage() {
         ? { ...common, hirer_name: editHirerActive ? editForm.hirer_name : '', phone_number: editHirerActive ? editForm.phone_number : '', line_code: editForm.line_code,
             opt_driver1_mobile: !editHalted && isOptingName(editForm.driver1_name) ? editForm.opt_driver1_mobile : '',
             booking_amount: editAmountActive ? editForm.booking_amount : '' }
-        : { ...common,
+        : { ...common, up_down: editForm.up_down,
             driver2_id: editForm.driver2_id, driver2_name: editForm.driver2_name,
             opt_driver2_id: editForm.opt_driver2_id, opt_driver2_name: editForm.opt_driver2_name,
             helper_id: editForm.helper_id, helper_name: editForm.helper_name,
@@ -1099,6 +1059,7 @@ export default function TripCreationPage() {
                       <tr className="sticky top-0 z-10 text-left text-xs font-bold text-white uppercase tracking-wider bg-blue-600">
                         <th className="py-2.5 px-3 w-12">Sl.No</th>
                         <th className="py-2.5 px-3 w-48">Service No</th>
+                        <th className="py-2.5 px-3 w-28">Up/Down</th>
                         <th className="py-2.5 px-3 w-32">Status</th>
                         <th className="py-2.5 px-3 w-52">Bus No</th>
                         <th className="py-2.5 px-3 w-56">Driver 1</th>
@@ -1121,6 +1082,7 @@ export default function TripCreationPage() {
                                 <div className="font-semibold text-slate-700">{r.serviceNo}</div>
                                 <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
                               </td>
+                              <td className="py-2 px-3 text-slate-700 font-medium">{existing.up_down || r.up_down || <span className="text-slate-300">—</span>}</td>
                               <td className="py-2 px-3"><div className="flex items-center gap-1.5 flex-wrap"><Badge variant="success">Created</Badge>{runStatusBadge(existing.trip_run_status)}</div></td>
                               <td className="py-2 px-3 font-medium">{existing.bus_no || '—'}</td>
                               <td className="py-2 px-3 text-slate-600">{existing.driver1_name || existing.opt_driver1_name || '—'}</td>
@@ -1149,6 +1111,13 @@ export default function TripCreationPage() {
                             <td className="py-2 px-3">
                               <div className="font-semibold text-slate-700">{r.serviceNo}</div>
                               <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
+                            </td>
+                            <td className="py-2 px-3">
+                              <Select value={row.up_down || r.up_down || ''} onChange={(e) => updateRow(r.id, { up_down: e.target.value })} className="h-11 text-sm">
+                                <option value="">—</option>
+                                <option value="Up">Up</option>
+                                <option value="Down">Down</option>
+                              </Select>
                             </td>
                             <td className="py-2 px-3">
                               <select
@@ -1271,8 +1240,7 @@ export default function TripCreationPage() {
       <DataTable
         title={`${vehicleType} Trip Records (${shownTrips.length})`}
         columns={columns}
-        data={orderedTrips}
-        onFilteredChange={(rows) => { visibleIdsRef.current = rows.map((r: any) => String(r.id)) }}
+        data={shownTrips}
         loading={isLoading}
         onAction={(action, row) => { if (action === 'edit' && !tripLocked(row)) openEdit(row) }}
         actions={['edit']}
@@ -1352,6 +1320,17 @@ export default function TripCreationPage() {
                     <p className="mt-1 text-[11px] font-semibold text-emerald-700">This trip will have no bus assigned; the current bus will be available for another trip on this date.</p>
                   )}
                 </div>
+
+                {editRow.vehicle_type !== 'van' && (
+                  <div>
+                    <Label>Up/Down</Label>
+                    <Select value={editForm.up_down} onChange={(e) => patchEdit({ up_down: e.target.value })}>
+                      <option value="">—</option>
+                      <option value="Up">Up</option>
+                      <option value="Down">Down</option>
+                    </Select>
+                  </div>
+                )}
 
                 {editRow.vehicle_type === 'van' ? (
                   <>

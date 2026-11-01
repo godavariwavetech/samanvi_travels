@@ -3102,7 +3102,7 @@ exports.getexpensesMdl = function (data, callback) {
   vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
   vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
-  dn.up_down AS up_down, dn.trip_type AS pick_drop,
+  COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
   (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
@@ -3582,7 +3582,7 @@ exports.getexpensesfiltere = function (data, callback) {
   vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
   vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
-  dn.up_down AS up_down, dn.trip_type AS pick_drop,
+  COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
   (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
@@ -5416,7 +5416,7 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
       'opt_driver1_id', 'opt_driver1_name', 'opt_driver1_mobile', 'opt_driver2_id', 'opt_driver2_name', 'opt_helper_id', 'opt_helper_name',
       'trip_date', 'trip_for', 'trip_for_id', 'trip_run_status',
       'paid_to_type', 'paid_to_name', 'paid_to_id',
-      'hirer_name', 'phone_number', 'line_code', 'booking_amount', 'remarks',
+      'hirer_name', 'phone_number', 'line_code', 'booking_amount', 'remarks', 'up_down',
       'driver1_paid_direct', 'driver2_paid_direct', 'helper_paid_direct', 'conductor_paid_direct',
       'updatedby_id', 'updatedby_name', 'updated_date'];
     // An unset numeric field arrives as '' (the form's empty string), and
@@ -5688,9 +5688,10 @@ exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback)
           r.opt_helper_id || null, r.opt_helper_name || null,
           r.driver1_paid_direct ? 1 : 0, r.driver2_paid_direct ? 1 : 0,
           r.helper_paid_direct ? 1 : 0, r.conductor_paid_direct ? 1 : 0,
+          r.up_down || null,
         ];
       });
-      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver1_mobile, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct) VALUES ?';
+      var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver1_mobile, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct, up_down) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
         callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, skipped_inactive: skippedInactive, skipped_invalid: skippedInvalid, invalid_reasons: invalidReasons, voucherCandidates: voucherCandidates });
@@ -5828,7 +5829,7 @@ exports.gettripceated1Mdl = function (callback) {
   vd.expensives AS debit_ledger_name,
   vc.expensives AS credit_ledger_name,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
-  dn.up_down AS up_down, dn.trip_type AS pick_drop,
+  COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
   (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
