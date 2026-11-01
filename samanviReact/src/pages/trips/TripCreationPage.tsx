@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Map, Save, X, Plus, CalendarDays, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
+import { Map, Save, X, Plus, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, DateRangePicker, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
@@ -71,8 +71,9 @@ const refNoColumn = (label: string): Column => ({
 const dateColumn: Column = { label: 'Date', key: 'trip_date', render: (v) => formatDate(v) }
 const dashOr = (v: unknown) => String(v ?? '').trim() ? String(v) : <span className="text-slate-300">—</span>
 
-const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => (kind === 'Van' ? [
+const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van', moveColumn: Column): Column[] => (kind === 'Van' ? [
   slNoColumn,
+  moveColumn,
   {
     label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
     filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
@@ -138,6 +139,7 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
   { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
 ] : [
   slNoColumn,
+  moveColumn,
   {
     label: 'Vehicle Type', key: 'vehicle_type', filterable: true,
     filterOptions: [{ label: 'bus', value: 'bus' }, { label: 'van', value: 'van' }],
@@ -391,7 +393,43 @@ export default function TripCreationPage() {
     [buses])
   const isHireBus = (busNo: string) => hireBusNos.has(String(busNo))
   // The hire is owed to the van's owner, so picking a hired van fills the Pay
-  const columns = useMemo(() => makeColumns(hireBusNos, vehicleType), [hireBusNos, vehicleType])
+  // Up / down arrows beside Sl No reorder the rows on screen only (nothing is
+  // saved, a refresh restores the default order). A row swaps with its neighbour
+  // among the rows currently visible, so column filters don't make it a no-op.
+  const [manualOrder, setManualOrder] = useState<string[]>([])
+  const visibleIdsRef = useRef<string[]>([])
+  const orderedRef = useRef<string[]>([])
+  const moveRow = (id: string, dir: -1 | 1) => {
+    const vis = visibleIdsRef.current
+    const pos = vis.indexOf(id)
+    const other = vis[pos + dir]
+    if (pos < 0 || !other) return
+    const base = [...orderedRef.current]
+    const a = base.indexOf(id), b = base.indexOf(other)
+    if (a < 0 || b < 0) return
+    ;[base[a], base[b]] = [base[b], base[a]]
+    setManualOrder(base)
+  }
+  const moveRowRef = useRef(moveRow)
+  moveRowRef.current = moveRow
+  const moveColumn = useMemo<Column>(() => ({
+    label: 'Move', key: '_move', align: 'center',
+    render: (_v, r: any, i) => (
+      <div className="inline-flex flex-col">
+        <button type="button" title="Move up" aria-label="Move up" disabled={i === 0}
+          onClick={() => moveRowRef.current(String(r.id), -1)}
+          className="p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400">
+          <ArrowUp className="w-3.5 h-3.5" />
+        </button>
+        <button type="button" title="Move down" aria-label="Move down"
+          onClick={() => moveRowRef.current(String(r.id), 1)}
+          className="p-0.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50">
+          <ArrowDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    ),
+  }), [])
+  const columns = useMemo(() => makeColumns(hireBusNos, vehicleType, moveColumn), [hireBusNos, vehicleType, moveColumn])
   // The records table shows the trips of the kind the tab above is on: bus
   // trips under Bus, van trips under Van. A row's kind is its stored
   // vehicle_type; rows from before that column existed are bus trips.
@@ -401,6 +439,12 @@ export default function TripCreationPage() {
     return (!recordsDateRange.from || date >= recordsDateRange.from)
       && (!recordsDateRange.to || date <= recordsDateRange.to)
   })
+  const orderedTrips = useMemo(() => {
+    const rank: Record<string, number> = {}
+    manualOrder.forEach((id, i) => { rank[id] = i })
+    return [...shownTrips].sort((x, y) => (rank[String(x.id)] ?? 1e9) - (rank[String(y.id)] ?? 1e9))
+  }, [shownTrips, manualOrder])
+  orderedRef.current = orderedTrips.map((t) => String(t.id))
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
     .filter((r) => !serviceForFilter || r.serviceFor === serviceForFilter)
@@ -828,10 +872,8 @@ export default function TripCreationPage() {
               <div className="mb-5 flex items-end gap-4 flex-wrap">
                 <div className="max-w-xs">
                   <Label>Trip Date <span className="text-red-500">*</span></Label>
-                  <div className="relative">
-                    <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-                    <Input type="date" max={today} value={tripDate} onChange={(e) => setTripDate(e.target.value)} className="pl-9" />
-                  </div>
+                  <DateRangePicker single max={today} from={tripDate} to={tripDate}
+                    onChange={(r) => { if (r.fromdate) setTripDate(r.fromdate) }} />
                 </div>
                 {vehicleType === 'Bus' && (
                   <div className="max-w-xs">
@@ -1209,7 +1251,8 @@ export default function TripCreationPage() {
       <DataTable
         title={`${vehicleType} Trip Records (${shownTrips.length})`}
         columns={columns}
-        data={shownTrips}
+        data={orderedTrips}
+        onFilteredChange={(rows) => { visibleIdsRef.current = rows.map((r: any) => String(r.id)) }}
         loading={isLoading}
         onAction={(action, row) => { if (action === 'edit' && !tripLocked(row)) openEdit(row) }}
         actions={['edit']}

@@ -9,6 +9,8 @@ interface DateRangePickerProps {
   onChange: (range: { fromdate: string; todate: string }) => void
   min?: string
   max?: string
+  /** One date only: a click picks it and closes, no second click for a range. */
+  single?: boolean
   className?: string
 }
 
@@ -22,7 +24,7 @@ const show = (iso: string) => { if (!iso) return ''; const { y, m, d } = parts(i
 // date (from = to, applied straight away), a second click on another day
 // stretches it into a From–To range. Dates stay plain yyyy-mm-dd strings so
 // nothing passes through a Date's timezone.
-export function DateRangePicker({ from, to, onChange, min, max, className }: DateRangePickerProps) {
+export function DateRangePicker({ from, to, onChange, min, max, single, className }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [view, setView] = useState({ y: 0, m: 0 })
@@ -64,6 +66,11 @@ export function DateRangePicker({ from, to, onChange, min, max, className }: Dat
 
   const pick = (iso: string) => {
     if (disabled(iso)) return
+    if (single) {
+      onChange({ fromdate: iso, todate: iso })
+      setOpen(false)
+      return
+    }
     if (anchor == null) {
       setAnchor(iso)
       onChange({ fromdate: iso, todate: iso })
@@ -152,7 +159,7 @@ export function DateRangePicker({ from, to, onChange, min, max, className }: Dat
       </div>
       <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
         <span className="text-[10px] text-slate-400 leading-tight">
-          {anchor ? 'Click another day for a range' : 'Click a day, then another for a range'}
+          {single ? 'Click a day' : anchor ? 'Click another day for a range' : 'Click a day, then another for a range'}
         </span>
         <div className="flex gap-1.5 flex-shrink-0">
           <button
