@@ -711,6 +711,9 @@ export default function TripCreationPage() {
   // A halted van has no driver, hirer or amount here either.
   const editHalted = editForm.trip_run_status === 'Halt'
   const editAmountActive = !editHalted && (isHireBus(editForm.bus_no) || isOptingName(editForm.driver1_name))
+  // A halted trip never ran, and a bus set to N/A has been released: neither has
+  // a driver to name, so Driver 1 is not required to save them.
+  const editNoDriverNeeded = editHalted || /^n\/?a$/i.test(String(editForm.bus_no ?? '').trim())
   const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
   const editOptingActive = !editHalted && !isHireBus(editForm.bus_no) && isOptingName(editForm.driver1_name)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
@@ -1467,10 +1470,10 @@ export default function TripCreationPage() {
                   onClick={() => saveEdit()}
                   disabled={savingEdit || (!editForm.bus_no && !editHalted) || hirePostedConflict ||
                     (editRow.vehicle_type === 'van'
-                      ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : !editForm.driver1_name)
+                      ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : (!editNoDriverNeeded && !editForm.driver1_name))
                         || (editHirerActive && !!editForm.phone_number && !isValidMobile(editForm.phone_number))
                         || (editOptingActive && (!String(editForm.opt_driver1_name ?? '').trim() || !isValidMobile(editForm.opt_driver1_mobile))))
-                      : (!editForm.driver1_name && !editForm.opt_driver1_name))}
+                      : (!editNoDriverNeeded && !editForm.driver1_name && !editForm.opt_driver1_name))}
                 >
                   <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}
                 </Button>
