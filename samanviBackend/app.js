@@ -258,6 +258,29 @@ function ensureColumn(table, column, ddl) {
         }
     });
 }
+// Validations (Drivers / Vehicles) is its own permission module. It used to
+// borrow Staff (57) and Bus No (55); the new rows start with exactly the access
+// those two gave, so nobody loses the screen, and from then on it is granted on
+// its own under User Roles. Every statement is guarded, so this is safe to rerun.
+(function ensureValidationsModule() {
+    var steps = [
+        "INSERT INTO main_modules (id, title, icon, isExternalLink, order_by, d_in) SELECT 21, 'Validations', 'fa-solid fa-shield-halved', 0, 11, 0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM main_modules WHERE id = 21)",
+        "INSERT INTO sub_modules (id, title, path, module_id, module_order, d_in) SELECT 210, 'Drivers', '/validations/drivers', 21, 1, 0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sub_modules WHERE id = 210)",
+        "INSERT INTO sub_modules (id, title, path, module_id, module_order, d_in) SELECT 211, 'Vehicles', '/validations/vehicles', 21, 2, 0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sub_modules WHERE id = 211)"
+    ];
+    [[57, 210], [55, 211]].forEach(function (pair) {
+        steps.push("INSERT INTO app_role_permissions (role_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, can_approve, can_authorize) SELECT o.role_id, 21, " + pair[1] + ", o.can_add, o.can_edit, o.can_delete, o.can_view, o.can_approve, o.can_authorize FROM app_role_permissions o WHERE o.sub_module_id = " + pair[0] + " AND NOT EXISTS (SELECT 1 FROM app_role_permissions n WHERE n.role_id = o.role_id AND n.sub_module_id = " + pair[1] + ")");
+        steps.push("INSERT INTO app_user_permission_overrides (user_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, can_approve, can_authorize) SELECT o.user_id, 21, " + pair[1] + ", o.can_add, o.can_edit, o.can_delete, o.can_view, o.can_approve, o.can_authorize FROM app_user_permission_overrides o WHERE o.sub_module_id = " + pair[0] + " AND NOT EXISTS (SELECT 1 FROM app_user_permission_overrides n WHERE n.user_id = o.user_id AND n.sub_module_id = " + pair[1] + ")");
+        steps.push("INSERT INTO permissions (user_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, entry_by, d_in, can_approve, can_authorize) SELECT o.user_id, 21, " + pair[1] + ", o.can_add, o.can_edit, o.can_delete, o.can_view, o.entry_by, o.d_in, o.can_approve, o.can_authorize FROM permissions o WHERE o.sub_module_id = " + pair[0] + " AND o.d_in = 0 AND NOT EXISTS (SELECT 1 FROM permissions n WHERE n.user_id = o.user_id AND n.sub_module_id = " + pair[1] + ")");
+    });
+    (function run(i) {
+        if (i >= steps.length) return;
+        sqldb_init.query(steps[i], function (err) {
+            if (err) console.error('Validations module migration step ' + i + ':', err.message);
+            run(i + 1);
+        });
+    })(0);
+})();
 ensureColumn('mainvoucher_t', 'is_payable', '`is_payable` tinyint(1) NOT NULL DEFAULT 0');
 ensureColumn('mainvoucher_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
 ensureColumn('tyre_master', 'serial_no', '`serial_no` VARCHAR(100) NULL');

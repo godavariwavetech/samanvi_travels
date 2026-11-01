@@ -38,9 +38,10 @@ export const PATH_ACCESS: Record<string, AccessRule> = {
   '/masters/spare-tank': { module: M.masters },
   '/masters/service-for': { subs: [8] },
 
-  // Driver documents live on the staff register, vehicle papers on the bus master.
-  '/validations/drivers': { subs: [57] },
-  '/validations/vehicles': { subs: [55] },
+  // Validations is its own permission module (main_modules 21): Drivers 210,
+  // Vehicles 211. They started as copies of Staff (57) and Bus No (55) access.
+  '/validations/drivers': { subs: [210] },
+  '/validations/vehicles': { subs: [211] },
 
   '/trips/creation': { subs: [34] },
   '/trips/expenses': { subs: [35] },
