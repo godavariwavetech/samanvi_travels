@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DateRangePicker, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -1267,19 +1267,10 @@ export default function VoucherApprovalsPage() {
         <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
         <div className="flex items-end gap-4 flex-wrap">
           <div>
-            <Label>From Date</Label>
-            <Input type="date" min={fyMin} max={fyMax} value={filterInput.fromdate} onChange={(e) => setFilterInput(f => ({ ...f, fromdate: e.target.value }))} />
+            <Label>Date / Date range</Label>
+            <DateRangePicker min={fyMin} max={fyMax} from={filterInput.fromdate} to={filterInput.todate}
+              onChange={(r) => { const next = { fromdate: r.fromdate, todate: r.todate }; setFilterInput(next); setAppliedFilter(next) }} />
           </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" min={fyMin} max={fyMax} value={filterInput.todate} onChange={(e) => setFilterInput(f => ({ ...f, todate: e.target.value }))} />
-          </div>
-          <Button
-            onClick={() => setAppliedFilter({ ...filterInput })}
-            disabled={!filterInput.fromdate || !filterInput.todate}
-          >
-            <Search className="w-4 h-4" /> Search
-          </Button>
           <Button onClick={() => refetchSearch()} disabled={searchFetching} className="bg-slate-600 hover:bg-slate-700">
             <RefreshCw className={`w-4 h-4 ${searchFetching ? 'animate-spin' : ''}`} /> Refresh
           </Button>
