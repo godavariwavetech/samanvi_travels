@@ -678,13 +678,25 @@ export default function TripExpensesPage() {
     form.driveronesudsalary, form.drivertwosudsalary, form.helpersudsalary, form.parking_amt,
   ].join('|')
   const lastAmountSig = useRef<string | null>(null)
-  // The Parking box stays on screen once it has shown, so typing 0 (or clearing
-  // it to retype) does not make it disappear under the cursor.
-  const [parkingShown, setParkingShown] = useState(false)
+  // Other payments with no payee of their own - Parking, Toll and the like - are
+  // entered as rows of label + amount. Their sum is the trip's parking_amt, which
+  // is what already folds into Paid To, the Debit side and the totals, so none of
+  // that plumbing changes. Only the sum is stored: a reopened expense shows it
+  // as one "Parking" row, to be split again by hand if wanted.
+  const [otherRows, setOtherRows] = useState<{ label: string; amount: string }[]>([])
   useEffect(() => {
-    if (!modal.mode) setParkingShown(false)
-    else if (Number(form.parking_amt) > 0 || String(form.parking_amt).trim() === '0') setParkingShown(true)
-  }, [modal.mode, form.parking_amt])
+    if (!modal.mode) { setOtherRows([]); return }
+    if (loadingModal) return
+    setOtherRows((cur) => cur.length ? cur
+      : (Number(form.parking_amt) > 0 || String(form.parking_amt).trim() === '0') ? [{ label: 'Parking', amount: String(form.parking_amt) }] : [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal.mode, loadingModal])
+  const applyOtherRows = (rows: { label: string; amount: string }[]) => {
+    setOtherRows(rows)
+    const total = rows.reduce((sum, r) => sum + num(r.amount), 0)
+    setForm((f) => ({ ...f, parking_amt: total > 0 ? String(total) : rows.length ? '0' : '' }))
+  }
+  const otherTotal = otherRows.reduce((sum, r) => sum + num(r.amount), 0)
   useEffect(() => {
     if (!modal.mode || loadingModal) { lastAmountSig.current = null; return }
     if (lastAmountSig.current === null || lastAmountSig.current === amountSig) { lastAmountSig.current = amountSig; return }
@@ -2003,6 +2015,17 @@ export default function TripExpensesPage() {
                                       ? (noVoucher ? 'Off — nobody is paid through the books, so Submit saves without a voucher' : 'Off — assign the leftover yourself in Credit Accounts')
                                       : `₹${paidToRemainder.toLocaleString('en-IN')} available — tick to pay it to ${form.paid_to_name}`}
                               </p>
+                              {otherTotal > 0 && (
+                                <div className="mt-1.5 ml-6 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-600 space-y-0.5">
+                                  {paidToRemainder - otherTotal > 0 && (
+                                    <div className="flex justify-between gap-6"><span>Unticked crew shares</span><span className="font-semibold">₹{(paidToRemainder - otherTotal).toLocaleString('en-IN')}</span></div>
+                                  )}
+                                  {otherRows.filter((r) => num(r.amount) > 0).map((r, i) => (
+                                    <div key={i} className="flex justify-between gap-6"><span>{r.label.trim() || 'Other'}</span><span className="font-semibold">₹{num(r.amount).toLocaleString('en-IN')}</span></div>
+                                  ))}
+                                  <div className="flex justify-between gap-6 border-t border-slate-200 pt-0.5 font-bold text-slate-700"><span>Paid To receives</span><span>₹{paidToRemainder.toLocaleString('en-IN')}</span></div>
+                                </div>
+                              )}
                             </>
                           )}
                         </div>
@@ -2076,16 +2099,31 @@ export default function TripExpensesPage() {
                       </p>
                     </div>
                   )}
-                  {/* Parking is the one amount with no crew seat behind it — every
-                      other beta now lives beside the dropdown that picked the
-                      person it pays. */}
-                  {(parkingShown || Number(form.parking_amt) > 0) && (
-                    <div className="max-w-xs pt-2 border-t border-slate-100">
-                      <Label>Parking (₹)</Label>
-                      <Input type="number" value={form.parking_amt} onChange={(e) => setForm((f) => ({ ...f, parking_amt: e.target.value }))} />
-                      <p className="text-[11px] text-slate-400 mt-1">No individual payee — always folds into Paid To.</p>
+                  {/* Other payments: Parking, Toll and anything else with no crew
+                      seat behind it. They have no payee of their own, so they
+                      always fold into Paid To. */}
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Other Payments (Parking, Toll, etc.)</Label>
+                      <button type="button" onClick={() => applyOtherRows([...otherRows, { label: otherRows.length ? '' : 'Parking', amount: '' }])}
+                        className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+                        <PlusCircle className="w-3.5 h-3.5" /> Add Row
+                      </button>
                     </div>
-                  )}
+                    {otherRows.map((r, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input className="flex-1" placeholder="Description (e.g. Toll)" value={r.label}
+                          onChange={(e) => setOtherRows((rs) => rs.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+                        <Input className="w-36" type="number" placeholder="Amount (₹)" value={r.amount}
+                          onChange={(e) => applyOtherRows(otherRows.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} />
+                        <button type="button" title="Remove" onClick={() => applyOtherRows(otherRows.filter((_, j) => j !== i))}
+                          className="p-1.5 text-slate-400 hover:text-red-500"><MinusCircle className="w-5 h-5" /></button>
+                      </div>
+                    ))}
+                    {otherRows.length > 0 && (
+                      <p className="text-[11px] text-slate-400">Total ₹{otherTotal.toLocaleString('en-IN')} — no individual payee, always folds into Paid To.</p>
+                    )}
+                  </div>
 
                   {/* Remarks */}
                   <div>
