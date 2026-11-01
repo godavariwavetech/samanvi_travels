@@ -1685,8 +1685,38 @@ export default function TripExpensesPage() {
     { label: 'Driver 2', key: 'driver2_name', render: (v, r: any) => personCell(v, r.exp_driver2_beta, r.exp_driver2_opt, seatIsOpting(r.driver2_id, r.driver2_name, r.opt_driver2_id), !!r.exp_row_id, true) },
     { label: 'Helper', key: 'helper_name', render: (v, r: any) => personCell(v, r.exp_helper_beta, r.exp_helper_opt, seatIsOpting(r.helper_id, r.helper_name, r.opt_helper_id), !!r.exp_row_id, true) },
     { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v, r: any) => personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true) },
-    // Others is the person the trip is paid to (Trip Creation's Paid To).
-    { label: 'Others', key: 'paid_to_name', filterable: true, render: (v) => String(v ?? '').trim() ? <span className="text-sm">{String(v)}</span> : <span className="text-slate-300">—</span> },
+    // Paid To is the person the trip is paid to (Trip Creation's Paid To), with
+    // what they receive once the expense is filed: the pay of every crew member
+    // not paid individually, plus the other payments (parking, toll) that have no
+    // payee of their own.
+    {
+      label: 'Paid To', key: 'paid_to_name', filterable: true,
+      render: (v, r: any) => {
+        const name = String(v ?? '').trim()
+        if (!name) return <span className="text-slate-300">—</span>
+        const seats: [string, any, any, boolean, any][] = [
+          ['driver1', r.exp_driver1_beta, r.exp_driver1_opt, seatIsOpting(r.driver1_id, r.driver1_name, r.opt_driver1_id), r.driver1_paid_direct],
+          ['driver2', r.exp_driver2_beta, r.exp_driver2_opt, seatIsOpting(r.driver2_id, r.driver2_name, r.opt_driver2_id), r.driver2_paid_direct],
+          ['helper', r.exp_helper_beta, r.exp_helper_opt, seatIsOpting(r.helper_id, r.helper_name, r.opt_helper_id), r.helper_paid_direct],
+          ['conductor', r.exp_conductor_beta, 0, false, r.conductor_paid_direct],
+        ]
+        const share = seats.filter(([, , , , direct]) => !Number(direct))
+          .reduce((sum, [, beta, opt, opting]) => sum + num(beta) + (opting ? num(opt) : 0), 0) + num(r.exp_parking)
+        return (
+          <div>
+            <div className="text-sm">{name}</div>
+            {!!r.exp_row_id && share > 0 && <div className="text-xs font-semibold text-slate-600">₹{share.toLocaleString('en-IN')}</div>}
+          </div>
+        )
+      },
+    },
+    // Others: payments with no payee of their own - Parking, Toll and the like.
+    {
+      label: 'Others', key: 'exp_parking',
+      render: (v) => num(v) > 0
+        ? <div><div className="text-xs text-slate-500">Parking / other</div><div className="text-sm font-semibold text-slate-700">₹{num(v).toLocaleString('en-IN')}</div></div>
+        : <span className="text-slate-300">—</span>,
+    },
     {
       // trip_created.grantotal is a text column and comes back as the STRING
       // "0" on every trip that has no expense filed yet — truthy, so a plain
