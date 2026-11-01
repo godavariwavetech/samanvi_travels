@@ -69,6 +69,11 @@ const refNoColumn = (label: string): Column => ({
   render: (v, r: any) => <span className="font-bold text-blue-600">{String(v ?? `#${r.id}`)}</span>,
 })
 const dateColumn: Column = { label: 'Date', key: 'trip_date', render: (v) => formatDate(v) }
+// The run status a trip was created with, shown beside its Created tag on the sheet.
+const runStatusBadge = (v: unknown) => {
+  const st = String(v ?? '').trim() || 'Running'
+  return <Badge variant={st === 'Halt' ? 'danger' : st === 'Full Trip' ? 'info' : 'warning'}>{st}</Badge>
+}
 const dashOr = (v: unknown) => String(v ?? '').trim() ? String(v) : <span className="text-slate-300">—</span>
 
 const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van', moveColumn: Column): Column[] => (kind === 'Van' ? [
@@ -379,7 +384,17 @@ export default function TripCreationPage() {
 
   // Bus grid only shows Bus-type routes (any Van-type routes added via Service
   // Numbers are irrelevant here — Van trips are ad-hoc rows, not roster-driven).
-  const serviceForOptions = [...new Set(allRoutes.map((r) => r.serviceFor).filter(Boolean))]
+  // Compared trimmed and case-insensitively, so "Samanvi", "samanvi " and
+  // "SAMANVI" collapse to one entry instead of listing the same service-for thrice.
+  const normSf = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+  const serviceForOptions: string[] = (() => {
+    const seen: Record<string, string> = {}
+    allRoutes.filter((r) => r.vehicle_type !== 'van').forEach((r) => {
+      const k = normSf(r.serviceFor)
+      if (k && !(k in seen)) seen[k] = String(r.serviceFor).trim().replace(/\s+/g, ' ')
+    })
+    return Object.values(seen).sort((a, b) => a.localeCompare(b))
+  })()
   // Van rows are driven by the Van service numbers, which carry the trip type
   // (pickup/drop) and the first boarding point shown read-only beside them.
   const vanRoutes = allRoutes.filter((r) => r.vehicle_type === 'van')
@@ -447,7 +462,7 @@ export default function TripCreationPage() {
   orderedRef.current = orderedTrips.map((t) => String(t.id))
   const busRoutes = allRoutes
     .filter((r) => r.vehicle_type !== 'van')
-    .filter((r) => !serviceForFilter || r.serviceFor === serviceForFilter)
+    .filter((r) => !serviceForFilter || normSf(r.serviceFor) === normSf(serviceForFilter))
 
   // Trips already created for the selected grid date, keyed by service_no_id —
   // those rows render read-only so the same route/day can't be double-booked.
@@ -927,7 +942,7 @@ export default function TripCreationPage() {
                                 <td className="py-2 px-3 text-slate-600 text-xs">{existing.line_code || r.line_code || '—'}</td>
                                 <td className="py-2 px-3 text-slate-600 text-xs capitalize">{pickDrop}</td>
                                 <td className="py-2 px-3 text-slate-600 text-xs">{from}</td>
-                                <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
+                                <td className="py-2 px-3"><div className="flex items-center gap-1.5 flex-wrap"><Badge variant="success">Created</Badge>{runStatusBadge(existing.trip_run_status)}</div></td>
                                 <td className={`py-2 px-3 font-medium ${wasHired ? 'text-amber-700' : ''}`}>{existing.bus_no || '—'}</td>
                                 <td className="py-2 px-3 text-slate-600 text-xs">{existing.driver1_name || (wasHired ? 'Hired' : '—')}</td>
                                 <td className="py-2 px-3 text-slate-600 text-xs">{existing.hirer_name || existing.opt_driver1_name || '—'}</td>
@@ -1102,7 +1117,7 @@ export default function TripCreationPage() {
                                 <div className="font-semibold text-slate-700">{r.serviceNo}</div>
                                 <div className="text-xs text-slate-400">{r.fromCity} → {r.toCity}</div>
                               </td>
-                              <td className="py-2 px-3"><Badge variant="success">Created</Badge></td>
+                              <td className="py-2 px-3"><div className="flex items-center gap-1.5 flex-wrap"><Badge variant="success">Created</Badge>{runStatusBadge(existing.trip_run_status)}</div></td>
                               <td className="py-2 px-3 font-medium">{existing.bus_no || '—'}</td>
                               <td className="py-2 px-3 text-slate-600">{existing.driver1_name || existing.opt_driver1_name || '—'}</td>
                               <td className="py-2 px-3 text-slate-500 text-xs">{existing.driver2_name || existing.opt_driver2_name || '—'}</td>
