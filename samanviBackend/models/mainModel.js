@@ -3103,6 +3103,8 @@ exports.getexpensesMdl = function (data, callback) {
   vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
   COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
+  -- The route's rates, so an unfiled trip can show what it is expected to pay.
+  dn.driverOneBeta AS rt_driver1_beta, dn.driverTwoBeta AS rt_driver2_beta, dn.helperBeta AS rt_helper_beta, dn.conductorBeta AS rt_conductor_beta, dn.parkingAmount AS rt_parking,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
   (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
@@ -3583,6 +3585,8 @@ exports.getexpensesfiltere = function (data, callback) {
   vc.ledger_id AS hire_credit_ledger_id, vc.expensives AS hire_credit_ledger_name,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
   COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
+  -- The route's rates, so an unfiled trip can show what it is expected to pay.
+  dn.driverOneBeta AS rt_driver1_beta, dn.driverTwoBeta AS rt_driver2_beta, dn.helperBeta AS rt_helper_beta, dn.conductorBeta AS rt_conductor_beta, dn.parkingAmount AS rt_parking,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
   -- the same way the trip's own approval does.
   (SELECT mv.status FROM mainvoucher_t mv WHERE mv.c_number = t.voucher_number AND mv.d_in = 0 ORDER BY mv.id DESC LIMIT 1) AS voucher_status${tripAuthSelect()}
