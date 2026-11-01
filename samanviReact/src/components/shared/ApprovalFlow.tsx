@@ -16,19 +16,25 @@ export type ApprovalTab = 'pending' | 'approved' | 'rejected'
 export const approvalTabOf = (adminStatus: unknown): ApprovalTab =>
   Number(adminStatus) === 1 ? 'approved' : Number(adminStatus) === 2 ? 'rejected' : 'pending'
 
-export function ApprovalStatusTabs({ tab, onChange, counts }: {
-  tab: ApprovalTab
-  onChange: (tab: ApprovalTab) => void
+// `leading` puts a page's own extra stage in front of the three standard ones
+// (Trip Approvals' "To Authorize"); it is picked the same way, by its key.
+export type ApprovalLeadingTab = { key: string; label: string; desc: string; count: number; Icon: typeof Clock; color: string; activeBg: string; activeBorder: string }
+
+export function ApprovalStatusTabs({ tab, onChange, counts, leading = [] }: {
+  tab: string
+  onChange: (tab: any) => void
   counts: Record<ApprovalTab, number>
+  leading?: ApprovalLeadingTab[]
 }) {
   const tabs = [
     { key: 'pending' as const, label: 'Awaiting Approval', desc: 'Needs review', color: 'text-amber-700', activeBg: 'bg-amber-50', activeBorder: 'border-amber-300', Icon: Clock },
     { key: 'approved' as const, label: 'Approved', desc: 'Posted & confirmed', color: 'text-emerald-700', activeBg: 'bg-emerald-50', activeBorder: 'border-emerald-300', Icon: CheckCircle },
     { key: 'rejected' as const, label: 'Rejected', desc: 'Declined / not posted', color: 'text-red-700', activeBg: 'bg-red-50', activeBorder: 'border-red-300', Icon: XCircle },
   ]
+  const all = [...leading.map((l) => ({ ...l, n: l.count })), ...tabs.map((t) => ({ ...t, n: counts[t.key] }))]
   return (
     <div className="flex gap-3 flex-wrap">
-      {tabs.map((t) => (
+      {all.map((t) => (
         <button key={t.key} type="button" onClick={() => onChange(t.key)}
           className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${tab === t.key ? `${t.activeBg} shadow-sm ${t.color} ${t.activeBorder}` : 'bg-white/60 text-slate-500 border-transparent hover:bg-white/80 hover:border-slate-200'}`}>
           <t.Icon className="w-4 h-4 flex-shrink-0" />
@@ -36,7 +42,7 @@ export function ApprovalStatusTabs({ tab, onChange, counts }: {
             <span>{t.label}</span>
             <span className={`text-[10px] font-normal leading-none mt-0.5 ${tab === t.key ? 'opacity-70' : 'text-slate-400'}`}>{t.desc}</span>
           </span>
-          <span className={`ml-1 text-xs px-2 py-0.5 rounded-full font-black flex-shrink-0 ${tab === t.key ? 'bg-white border border-current/30' : 'bg-slate-100 text-slate-500'}`}>{counts[t.key]}</span>
+          <span className={`ml-1 text-xs px-2 py-0.5 rounded-full font-black flex-shrink-0 ${tab === t.key ? 'bg-white border border-current/30' : 'bg-slate-100 text-slate-500'}`}>{t.n}</span>
         </button>
       ))}
     </div>

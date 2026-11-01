@@ -365,6 +365,8 @@ ensureColumn('driverone', 'optHelperSalary', '`optHelperSalary` VARCHAR(50) DEFA
 // everything else), set once when the service number is created/edited, never
 // derived from fromCity/toCity.
 // Up/Down chosen per trip while creating it; the route's value is only the default.
+// Why a trip was rejected on Trip Approvals (asked for on every rejection).
+ensureColumn('trip_created', 'rejection_reason', "`rejection_reason` TEXT DEFAULT NULL");
 ensureColumn('trip_created', 'up_down', "`up_down` VARCHAR(10) DEFAULT NULL");
 ensureColumn('driverone', 'up_down', "`up_down` VARCHAR(10) DEFAULT NULL");
 // Active / Inactive — an inactive service number stays on the master (and on

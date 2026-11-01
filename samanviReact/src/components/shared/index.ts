@@ -29,6 +29,6 @@ export { LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, 
 export type { LedgerLine, LedgerLike } from './LedgerLines'
 export { RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists } from './RecordModal'
 export { ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from './ApprovalFlow'
-export type { ApprovalTab } from './ApprovalFlow'
+export type { ApprovalTab, ApprovalLeadingTab } from './ApprovalFlow'
 export { ReportColumnPicker, REPORT_EXTRA_COLS, toggleInSet, reportQuantity, reportRate } from './ReportColumnPicker'
 export type { TotalsFooterItem } from './TotalsFooter'

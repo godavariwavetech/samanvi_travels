@@ -6,8 +6,8 @@ import { useNavigate } from 'react-router'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Label, DataTable, Badge, TopNavTabs, PageHeader, DateRangePicker } from '@/components/shared'
-import type { Column } from '@/components/shared'
+import { GlassCard, Button, Label, DataTable, Badge, PageHeader, DateRangePicker, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote } from '@/components/shared'
+import type { Column, ApprovalTab } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
 import TripAuditModal from './TripAuditModal'
@@ -20,9 +20,7 @@ const firstOfMonth = today.slice(0, 8) + '01'
 // given the Authorize grant (the server sends auth_required with every trip);
 // until then trips go straight to Approval as before.
 
-const tabs = ['Pending', 'Approved', 'Rejected']
-
-function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
+function TripViewModal({ trip, onClose, footer }: { trip: any; onClose: () => void; footer?: React.ReactNode }) {
   const statusVariant = trip.admin_status === 1 ? 'success' : trip.admin_status === 2 ? 'danger' : 'warning'
   const statusLabel = trip.admin_status === 1 ? 'Approved' : trip.admin_status === 2 ? 'Rejected' : 'Pending'
 
@@ -92,6 +90,8 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
             </div>
           </div>
 
+          {Number(trip.admin_status) === 2 && <RejectionReasonNote reason={trip.rejection_reason} />}
+
           {/* Admin info */}
           {(trip.admin_status_by_name || trip.status_date) && (
             <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl">
@@ -99,6 +99,7 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
               {field('Action Date', formatDate(trip.status_date))}
             </div>
           )}
+          {footer}
         </div>
       </motion.div>
     </motion.div>
@@ -107,7 +108,11 @@ function TripViewModal({ trip, onClose }: { trip: any; onClose: () => void }) {
 
 export default function AdminApprovalsPage() {
   const { canApprove, canAuthorize } = usePermissions()
-  const [tab, setTab] = useState(canAuthorize ? 'To Authorize' : 'Pending')
+  // 'To Authorize' is this page's own first stage; the other three are the
+  // standard approval tabs Fuel uses.
+  const [tab, setTab] = useState<ApprovalTab | 'To Authorize'>(canAuthorize ? 'To Authorize' : 'pending')
+  const [rejectTarget, setRejectTarget] = useState<{ rows: any[] } | null>(null)
+  const [bulkRejecting, setBulkRejecting] = useState(false)
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [auditRef, setAuditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
@@ -123,29 +128,33 @@ export default function AdminApprovalsPage() {
     queryFn: () => tripsService.getTrips1(),
   })
 
-  const { mutate: updateStatus, isPending: updating } = useMutation({
-    mutationFn: (payload: { id: number; c_number: string; status: number }) =>
-      tripsService.updateTripAdminStatus({
-        vouchervalue: payload.status,
-        voucherdata: { id: payload.id, c_number: payload.c_number },
-        user_id: localStorage.getItem('user_id'),
-        user_nm: localStorage.getItem('usr_nm'),
-        updated_date: localDateTime(),
-      }),
-    onSuccess: (res) => {
-      if (res?.status === 200) {
-        toast.success('Status updated!')
-        qc.invalidateQueries({ queryKey: ['trips'] })
-        qc.invalidateQueries({ queryKey: ['trip-expenses'] })
-        for (const key of ['bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
-          qc.invalidateQueries({ queryKey: [key] })
-        }
-      } else {
-        toast.error('Failed to update status')
-      }
-    },
-    onError: () => toast.error('Server error'),
+  const refreshAfterStatus = () => {
+    for (const key of ['trips', 'trip-expenses', 'bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
+      qc.invalidateQueries({ queryKey: [key] })
+    }
+  }
+  const sendStatus = (row: any, status: 0 | 1 | 2, reason = '') => tripsService.updateTripAdminStatus({
+    vouchervalue: status,
+    voucherdata: { id: row.id, c_number: row.c_number },
+    rejection_reason: reason,
+    user_id: localStorage.getItem('user_id'),
+    user_nm: localStorage.getItem('usr_nm'),
+    updated_date: localDateTime(),
   })
+  const [updating, setUpdating] = useState(false)
+  const onStatusChange = async (row: any, status: 0 | 1 | 2, reason = '') => {
+    setUpdating(true)
+    const res = await sendStatus(row, status, reason).catch(() => null)
+    setUpdating(false)
+    if (res?.status === 200) {
+      toast.success(status === 1 ? 'Trip approved' : status === 2 ? 'Trip rejected' : 'Trip reopened for review')
+      refreshAfterStatus()
+      setViewTrip(null)
+    } else {
+      const message = typeof res?.data === 'string' ? res.data : res?.message || res?.msg
+      toast.error(message || 'Failed to update status')
+    }
+  }
 
   const { mutate: authorize, isPending: authorizing } = useMutation({
     mutationFn: (row: any) => tripsService.authorizeTrip({
@@ -166,37 +175,39 @@ export default function AdminApprovalsPage() {
 
   const allTrips: any[] = tripData?.data ?? []
 
-  const approveSelected = async () => {
-    const rows = selectedTrips.filter(awaitingApproval)
-    if (!canApprove || !rows.length || bulkApproving) return
-    setBulkApproving(true)
-    let approved = 0
-    for (const row of rows) {
-      const result = await tripsService.updateTripAdminStatus({
-        vouchervalue: 1,
-        voucherdata: { id: row.id, c_number: row.c_number },
-        user_id: localStorage.getItem('user_id'),
-        user_nm: localStorage.getItem('usr_nm'),
-        updated_date: localDateTime(),
-      }).catch(() => null)
-      if (result?.status === 200) approved++
+  // Approve / reject the selected trips one after another, as Fuel does.
+  const runBulk = async (rows: any[], status: 1 | 2, reason = '') => {
+    const eligible = rows.filter(awaitingApproval)
+    if (!canApprove || !eligible.length) { toast.error('Select trips that are awaiting approval'); return }
+    if (status === 1) setBulkApproving(true); else setBulkRejecting(true)
+    let done = 0
+    for (const row of eligible) {
+      const result = await sendStatus(row, status, reason).catch(() => null)
+      if (result?.status === 200) done++
     }
-    setBulkApproving(false)
+    setBulkApproving(false); setBulkRejecting(false)
     setSelectedTrips([])
-    toast.success(`${approved} of ${rows.length} trips approved`)
-    for (const key of ['trips', 'trip-expenses', 'bs-transactions', 'pl-transactions', 'trial-balance', 'trial-balance-opening', 'daybook']) {
-      qc.invalidateQueries({ queryKey: [key] })
-    }
+    const verb = status === 1 ? 'approved' : 'rejected'
+    if (done === eligible.length) toast.success(`${done} trip${done === 1 ? '' : 's'} ${verb}`)
+    else toast.error(`${done} of ${eligible.length} trips ${verb}`)
+    refreshAfterStatus()
+  }
+  const askReject = (rows: any[]) => { if (rows.length) setRejectTarget({ rows }) }
+  const confirmReject = (reason: string) => {
+    const rows = rejectTarget?.rows ?? []
+    setRejectTarget(null)
+    if (rows.length === 1) onStatusChange(rows[0], 2, reason)
+    else runBulk(rows, 2, reason)
   }
 
-  const changeTab = (next: string) => { setTab(next); setSelectedTrips([]) }
+  const changeTab = (next: ApprovalTab | 'To Authorize') => { setTab(next); setSelectedTrips([]) }
 
   // Date-range filter + status filter
   const filtered = useMemo(() => {
-    const statusMap: Record<string, number> = { Approved: 1, Rejected: 2 }
+    const statusMap: Record<string, number> = { approved: 1, rejected: 2 }
     return allTrips.filter((t) => {
       if (tab === 'To Authorize') { if (!needsAuthorization(t)) return false }
-      else if (tab === 'Pending') { if (!awaitingApproval(t)) return false }
+      else if (tab === 'pending') { if (!awaitingApproval(t)) return false }
       else if (Number(t.admin_status) !== statusMap[tab]) return false
       // Everything still waiting for authorization is listed, whatever its
       // date, so no older trip is left out of sight behind the date range.
@@ -250,72 +261,41 @@ export default function AdminApprovalsPage() {
     { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: dash },
     { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: dash },
     { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
+    ...(tab === 'rejected' ? [{ label: 'Reason', key: 'rejection_reason', render: (v: unknown) => v ? <span className="text-red-700 text-xs max-w-[220px] line-clamp-2 block">{String(v)}</span> : <span className="text-slate-300">—</span> } as Column] : []),
     {
       label: 'Action', key: 'id',
       render: (_, row: any) => (
-        <div className="flex gap-2">
-          {canReviseApproved && Number(row.status) === 1 && (
-            <Button size="sm" variant="outline" onClick={() => navigate(`/trips/expenses?edit=${encodeURIComponent(row.c_number)}`)}>
-              <Pencil className="w-3.5 h-3.5" /> Edit
-            </Button>
-          )}
+        <div className="flex gap-1.5 items-center">
           {canAuthorize && needsAuthorization(row) && (
             <Button size="sm" disabled={authorizing} onClick={() => authorize(row)}>
               <ShieldCheck className="w-3.5 h-3.5" /> Authorize
             </Button>
           )}
-          {canApprove && awaitingApproval(row) && (
-            <Button
-              variant="success"
-              size="sm"
-              disabled={updating}
-              onClick={() => updateStatus({ id: row.id, c_number: row.c_number, status: 1 })}
-            >
-              <CheckCircle className="w-3.5 h-3.5" /> Approve
-            </Button>
+          {tab !== 'To Authorize' && (
+            <ApprovalRowActions tab={tab}
+              onView={() => setViewTrip(row)}
+              onApprove={() => onStatusChange(row, 1)} onReject={() => askReject([row])} onReopen={() => onStatusChange(row, 0)} />
           )}
-          {canApprove && awaitingApproval(row) && Number(row.admin_status) !== 2 && (
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={updating}
-              onClick={() => updateStatus({ id: row.id, c_number: row.c_number, status: 2 })}
-            >
-              <XCircle className="w-3.5 h-3.5" /> Reject
-            </Button>
+          {tab === 'To Authorize' && (
+            <button type="button" onClick={() => setViewTrip(row)} className="text-xs font-bold text-blue-600 hover:underline">View</button>
+          )}
+          {canReviseApproved && Number(row.status) === 1 && (
+            <button type="button" title="Edit the trip's expense" onClick={() => navigate(`/trips/expenses?edit=${encodeURIComponent(row.c_number)}`)}
+              className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>
           )}
         </div>
       ),
     },
   ]
 
-  const tabLabels = [
-    ...(canAuthorize ? [{ label: 'To Authorize', count: authorizeCount, color: 'text-teal-600', bg: 'bg-teal-50', icon: ShieldCheck }] : []),
-    { label: 'Pending', count: pendingCount, color: 'text-amber-600', bg: 'bg-amber-50', icon: Clock },
-    { label: 'Approved', count: approvedCount, color: 'text-emerald-600', bg: 'bg-emerald-50', icon: CheckCircle },
-    { label: 'Rejected', count: rejectedCount, color: 'text-red-600', bg: 'bg-red-50', icon: XCircle },
-  ]
+  const leadingTabs = canAuthorize ? [{ key: 'To Authorize', label: 'To Authorize', desc: 'Needs authorization', count: authorizeCount, Icon: ShieldCheck, color: 'text-teal-700', activeBg: 'bg-teal-50', activeBorder: 'border-teal-300' }] : []
+  const tabCounts = { pending: pendingCount, approved: approvedCount, rejected: rejectedCount }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
       <PageHeader title="Trip Approvals" subtitle="Review pending trips and approve or reject them" />
 
-      {/* Summary cards */}
-      <div className={`grid grid-cols-1 gap-4 ${canAuthorize ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
-        {tabLabels.map((s) => (
-          <GlassCard
-            key={s.label}
-            className={`p-5 cursor-pointer transition-all ${s.bg} ${tab === s.label ? 'ring-2 ring-offset-1 ring-current' : 'opacity-80 hover:opacity-100'}`}
-            onClick={() => changeTab(s.label)}
-          >
-            <div className="flex items-center justify-between">
-              <s.icon className={`w-5 h-5 ${s.color}`} />
-              <span className={`text-3xl font-extrabold ${s.color}`}>{s.count}</span>
-            </div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-2">{s.label}</p>
-          </GlassCard>
-        ))}
-      </div>
+      <ApprovalStatusTabs tab={tab} onChange={changeTab} counts={tabCounts} leading={leadingTabs} />
 
       {/* Date filter */}
       <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
@@ -331,35 +311,38 @@ export default function AdminApprovalsPage() {
         </div>
       </GlassCard>
 
-      {/* Tabs */}
-      <TopNavTabs tabs={canAuthorize ? ['To Authorize', ...tabs] : tabs} activeTab={tab} onChange={changeTab} />
-
       {/* Table */}
       <DataTable
-        title={`${tab} Trips (${filtered.length})`}
+        title={tab === 'To Authorize' ? `Trips To Authorize (${filtered.length})` : tab === 'pending' ? `Trips Awaiting Approval (${filtered.length})` : tab === 'approved' ? `Approved Trips (${filtered.length})` : `Rejected Trips (${filtered.length})`}
         columns={buildCols()}
         data={filtered}
         loading={isLoading}
-        onAction={(action, row) => { if (action === 'view') setViewTrip(row) }}
-        actions={['view']}
-        selectable={canApprove && tab === 'Pending'}
+        selectable={canApprove && tab === 'pending'}
         onSelectionChange={(rows) => setSelectedTrips(rows as any[])}
-        selectionActions={canApprove && tab === 'Pending' ? (
-          <Button variant="success" size="sm" disabled={bulkApproving || selectedTrips.length === 0} onClick={approveSelected}>
-            <CheckCircle className="w-3.5 h-3.5" />{bulkApproving ? 'Approving…' : `Approve Selected${selectedTrips.length ? ` (${selectedTrips.length})` : ''}`}
-          </Button>
+        selectionActions={canApprove && tab === 'pending' ? (
+          <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
+            onApprove={() => runBulk(selectedTrips, 1)} onReject={() => askReject(selectedTrips)} />
         ) : undefined}
         icon={
           tab === 'To Authorize' ? <ShieldCheck className="w-5 h-5 text-teal-500" />
-          : tab === 'Pending' ? <Clock className="w-5 h-5 text-amber-500" />
-          : tab === 'Approved' ? <CheckCircle className="w-5 h-5 text-emerald-500" />
+          : tab === 'pending' ? <Clock className="w-5 h-5 text-amber-500" />
+          : tab === 'approved' ? <CheckCircle className="w-5 h-5 text-emerald-500" />
           : <XCircle className="w-5 h-5 text-red-500" />
         }
       />
 
+      <RejectReasonModal open={!!rejectTarget} onCancel={() => setRejectTarget(null)} onConfirm={confirmReject}
+        subject={rejectTarget && rejectTarget.rows.length === 1
+          ? `Trip ${String(rejectTarget.rows[0].c_number ?? '')}`
+          : `Rejecting ${rejectTarget?.rows.length ?? 0} trips`} />
+
       {/* View modal */}
       <AnimatePresence>
-        {viewTrip && <TripViewModal trip={viewTrip} onClose={() => setViewTrip(null)} />}
+        {viewTrip && <TripViewModal trip={viewTrip} onClose={() => setViewTrip(null)}
+          footer={awaitingApproval(viewTrip) || Number(viewTrip.admin_status) === 2 ? (
+            <ApprovalModalButtons tab={Number(viewTrip.admin_status) === 2 ? 'rejected' : 'pending'}
+              onApprove={() => onStatusChange(viewTrip, 1)} onReject={() => askReject([viewTrip])} onReopen={() => onStatusChange(viewTrip, 0)} />
+          ) : undefined} />}
         {auditRef && <TripAuditModal cNumber={auditRef} onClose={() => setAuditRef(null)} />}
       </AnimatePresence>
     </motion.div>

@@ -21,13 +21,13 @@ function updateTripApproval(pool, data, callback) {
           const operations = [
             ['UPDATE tripexpenses_data SET admin_status=?, admin_action_by=?, admin_action_date=?, action_by_name=? WHERE c_number=? AND d_in=0', actor],
             ['UPDATE expensive_details SET admin_status=?, admin_action_by=?, admin_action_date=?, action_by_name=? WHERE c_number=? AND d_in=0', actor],
-            ['UPDATE trip_created SET admin_status=? WHERE id=? AND c_number=? AND d_in=0', [status, trip.id, trip.c_number]],
+            ['UPDATE trip_created SET admin_status=?, rejection_reason=? WHERE id=? AND c_number=? AND d_in=0', [status, status === 2 ? String(data.rejection_reason || '') : '', trip.id, trip.c_number]],
           ];
           const voucher = rows[0].voucher_number;
           if (voucher) {
             operations.push(
-              ['UPDATE mainvoucher_t SET status=?, admin_status_by_id=?, admin_status_by_name=?, admin_status_by_date=? WHERE c_number=? AND d_in=0',
-                [status, data.user_id, data.user_nm, data.updated_date, voucher]],
+              ['UPDATE mainvoucher_t SET status=?, admin_status_by_id=?, admin_status_by_name=?, admin_status_by_date=?, rejection_reason=? WHERE c_number=? AND d_in=0',
+                [status, data.user_id, data.user_nm, data.updated_date, status === 2 ? String(data.rejection_reason || '') : '', voucher]],
               ['UPDATE mainvoucher_subt SET status=? WHERE c_number=? AND d_in=0 AND EXISTS (SELECT 1 FROM mainvoucher_t vh WHERE vh.c_number=? AND vh.d_in=0)',
                 [status, voucher, voucher]],
             );
