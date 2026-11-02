@@ -742,6 +742,7 @@ sqldb_init.query(`
         address VARCHAR(500) NULL,
         bank_account VARCHAR(40) NULL,
         ifsc_code VARCHAR(20) NULL,
+        mobile_number VARCHAR(15) NULL,
         ledger_id INT NULL,
         ledger_name VARCHAR(200) NULL,
         created_by VARCHAR(100) NULL,
@@ -750,7 +751,11 @@ sqldb_init.query(`
     )
 `, function(err) {
     if (err) console.error('Failed to create vendor_master table:', err.message);
-    else console.log('vendor_master table ready');
+    else {
+        console.log('vendor_master table ready');
+        // A table made before the mobile number existed gets the column here, once it is known to exist.
+        ensureColumn('vendor_master', 'mobile_number', '`mobile_number` VARCHAR(15) NULL');
+    }
 });
 ensureColumn('mainmasterssubchildtwo', 'vendor_id', '`vendor_id` INT NULL');
 ensureColumn('mainmasterssubchildtwo', 'vendor_name', '`vendor_name` VARCHAR(150) NULL');
@@ -758,6 +763,7 @@ ensureColumn('mainmasterssubchildtwo', 'vendor_gst_no', '`vendor_gst_no` VARCHAR
 ensureColumn('mainmasterssubchildtwo', 'vendor_address', '`vendor_address` VARCHAR(500) NULL');
 ensureColumn('mainmasterssubchildtwo', 'vendor_bank_account', '`vendor_bank_account` VARCHAR(40) NULL');
 ensureColumn('mainmasterssubchildtwo', 'vendor_ifsc_code', '`vendor_ifsc_code` VARCHAR(20) NULL');
+ensureColumn('mainmasterssubchildtwo', 'vendor_mobile', '`vendor_mobile` VARCHAR(15) NULL');
 
 // Vendors is grantable on its own under Main Masters (sub-module 212). Roles and
 // users that already hold Voucher Types (29) start with the same access.

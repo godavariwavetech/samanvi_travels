@@ -16014,14 +16014,14 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
 // ledger it is paid through. Picking a ledger copies those details onto the
 // ledger row itself (mainmasterssubchildtwo.vendor_*), so the ledger knows its
 // vendor; changing the ledger or deleting the vendor clears them off the old one.
-var VENDOR_LEDGER_CLEAR = "UPDATE mainmasterssubchildtwo SET vendor_id=NULL, vendor_name=NULL, vendor_gst_no=NULL, vendor_address=NULL, vendor_bank_account=NULL, vendor_ifsc_code=NULL WHERE vendor_id=?";
+var VENDOR_LEDGER_CLEAR = "UPDATE mainmasterssubchildtwo SET vendor_id=NULL, vendor_name=NULL, vendor_gst_no=NULL, vendor_address=NULL, vendor_bank_account=NULL, vendor_ifsc_code=NULL, vendor_mobile=NULL WHERE vendor_id=?";
 function syncVendorLedger(vendorId, v, cntxtDtls, done) {
   dbutil.execupdateQuery(sqldb, VENDOR_LEDGER_CLEAR, [vendorId], cntxtDtls, function (err) {
     if (err) return done(err);
     if (!v.ledger_id) return done(null);
     dbutil.execupdateQuery(sqldb,
-      "UPDATE mainmasterssubchildtwo SET vendor_id=?, vendor_name=?, vendor_gst_no=?, vendor_address=?, vendor_bank_account=?, vendor_ifsc_code=? WHERE id=?",
-      [vendorId, v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.ledger_id],
+      "UPDATE mainmasterssubchildtwo SET vendor_id=?, vendor_name=?, vendor_gst_no=?, vendor_address=?, vendor_bank_account=?, vendor_ifsc_code=?, vendor_mobile=? WHERE id=?",
+      [vendorId, v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.mobile_number || null, v.ledger_id],
       cntxtDtls, done);
   });
 }
@@ -16029,7 +16029,7 @@ function vendorFields(data) {
   var t = function (x) { return String(x == null ? '' : x).trim(); };
   return {
     vendor_name: t(data.vendor_name), gst_number: t(data.gst_number).toUpperCase(), address: t(data.address),
-    bank_account: t(data.bank_account), ifsc_code: t(data.ifsc_code).toUpperCase(),
+    bank_account: t(data.bank_account), ifsc_code: t(data.ifsc_code).toUpperCase(), mobile_number: t(data.mobile_number).replace(/\D/g, ''),
     ledger_id: data.ledger_id ? Number(data.ledger_id) : null, ledger_name: t(data.ledger_name),
   };
 }
@@ -16055,8 +16055,8 @@ exports.addVendorMdl = function (data, callback) {
   checkVendor(v, 0, cx, function (e) {
     if (e) return callback(e, { msg: e.message });
     dbutil.execupdateQuery(sqldb,
-      "INSERT INTO vendor_master (vendor_name, gst_number, address, bank_account, ifsc_code, ledger_id, ledger_name, created_by) VALUES (?,?,?,?,?,?,?,?)",
-      [v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.ledger_id, v.ledger_name || null, data.usr_nm || null], cx,
+      "INSERT INTO vendor_master (vendor_name, gst_number, address, bank_account, ifsc_code, mobile_number, ledger_id, ledger_name, created_by) VALUES (?,?,?,?,?,?,?,?,?)",
+      [v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.mobile_number || null, v.ledger_id, v.ledger_name || null, data.usr_nm || null], cx,
       function (err, res) {
         if (err) return callback(err, null);
         syncVendorLedger(res.insertId, v, cx, function (e2) { callback(e2, res); });
@@ -16068,8 +16068,8 @@ exports.editVendorMdl = function (data, callback) {
   checkVendor(v, data.id, cx, function (e) {
     if (e) return callback(e, { msg: e.message });
     dbutil.execupdateQuery(sqldb,
-      "UPDATE vendor_master SET vendor_name=?, gst_number=?, address=?, bank_account=?, ifsc_code=?, ledger_id=?, ledger_name=? WHERE id=?",
-      [v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.ledger_id, v.ledger_name || null, data.id], cx,
+      "UPDATE vendor_master SET vendor_name=?, gst_number=?, address=?, bank_account=?, ifsc_code=?, mobile_number=?, ledger_id=?, ledger_name=? WHERE id=?",
+      [v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.mobile_number || null, v.ledger_id, v.ledger_name || null, data.id], cx,
       function (err, res) {
         if (err) return callback(err, null);
         syncVendorLedger(data.id, v, cx, function (e2) { callback(e2, res); });

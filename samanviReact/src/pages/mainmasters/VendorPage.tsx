@@ -8,13 +8,13 @@ import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { accountingService } from '@/services/accounting.service'
 import { usePermissions } from '@/lib/usePermissions'
-import { ledgerGroupName } from '@/lib/utils'
+import { ledgerGroupName, isValidMobile } from '@/lib/utils'
 
 const Req = () => <span className="text-red-500">*</span>
 const GST_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/
 const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/
 
-const empty = { vendor_name: '', gst_number: '', address: '', bank_account: '', ifsc_code: '', ledger_id: '' }
+const empty = { vendor_name: '', mobile_number: '', gst_number: '', address: '', bank_account: '', ifsc_code: '', ledger_id: '' }
 
 export default function VendorPage() {
   const qc = useQueryClient()
@@ -40,6 +40,7 @@ export default function VendorPage() {
   const ifsc = form.ifsc_code.trim().toUpperCase()
   const errors = {
     vendor_name: !form.vendor_name.trim() ? 'Vendor name is required' : '',
+    mobile_number: form.mobile_number.trim() && !isValidMobile(form.mobile_number) ? 'Enter a valid 10-digit mobile number' : '',
     gst_number: gst && !GST_RE.test(gst) ? 'Enter a valid 15-character GST number' : '',
     ifsc_code: ifsc && !IFSC_RE.test(ifsc) ? 'Enter a valid 11-character IFSC code' : '',
     bank_account: form.bank_account.trim() && !/^[0-9]{6,20}$/.test(form.bank_account.trim()) ? 'Account number must be 6-20 digits' : '',
@@ -83,7 +84,7 @@ export default function VendorPage() {
   const startEdit = (v: any) => {
     setEditId(v.id)
     setForm({
-      vendor_name: v.vendor_name ?? '', gst_number: v.gst_number ?? '', address: v.address ?? '',
+      vendor_name: v.vendor_name ?? '', mobile_number: v.mobile_number ?? '', gst_number: v.gst_number ?? '', address: v.address ?? '',
       bank_account: v.bank_account ?? '', ifsc_code: v.ifsc_code ?? '', ledger_id: v.ledger_id ? String(v.ledger_id) : '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -93,6 +94,7 @@ export default function VendorPage() {
   const columns: Column[] = [
     { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
     { label: 'Vendor Name', key: 'vendor_name', filterable: true, render: (v) => <span className="font-semibold text-slate-800">{String(v)}</span> },
+    { label: 'Mobile Number', key: 'mobile_number', filterable: true, render: dash },
     { label: 'GST Number', key: 'gst_number', filterable: true, render: dash },
     { label: 'Address', key: 'address', render: (v) => <span className="text-sm max-w-[16rem] block truncate" title={String(v ?? '')}>{dash(v)}</span> },
     { label: 'Bank Account', key: 'bank_account', filterable: true, render: dash },
@@ -116,6 +118,12 @@ export default function VendorPage() {
               <Label>Vendor Name <Req /></Label>
               <Input placeholder="Enter vendor name" value={form.vendor_name} onChange={(e) => set({ vendor_name: e.target.value })} />
               {form.vendor_name !== '' && fieldError(errors.vendor_name)}
+            </div>
+            <div>
+              <Label>Mobile Number</Label>
+              <Input placeholder="10-digit mobile number" inputMode="numeric" maxLength={10} value={form.mobile_number}
+                onChange={(e) => set({ mobile_number: e.target.value.replace(/\D/g, '') })} />
+              {fieldError(errors.mobile_number)}
             </div>
             <div>
               <Label>GST Number</Label>
