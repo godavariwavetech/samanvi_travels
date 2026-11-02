@@ -53,8 +53,10 @@ export function ApprovalStatusTabs({ tab, onChange, counts, leading = [] }: {
 // the record is still pending (an approved or rejected one is on the books or
 // declined, and the server refuses to change it); Approve / Reject on pending,
 // Reopen / Approve directly on rejected - the same set as a voucher row.
-export function ApprovalRowActions({ tab, onView, onEdit, onDelete, onApprove, onReject, onReopen }: {
+export function ApprovalRowActions({ tab, onView, onEdit, editLocked, onDelete, onApprove, onReject, onReopen }: {
   tab: ApprovalTab
+  // Show Edit on approved / rejected rows too (for pages whose server lets approved editors change them).
+  editLocked?: boolean
   onView?: () => void
   onEdit?: () => void
   onDelete?: () => void
@@ -66,7 +68,7 @@ export function ApprovalRowActions({ tab, onView, onEdit, onDelete, onApprove, o
   return (
     <div className="flex gap-1.5">
       {canView && onView && <button type="button" onClick={onView} title="View" className="p-1.5 text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100"><Eye className="w-4 h-4" /></button>}
-      {canEdit && tab === 'pending' && onEdit && <button type="button" onClick={onEdit} title="Edit" className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>}
+      {canEdit && (tab === 'pending' || editLocked) && onEdit && <button type="button" onClick={onEdit} title="Edit" className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>}
       {canDelete && tab === 'pending' && onDelete && <button type="button" onClick={onDelete} title="Delete" className="p-1.5 text-slate-500 bg-slate-50 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
       {canApprove && tab === 'pending' && (
         <>

@@ -222,16 +222,18 @@ exports.createFuelEntryMdl = function (data, callback) {
 // still read approved. The pages already hide Edit / Delete for such rows; the
 // API refuses too, so nothing else can do it by accident.
 var lockedError = function () { var e = new Error('Approved / rejected entries cannot be edited or deleted'); e.code = 'LOCKED'; return e; };
-function whenFuelEntryOpen(id, callback, run) {
+// `editor` (set by the controller from the signed-in user, never the request body)
+// lets an approved editor change an entry that is already approved or rejected.
+function whenFuelEntryOpen(id, callback, run, editor) {
   sqldb.query('SELECT admin_status, vehicle_number FROM fuel_entry WHERE id = ? AND d_in = 0', [Number(id)], function (err, rows) {
     if (err) return callback(err);
-    if (rows.length && Number(rows[0].admin_status) !== 0) return callback(lockedError());
+    if (rows.length && Number(rows[0].admin_status) !== 0 && !editor) return callback(lockedError());
     run(rows[0]);
   });
 }
 
 exports.updateFuelEntryMdl = function (data, callback) {
-  whenFuelEntryOpen(data.id, callback, function (before) { updateFuelEntryOpen(data, callback, before && before.vehicle_number); });
+  whenFuelEntryOpen(data.id, callback, function (before) { updateFuelEntryOpen(data, callback, before && before.vehicle_number); }, data.__editor === true);
 };
 function updateFuelEntryOpen(data, callback, oldVehicle) {
   sqldb.getConnection(function (err, connection) {
@@ -282,6 +284,10 @@ function updateFuelEntryOpen(data, callback, oldVehicle) {
               if (err) return rollback(err);
               // The edit may have moved the latest reading, or the entry to
               // another vehicle: bring both vehicles' odometers in line.
+              // The rebuilt lines follow the entry's own status, so editing an
+              // approved entry does not leave its ledger lines looking pending.
+              connection.query('UPDATE fuelentry_subt SET admin_status=(SELECT admin_status FROM fuel_entry WHERE id=?) WHERE lastinsert_id=? AND d_in=0', [Number(data.id), String(data.id)], function (err) {
+              if (err) return rollback(err);
               syncBusOdometer(connection, data.vehicleNumber, function (err) {
                 if (err) return rollback(err);
                 syncBusOdometer(connection, oldVehicle && oldVehicle !== data.vehicleNumber ? oldVehicle : null, function (err) {
@@ -292,6 +298,7 @@ function updateFuelEntryOpen(data, callback, oldVehicle) {
                     callback(null, { id: data.id });
                   });
                 });
+              });
               });
             });
           });

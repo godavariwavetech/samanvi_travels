@@ -60,10 +60,15 @@ exports.updatefuelenterydataCtrl = function (req, res) {
   if (!data.id) return res.send({ status: 400, message: 'id is required' });
   var err = validateBalance(data);
   if (err) return res.send({ status: 400, message: err });
-  fuelmdl.updateFuelEntryMdl(data, function (err, results) {
-    if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
-    if (err) { console.error('updateFuelEntry failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
-    res.send({ status: 200, data: results });
+  // Approved editors (Super Admin and the listed numbers) may still change an
+  // approved or rejected entry; everyone else gets the lock.
+  require('../utils/approvedVouchers').isApprovedEditor(req.auth && req.auth.usid, function (editor) {
+    data.__editor = editor === true;
+    fuelmdl.updateFuelEntryMdl(data, function (err, results) {
+      if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
+      if (err) { console.error('updateFuelEntry failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
+      res.send({ status: 200, data: results });
+    });
   });
 };
 

@@ -7,9 +7,11 @@ export function usePermissions(pathname?: string) {
   const location = useLocation()
   const menu = useAuthStore(s => s.menu)
   const roleId = useAuthStore(s => s.user?.role_id)
-  const role = useAuthStore(s => s.user?.role_id != null
-    ? s.user.role_name === 'Super Admin'
-    : s.user?.role_type === 0 || String(s.user?.role_type) === '0')
+  // Super Admin is role ID 5 (or legacy role_type 0 with no role ID) - the same
+  // test the server and useCanReviseApproved use, not the role's display name.
+  const role = useAuthStore(s => s.user?.role_id != null && String(s.user.role_id).trim() !== ''
+    ? Number(s.user.role_id) === 5
+    : s.user?.role_type !== null && s.user?.role_type !== undefined && String(s.user.role_type).trim() !== '' && Number(s.user.role_type) === 0)
   const path = pathname ?? location.pathname
   return useMemo(() => {
     const rights = permissionsFor(path, menu)

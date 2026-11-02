@@ -1,4 +1,5 @@
 import { usePermissions } from '@/lib/usePermissions'
+import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X, Pencil } from 'lucide-react'
@@ -215,6 +216,7 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
 
 export default function FuelEntryPage() {
   const { canAdd, canEdit, canDelete, canApprove } = usePermissions()
+  const canReviseApproved = useCanReviseApproved()
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm())
@@ -450,7 +452,7 @@ export default function FuelEntryPage() {
       label: 'Actions', key: 'id',
       render: (_v, r: Record<string, unknown>) => (
         <ApprovalRowActions tab={tab}
-          onView={() => onView(r)} onEdit={() => onEdit(r)} onDelete={() => onDelete(r)}
+          onView={() => onView(r)} onEdit={() => onEdit(r)} editLocked={canReviseApproved} onDelete={() => onDelete(r)}
           onApprove={() => onStatusChange(r, 1)} onReject={() => askReject([r])} onReopen={() => onStatusChange(r, 0)} />
       ),
     },
@@ -561,7 +563,7 @@ export default function FuelEntryPage() {
         {viewRow && (
           <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Fuel Entry"
             onClose={() => setViewRow(null)} footerActions={<>
-              {canEdit && Number(viewRow.admin_status) === 0 && (
+              {canEdit && (Number(viewRow.admin_status) === 0 || canReviseApproved) && (
                 <Button variant="outline" onClick={() => { const r = viewRow; setViewRow(null); onEdit(r) }}>
                   <Pencil className="w-4 h-4" /> Edit
                 </Button>
