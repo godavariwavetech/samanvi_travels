@@ -193,7 +193,7 @@ export default function AdminApprovalsPage() {
       render: (_v, r: any) => r.vehicle_type === 'van' ? <Badge variant="purple">Van</Badge> : <Badge variant="info">Bus</Badge>,
     },
     {
-      label: 'Ref ID', key: 'c_number', filterable: true,
+      label: 'Ref ID', key: 'c_number', ownRefRender: true, filterable: true,
       render: (v, r: any) => (
         <button type="button" onClick={() => r.c_number && setViewTrip(r)}
           className="font-bold text-blue-600 hover:text-blue-800 hover:underline">{String(v ?? `#${r.id}`)}</button>
