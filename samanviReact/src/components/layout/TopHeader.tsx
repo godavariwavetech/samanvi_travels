@@ -60,6 +60,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/garage/tyre-position': 'Tyre Position',
   '/garage/battery-management': 'Battery Management',
   '/mainmasters/voucher-type': 'Voucher Types',
+  '/mainmasters/vendors': 'Vendors',
   '/mainmasters/groups': 'Group Management',
   '/mainmasters/static-entry': 'Static Entry',
   '/mainmasters/laundry-products': 'Laundry Products',

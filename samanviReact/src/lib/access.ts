@@ -94,6 +94,7 @@ export const PATH_ACCESS: Record<string, AccessRule> = {
 
   '/mainmasters/static-entry': { subs: [22] },
   '/mainmasters/voucher-type': { subs: [29] },
+  '/mainmasters/vendors': { subs: [212] },
   '/mainmasters/groups': GROUPS,
   '/mainmasters/main-group': GROUPS,
   '/mainmasters/sub-group': GROUPS,

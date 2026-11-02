@@ -16008,3 +16008,78 @@ exports.bulkUploadStaffMdl = function (type, rows, userId, usrNm, callback) {
     callback(null, { inserted: 0, updated: 0, skipped: [], total: 0 });
   }
 };
+
+// ── Vendor master (Main Masters > Vendors) ───────────────────────────────────
+// A vendor carries its GST number, address and bank details, and optionally the
+// ledger it is paid through. Picking a ledger copies those details onto the
+// ledger row itself (mainmasterssubchildtwo.vendor_*), so the ledger knows its
+// vendor; changing the ledger or deleting the vendor clears them off the old one.
+var VENDOR_LEDGER_CLEAR = "UPDATE mainmasterssubchildtwo SET vendor_id=NULL, vendor_name=NULL, vendor_gst_no=NULL, vendor_address=NULL, vendor_bank_account=NULL, vendor_ifsc_code=NULL WHERE vendor_id=?";
+function syncVendorLedger(vendorId, v, cntxtDtls, done) {
+  dbutil.execupdateQuery(sqldb, VENDOR_LEDGER_CLEAR, [vendorId], cntxtDtls, function (err) {
+    if (err) return done(err);
+    if (!v.ledger_id) return done(null);
+    dbutil.execupdateQuery(sqldb,
+      "UPDATE mainmasterssubchildtwo SET vendor_id=?, vendor_name=?, vendor_gst_no=?, vendor_address=?, vendor_bank_account=?, vendor_ifsc_code=? WHERE id=?",
+      [vendorId, v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.ledger_id],
+      cntxtDtls, done);
+  });
+}
+function vendorFields(data) {
+  var t = function (x) { return String(x == null ? '' : x).trim(); };
+  return {
+    vendor_name: t(data.vendor_name), gst_number: t(data.gst_number).toUpperCase(), address: t(data.address),
+    bank_account: t(data.bank_account), ifsc_code: t(data.ifsc_code).toUpperCase(),
+    ledger_id: data.ledger_id ? Number(data.ledger_id) : null, ledger_name: t(data.ledger_name),
+  };
+}
+// Rejects a blank name, a repeated name, or a ledger already tied to another vendor.
+function checkVendor(v, excludeId, cntxtDtls, done) {
+  if (!v.vendor_name) return done(new Error('Vendor name is required'));
+  dbutil.execupdateQuery(sqldb,
+    "SELECT id, vendor_name, ledger_id FROM vendor_master WHERE d_in=0 AND id<>? AND (LOWER(vendor_name)=LOWER(?) OR (? IS NOT NULL AND ledger_id=?))",
+    [excludeId || 0, v.vendor_name, v.ledger_id, v.ledger_id], cntxtDtls, function (err, rows) {
+      if (err) return done(err);
+      if (rows && rows.length) {
+        var same = String(rows[0].vendor_name).toLowerCase() === v.vendor_name.toLowerCase();
+        return done(new Error(same ? 'A vendor with this name already exists' : 'This ledger is already linked to vendor "' + rows[0].vendor_name + '"'));
+      }
+      done(null);
+    });
+}
+exports.getVendorsMdl = function (data, callback) {
+  dbutil.execupdateQuery(sqldb, "SELECT * FROM vendor_master WHERE d_in=0 ORDER BY vendor_name ASC", [], "getVendorsMdl", callback);
+};
+exports.addVendorMdl = function (data, callback) {
+  var cx = "addVendorMdl", v = vendorFields(data);
+  checkVendor(v, 0, cx, function (e) {
+    if (e) return callback(e, { msg: e.message });
+    dbutil.execupdateQuery(sqldb,
+      "INSERT INTO vendor_master (vendor_name, gst_number, address, bank_account, ifsc_code, ledger_id, ledger_name, created_by) VALUES (?,?,?,?,?,?,?,?)",
+      [v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.ledger_id, v.ledger_name || null, data.usr_nm || null], cx,
+      function (err, res) {
+        if (err) return callback(err, null);
+        syncVendorLedger(res.insertId, v, cx, function (e2) { callback(e2, res); });
+      });
+  });
+};
+exports.editVendorMdl = function (data, callback) {
+  var cx = "editVendorMdl", v = vendorFields(data);
+  checkVendor(v, data.id, cx, function (e) {
+    if (e) return callback(e, { msg: e.message });
+    dbutil.execupdateQuery(sqldb,
+      "UPDATE vendor_master SET vendor_name=?, gst_number=?, address=?, bank_account=?, ifsc_code=?, ledger_id=?, ledger_name=? WHERE id=?",
+      [v.vendor_name, v.gst_number || null, v.address || null, v.bank_account || null, v.ifsc_code || null, v.ledger_id, v.ledger_name || null, data.id], cx,
+      function (err, res) {
+        if (err) return callback(err, null);
+        syncVendorLedger(data.id, v, cx, function (e2) { callback(e2, res); });
+      });
+  });
+};
+exports.deleteVendorMdl = function (data, callback) {
+  var cx = "deleteVendorMdl";
+  dbutil.execupdateQuery(sqldb, "UPDATE vendor_master SET d_in=1 WHERE id=?", [data.id], cx, function (err, res) {
+    if (err) return callback(err, null);
+    dbutil.execupdateQuery(sqldb, VENDOR_LEDGER_CLEAR, [data.id], cx, function (e2) { callback(e2, res); });
+  });
+};

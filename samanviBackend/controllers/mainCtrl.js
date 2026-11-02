@@ -6432,6 +6432,23 @@ exports.addTyreVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl
 exports.editTyreVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl.editTyreVendorMdl); };
 exports.deleteTyreVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteTyreVendorMdl); };
 
+// ── Vendors (Main Masters) ───────────────────────────────────────────────────
+exports.getVendorsCtrl = function (req, res) {
+  appmdl.getVendorsMdl(req.body, function (err, results) {
+    if (err) { res.send(500, "Server Error"); return; }
+    res.send({ status: 200, data: results });
+  });
+};
+// A validation failure comes back as status 400 with its message, not a bare 500.
+function vendorWrite(modelFn) {
+  return function (req, res) {
+    decryptedBody(req, { send: function (out) { if (out && out.status === 500 && out.data && out.data.msg) out = { status: 400, msg: out.data.msg }; res.send(out); } }, modelFn);
+  };
+}
+exports.addVendorCtrl = vendorWrite(appmdl.addVendorMdl);
+exports.editVendorCtrl = vendorWrite(appmdl.editVendorMdl);
+exports.deleteVendorCtrl = function (req, res) { decryptedBody(req, res, appmdl.deleteVendorMdl); };
+
 // ── Tyre Sizes ───────────────────────────────────────────────────────────────
 exports.getTyreSizesCtrl = function (req, res) {
   appmdl.getTyreSizesMdl(req.body, function (err, results) {

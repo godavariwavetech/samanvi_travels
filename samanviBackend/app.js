@@ -714,6 +714,51 @@ sqldb_init.query(`
     else console.log('tyre_vendors table ready');
 });
 
+// Vendors (Main Masters): name, GST, address and bank details, optionally tied
+// to a ledger; the ledger row carries a copy of them (vendor_* columns).
+sqldb_init.query(`
+    CREATE TABLE IF NOT EXISTS vendor_master (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vendor_name VARCHAR(150) NOT NULL,
+        gst_number VARCHAR(20) NULL,
+        address VARCHAR(500) NULL,
+        bank_account VARCHAR(40) NULL,
+        ifsc_code VARCHAR(20) NULL,
+        ledger_id INT NULL,
+        ledger_name VARCHAR(200) NULL,
+        created_by VARCHAR(100) NULL,
+        d_in TINYINT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`, function(err) {
+    if (err) console.error('Failed to create vendor_master table:', err.message);
+    else console.log('vendor_master table ready');
+});
+ensureColumn('mainmasterssubchildtwo', 'vendor_id', '`vendor_id` INT NULL');
+ensureColumn('mainmasterssubchildtwo', 'vendor_name', '`vendor_name` VARCHAR(150) NULL');
+ensureColumn('mainmasterssubchildtwo', 'vendor_gst_no', '`vendor_gst_no` VARCHAR(20) NULL');
+ensureColumn('mainmasterssubchildtwo', 'vendor_address', '`vendor_address` VARCHAR(500) NULL');
+ensureColumn('mainmasterssubchildtwo', 'vendor_bank_account', '`vendor_bank_account` VARCHAR(40) NULL');
+ensureColumn('mainmasterssubchildtwo', 'vendor_ifsc_code', '`vendor_ifsc_code` VARCHAR(20) NULL');
+
+// Vendors is grantable on its own under Main Masters (sub-module 212). Roles and
+// users that already hold Voucher Types (29) start with the same access.
+(function ensureVendorsModule() {
+    var steps = [
+        "INSERT INTO sub_modules (id, title, path, module_id, module_order, d_in) SELECT 212, 'Vendors', '/mainmasters/vendors', 15, 99, 0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sub_modules WHERE id = 212)",
+        "INSERT INTO app_role_permissions (role_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, can_approve, can_authorize) SELECT o.role_id, 15, 212, o.can_add, o.can_edit, o.can_delete, o.can_view, o.can_approve, o.can_authorize FROM app_role_permissions o WHERE o.sub_module_id = 29 AND NOT EXISTS (SELECT 1 FROM app_role_permissions n WHERE n.role_id = o.role_id AND n.sub_module_id = 212)",
+        "INSERT INTO app_user_permission_overrides (user_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, can_approve, can_authorize) SELECT o.user_id, 15, 212, o.can_add, o.can_edit, o.can_delete, o.can_view, o.can_approve, o.can_authorize FROM app_user_permission_overrides o WHERE o.sub_module_id = 29 AND NOT EXISTS (SELECT 1 FROM app_user_permission_overrides n WHERE n.user_id = o.user_id AND n.sub_module_id = 212)",
+        "INSERT INTO permissions (user_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, entry_by, d_in, can_approve, can_authorize) SELECT o.user_id, 15, 212, o.can_add, o.can_edit, o.can_delete, o.can_view, o.entry_by, o.d_in, o.can_approve, o.can_authorize FROM permissions o WHERE o.sub_module_id = 29 AND o.d_in = 0 AND NOT EXISTS (SELECT 1 FROM permissions n WHERE n.user_id = o.user_id AND n.sub_module_id = 212)"
+    ];
+    (function run(i) {
+        if (i >= steps.length) return;
+        sqldb_init.query(steps[i], function (err) {
+            if (err) console.error('Vendors module migration step ' + i + ':', err.message);
+            run(i + 1);
+        });
+    })(0);
+})();
+
 // Tyre Sizes — master list so "Size of Tyre" on the New Tyre Entry form is
 // picked from Garage Masters instead of freehand text.
 sqldb_init.query(`

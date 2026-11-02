@@ -95,6 +95,7 @@ import RepeatJobsPage from '@/pages/garage/RepeatJobsPage'
 
 // Main Masters
 import VoucherTypePage from '@/pages/mainmasters/VoucherTypePage'
+import VendorPage from '@/pages/mainmasters/VendorPage'
 import GroupPage from '@/pages/mainmasters/GroupPage'
 import StaticEntryPage from '@/pages/mainmasters/StaticEntryPage'
 import SubChildTwoPage from '@/pages/mainmasters/SubChildTwoPage'
@@ -214,6 +215,7 @@ export const router = createBrowserRouter([
 
       // Main Masters
       { path: 'mainmasters/voucher-type',   element: <VoucherTypePage /> },
+      { path: 'mainmasters/vendors',        element: <VendorPage /> },
       { path: 'mainmasters/static-entry',   element: <StaticEntryPage /> },
       { path: 'mainmasters/laundry-products', element: <LaundryProductPage /> },
       { path: 'mainmasters/garage-masters', element: <GarageMastersPage /> },

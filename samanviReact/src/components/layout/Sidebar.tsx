@@ -166,6 +166,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Service For',        path: '/masters/service-for' },
       { label: 'Static Entry',       path: '/mainmasters/static-entry' },
       { label: 'Voucher Types',      path: '/mainmasters/voucher-type' },
+      { label: 'Vendors',            path: '/mainmasters/vendors' },
       { label: 'Group Management',   path: '/mainmasters/groups' },
       { label: 'Laundry Products',   path: '/mainmasters/laundry-products' },
       { label: 'Garage Masters',     path: '/mainmasters/garage-masters' },

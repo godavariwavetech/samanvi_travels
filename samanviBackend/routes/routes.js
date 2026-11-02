@@ -468,6 +468,10 @@ router.get('/tyre-vendors/getall', verifyToken, routcontroller.getTyreVendorsCtr
 router.post('/tyre-vendors/add', verifyToken, routcontroller.addTyreVendorCtrl);
 router.post('/tyre-vendors/edit', verifyToken, routcontroller.editTyreVendorCtrl);
 router.post('/tyre-vendors/delete', verifyToken, routcontroller.deleteTyreVendorCtrl);
+router.get('/vendors/getall', verifyToken, routcontroller.getVendorsCtrl);
+router.post('/vendors/add', verifyToken, routcontroller.addVendorCtrl);
+router.post('/vendors/edit', verifyToken, routcontroller.editVendorCtrl);
+router.post('/vendors/delete', verifyToken, routcontroller.deleteVendorCtrl);
 
 router.get('/tyre-sizes/getall', verifyToken, routcontroller.getTyreSizesCtrl);
 router.post('/tyre-sizes/add', verifyToken, routcontroller.addTyreSizeCtrl);

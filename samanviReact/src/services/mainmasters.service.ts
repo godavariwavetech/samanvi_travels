@@ -68,6 +68,12 @@ export const mainmastersService = {
   editTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/edit', securePayload(data)).then((r) => r.data),
   deleteTyrePositionMaster: (data: unknown) => api.post('/tyre-positions-master/delete', securePayload(data)).then((r) => r.data),
 
+  // ── Vendors (Main Masters) ──────────────────────────────────
+  getVendors: () => api.get('/vendors/getall').then((r) => r.data),
+  addVendor: (data: unknown) => api.post('/vendors/add', securePayload(data)).then((r) => r.data),
+  editVendor: (data: unknown) => api.post('/vendors/edit', securePayload(data)).then((r) => r.data),
+  deleteVendor: (data: unknown) => api.post('/vendors/delete', securePayload(data)).then((r) => r.data),
+
   // ── Garage: Tyre Vendors ────────────────────────────────────
   getTyreVendors: () => api.get('/tyre-vendors/getall').then((r) => r.data),
   addTyreVendor: (data: unknown) => api.post('/tyre-vendors/add', securePayload(data)).then((r) => r.data),
