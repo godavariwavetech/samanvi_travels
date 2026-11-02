@@ -778,7 +778,7 @@ export default function LaundryBillPage() {
   const cols: Column[] = useMemo(() => [
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
     {
-      label: 'Ref #', key: 'c_number', filterable: true,
+      label: 'Ref #', key: 'c_number', filterable: true, ownRefRender: true,
       render: (v, r: Record<string, unknown>) => (
         <button onClick={() => onView(r)} className="text-blue-600 hover:underline font-medium">{String(v)}</button>
       ),

@@ -412,7 +412,12 @@ export default function FuelEntryPage() {
   // Columns kept in same order as old Angular table minus Target / Driver 1 / Driver 2.
   const entryColumns: Column[] = useMemo(() => [
     { label: 'Sl No', key: '_idx', align: 'center', render: (_v, _r, i) => <span className="text-sm text-slate-500">{i + 1}</span> },
-    { label: 'Ref #', key: 'c_number', filterable: true },
+    {
+      label: 'Ref #', key: 'c_number', filterable: true, ownRefRender: true,
+      render: (v, r: Record<string, unknown>) => (
+        <button type="button" onClick={() => onView(r)} className="font-semibold text-blue-600 hover:text-blue-800 hover:underline">{String(v ?? '—')}</button>
+      ),
+    },
     { label: 'Date', key: 'date', filterable: true, render: (v) => formatDate(String(v ?? '')) },
     { label: 'Value Date', key: 'value_date', filterable: true, render: (v, r: Record<string, unknown>) => formatDate(String(v || r.date || '')) },
     { label: 'Vehicle No', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
