@@ -9,7 +9,7 @@ import { GlassCard, Button, Label, DataTable, Badge, PageHeader, DateRangePicker
 import type { Column, ApprovalTab } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
-import TripAuditModal from './TripAuditModal'
+import ReferenceAuditModal from '@/components/shared/ReferenceAuditModal'
 import TripCreationPage from './TripCreationPage'
 import { needsAuthorization, awaitingApproval } from '@/lib/tripAuthorization'
 
@@ -36,92 +36,6 @@ const ledgerLines = (r: any, side: 'debit' | 'credit'): { name: string; amount: 
 // given the Authorize grant (the server sends auth_required with every trip);
 // until then trips go straight to Approval as before.
 
-function TripViewModal({ trip, onClose, footer }: { trip: any; onClose: () => void; footer?: React.ReactNode }) {
-  const statusVariant = trip.admin_status === 1 ? 'success' : trip.admin_status === 2 ? 'danger' : 'warning'
-  const statusLabel = trip.admin_status === 1 ? 'Approved' : trip.admin_status === 2 ? 'Rejected' : 'Pending'
-
-  const field = (label: string, value: any) => (
-    <div>
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">{label}</p>
-      <p className="text-sm font-medium text-slate-800">{value || <span className="text-slate-300">—</span>}</p>
-    </div>
-  )
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/60 rounded-t-3xl">
-          <div className="flex items-center gap-3">
-            <span className="font-bold text-blue-600 text-lg">{trip.c_number ?? `#${trip.id}`}</span>
-            <Badge variant={statusVariant}>{statusLabel}</Badge>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-slate-200 transition-colors">
-            <X className="w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-5">
-          {/* Trip info */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-slate-50 rounded-2xl">
-            {field('Trip Date', formatDate(trip.trip_date))}
-            {field('Trip For', trip.trip_for)}
-            {field('Bus No', trip.bus_no)}
-            {field('Service No', trip.service_no)}
-            {field('Phone', trip.phone_number)}
-            {field('Total Amount', trip.total_amount ? `₹${trip.total_amount}` : null)}
-          </div>
-
-          {/* Crew */}
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5" /> Crew
-            </p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-blue-50/40 rounded-2xl">
-              {field('Driver 1', trip.driver1_name)}
-              {field('Driver 2', trip.driver2_name)}
-              {field('Helper', trip.helper_name)}
-              {field('Conductor', trip.conductor_name)}
-              {field('Paid To', trip.paid_to_name)}
-            </div>
-          </div>
-
-          {/* Description / Remarks */}
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2 flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5" /> Description / Remarks
-            </p>
-            <div className="p-4 bg-amber-50/50 border border-amber-100 rounded-2xl min-h-[64px]">
-              <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                {trip.remarks || <span className="text-slate-300 italic">No remarks entered</span>}
-              </p>
-            </div>
-          </div>
-
-          {Number(trip.admin_status) === 2 && <RejectionReasonNote reason={trip.rejection_reason} />}
-
-          {/* Admin info */}
-          {(trip.admin_status_by_name || trip.status_date) && (
-            <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-2xl">
-              {field('Action By', trip.admin_status_by_name)}
-              {field('Action Date', formatDate(trip.status_date))}
-            </div>
-          )}
-          {footer}
-        </div>
-      </motion.div>
-    </motion.div>
-  )
-}
-
 export default function AdminApprovalsPage() {
   const { canApprove, canAuthorize } = usePermissions()
   // 'To Authorize' is this page's own first stage; the other three are the
@@ -130,7 +44,6 @@ export default function AdminApprovalsPage() {
   const [rejectTarget, setRejectTarget] = useState<{ rows: any[] } | null>(null)
   const [bulkRejecting, setBulkRejecting] = useState(false)
   const [viewTrip, setViewTrip] = useState<any>(null)
-  const [auditRef, setAuditRef] = useState<string | null>(null)
   const [editRef, setEditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
   const [bulkApproving, setBulkApproving] = useState(false)
@@ -281,7 +194,7 @@ export default function AdminApprovalsPage() {
     {
       label: 'Ref ID', key: 'c_number', filterable: true,
       render: (v, r: any) => (
-        <button type="button" onClick={() => r.c_number && setAuditRef(String(r.c_number))}
+        <button type="button" onClick={() => r.c_number && setViewTrip(r)}
           className="font-bold text-blue-600 hover:text-blue-800 hover:underline">{String(v ?? `#${r.id}`)}</button>
       ),
     },
@@ -392,14 +305,22 @@ export default function AdminApprovalsPage() {
       {editRef && <TripCreationPage editRef={editRef} onEditClose={() => { setEditRef(null); qc.invalidateQueries({ queryKey: ['trips'] }) }} />}
 
       {/* View modal */}
-      <AnimatePresence>
-        {viewTrip && <TripViewModal trip={viewTrip} onClose={() => setViewTrip(null)}
-          footer={awaitingApproval(viewTrip) || Number(viewTrip.admin_status) === 2 ? (
-            <ApprovalModalButtons tab={Number(viewTrip.admin_status) === 2 ? 'rejected' : 'pending'}
-              onApprove={() => onStatusChange(viewTrip, 1)} onReject={() => askReject([viewTrip])} onReopen={() => onStatusChange(viewTrip, 0)} />
-          ) : undefined} />}
-        {auditRef && <TripAuditModal cNumber={auditRef} onClose={() => setAuditRef(null)} />}
-      </AnimatePresence>
+      {/* The trip's full record (trip, filed expense, ledger entries, activity) with
+          the stage's actions in its footer; the Ref ID and the eye open the same view. */}
+      {viewTrip && (
+        <ReferenceAuditModal reference={String(viewTrip.c_number ?? '')} initialRecord={viewTrip} moduleLabel="Trip"
+          onClose={() => setViewTrip(null)}
+          footerActions={
+            canAuthorize && needsAuthorization(viewTrip) ? (
+              <Button disabled={authorizing} onClick={() => { authorize(viewTrip); setViewTrip(null) }}>
+                <ShieldCheck className="w-4 h-4" /> Authorize
+              </Button>
+            ) : awaitingApproval(viewTrip) || Number(viewTrip.admin_status) === 2 ? (
+              <ApprovalModalButtons tab={Number(viewTrip.admin_status) === 2 ? 'rejected' : 'pending'}
+                onApprove={() => onStatusChange(viewTrip, 1)} onReject={() => { const t = viewTrip; setViewTrip(null); askReject([t]) }} onReopen={() => onStatusChange(viewTrip, 0)} />
+            ) : undefined
+          } />
+      )}
     </motion.div>
   )
 }
