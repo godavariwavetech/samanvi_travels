@@ -13,8 +13,24 @@ import { formatDate, todayISO, localDateTime } from '@/lib/utils'
 import TripAuditModal from './TripAuditModal'
 import { needsAuthorization, awaitingApproval } from '@/lib/tripAuthorization'
 
+const isAuthorized = (t: any) => Number(t.admin_status) === 0 && !!t.authorized_at
 const today = todayISO()
 const firstOfMonth = today.slice(0, 8) + '01'
+// Approved trips open on the last 10 days, so the long history is not loaded
+// into view; the date range can still be widened.
+const daysAgoISO = (n: number) => {
+  const d = new Date(); d.setDate(d.getDate() - n)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+type TabKey = ApprovalTab | 'To Authorize' | 'Authorized'
+// A trip's voucher ledgers, one entry per debit / credit line with its amount.
+const ledgerLines = (r: any, side: 'debit' | 'credit'): { name: string; amount: number }[] => {
+  const names = String(r[`${side}_lines_names`] ?? '').split('|').filter(Boolean)
+  const amounts = String(r[`${side}_lines_amounts`] ?? '').split('|')
+  if (names.length) return names.map((name, i) => ({ name, amount: Number(amounts[i]) || 0 }))
+  const single = String(r[`${side}_ledger_name`] ?? '').trim()
+  return single ? [{ name: single, amount: 0 }] : []
+}
 
 // The step between filing and approval. It only exists once someone has been
 // given the Authorize grant (the server sends auth_required with every trip);
@@ -110,7 +126,7 @@ export default function AdminApprovalsPage() {
   const { canApprove, canAuthorize } = usePermissions()
   // 'To Authorize' is this page's own first stage; the other three are the
   // standard approval tabs Fuel uses.
-  const [tab, setTab] = useState<ApprovalTab | 'To Authorize'>(canAuthorize ? 'To Authorize' : 'pending')
+  const [tab, setTab] = useState<TabKey>(canAuthorize ? 'To Authorize' : 'pending')
   const [rejectTarget, setRejectTarget] = useState<{ rows: any[] } | null>(null)
   const [bulkRejecting, setBulkRejecting] = useState(false)
   const [viewTrip, setViewTrip] = useState<any>(null)
@@ -118,6 +134,7 @@ export default function AdminApprovalsPage() {
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
   const [bulkApproving, setBulkApproving] = useState(false)
   const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const qc = useQueryClient()
   const navigate = useNavigate()
   const canReviseApproved = useCanReviseApproved()
@@ -200,18 +217,22 @@ export default function AdminApprovalsPage() {
     else runBulk(rows, 2, reason)
   }
 
-  const changeTab = (next: ApprovalTab | 'To Authorize') => { setTab(next); setSelectedTrips([]) }
+  const changeTab = (next: TabKey) => {
+    setTab(next); setSelectedTrips([]); setColFilters({})
+    setApplied(next === 'approved' ? { from: daysAgoISO(10), to: today } : { from: firstOfMonth, to: today })
+  }
 
   // Date-range filter + status filter
   const filtered = useMemo(() => {
     const statusMap: Record<string, number> = { approved: 1, rejected: 2 }
     return allTrips.filter((t) => {
       if (tab === 'To Authorize') { if (!needsAuthorization(t)) return false }
+      else if (tab === 'Authorized') { if (!isAuthorized(t)) return false }
       else if (tab === 'pending') { if (!awaitingApproval(t)) return false }
       else if (Number(t.admin_status) !== statusMap[tab]) return false
       // Everything still waiting for authorization is listed, whatever its
       // date, so no older trip is left out of sight behind the date range.
-      if (tab === 'To Authorize') return true
+      if (tab === 'To Authorize' || tab === 'Authorized') return true
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
       if (!d) return true
       if (applied.from && d < applied.from) return false
@@ -220,7 +241,16 @@ export default function AdminApprovalsPage() {
     })
   }, [allTrips, tab, applied])
 
+  // Debit / credit ledgers as lists, so the column filters see each ledger.
+  const rows = useMemo(() => filtered.map((t) => ({
+    ...t,
+    debit_ledger_name: ledgerLines(t, 'debit').map((l) => l.name),
+    credit_ledger_name: ledgerLines(t, 'credit').map((l) => l.name),
+    _debit: ledgerLines(t, 'debit'), _credit: ledgerLines(t, 'credit'),
+  })), [filtered])
+
   const pendingCount = allTrips.filter(awaitingApproval).length
+  const authorizedCount = allTrips.filter(isAuthorized).length
   const authorizeCount = allTrips.filter(needsAuthorization).length
   const approvedCount = allTrips.filter((t) => Number(t.admin_status) === 1).length
   const rejectedCount = allTrips.filter((t) => Number(t.admin_status) === 2).length
@@ -229,6 +259,18 @@ export default function AdminApprovalsPage() {
   const money = (v: unknown) => Number(v) ? <span className="text-sm font-semibold">{Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> : <span className="text-slate-300 text-xs">—</span>
   // Same columns, in the same order, as the Trip Records table on Trip Creation;
   // the money columns are picked out with a green header.
+  const authStage = tab === 'To Authorize' || tab === 'Authorized'
+  // Each ledger on its own line with its amount under the name.
+  const ledgerCell = (lines: { name: string; amount: number }[]) => !lines?.length ? <span className="text-slate-300">—</span> : (
+    <div className="space-y-1.5">
+      {lines.map((l, i) => (
+        <div key={i} className="leading-tight">
+          <div className="text-sm text-slate-800">{l.name}</div>
+          {l.amount > 0 && <div className="text-xs font-semibold text-slate-500">₹{l.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>}
+        </div>
+      ))}
+    </div>
+  )
   const buildCols = (): Column[] => [
     { label: 'Sl No', key: '_sl', align: 'center', render: (_v, _r, i) => i + 1 },
     {
@@ -251,15 +293,18 @@ export default function AdminApprovalsPage() {
     },
     { label: 'Bus No', key: 'bus_no', filterable: true, render: (v) => <span className="font-semibold">{String(v ?? '—')}</span> },
     { label: 'Service No', key: 'service_no', filterable: true, render: dash },
+    { label: 'Service For', key: 'trip_for', filterable: true, render: dash },
     { label: 'Up/Down', key: 'up_down', filterable: true, render: dash },
     { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v, r: any) => dash(v || r.opt_driver1_name) },
     { label: 'Driver 2', key: 'driver2_name', filterable: true, render: (v, r: any) => dash(v || r.opt_driver2_name) },
     { label: 'Helper', key: 'helper_name', filterable: true, render: (v, r: any) => dash(v || r.opt_helper_name) },
     { label: 'Conductor', key: 'conductor_name', filterable: true, render: dash },
     { label: 'Paid To', key: 'paid_to_name', filterable: true, render: dash },
-    { label: 'Amount', key: 'booking_amount', headerClassName: 'bg-emerald-600', render: (v, r: any) => money(v || r.total_amount) },
-    { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: dash },
-    { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: dash },
+    ...(authStage ? [] : [
+      { label: 'Amount', key: 'booking_amount', headerClassName: 'bg-emerald-600', render: (v: unknown, r: any) => money(v || r.total_amount) } as Column,
+      { label: 'Debit Ledger', key: 'debit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: (_v: unknown, r: any) => ledgerCell(r._debit) } as Column,
+      { label: 'Credit Ledger', key: 'credit_ledger_name', filterable: true, headerClassName: 'bg-emerald-600', render: (_v: unknown, r: any) => ledgerCell(r._credit) } as Column,
+    ]),
     { label: 'Remarks', key: 'remarks', render: (v) => <span className="text-xs text-slate-500 truncate max-w-[10rem] block">{String(v ?? '—')}</span> },
     ...(tab === 'rejected' ? [{ label: 'Reason', key: 'rejection_reason', render: (v: unknown) => v ? <span className="text-red-700 text-xs max-w-[220px] line-clamp-2 block">{String(v)}</span> : <span className="text-slate-300">—</span> } as Column] : []),
     {
@@ -271,12 +316,13 @@ export default function AdminApprovalsPage() {
               <ShieldCheck className="w-3.5 h-3.5" /> Authorize
             </Button>
           )}
-          {tab !== 'To Authorize' && (
-            <ApprovalRowActions tab={tab}
+          {!authStage && (
+            <ApprovalRowActions tab={tab as ApprovalTab}
               onView={() => setViewTrip(row)}
+              onEdit={Number(row.status) === 1 ? () => navigate(`/trips/expenses?edit=${encodeURIComponent(row.c_number)}`) : undefined}
               onApprove={() => onStatusChange(row, 1)} onReject={() => askReject([row])} onReopen={() => onStatusChange(row, 0)} />
           )}
-          {tab === 'To Authorize' && (
+          {authStage && (
             <button type="button" onClick={() => setViewTrip(row)} className="text-xs font-bold text-blue-600 hover:underline">View</button>
           )}
           {canReviseApproved && Number(row.status) === 1 && (
@@ -288,7 +334,10 @@ export default function AdminApprovalsPage() {
     },
   ]
 
-  const leadingTabs = canAuthorize ? [{ key: 'To Authorize', label: 'To Authorize', desc: 'Needs authorization', count: authorizeCount, Icon: ShieldCheck, color: 'text-teal-700', activeBg: 'bg-teal-50', activeBorder: 'border-teal-300' }] : []
+  const leadingTabs = [
+    ...(canAuthorize ? [{ key: 'To Authorize', label: 'To Authorize', desc: 'Needs authorization', count: authorizeCount, Icon: ShieldCheck, color: 'text-teal-700', activeBg: 'bg-teal-50', activeBorder: 'border-teal-300' }] : []),
+    ...(canAuthorize || authorizedCount > 0 ? [{ key: 'Authorized', label: 'Authorized', desc: 'Authorized, not yet approved', count: authorizedCount, Icon: CheckCircle, color: 'text-sky-700', activeBg: 'bg-sky-50', activeBorder: 'border-sky-300' }] : []),
+  ]
   const tabCounts = { pending: pendingCount, approved: approvedCount, rejected: rejectedCount }
 
   return (
@@ -297,8 +346,8 @@ export default function AdminApprovalsPage() {
 
       <ApprovalStatusTabs tab={tab} onChange={changeTab} counts={tabCounts} leading={leadingTabs} />
 
-      {/* Date filter */}
-      <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
+      {/* Date filter - the authorization tabs list everything, so it does not apply there */}
+      {!authStage && <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
         <div className="flex items-end gap-3 flex-wrap">
           <div>
             <Label>Date / Date range</Label>
@@ -309,13 +358,15 @@ export default function AdminApprovalsPage() {
             <Button variant="outline" onClick={() => setApplied({ from: '', to: '' })}>Clear dates</Button>
           )}
         </div>
-      </GlassCard>
+      </GlassCard>}
 
       {/* Table */}
       <DataTable
-        title={tab === 'To Authorize' ? `Trips To Authorize (${filtered.length})` : tab === 'pending' ? `Trips Awaiting Approval (${filtered.length})` : tab === 'approved' ? `Approved Trips (${filtered.length})` : `Rejected Trips (${filtered.length})`}
+        title={tab === 'To Authorize' ? `Trips To Authorize (${filtered.length})` : tab === 'Authorized' ? `Authorized Trips (${filtered.length})` : tab === 'pending' ? `Trips Awaiting Approval (${filtered.length})` : tab === 'approved' ? `Approved Trips (${filtered.length})` : `Rejected Trips (${filtered.length})`}
         columns={buildCols()}
-        data={filtered}
+        data={rows}
+        columnFilters={colFilters}
+        onColumnFilterChange={(key, vals) => setColFilters((f) => ({ ...f, [key]: vals }))}
         loading={isLoading}
         selectable={canApprove && tab === 'pending'}
         onSelectionChange={(rows) => setSelectedTrips(rows as any[])}
@@ -325,6 +376,7 @@ export default function AdminApprovalsPage() {
         ) : undefined}
         icon={
           tab === 'To Authorize' ? <ShieldCheck className="w-5 h-5 text-teal-500" />
+          : tab === 'Authorized' ? <CheckCircle className="w-5 h-5 text-sky-500" />
           : tab === 'pending' ? <Clock className="w-5 h-5 text-amber-500" />
           : tab === 'approved' ? <CheckCircle className="w-5 h-5 text-emerald-500" />
           : <XCircle className="w-5 h-5 text-red-500" />

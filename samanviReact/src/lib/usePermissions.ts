@@ -16,6 +16,10 @@ export function usePermissions(pathname?: string) {
     const voucherPath = ['/accounting/voucher', '/accounting/voucher-approvals', '/accounting/approved'].includes(path.toLowerCase().replace(/\/+$/, ''))
     const canAuthorize = roleId != null && [1, 2].includes(Number(roleId)) ? false : rights.canAuthorize
     const roleRights = { ...rights, canAuthorize }
+    // Super Admin can always edit, approve and reject on Trip Approvals, even when
+    // the menu grant for that screen carries no approve/edit flag.
+    const tripApprovalPath = path.toLowerCase().replace(/\/+$/, '') === '/trips/approvals'
+    if (tripApprovalPath && role && rights.canView) return { ...roleRights, canEdit: true, canApprove: true }
     return voucherPath && role ? { ...roleRights, canEdit: true } : roleRights
   }, [path, menu, role, roleId])
 }

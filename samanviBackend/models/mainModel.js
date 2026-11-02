@@ -5859,6 +5859,13 @@ exports.gettripceated1Mdl = function (callback) {
   END AS paid_to_name,
   vd.expensives AS debit_ledger_name,
   vc.expensives AS credit_ledger_name,
+  -- Every ledger line of the trip's voucher with its amount ('|' separated, in
+  -- the same order), so a voucher with several debit or credit ledgers shows
+  -- all of them and not only the first.
+  (SELECT GROUP_CONCAT(x.expensives ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Debit%' AND x.d_in = 0) AS debit_lines_names,
+  (SELECT GROUP_CONCAT(x.amount ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Debit%' AND x.d_in = 0) AS debit_lines_amounts,
+  (SELECT GROUP_CONCAT(x.expensives ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Credit%' AND x.d_in = 0) AS credit_lines_names,
+  (SELECT GROUP_CONCAT(x.amount ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Credit%' AND x.d_in = 0) AS credit_lines_amounts,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
   COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
