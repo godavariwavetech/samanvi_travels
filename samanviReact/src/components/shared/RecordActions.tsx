@@ -45,7 +45,7 @@ export function RecordActions({ module, reference, record, onClose, setHidden }:
   const [busy, setBusy] = useState(false)
 
   // A trip's authorization and expense state lives on the trip list.
-  const { data: trips } = useQuery({ queryKey: ['trips'], queryFn: () => tripsService.getTrips1(), enabled: module === 'Trip' })
+  const { data: trips } = useQuery({ queryKey: ['trips'], queryFn: () => tripsService.getTrips1(), enabled: module === 'Trip', staleTime: 0 })
   const row: any = module === 'Trip'
     ? ((trips?.data ?? []) as any[]).find((t) => String(t.c_number) === reference) ?? record
     : record

@@ -58,6 +58,8 @@ export default function AdminApprovalsPage() {
   const { data: tripData, isLoading } = useQuery({
     queryKey: ['trips'],
     queryFn: () => tripsService.getTrips1(),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   })
 
   const refreshAfterStatus = () => {

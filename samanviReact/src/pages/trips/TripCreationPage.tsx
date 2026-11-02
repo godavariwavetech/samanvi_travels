@@ -793,11 +793,17 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
             helper_paid_direct: editForm.helper_checked === '1' ? 1 : 0,
             conductor_paid_direct: editForm.conductor_checked === '1' ? 1 : 0 })
     },
-    onSuccess: (res: any) => {
+    onSuccess: async (res: any) => {
       if (res?.status === 200 || res?.status === undefined) {
         toast.success('Trip updated')
-        qc.invalidateQueries({ queryKey: ['trips'] })
+        // Wait for the list to refetch before closing: in the embedded edit
+        // (Trip Approvals, voucher/record modals) this component unmounts on
+        // close, and an un-awaited refetch was aborted with it - the table then
+        // kept the old row until a full page reload.
+        await qc.invalidateQueries({ queryKey: ['trips'], refetchType: 'all' }).catch(() => {})
         qc.invalidateQueries({ queryKey: ['trip-expenses'] })
+        qc.invalidateQueries({ queryKey: ['trip-updated-logs'] })
+        qc.invalidateQueries({ queryKey: ['trip-logs-count'] })
         setEditRow(null)
       } else toast.error(res?.msg ?? 'Failed to update trip')
     },
