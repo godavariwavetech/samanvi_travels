@@ -17,6 +17,7 @@ import {
   DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu,
   LedgerGroupTag, useLedgerGroupOf,
   DateRangePicker,
+  DateField,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -2376,7 +2377,7 @@ export default function RepairTrackingPage() {
                 {finishRepeat && (
                   <div className="mt-3 max-w-xs">
                     <Label>Next Job Date</Label>
-                    <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
+                    <DateField value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
                   </div>
                 )}
               </div>

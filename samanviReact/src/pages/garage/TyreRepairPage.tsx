@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Wrench, Save, Plus, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
@@ -137,7 +137,7 @@ export default function TyreRepairPage() {
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Wrench className="w-5 h-5 text-rose-500" /> New Repair Entry</h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div><Label>Repair Date</Label><Input type="date" max={today} value={form.repair_date} onChange={f('repair_date')} /></div>
+          <div><Label>Repair Date</Label><DateField max={today} value={form.repair_date} onChange={f('repair_date')} /></div>
           <div><Label>Bus No</Label>
             <SearchableSelect
               value={form.vehicle_number}

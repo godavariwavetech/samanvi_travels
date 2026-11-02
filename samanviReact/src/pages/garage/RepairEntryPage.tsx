@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu, DateField } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
@@ -350,7 +350,7 @@ export default function RepairEntryPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-6">
               <div>
                 <Label>Date <span className="text-red-500">*</span></Label>
-                <Input type="date" value={form.job_date} onChange={f('job_date')} className={fieldErr(form.job_date)} />
+                <DateField value={form.job_date} onChange={f('job_date')} className={fieldErr(form.job_date)} />
               </div>
               <div>
                 <Label>Vehicle Number <span className="text-red-500">*</span></Label>
@@ -623,7 +623,7 @@ export default function RepairEntryPage() {
                     {finishRepeat && (
                       <div className="mt-3 max-w-xs">
                         <Label>Next Job Date</Label>
-                        <Input type="date" value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
+                        <DateField value={finishRepeatDate} onChange={(e) => setFinishRepeatDate(e.target.value)} min={todayISO()} />
                       </div>
                     )}
                   </div>
@@ -940,7 +940,7 @@ export default function RepairEntryPage() {
                   {completeRepeat && (
                     <div className="mt-3 max-w-xs">
                       <Label>Next Job Date</Label>
-                      <Input type="date" value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={todayISO()} />
+                      <DateField value={completeRepeatDate} onChange={(e) => setCompleteRepeatDate(e.target.value)} min={todayISO()} />
                     </div>
                   )}
                 </div>

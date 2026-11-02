@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { BookOpen, Search, Save } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
 import { formatCurrency, formatDate, todayISO, formatAmount } from '@/lib/utils'
@@ -43,7 +43,7 @@ export default function BookingDataPage() {
 
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-blue-500 to-indigo-500">
         <div className="flex items-end gap-4">
-          <div className="flex-1"><Label>Travel Date</Label><Input type="date" max={today} value={travelDate} onChange={(e) => setTravelDate(e.target.value)} /></div>
+          <div className="flex-1"><Label>Travel Date</Label><DateField max={today} value={travelDate} onChange={(e) => setTravelDate(e.target.value)} /></div>
           <Button onClick={() => setSearchDate(travelDate)}><Search className="w-4 h-4" /> Fetch Bookings</Button>
         </div>
       </GlassCard>

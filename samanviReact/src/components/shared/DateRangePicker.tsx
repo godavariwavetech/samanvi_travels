@@ -14,7 +14,8 @@ interface DateRangePickerProps {
   className?: string
 }
 
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+// Weeks run Monday to Sunday.
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 const pad = (n: number) => String(n).padStart(2, '0')
 const toISO = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`
 const parts = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); return { y, m: m - 1, d } }
@@ -85,7 +86,7 @@ export function DateRangePicker({ from, to, onChange, min, max, single, classNam
   const goPrev = () => setView(v => v.m === 0 ? { y: v.y - 1, m: 11 } : { ...v, m: v.m - 1 })
   const goNext = () => setView(v => v.m === 11 ? { y: v.y + 1, m: 0 } : { ...v, m: v.m + 1 })
 
-  const firstWeekday = new Date(view.y, view.m, 1).getDay()
+  const firstWeekday = (new Date(view.y, view.m, 1).getDay() + 6) % 7
   const daysInMonth = new Date(view.y, view.m + 1, 0).getDate()
   const cells: (number | null)[] = [
     ...Array(firstWeekday).fill(null),

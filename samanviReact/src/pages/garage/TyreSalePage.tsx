@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { ShoppingCart, Save, Plus, MinusCircle, CheckSquare, Square } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
@@ -219,7 +219,7 @@ export default function TyreSalePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-5 pt-5 border-t border-slate-100">
-          <div><Label>Sale Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></div>
+          <div><Label>Sale Date <span className="text-red-500">*</span></Label><DateField max={today} value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></div>
           <div><Label>Remarks</Label><Input value={remarks} onChange={(e) => setRemarks(e.target.value)} /></div>
         </div>
 

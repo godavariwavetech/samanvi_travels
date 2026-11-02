@@ -177,6 +177,8 @@ export default function TripExpensesPage() {
   const qc = useQueryClient()
   // Approve / Reject is granted on Trip Approvals, not on this page.
   const { canApprove: canApproveTrips, canAuthorize: canAuthorizeTrips } = usePermissions('/trips/approvals')
+  // Filing an expense is its own grant (Roles & Permissions > Trips > Expense Creation).
+  const { canAdd: canCreateExpense } = usePermissions('/trips/expense-creation')
   const canReviseApproved = useCanReviseApproved()
 
   // Date-range filter (blank = show all pending/on-review trips)
@@ -879,6 +881,7 @@ export default function TripExpensesPage() {
   const closeModal = () => { rateRef.current = null; setModal({ mode: null, row: null }); setForm(emptyForm()); setDebitRows([emptyLedgerRow()]); setCreditRows([emptyLedgerRow()]); setResolvedLedgerIds({}); setPaidToOptedOut(false); setHireCreditSeeded(''); setVanOptingSeeded('') }
 
   const openAdd = async (row: any) => {
+    if (!canCreateExpense) { toast.error('You do not have the Expense Creation permission'); return }
     setModal({ mode: 'add', row })
     setLoadingModal(true)
     await ensureLedgers()

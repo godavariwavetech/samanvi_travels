@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { BatteryCharging, Save, Plus, X, Edit2, MinusCircle, History, Clock, Truck, ShoppingCart } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -247,7 +247,7 @@ export default function BatteryManagementPage() {
                     onReload={() => reloadBuses()}
                     reloading={loadingBuses}
                   /></div>
-                <div><Label>Install Date</Label><Input type="date" max={today} value={form.install_date} onChange={f('install_date')} /></div>
+                <div><Label>Install Date</Label><DateField max={today} value={form.install_date} onChange={f('install_date')} /></div>
 
                 <div><Label>Cost (₹)</Label><Input type="number" value={form.cost} onChange={f('cost')} /></div>
                 {isEdit && (

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DateRangePicker, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DateRangePicker, DualScrollTable, LedgerGroupTag, useLedgerGroupOf, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -583,7 +583,7 @@ function ELedgerDetailCard({
         <div>
           <Label>Value Date</Label>
           <div className="flex items-center gap-1">
-            <Input type="date" max={todayStr} value={item.valueDate} onChange={e => onChange({ valueDate: e.target.value })} onClick={e => (e.target as HTMLInputElement).showPicker?.()} />
+            <DateField max={todayStr} value={item.valueDate} onChange={e => onChange({ valueDate: e.target.value })} onClick={e => (e.target as HTMLInputElement).showPicker?.()} />
             {item.valueDate && <button type="button" onClick={() => onChange({ valueDate: '' })} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>}
           </div>
         </div>
@@ -632,7 +632,7 @@ import { useCanReviseApproved } from '@/lib/approvedEditors'
 // `viewRef` opens just that voucher's view (the bottom sheet, with its buttons)
 // over whatever page embeds this one - Trip Approvals uses it for a trip's
 // voucher. The list behind it stays hidden; `onViewClose` fires when the sheet closes.
-export default function VoucherApprovalsPage({ viewRef, onViewClose }: { viewRef?: string; onViewClose?: () => void } = {}) {
+export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound }: { viewRef?: string; onViewClose?: () => void; onNotFound?: () => void } = {}) {
   const embedded = !!viewRef
   const { canEdit, canApprove } = usePermissions(embedded ? '/accounting/voucher-approvals' : undefined)
   const canReviseApproved = useCanReviseApproved()
@@ -1224,6 +1224,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose }: { viewRef
     if (loadSearch) return
     const row = [...pending, ...approvedList, ...rejectedList].find((r: any) => String(r.c_number) === viewRef)
     if (row) { hadView.current = true; setViewModal(row) }
+    else if (onNotFound) { hadView.current = true; onNotFound() }
     else { hadView.current = true; toast.error(`Voucher ${viewRef} not found`); onViewClose?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewRef, loadSearch, searched])
@@ -1713,7 +1714,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose }: { viewRef
                       </div>
                       <div>
                         <Label>Voucher Date <span className="text-red-500">*</span></Label>
-                        <Input type="date" max={today} value={editForm.voucherdate}
+                        <DateField max={today} value={editForm.voucherdate}
                           onChange={e => setEditForm(f => ({ ...f, voucherdate: e.target.value }))} />
                       </div>
                     </div>

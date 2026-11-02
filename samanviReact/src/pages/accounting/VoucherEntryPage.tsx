@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CreditCard, Save, ChevronDown, Search, Plus, Trash2, X, CopyCheck, Pencil, Check, RefreshCw, History } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, LedgerGroupTag, useLedgerGroupOf, DateField } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { getCurrentFY, getFYList, type FinancialYear } from '@/lib/fy'
@@ -402,11 +402,10 @@ function LedgerDetailCard({
         <div>
           <Label>Value Date</Label>
           <div className="flex items-center gap-1">
-            <Input
-              type="date" max={today}
+            <DateField
+              max={today}
               value={item.valueDate}
               onChange={e => onChange({ valueDate: e.target.value })}
-              onClick={e => (e.target as HTMLInputElement).showPicker?.()}
             />
             {item.valueDate && (
               <button type="button" onClick={() => onChange({ valueDate: '' })}
@@ -913,20 +912,17 @@ export default function VoucherEntryPage() {
           </div>
           <div>
             <Label>Voucher Date <span className="text-red-500">*</span></Label>
-            <div className="relative">
-              <Input
-                type="date"
+            <div className="relative group">
+              <DateField
                 min={selectedFY.fromDate}
                 max={selectedFY.startYear === currentFY.startYear ? today : selectedFY.toDate}
                 value={form.voucherdate}
                 onChange={e => setForm(f => ({ ...f, voucherdate: e.target.value }))}
-                onClick={e => (e.target as HTMLInputElement).showPicker?.()}
-                className="peer"
               />
               {/* FY badge — appears only while the date input is focused */}
               <span className={`
                 absolute -top-6 right-0 text-[10px] font-bold px-2 py-0.5 rounded-full
-                opacity-0 peer-focus:opacity-100 transition-opacity pointer-events-none
+                opacity-0 group-focus-within:opacity-100 transition-opacity pointer-events-none
                 ${isWithinCurrentFY ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}
               `}>
                 {selectedFY.label} · {selectedFY.fromDate.slice(5, 7)}/{selectedFY.fromDate.slice(0, 4)} – {selectedFY.toDate.slice(5, 7)}/{selectedFY.toDate.slice(0, 4)}

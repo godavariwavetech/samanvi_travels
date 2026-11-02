@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { DollarSign, Save } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, TopNavTabs, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, TopNavTabs, PageHeader, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
 import { formatDate, todayISO, formatAmount } from '@/lib/utils'
@@ -55,7 +55,7 @@ export default function BookingExpensesPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
               <div><Label>Source Name *</Label><Input placeholder="e.g. Charter, Luggage etc." value={form.source_name} onChange={f('source_name')} /></div>
               <div><Label>Amount (₹)</Label><Input type="number" value={form.amount} onChange={f('amount')} /></div>
-              <div><Label>Date</Label><Input type="date" max={today} value={form.date} onChange={f('date')} /></div>
+              <div><Label>Date</Label><DateField max={today} value={form.date} onChange={f('date')} /></div>
               <div><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
             </div>
             {/* Submit sits under the fields, as on every other form. */}

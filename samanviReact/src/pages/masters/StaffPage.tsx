@@ -5,7 +5,7 @@ import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Upload, Download
 import ChangeNote from '@/components/shared/ChangeNote'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal, DateField } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -117,7 +117,7 @@ function TerminateModal({ person, staffType, onConfirm, onClose, isPending }: {
         <div className="space-y-4">
           <div>
             <Label>Date of Leaving <span className="text-red-500">*</span></Label>
-            <Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} />
+            <DateField max={today} value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div>
             <Label>Reason for Termination <span className="text-red-500">*</span></Label>
@@ -1005,11 +1005,11 @@ export default function StaffPage() {
                   <SectionBox title="Personal Details">
                     <div><Label>Aadhar Name <span className="text-red-500">*</span></Label><Input value={driverForm.nickname} onChange={df('nickname')} /></div>
                     <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={driverForm.aadhar_number} onChange={digitsOnly(setDriverForm, 'aadhar_number', 12)} /></div>
-                    <div><Label>Date of Birth</Label><Input type="date" max={today} value={driverForm.dldateofbirth} onChange={df('dldateofbirth')} /></div>
+                    <div><Label>Date of Birth</Label><DateField max={today} value={driverForm.dldateofbirth} onChange={df('dldateofbirth')} /></div>
                     <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={driverForm.mobile_number} onChange={digitsOnly(setDriverForm, 'mobile_number', 10)} /></div>
                     <div><Label>Alternate Mobile</Label><Input inputMode="numeric" maxLength={10} value={driverForm.alternate_number} onChange={digitsOnly(setDriverForm, 'alternate_number', 10)} /></div>
                     <div><Label>Emergency Number</Label><Input inputMode="numeric" maxLength={10} value={driverForm.emergency_mobile_number} onChange={digitsOnly(setDriverForm, 'emergency_mobile_number', 10)} /></div>
-                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.date_of_joining} onChange={df('date_of_joining')} /></div>
+                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><DateField max={today} value={driverForm.date_of_joining} onChange={df('date_of_joining')} /></div>
                     <div><Label>Referred By</Label><Input value={driverForm.reference} onChange={df('reference')} /></div>
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={driverForm.address} onChange={df('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
@@ -1021,14 +1021,14 @@ export default function StaffPage() {
                   <SectionBox title="DL Details">
                     <div><Label>DL Name <span className="text-red-500">*</span></Label><Input value={driverForm.driver_name} onChange={df('driver_name')} /></div>
                     <div><Label>DL Number <span className="text-red-500">*</span></Label><Input value={driverForm.dl_number} onChange={df('dl_number')} /></div>
-                    <div><Label>DL Date of Birth</Label><Input type="date" max={today} value={driverForm.dl_dob} onChange={df('dl_dob')} /></div>
+                    <div><Label>DL Date of Birth</Label><DateField max={today} value={driverForm.dl_dob} onChange={df('dl_dob')} /></div>
                     <div><Label>DL Linked Mobile Number</Label><Input inputMode="numeric" maxLength={10} value={driverForm.dl_linked_mobile} onChange={digitsOnly(setDriverForm, 'dl_linked_mobile', 10)} /></div>
-                    <div><Label>DL Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.drivinglicense_joining_date} onChange={df('drivinglicense_joining_date')} /></div>
+                    <div><Label>DL Issue Date <span className="text-red-500">*</span></Label><DateField max={today} value={driverForm.drivinglicense_joining_date} onChange={df('drivinglicense_joining_date')} /></div>
                     <div><Label>DL Issued By</Label><Input value={driverForm.dl_issued_by} onChange={df('dl_issued_by')} /></div>
-                    <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
-                    <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
-                    <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><Input type="date" max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
-                    <div><Label>Transport Valid To <span className="text-red-500">*</span></Label><Input type="date" value={driverForm.transportvalidityto} onChange={df('transportvalidityto')} /></div>
+                    <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><DateField value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
+                    <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><DateField max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
+                    <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><DateField max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
+                    <div><Label>Transport Valid To <span className="text-red-500">*</span></Label><DateField value={driverForm.transportvalidityto} onChange={df('transportvalidityto')} /></div>
                     <ImageUploadField label="DL Front" value={driverImages.dlfront} existingUrl={editingDriverRow?.dl_front} onChange={(v) => setDriverImages((s) => ({ ...s, dlfront: v }))} />
                     <ImageUploadField label="DL Back" value={driverImages.dlback} existingUrl={editingDriverRow?.dl_back} onChange={(v) => setDriverImages((s) => ({ ...s, dlback: v }))} />
                   </SectionBox>
@@ -1060,11 +1060,11 @@ export default function StaffPage() {
                   <SectionBox title="Personal Details">
                     <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={staffForm.fullName} onChange={sf('fullName')} /></div>
                     <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={staffForm.aadhaar} onChange={digitsOnly(setStaffForm, 'aadhaar', 12)} /></div>
-                    <div><Label>Date of Birth</Label><Input type="date" max={today} value={staffForm.dob} onChange={sf('dob')} /></div>
+                    <div><Label>Date of Birth</Label><DateField max={today} value={staffForm.dob} onChange={sf('dob')} /></div>
                     <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={staffForm.mobile} onChange={digitsOnly(setStaffForm, 'mobile', 10)} /></div>
                     <div><Label>Alternative Mobile</Label><Input inputMode="numeric" maxLength={10} value={staffForm.alternativemobilenumber} onChange={digitsOnly(setStaffForm, 'alternativemobilenumber', 10)} /></div>
                     <div><Label>Emergency Contact</Label><Input inputMode="numeric" maxLength={10} value={staffForm.emergencyContact} onChange={digitsOnly(setStaffForm, 'emergencyContact', 10)} /></div>
-                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={staffForm.dateOfJoining} onChange={sf('dateOfJoining')} /></div>
+                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><DateField max={today} value={staffForm.dateOfJoining} onChange={sf('dateOfJoining')} /></div>
                     <div><Label>Referred By</Label><Input value={staffForm.referencename} onChange={sf('referencename')} /></div>
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={staffForm.address} onChange={sf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
@@ -1095,11 +1095,11 @@ export default function StaffPage() {
                   <SectionBox title="Personal Details">
                     <div><Label>Aadhar Name (Full Name) <span className="text-red-500">*</span></Label><Input value={helperForm.helper_name} onChange={hf('helper_name')} /></div>
                     <div><Label>Aadhar Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={12} value={helperForm.adhar_number} onChange={digitsOnly(setHelperForm, 'adhar_number', 12)} /></div>
-                    <div><Label>Date of Birth</Label><Input type="date" max={today} value={helperForm.dob} onChange={hf('dob')} /></div>
+                    <div><Label>Date of Birth</Label><DateField max={today} value={helperForm.dob} onChange={hf('dob')} /></div>
                     <div><Label>Mobile Number <span className="text-red-500">*</span></Label><Input inputMode="numeric" maxLength={10} value={helperForm.mobile_number} onChange={digitsOnly(setHelperForm, 'mobile_number', 10)} /></div>
                     <div><Label>Alternate Number</Label><Input inputMode="numeric" maxLength={10} value={helperForm.alternate_number} onChange={digitsOnly(setHelperForm, 'alternate_number', 10)} /></div>
                     <div><Label>Emergency Mobile</Label><Input inputMode="numeric" maxLength={10} value={helperForm.emergency_mobile_number} onChange={digitsOnly(setHelperForm, 'emergency_mobile_number', 10)} /></div>
-                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><Input type="date" max={today} value={helperForm.date_of_joining} onChange={hf('date_of_joining')} /></div>
+                    <div><Label>Date of Joining <span className="text-red-500">*</span></Label><DateField max={today} value={helperForm.date_of_joining} onChange={hf('date_of_joining')} /></div>
                     <div><Label>Reference <span className="text-red-500">*</span></Label><Input value={helperForm.reference} onChange={hf('reference')} /></div>
                     <div className="md:col-span-3"><Label>Address</Label>
                       <textarea rows={2} value={helperForm.address} onChange={hf('address')} placeholder="Residential address…" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />

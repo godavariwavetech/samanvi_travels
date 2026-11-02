@@ -45,6 +45,7 @@ export const PATH_ACCESS: Record<string, AccessRule> = {
 
   '/trips/creation': { subs: [34] },
   '/trips/expenses': { subs: [35] },
+  '/trips/expense-creation': { subs: [213] },
   '/trips/approvals': { module: M.trips },
   '/trips/reports': { subs: [41] },
   '/trips/deleted': { subs: [59] },

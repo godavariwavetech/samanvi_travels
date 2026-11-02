@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { LayoutGrid, Save, Plus, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -249,7 +249,7 @@ export default function TyrePositionPage() {
               onReload={() => reloadTyres()}
               reloading={loadingTyres}
             /></div>
-          <div><Label>Select Date</Label><Input type="date" max={today} value={form.fitted_date} onChange={f('fitted_date')} /></div>
+          <div><Label>Select Date</Label><DateField max={today} value={form.fitted_date} onChange={f('fitted_date')} /></div>
           <div><Label>Bus No *</Label>
             <SearchableSelect
               value={form.vehicle_number}

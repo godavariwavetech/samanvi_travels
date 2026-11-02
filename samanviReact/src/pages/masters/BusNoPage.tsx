@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Bus, Save, Plus, X, Edit2, Upload, Download, History, Clock, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect, FormModal } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect, FormModal, DateField } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -38,7 +38,7 @@ function ServiceOutModal({ bus, onConfirm, onClose, isPending }: {
         <div className="space-y-4">
           <div>
             <Label>Date <span className="text-red-500">*</span></Label>
-            <Input type="date" max={today} value={date} onChange={(e) => setDate(e.target.value)} />
+            <DateField max={today} value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div>
             <Label>Description <span className="text-red-500">*</span></Label>
@@ -737,29 +737,29 @@ export default function BusNoPage() {
                   <div><Label>Chassis Number</Label>
                     <Input placeholder="Enter Chassis Number" value={normalForm.chassis_no} onChange={setN('chassis_no')} /></div>
                   <div><Label>Purchase Date</Label>
-                    <Input type="date" max={today} value={normalForm.date_of_purchase} onChange={setN('date_of_purchase')} /></div>
+                    <DateField max={today} value={normalForm.date_of_purchase} onChange={setN('date_of_purchase')} /></div>
                   <div><Label>Vehicle / Register Number <span className="text-red-500">*</span></Label>
                     <Input placeholder="Enter Register Number" value={normalForm.bus_no} onChange={setN('bus_no')} /></div>
                   <div><Label>Odometer <span className="text-red-500">*</span></Label>
                     <Input placeholder="Enter Odometer Reading" type="number" value={normalForm.odometer} onChange={setN('odometer')} /></div>
                   <div><Label>Registration Date</Label>
-                    <Input type="date" max={today} value={normalForm.reg_date} onChange={setN('reg_date')} /></div>
+                    <DateField max={today} value={normalForm.reg_date} onChange={setN('reg_date')} /></div>
                   <div><Label>Fitness Validity <span className="text-red-500">*</span></Label>
-                    <Input type="date" value={normalForm.fc_validity} onChange={setN('fc_validity')} /></div>
+                    <DateField value={normalForm.fc_validity} onChange={setN('fc_validity')} /></div>
                   <div><Label>Home Tax Validity <span className="text-red-500">*</span></Label>
-                    <Input type="date" value={normalForm.home_tax_validity} onChange={setN('home_tax_validity')} /></div>
+                    <DateField value={normalForm.home_tax_validity} onChange={setN('home_tax_validity')} /></div>
                   <div><Label>Insurance Validity <span className="text-red-500">*</span></Label>
-                    <Input type="date" value={normalForm.insurance_validity} onChange={setN('insurance_validity')} /></div>
+                    <DateField value={normalForm.insurance_validity} onChange={setN('insurance_validity')} /></div>
                   <div><Label>PUCC Validity <span className="text-red-500">*</span></Label>
-                    <Input type="date" value={normalForm.pollution_validity} onChange={setN('pollution_validity')} /></div>
+                    <DateField value={normalForm.pollution_validity} onChange={setN('pollution_validity')} /></div>
                   <div><Label>Permit Validity <span className="text-red-500">*</span></Label>
-                    <Input type="date" value={normalForm.base_point_validity} onChange={setN('base_point_validity')} /></div>
+                    <DateField value={normalForm.base_point_validity} onChange={setN('base_point_validity')} /></div>
                   <div><Label>AITP Validity</Label>
-                    <Input type="date" value={normalForm.atp_validity} onChange={setN('atp_validity')} /></div>
+                    <DateField value={normalForm.atp_validity} onChange={setN('atp_validity')} /></div>
                   <div><Label>Authorization Validity</Label>
-                    <Input type="date" value={normalForm.atp_authentication_validity} onChange={setN('atp_authentication_validity')} /></div>
+                    <DateField value={normalForm.atp_authentication_validity} onChange={setN('atp_authentication_validity')} /></div>
                   <div><Label>Service Out Date</Label>
-                    <Input type="date" max={today} value={normalForm.service_out_date} onChange={setN('service_out_date')} /></div>
+                    <DateField max={today} value={normalForm.service_out_date} onChange={setN('service_out_date')} /></div>
                   <div><Label>Owner Name</Label>
                     <Input placeholder="Owner name" value={normalForm.ownername} onChange={setN('ownername')} /></div>
                   <div className="md:col-span-3"><Label>Remarks</Label>

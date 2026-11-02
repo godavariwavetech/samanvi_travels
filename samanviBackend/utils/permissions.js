@@ -106,7 +106,8 @@ const API_PERMISSIONS = {
   '/deletelaundrybill': [{ subs: [43] }, 'delete'],
   '/tripcreated': [{ subs: [34] }, 'add'],
   '/deletetripcreated': [{ subs: [34] }, 'delete'],
-  '/addexpensesdetails': [{ subs: [35] }, 'add'],
+  // Filing an expense needs the separate Expense Creation grant (sub-module 213).
+  '/addexpensesdetails': [{ subs: [213] }, 'add'],
   '/updateexpensesdetails': [{ subs: [35] }, 'edit'],
   '/deleteexpense': [{ subs: [35] }, 'delete'],
   '/addrepairentry': [{ subs: [62] }, 'add'],

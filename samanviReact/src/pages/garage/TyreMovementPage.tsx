@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { ArrowLeftRight, Save, Truck, Warehouse } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
@@ -254,7 +254,7 @@ export default function TyreMovementPage() {
                   /></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Odometer</Label><Input type="number" placeholder="km" value={form.odometer} onChange={f('odometer')} /></div>
-                  <div><Label>Date</Label><Input type="date" max={today} value={form.move_date} onChange={f('move_date')} /></div>
+                  <div><Label>Date</Label><DateField max={today} value={form.move_date} onChange={f('move_date')} /></div>
                 </div>
                 <div><Label>Reason</Label><Input placeholder="e.g. Rotation, Puncture" value={form.reason} onChange={f('reason')} /></div>
               </>
@@ -270,7 +270,7 @@ export default function TyreMovementPage() {
                     onReload={() => reloadLedgers()}
                     reloading={loadingLedgers}
                   /></div>
-                <div><Label>Date</Label><Input type="date" max={today} value={form.move_date} onChange={f('move_date')} /></div>
+                <div><Label>Date</Label><DateField max={today} value={form.move_date} onChange={f('move_date')} /></div>
                 <div><Label>Reason</Label><Input placeholder="e.g. Worn out, Damaged" value={form.reason} onChange={f('reason')} /></div>
               </>
             )}

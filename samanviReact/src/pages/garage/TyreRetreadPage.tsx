@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Recycle, Save, Plus, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { accountingService } from '@/services/accounting.service'
@@ -142,7 +142,7 @@ export function TyreRetreadPanel() {
               onReload={() => reloadTyres()}
               reloading={loadingTyres}
             /></div>
-          <div><Label>Retread Date</Label><Input type="date" max={today} value={form.retread_date} onChange={f('retread_date')} /></div>
+          <div><Label>Retread Date</Label><DateField max={today} value={form.retread_date} onChange={f('retread_date')} /></div>
           <div><Label>Retread Cost (₹)</Label><Input type="number" placeholder="0" value={form.cost} onChange={handleCostChange} /></div>
           <div className="md:col-span-3"><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
         </div>

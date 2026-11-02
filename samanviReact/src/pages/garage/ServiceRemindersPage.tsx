@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { BellRing, Save, Plus, X, Edit2, CheckCircle, ChevronDown, Sparkles, Wrench } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -498,7 +498,7 @@ export default function ServiceRemindersPage() {
                 </div>
                 {isEdit && (
                   <>
-                    <div><Label>Due Date</Label><Input type="date" value={form.due_date} onChange={f('due_date')} /></div>
+                    <div><Label>Due Date</Label><DateField value={form.due_date} onChange={f('due_date')} /></div>
                     <div><Label>Due Odometer</Label><Input type="number" placeholder="km" value={form.due_odometer} onChange={f('due_odometer')} /></div>
                     <div><Label>Last Done Odometer</Label><Input type="number" placeholder="km" value={form.last_done_odometer} onChange={f('last_done_odometer')} /></div>
                     <div className="md:col-span-3"><Label>Remarks</Label><Input value={form.remarks} onChange={f('remarks')} /></div>
@@ -524,7 +524,7 @@ export default function ServiceRemindersPage() {
                           {matchedSchedule && <div className="text-xs text-teal-600">km from {selectedBusCompany} schedule</div>}
                         </div>
                         <div><Label className="text-xs">Due Date</Label>
-                          <Input type="date" value={row.due_date} onChange={(e) => updateTypeRow(type, 'due_date', e.target.value)} /></div>
+                          <DateField value={row.due_date} onChange={(e) => updateTypeRow(type, 'due_date', e.target.value)} /></div>
                         <div><Label className="text-xs">Due Odometer</Label>
                           <Input type="number" placeholder="km" value={row.due_odometer} onChange={(e) => updateTypeRow(type, 'due_odometer', e.target.value)} /></div>
                         <div><Label className="text-xs">Last Done Odometer</Label>
@@ -572,7 +572,7 @@ export default function ServiceRemindersPage() {
                                   <div className="text-xs text-slate-400">every {s.km_interval} km</div>
                                 </div>
                                 <div><Label className="text-xs">Due Date</Label>
-                                  <Input type="date" value={row.due_date} onChange={(e) => updateScheduleRow(s.id, 'due_date', e.target.value)} /></div>
+                                  <DateField value={row.due_date} onChange={(e) => updateScheduleRow(s.id, 'due_date', e.target.value)} /></div>
                                 <div><Label className="text-xs">Due Odometer</Label>
                                   <Input type="number" placeholder="km" value={row.due_odometer} onChange={(e) => updateScheduleRow(s.id, 'due_odometer', e.target.value)} /></div>
                                 <div><Label className="text-xs">Last Done Odometer</Label>
@@ -684,7 +684,7 @@ export default function ServiceRemindersPage() {
                     {jobCardModal.reminder?.vehicle_number}
                   </div></div>
                 <div><Label>Job Date</Label>
-                  <Input type="date" value={jobCardForm.job_date} onChange={(e) => setJobCardForm((s) => ({ ...s, job_date: e.target.value }))} /></div>
+                  <DateField value={jobCardForm.job_date} onChange={(e) => setJobCardForm((s) => ({ ...s, job_date: e.target.value }))} /></div>
                 <div><Label>Odometer</Label>
                   <Input type="number" placeholder="km" value={jobCardForm.odometer} onChange={(e) => setJobCardForm((s) => ({ ...s, odometer: e.target.value }))} /></div>
                 <div><Label>Reported By (Driver) <span className="text-red-500">*</span></Label>

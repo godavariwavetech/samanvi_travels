@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf, DateField } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { mastersService } from '@/services/masters.service'
@@ -178,7 +178,7 @@ function BillForm({
           </div>
           <div>
             <Label>Bill Date <Req /></Label>
-            <Input type="date" max={today} value={form.voucherdate}
+            <DateField max={today} value={form.voucherdate}
               onChange={(e) => setForm({ ...form, voucherdate: e.target.value })} />
           </div>
           <div>

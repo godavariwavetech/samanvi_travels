@@ -281,6 +281,24 @@ function ensureColumn(table, column, ddl) {
         });
     })(0);
 })();
+// Expense Creation is its own grantable item under Trips (sub-module 213): only
+// users granted it can file a trip's expense. It starts with exactly the people
+// who could add on Trip Expenses (35), so nobody who files today loses the screen.
+(function ensureExpenseCreationModule() {
+    var steps = [
+        "INSERT INTO sub_modules (id, title, path, module_id, module_order, d_in) SELECT 213, 'Expense Creation', '/trips/expense-creation', 18, 7, 0 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sub_modules WHERE id = 213)",
+        "INSERT INTO app_role_permissions (role_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, can_approve, can_authorize) SELECT o.role_id, 18, 213, o.can_add, 0, 0, o.can_add, 0, 0 FROM app_role_permissions o WHERE o.sub_module_id = 35 AND o.can_add = 1 AND NOT EXISTS (SELECT 1 FROM app_role_permissions n WHERE n.role_id = o.role_id AND n.sub_module_id = 213)",
+        "INSERT INTO app_user_permission_overrides (user_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, can_approve, can_authorize) SELECT o.user_id, 18, 213, o.can_add, 0, 0, o.can_add, 0, 0 FROM app_user_permission_overrides o WHERE o.sub_module_id = 35 AND o.can_add = 1 AND NOT EXISTS (SELECT 1 FROM app_user_permission_overrides n WHERE n.user_id = o.user_id AND n.sub_module_id = 213)",
+        "INSERT INTO permissions (user_id, module_id, sub_module_id, can_add, can_edit, can_delete, can_view, entry_by, d_in, can_approve, can_authorize) SELECT o.user_id, 18, 213, o.can_add, 0, 0, o.can_add, o.entry_by, o.d_in, 0, 0 FROM permissions o WHERE o.sub_module_id = 35 AND o.can_add = 1 AND o.d_in = 0 AND NOT EXISTS (SELECT 1 FROM permissions n WHERE n.user_id = o.user_id AND n.sub_module_id = 213)"
+    ];
+    (function run(i) {
+        if (i >= steps.length) return;
+        sqldb_init.query(steps[i], function (err) {
+            if (err) console.error('Expense Creation module migration step ' + i + ':', err.message);
+            run(i + 1);
+        });
+    })(0);
+})();
 ensureColumn('mainvoucher_t', 'is_payable', '`is_payable` tinyint(1) NOT NULL DEFAULT 0');
 ensureColumn('mainvoucher_subt', 'payables_settled_by', '`payables_settled_by` varchar(50) DEFAULT NULL');
 ensureColumn('tyre_master', 'serial_no', '`serial_no` VARCHAR(100) NULL');

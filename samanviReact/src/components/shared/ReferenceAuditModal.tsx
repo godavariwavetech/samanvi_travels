@@ -1,10 +1,14 @@
-import { useEffect, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'motion/react'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen, CheckCircle2, CreditCard, History, RefreshCw, X } from 'lucide-react'
 import api from '@/lib/api'
 import { formatAuditDate } from '@/lib/auditDate'
+import { RecordActions, ACTION_MODULES } from './RecordActions'
+
+// A voucher opens as the full Voucher Approvals view (all its tools), over the page it was clicked on.
+const VoucherApprovalsPage = lazy(() => import('@/pages/accounting/VoucherApprovalsPage'))
 
 const TRIP_FIELDS: Array<[string, string]> = [
   ['trip_date', 'Trip Date'], ['trip_for', 'Trip For'], ['vehicle_type', 'Vehicle Type'], ['bus_no', 'Bus / Van'],
@@ -102,6 +106,8 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
     return () => document.removeEventListener('keydown', escape)
   }, [onClose])
 
+  const [hidden, setHidden] = useState(false)
+  const [voucherMissing, setVoucherMissing] = useState(false)
   const record = data?.report?.record ?? initialRecord ?? null
   const ledger: any[] = data?.report?.ledger ?? []
   const title = data?.module || moduleLabel || 'Record Details'
@@ -116,10 +122,23 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
   const hasSides = ledger.some(row => row.account_type || row.amount_type || row.debit_amount != null || row.credit_amount != null)
   const balanced = hasSides && Math.abs(debitTotal - creditTotal) < 0.01
   const ledgerTitle = title === 'Voucher' ? 'Journal Entry' : 'Transaction Entries'
+  // Every Trip / Fuel / Laundry record gets its module's actions unless the page supplied its own.
+  const actions = footerActions ?? (data?.module && ACTION_MODULES.includes(data.module) && record
+    ? <RecordActions module={data.module} reference={reference} record={record} onClose={onClose} setHidden={setHidden} />
+    : undefined)
+
+  if (data?.module === 'Voucher' && !footerActions && !voucherMissing) {
+    return createPortal(
+      <Suspense fallback={null}>
+        <VoucherApprovalsPage viewRef={reference} onViewClose={onClose} onNotFound={() => setVoucherMissing(true)} />
+      </Suspense>,
+      document.body,
+    )
+  }
 
   return createPortal(
     // The same bottom sheet Voucher Approvals uses, so every record view looks and works alike.
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm ${hidden ? 'hidden' : ''}`} onClick={onClose}>
       <motion.section initial={{ y: '100%' }} animate={{ y: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
         role="dialog" aria-modal="true" aria-label={`${title} details for ${reference}`} className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
         <header className="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-r from-purple-500 to-violet-600 p-5 text-white">
@@ -205,7 +224,7 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
 
         <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 bg-white px-6 py-4">
           <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Close</button>
-          {footerActions && <div className="flex flex-wrap items-center justify-end gap-2">{footerActions}</div>}
+          {actions && <div className="flex flex-wrap items-center justify-end gap-2">{actions}</div>}
         </footer>
       </motion.section>
     </motion.div>,

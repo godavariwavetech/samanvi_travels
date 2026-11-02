@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf, DateField } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelTotalItems, FuelTotalsCards } from './fuelTotals'
 import { fuelService } from '@/services/fuel.service'
@@ -142,9 +142,9 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
         <h4 className="text-sm font-bold text-slate-700 mb-3">Vehicle & Odometer</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div><Label>Date <Req /></Label>
-            <Input type="date" max={today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
+            <DateField max={today} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
           <div><Label>Value Date <Req /></Label>
-            <Input type="date" max={today} value={form.valueDate} onChange={(e) => setForm({ ...form, valueDate: e.target.value })} /></div>
+            <DateField max={today} value={form.valueDate} onChange={(e) => setForm({ ...form, valueDate: e.target.value })} /></div>
           <div><Label>Vehicle Number <Req /></Label>
             <SearchableSelect placeholder="Select Vehicle"
               options={buses.map((b) => ({ value: b.bus_no, label: b.bus_no }))}
@@ -214,8 +214,11 @@ export function FuelForm({ form, setForm, buses, ledgers }: {
   )
 }
 
-export default function FuelEntryPage() {
-  const { canAdd, canEdit, canDelete, canApprove } = usePermissions()
+// `editRef` opens just that entry's edit form (no list behind it) for the record
+// modal's Edit button on other screens; `onEditClose` fires when it closes.
+export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: string; onEditClose?: () => void } = {}) {
+  const embedded = !!editRef
+  const { canAdd, canEdit, canDelete, canApprove } = usePermissions(embedded ? '/fuel/entry' : undefined)
   const canReviseApproved = useCanReviseApproved()
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
@@ -473,10 +476,27 @@ export default function FuelEntryPage() {
   const totalRows = visibleIds ? shownEntries.filter((r) => visibleIds.has(String(r.id))) : shownEntries
   const totalItems = fuelTotalItems(totalRows)  // Column filters are scoped to the open tab, as on Voucher Approvals -
   // carrying them over made the next tab look stuck or empty.
+  const editOpened = useRef(false)
+  const editSeen = useRef(false)
+  useEffect(() => {
+    if (!editRef || editOpened.current || isLoading) return
+    const row = entryList.find((r) => String(r.c_number) === editRef)
+    editOpened.current = true
+    if (row) onEdit(row)
+    else { toast.error(`Entry ${editRef} not found`); onEditClose?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRef, isLoading, entries])
+  useEffect(() => {
+    if (editForm) { editSeen.current = true; return }
+    if (embedded && editSeen.current) { editSeen.current = false; onEditClose?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editForm])
+
   const changeTab = (t: ApprovalTab) => { setTab(t); setColumnFilters({}); setSelectedRows([]) }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <div className={embedded ? 'hidden' : 'space-y-6'}>
       <PageHeader title="Fuel Entry" subtitle="Record daily fuel fills for each vehicle" />
 
       <div className="flex justify-end">
@@ -555,6 +575,8 @@ export default function FuelEntryPage() {
         subject={rejectTarget && rejectTarget.rows.length === 1
           ? `Fuel entry ${String(rejectTarget.rows[0].c_number ?? '')}`
           : `Rejecting ${rejectTarget?.rows.length ?? 0} fuel entries`} />
+
+      </div>
 
       {/* View modal */}
       <AnimatePresence>

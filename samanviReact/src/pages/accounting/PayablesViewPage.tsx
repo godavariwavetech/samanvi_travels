@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker, DateField } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -2078,12 +2078,12 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                 </div>
                 <div>
                   <Label>Voucher Date <span className="text-red-500">*</span></Label>
-                  <Input type="date" min={fyMin} max={fyMax} value={voucherForm.voucherdate}
+                  <DateField min={fyMin} max={fyMax} value={voucherForm.voucherdate}
                     onChange={e => setVoucherForm(f => ({ ...f, voucherdate: e.target.value }))} />
                 </div>
                 <div>
                   <Label>Value Date</Label>
-                  <Input type="date" min={fyMin} max={fyMax} value={voucherForm.valueDate}
+                  <DateField min={fyMin} max={fyMax} value={voucherForm.valueDate}
                     onChange={e => setVoucherForm(f => ({ ...f, valueDate: e.target.value }))} />
                 </div>
                 <div>
