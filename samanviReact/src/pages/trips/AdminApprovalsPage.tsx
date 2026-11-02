@@ -10,6 +10,7 @@ import type { Column, ApprovalTab } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
 import ReferenceAuditModal from '@/components/shared/ReferenceAuditModal'
+import VoucherApprovalsPage from '@/pages/accounting/VoucherApprovalsPage'
 import TripCreationPage from './TripCreationPage'
 import { needsAuthorization, awaitingApproval } from '@/lib/tripAuthorization'
 
@@ -307,7 +308,11 @@ export default function AdminApprovalsPage() {
       {/* View modal */}
       {/* The trip's full record (trip, filed expense, ledger entries, activity) with
           the stage's actions in its footer; the Ref ID and the eye open the same view. */}
-      {viewTrip && (
+      {viewTrip && viewTrip.voucher_number && (
+        <VoucherApprovalsPage viewRef={String(viewTrip.voucher_number)}
+          onViewClose={() => { setViewTrip(null); refreshAfterStatus(); qc.invalidateQueries({ queryKey: ['voucher-search'] }) }} />
+      )}
+      {viewTrip && !viewTrip.voucher_number && (
         <ReferenceAuditModal reference={String(viewTrip.c_number ?? '')} initialRecord={viewTrip} moduleLabel="Trip"
           onClose={() => setViewTrip(null)}
           footerActions={

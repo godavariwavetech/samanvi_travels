@@ -629,8 +629,12 @@ import ActivityHistory from '@/components/shared/ActivityHistory'
 import { PayablesPopup } from './PayablesPopup'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 
-export default function VoucherApprovalsPage() {
-  const { canEdit, canApprove } = usePermissions()
+// `viewRef` opens just that voucher's view (the bottom sheet, with its buttons)
+// over whatever page embeds this one - Trip Approvals uses it for a trip's
+// voucher. The list behind it stays hidden; `onViewClose` fires when the sheet closes.
+export default function VoucherApprovalsPage({ viewRef, onViewClose }: { viewRef?: string; onViewClose?: () => void } = {}) {
+  const embedded = !!viewRef
+  const { canEdit, canApprove } = usePermissions(embedded ? '/accounting/voucher-approvals' : undefined)
   const canReviseApproved = useCanReviseApproved()
   const canEditVoucher = canEdit || canReviseApproved
   const jobPermissions = usePermissions('/garage/tracking')
@@ -1211,6 +1215,23 @@ export default function VoucherApprovalsPage() {
   const approvedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 1))
   const rejectedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 2))
 
+  // Embedded: open the requested voucher once the lists have loaded, and report
+  // when the sheet is closed again.
+  const hadView = useRef(false)
+  useEffect(() => {
+    if (!viewRef || viewModal) return
+    if (hadView.current) return
+    if (loadSearch) return
+    const row = [...pending, ...approvedList, ...rejectedList].find((r: any) => String(r.c_number) === viewRef)
+    if (row) { hadView.current = true; setViewModal(row) }
+    else { hadView.current = true; toast.error(`Voucher ${viewRef} not found`); onViewClose?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewRef, loadSearch, searched])
+  useEffect(() => {
+    if (embedded && hadView.current && !viewModal && !loadSearch) onViewClose?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewModal])
+
   const getList = () => tab === 'Pending Approval' ? pending : tab === 'Approved' ? approvedList : rejectedList
   const getMode = () => tab === 'Pending Approval' ? 'pending' : tab === 'Rejected' ? 'rejected' : canReviseApproved ? 'approved' : 'view'
 
@@ -1267,6 +1288,7 @@ export default function VoucherApprovalsPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+      <div className={embedded ? 'hidden' : 'space-y-6'}>
       <PageHeader title="Voucher Approvals" subtitle="Review and approve accounting vouchers" />
 
       {/* Status tabs */}
@@ -1383,6 +1405,8 @@ export default function VoucherApprovalsPage() {
           </>
         ) : undefined}
       />
+
+      </div>
 
       {/* View / Edit Modal — bottom sheet */}
       <AnimatePresence>
