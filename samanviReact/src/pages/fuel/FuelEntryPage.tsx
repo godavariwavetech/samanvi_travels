@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelTotalItems, FuelTotalsCards } from './fuelTotals'
 import { fuelService } from '@/services/fuel.service'
@@ -515,11 +515,9 @@ export default function FuelEntryPage() {
             { label: 'Date', value: dateFilter, set: setDateFilter },
             { label: 'Value Date', value: valueDateFilter, set: setValueDateFilter },
           ]).map(({ label, value, set }) => (
-            <div key={label} className="flex items-end gap-2">
-              <div><Label>{label} From</Label>
-                <Input type="date" value={value.from} max={value.to || undefined} onChange={(e) => set({ ...value, from: e.target.value })} /></div>
-              <div><Label>{label} To</Label>
-                <Input type="date" value={value.to} min={value.from || undefined} onChange={(e) => set({ ...value, to: e.target.value })} /></div>
+            <div key={label}>
+              <Label>{label} / range</Label>
+              <DateRangePicker from={value.from} to={value.to} onChange={(r) => set({ from: r.fromdate, to: r.todate })} />
             </div>
           ))}
           {filtersActive && (

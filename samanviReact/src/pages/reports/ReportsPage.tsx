@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { FileSpreadsheet, Download } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { fuelService } from '@/services/fuel.service'
@@ -53,8 +53,11 @@ export default function ReportsPage() {
             <Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
               {CATEGORIES.map(c => <option key={c.label} value={c.label}>{c.label}</option>)}
             </Select></div>
-          <div><Label>From Date</Label><Input type="date" max={today} value={form.from_date} onChange={(e) => setForm({ ...form, from_date: e.target.value })} /></div>
-          <div><Label>To Date</Label><Input type="date" max={today} value={form.to_date} onChange={(e) => setForm({ ...form, to_date: e.target.value })} /></div>
+          <div>
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={form.from_date} to={form.to_date}
+              onChange={(r) => setForm({ ...form, from_date: r.fromdate, to_date: r.todate })} />
+          </div>
           <div><Label>Format</Label>
             <Select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })}>
               <option>PDF</option><option>Excel</option>

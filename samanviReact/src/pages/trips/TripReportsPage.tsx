@@ -2,7 +2,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { FileText, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
@@ -53,8 +53,11 @@ export default function TripReportsPage() {
               <option value="">All Routes</option>
               {(routes?.data ?? []).map((r: any) => <option key={r.id} value={r.serviceNo}>{r.serviceNo}</option>)}
             </Select></div>
-          <div><Label>From Date <span className="text-red-500">*</span></Label><Input type="date" max={today} value={filter.from_date} onChange={(e) => setFilter({ ...filter, from_date: e.target.value })} /></div>
-          <div><Label>To Date <span className="text-red-500">*</span></Label><Input type="date" min={filter.from_date || undefined} max={today} value={filter.to_date} onChange={(e) => setFilter({ ...filter, to_date: e.target.value })} /></div>
+          <div>
+            <Label>Date / Date range <span className="text-red-500">*</span></Label>
+            <DateRangePicker max={today} from={filter.from_date} to={filter.to_date}
+              onChange={(r) => setFilter({ ...filter, from_date: r.fromdate, to_date: r.todate })} />
+          </div>
         </div>
         <Button disabled={!filter.from_date || !filter.to_date || filter.to_date < filter.from_date} onClick={() => setApplied(filter)}><Search className="w-4 h-4" /> Generate Report</Button>
       </GlassCard>

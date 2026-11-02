@@ -164,10 +164,13 @@ exports.updateLaundryBillCtrl = function (req, res) {
   if (!data.c_number) return res.send({ status: 400, message: 'c_number is required' });
   var err = validateBill(data);
   if (err) return res.send({ status: 400, message: err });
+  require('../utils/approvedVouchers').isApprovedEditor(req.auth && req.auth.usid, function (editor) {
+  data.__editor = editor === true;
   lndmdl.updateLaundryBillMdl(data, function (err, results) {
     if (err && err.code === 'LOCKED') return res.send({ status: 400, message: err.message });
     if (err) { console.error('updateLaundryBill failed:', err); return res.status(500).send({ status: 500, message: err.message }); }
     res.send({ status: 200, data: results });
+  });
   });
 };
 

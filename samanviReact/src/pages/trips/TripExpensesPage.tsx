@@ -5,7 +5,7 @@ import TripAuditModal from './TripAuditModal'
 import { Receipt, CheckCircle, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock, ShieldCheck } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
@@ -1880,12 +1880,9 @@ export default function TripExpensesPage() {
       <GlassCard className="p-4" colorBar="bg-gradient-to-r from-red-400 to-rose-500">
         <div className="flex items-end gap-3 flex-wrap">
           <div>
-            <Label>From Date</Label>
-            <Input type="date" max={today} value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-36" />
-          </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" max={today} value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-36" />
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={fromDate} to={toDate}
+              onChange={(r) => { setFromDate(r.fromdate); setToDate(r.todate) }} />
           </div>
           <Button variant="primary" onClick={() => setApplied({ from: fromDate, to: toDate })} disabled={!fromDate || !toDate}>
             <Search className="w-4 h-4" /> Apply Filter

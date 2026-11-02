@@ -20,7 +20,7 @@ export function usePermissions(pathname?: string) {
     const roleRights = { ...rights, canAuthorize }
     // Super Admin can always edit, approve and reject on Trip Approvals, even when
     // the menu grant for that screen carries no approve/edit flag.
-    const superAdminPath = ['/trips/approvals', '/fuel/entry'].includes(path.toLowerCase().replace(/\/+$/, ''))
+    const superAdminPath = ['/trips/approvals', '/fuel/entry', '/laundry/bill'].includes(path.toLowerCase().replace(/\/+$/, ''))
     if (superAdminPath && role && rights.canView) return { ...roleRights, canEdit: true, canApprove: true }
     return voucherPath && role ? { ...roleRights, canEdit: true } : roleRights
   }, [path, menu, role, roleId])

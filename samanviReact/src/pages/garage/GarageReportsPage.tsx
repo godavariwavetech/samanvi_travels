@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -121,8 +121,11 @@ export default function GarageReportsPage() {
               onReload={() => reloadCats()}
               reloading={loadingCats}
             /></div>
-          <div><Label>From</Label><Input type="date" max={today} value={filter.from_date} onChange={(e) => setFilter({ ...filter, from_date: e.target.value })} /></div>
-          <div><Label>To</Label><Input type="date" max={today} value={filter.to_date} onChange={(e) => setFilter({ ...filter, to_date: e.target.value })} /></div>
+          <div>
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={filter.from_date} to={filter.to_date}
+              onChange={(r) => setFilter({ ...filter, from_date: r.fromdate, to_date: r.todate })} />
+          </div>
           <Button onClick={() => setApplied(filter)}><Search className="w-4 h-4" /> Apply</Button>
         </div>
       </GlassCard>

@@ -424,18 +424,22 @@ exports.createLaundryBillMdl = function (data, callback) {
 // Same lock as the fuel entry: an approved or rejected bill is on the books,
 // so the API refuses to edit or delete it (the page hides those actions).
 var lockedError = function () { var e = new Error('Approved / rejected bills cannot be edited or deleted'); e.code = 'LOCKED'; return e; };
-function whenBillOpen(c_number, callback, run) {
+// `editor` (set by the controller from the signed-in user) lets an approved
+// editor change a bill that is already approved or rejected; run() gets the
+// bill's current status so the rebuilt rows can keep it.
+function whenBillOpen(c_number, callback, run, editor) {
   sqldb.query('SELECT MIN(admin_status) AS s FROM laundrybill_maint WHERE c_number = ? AND d_in = 0', [c_number], function (err, rows) {
     if (err) return callback(err);
-    if (rows.length && rows[0].s != null && Number(rows[0].s) !== 0) return callback(lockedError());
-    run();
+    var status = rows.length && rows[0].s != null ? Number(rows[0].s) : 0;
+    if (status !== 0 && !editor) return callback(lockedError());
+    run(status);
   });
 }
 
 exports.updateLaundryBillMdl = function (data, callback) {
-  whenBillOpen(data.c_number, callback, function () { updateLaundryBillOpen(data, callback); });
+  whenBillOpen(data.c_number, callback, function (status) { updateLaundryBillOpen(data, callback, status); }, data.__editor === true);
 };
-function updateLaundryBillOpen(data, callback) {
+function updateLaundryBillOpen(data, callback, prevStatus) {
   sqldb.getConnection(function (err, connection) {
     if (err) return callback(err);
     connection.beginTransaction(function (err) {
@@ -470,10 +474,19 @@ function updateLaundryBillOpen(data, callback) {
                 rows: data.creditaddrowdts || [], accountType: 'Credit Account',
               }), function (err) {
                 if (err) return rollback(err);
-                connection.commit(function (err) {
+                // An approved / rejected bill edited by an approved editor keeps its status.
+                var keepStatus = Number(prevStatus) !== 0
+                  ? function (next) {
+                      connection.query('UPDATE laundrybill_maint SET admin_status=? WHERE c_number=? AND d_in=0; UPDATE laundrybill_subt SET admin_status=? WHERE c_number=? AND d_in=0', [prevStatus, data.c_number, prevStatus, data.c_number], next);
+                    }
+                  : function (next) { next(null); };
+                keepStatus(function (err) {
                   if (err) return rollback(err);
-                  connection.release();
-                  callback(null, { c_number: data.c_number });
+                  connection.commit(function (err) {
+                    if (err) return rollback(err);
+                    connection.release();
+                    callback(null, { c_number: data.c_number });
+                  });
                 });
               });
             });

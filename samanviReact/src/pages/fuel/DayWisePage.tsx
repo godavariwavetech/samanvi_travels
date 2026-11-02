@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { Search, Calendar } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, LedgerNameWithGroup } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, Badge, PageHeader, LedgerNameWithGroup } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { formatDate, withStatusLabel, formatAmount, todayISO } from '@/lib/utils'
@@ -64,8 +64,8 @@ export default function DayWisePage() {
         <div className="flex items-end gap-4 flex-wrap">
           <div>
             <Label>Date</Label>
-            <Input type="date" max={today} value={fromdate}
-              onChange={(e) => setFromdate(e.target.value)} />
+            <DateRangePicker single max={today} from={fromdate} to={fromdate}
+              onChange={(r) => setFromdate(r.fromdate)} />
           </div>
           <Button onClick={() => setApplied(fromdate)} disabled={!fromdate}>
             <Search className="w-4 h-4" /> Search

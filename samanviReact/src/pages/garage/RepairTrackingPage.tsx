@@ -16,6 +16,7 @@ import {
   GlassCard, Button, Input, Label, PageHeader,
   DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu,
   LedgerGroupTag, useLedgerGroupOf,
+  DateRangePicker,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -991,20 +992,9 @@ export default function RepairTrackingPage() {
 
       {/* Date range filter */}
       <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-xs font-semibold text-slate-600">From</label>
-        <input
-          type="date"
-          value={fromDate}
-          onChange={e => setFromDate(e.target.value)}
-          className="h-9 px-3 rounded-xl border border-slate-200 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-        />
-        <label className="text-xs font-semibold text-slate-600">To</label>
-        <input
-          type="date"
-          value={toDate}
-          onChange={e => setToDate(e.target.value)}
-          className="h-9 px-3 rounded-xl border border-slate-200 text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-        />
+        <label className="text-xs font-semibold text-slate-600">Date / Date range</label>
+        <DateRangePicker from={fromDate} to={toDate}
+          onChange={(r) => { setFromDate(r.fromdate); setToDate(r.todate) }} />
         {(fromDate || toDate) && (
           <button
             onClick={() => { setFromDate(''); setToDate('') }}

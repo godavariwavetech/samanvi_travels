@@ -2,7 +2,7 @@
 import { motion } from 'motion/react'
 import { History, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { bookingService } from '@/services/booking.service'
 import { formatCurrency, formatDate, todayISO, formatAmount } from '@/lib/utils'
@@ -41,8 +41,11 @@ export default function BookingHistoryPage() {
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-violet-500 to-purple-500">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><History className="w-4 h-4 text-violet-500" /> Filter by Date Range</h3>
         <div className="flex items-end gap-4">
-          <div><Label>From Date</Label><Input type="date" max={today} value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></div>
-          <div><Label>To Date</Label><Input type="date" max={today} value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></div>
+          <div>
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={range.from} to={range.to}
+              onChange={(r) => setRange({ from: r.fromdate, to: r.todate })} />
+          </div>
           <Button onClick={() => setApplied(range)}><Search className="w-4 h-4" /> Apply Filter</Button>
           <Button variant="ghost" onClick={() => { setApplied(null); setRange({ from: '', to: '' }) }}>Clear</Button>
         </div>

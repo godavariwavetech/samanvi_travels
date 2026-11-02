@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -1848,14 +1848,9 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
             <FYSelector className="mb-4 pb-4 border-b border-slate-100" />
             <div className="flex items-end gap-4 flex-wrap">
               <div>
-                <Label>From Date</Label>
-                <Input type="date" min={fyMin} max={fyMax} value={filter.fromdate}
-                  onChange={e => setFilter(f => ({ ...f, fromdate: e.target.value }))} />
-              </div>
-              <div>
-                <Label>To Date</Label>
-                <Input type="date" min={fyMin} max={fyMax} value={filter.todate}
-                  onChange={e => setFilter(f => ({ ...f, todate: e.target.value }))} />
+                <Label>Date / Date range</Label>
+                <DateRangePicker min={fyMin} max={fyMax} from={filter.fromdate} to={filter.todate}
+                  onChange={(r) => setFilter(f => ({ ...f, fromdate: r.fromdate, todate: r.todate }))} />
               </div>
               <Button onClick={() => setApplied({ ...filter })}>
                 <RefreshCw className="w-4 h-4" /> Load

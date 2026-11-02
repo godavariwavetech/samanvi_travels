@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter, LedgerNameWithGroup } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, TotalsFooter, LedgerNameWithGroup, DateRangePicker } from '@/components/shared'
 import type { Column, TotalsFooterItem } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
@@ -64,14 +64,9 @@ export default function BusWisePage() {
       <GlassCard className="p-5" colorBar="bg-gradient-to-r from-amber-400 to-orange-500">
         <div className="flex items-end gap-4 flex-wrap">
           <div>
-            <Label>From Date</Label>
-            <Input type="date" max={today} value={filter.fromdate}
-              onChange={(e) => setFilter({ ...filter, fromdate: e.target.value })} />
-          </div>
-          <div>
-            <Label>To Date</Label>
-            <Input type="date" max={today} value={filter.todate}
-              onChange={(e) => setFilter({ ...filter, todate: e.target.value })} />
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={filter.fromdate} to={filter.todate}
+              onChange={(r) => setFilter({ ...filter, fromdate: r.fromdate, todate: r.todate })} />
           </div>
           <div className="min-w-[220px]">
             <Label>Bus Number</Label>

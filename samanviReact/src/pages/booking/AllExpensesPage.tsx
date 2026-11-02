@@ -2,7 +2,7 @@
 import { motion } from 'motion/react'
 import { List, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { mastersService } from '@/services/masters.service'
@@ -53,8 +53,11 @@ export default function AllExpensesPage() {
               <option value="">All Types</option>
               {TYPES.map(t => <option key={t}>{t}</option>)}
             </Select></div>
-          <div><Label>From</Label><Input type="date" max={today} value={filter.from_date} onChange={(e) => setFilter({ ...filter, from_date: e.target.value })} /></div>
-          <div><Label>To</Label><Input type="date" max={today} value={filter.to_date} onChange={(e) => setFilter({ ...filter, to_date: e.target.value })} /></div>
+          <div>
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={filter.from_date} to={filter.to_date}
+              onChange={(r) => setFilter({ ...filter, from_date: r.fromdate, to_date: r.todate })} />
+          </div>
           <div className="flex items-end gap-2">
             <Button onClick={() => setApplied(filter)} className="flex-1"><Search className="w-4 h-4" />Search</Button>
           </div>

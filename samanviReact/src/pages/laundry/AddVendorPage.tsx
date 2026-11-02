@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
@@ -312,14 +312,9 @@ export default function AddVendorPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
-                <Label>From Date <Req /></Label>
-                <Input type="date" max={today} value={form.fromdate}
-                  onChange={(e) => setForm({ ...form, fromdate: e.target.value })} />
-              </div>
-              <div>
-                <Label>To Date <Req /></Label>
-                <Input type="date" min={form.fromdate || undefined} value={form.todate}
-                  onChange={(e) => setForm({ ...form, todate: e.target.value })} />
+                <Label>Date / Date range <span className="text-red-500">*</span></Label>
+                <DateRangePicker max={today} from={form.fromdate} to={form.todate}
+                  onChange={(r) => setForm({ ...form, fromdate: r.fromdate, todate: r.todate })} />
               </div>
             </div>
           </section>

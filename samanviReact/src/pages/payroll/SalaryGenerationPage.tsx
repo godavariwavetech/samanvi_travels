@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Calculator, Search, Users, TrendingUp, Wallet } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, DateRangePicker } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { payrollService } from '@/services/payroll.service'
 import { mastersService } from '@/services/masters.service'
@@ -68,12 +68,9 @@ export default function SalaryGenerationPage() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <Label>From Date *</Label>
-            <Input type="date" max={today} value={filter.fromdate} onChange={(e) => setFilter({ ...filter, fromdate: e.target.value })} />
-          </div>
-          <div>
-            <Label>To Date *</Label>
-            <Input type="date" max={today} value={filter.todate} onChange={(e) => setFilter({ ...filter, todate: e.target.value })} />
+            <Label>Date / Date range</Label>
+            <DateRangePicker max={today} from={filter.fromdate} to={filter.todate}
+              onChange={(r) => setFilter({ ...filter, fromdate: r.fromdate, todate: r.todate })} />
           </div>
           <div>
             <Label>Role Type</Label>
