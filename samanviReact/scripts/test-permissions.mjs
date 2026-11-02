@@ -14,7 +14,8 @@ try {
     define: { 'import.meta.env': JSON.stringify({ BASE_URL: '/' }) },
     plugins: [{ name: 'source-alias', setup(builder) {
       builder.onResolve({ filter: /^@\// }, async args => {
-        for (const extension of ['.ts', '.tsx']) {
+        // A folder import ('@/components/shared') resolves to its index file, as in Vite.
+        for (const extension of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
           const candidate = path.join(root, 'src', args.path.slice(2)) + extension
           try { await import('node:fs/promises').then(fs => fs.access(candidate)); return { path: candidate } } catch {}
         }

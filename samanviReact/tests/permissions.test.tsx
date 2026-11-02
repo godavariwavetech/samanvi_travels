@@ -129,7 +129,7 @@ client.setQueryData(['reference-audit', 'T261021021'], { module: 'Trip', report:
   { label: 'Authorized', who: 'Authorizer', when: '2026-10-26 11:22:33', state: 'done' },
   { label: 'Approved', who: 'Approver', when: '2026-10-26 12:34:56', state: 'done' },
 ] })
-const details = renderToStaticMarkup(<QueryClientProvider client={client}><ReferenceAuditModal reference="T261021021" onClose={noop} /></QueryClientProvider>)
+const details = renderToStaticMarkup(<StaticRouter location="/trips/approvals"><QueryClientProvider client={client}><ReferenceAuditModal reference="T261021021" onClose={noop} /></QueryClientProvider></StaticRouter>)
 assert.match(details, /Authorizer/)
 assert.match(details, /Approver/)
 assert.match(details, /12:34:56 IST/)
