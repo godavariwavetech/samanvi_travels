@@ -735,6 +735,11 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
   // A halted trip never ran, and a bus set to N/A has been released: neither has
   // a driver to name, so Driver 1 is not required to save them.
   const editNoDriverNeeded = editHalted || /^n\/?a$/i.test(String(editForm.bus_no ?? '').trim())
+  // Same rule as the creation grid: a running/full trip needs Driver 1. The Save
+  // button stays disabled otherwise, so say why instead of leaving the click
+  // with no response when a Halt trip is switched back to Running.
+  const editNeedsDriver = !editNoDriverNeeded && !editForm.driver1_name && !editForm.opt_driver1_name
+    && (editRow?.vehicle_type !== 'van' || !isHireBus(editForm.bus_no))
   const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
   const editOptingActive = !editHalted && !isHireBus(editForm.bus_no) && isOptingName(editForm.driver1_name)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
@@ -757,19 +762,24 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
     // rather than blanking them.
     mutationFn: () => {
       const isVan = editRow?.vehicle_type === 'van'
+      // A van switched to Halt never left the yard, so its driver is dropped (as
+      // on the creation grid). A halted bus still keeps its crew, so Driver 1
+      // must survive the save instead of being silently blanked - that made
+      // "Trip updated" appear while the driver was never written.
+      const dropDriver = isVan && editHalted
       const common = {
         id: editRow.id, c_number: editRow.c_number,
         bus_no: editForm.bus_no, trip_run_status: editForm.trip_run_status,
         remarks: editForm.remarks,
-        driver1_id: editHalted ? '' : editForm.driver1_id, driver1_name: editHalted ? '' : editForm.driver1_name,
-        opt_driver1_id: editHalted ? '' : editForm.opt_driver1_id, opt_driver1_name: editHalted ? '' : editForm.opt_driver1_name,
+        driver1_id: dropDriver ? '' : editForm.driver1_id, driver1_name: dropDriver ? '' : editForm.driver1_name,
+        opt_driver1_id: dropDriver ? '' : editForm.opt_driver1_id, opt_driver1_name: dropDriver ? '' : editForm.opt_driver1_name,
         updatedby_id: localStorage.getItem('user_id') ?? '',
         updatedby_name: localStorage.getItem('usr_nm') ?? '',
         updated_date: localDateTime(),
       }
       return tripsService.updateTrip(isVan
         ? { ...common, hirer_name: editHirerActive ? editForm.hirer_name : '', phone_number: editHirerActive ? editForm.phone_number : '', line_code: editForm.line_code,
-            opt_driver1_mobile: !editHalted && isOptingName(editForm.driver1_name) ? editForm.opt_driver1_mobile : '',
+            opt_driver1_mobile: !dropDriver && isOptingName(editForm.driver1_name) ? editForm.opt_driver1_mobile : '',
             booking_amount: editAmountActive ? editForm.booking_amount : '' }
         : { ...common, up_down: editForm.up_down,
             driver2_id: editForm.driver2_id, driver2_name: editForm.driver2_name,
@@ -1402,7 +1412,7 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                 ) : (
                   <>
                     <div>
-                      <Label>Driver 1 <span className="text-red-500">*</span></Label>
+                      <Label>Driver 1 {!editHalted && <span className="text-red-500">*</span>}</Label>
                       <div className="flex items-center gap-2">
                         <PersonToggle label="Driver 1" checked={editForm.driver1_checked === '1'} onChange={(v) => patchEdit({ driver1_checked: v ? '1' : '' })} />
                         <SearchableSelect className="flex-1" placeholder="Select" options={driverOptions} value={personValue(editForm.driver1_id, editForm.driver1_name, OPTING_DRIVER)}
@@ -1485,6 +1495,13 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                 <div className="px-6 pb-2">
                   <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
                     The hire on this trip is already filed under voucher {String(editRow.voucher_number)}. Delete that expense in Trip Expenses before moving the trip onto an own van.
+                  </p>
+                </div>
+              )}
+              {editNeedsDriver && (
+                <div className="px-6 pb-2">
+                  <p className="text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+                    Assign Driver 1 to save a {editForm.trip_run_status} trip (a Halt trip needs no driver), or set the bus to N/A.
                   </p>
                 </div>
               )}
