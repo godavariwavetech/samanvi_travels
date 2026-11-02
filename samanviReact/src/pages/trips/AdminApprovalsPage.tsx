@@ -319,7 +319,6 @@ export default function AdminApprovalsPage() {
           {!authStage && (
             <ApprovalRowActions tab={tab as ApprovalTab}
               onView={() => setViewTrip(row)}
-              onEdit={Number(row.status) === 1 ? () => navigate(`/trips/expenses?edit=${encodeURIComponent(row.c_number)}`) : undefined}
               onApprove={() => onStatusChange(row, 1)} onReject={() => askReject([row])} onReopen={() => onStatusChange(row, 0)} />
           )}
           {authStage && (
@@ -365,6 +364,7 @@ export default function AdminApprovalsPage() {
         title={tab === 'To Authorize' ? `Trips To Authorize (${filtered.length})` : tab === 'Authorized' ? `Authorized Trips (${filtered.length})` : tab === 'pending' ? `Trips Awaiting Approval (${filtered.length})` : tab === 'approved' ? `Approved Trips (${filtered.length})` : `Rejected Trips (${filtered.length})`}
         columns={buildCols()}
         data={rows}
+        actions={[]}
         columnFilters={colFilters}
         onColumnFilterChange={(key, vals) => setColFilters((f) => ({ ...f, [key]: vals }))}
         loading={isLoading}
