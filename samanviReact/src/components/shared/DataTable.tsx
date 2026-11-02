@@ -19,6 +19,8 @@ const AUDIT_REFERENCE_KEYS = new Set(['c_number', 'job_card_number', 'ref_number
 export interface Column<T = Record<string, unknown>> {
   label: string
   key: string
+  // A reference column normally opens the shared audit modal; set this to keep the column's own render (e.g. a page's own view modal).
+  ownRefRender?: boolean
   filterable?: boolean
   filterType?: 'text' | 'select' | 'date'
   filterOptions?: { label: string; value: string }[]
@@ -546,7 +548,7 @@ export function DataTable<T extends Record<string, unknown>>({
                       key={j}
                       className={`p-4 align-middle ${alignText[col.align ?? 'left']} ${j === 0 && !selectable ? 'pl-6 font-semibold text-slate-900' : 'text-slate-600 text-sm'}`}
                     >
-                      {REFERENCE_KEYS.includes(col.key)
+                      {REFERENCE_KEYS.includes(col.key) && !(col.ownRefRender && col.render)
                         && !/^actions?$/i.test(col.label.trim()) && !!row[col.key]
                         ? <ReferenceDetailsLink value={row[col.key]} initialRecord={row} moduleLabel={title} loadAudit={AUDIT_REFERENCE_KEYS.has(col.key)} />
                         : col.render ? col.render(row[col.key], row, i) : String(row[col.key] ?? '')}

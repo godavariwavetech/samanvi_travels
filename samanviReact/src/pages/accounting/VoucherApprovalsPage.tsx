@@ -259,7 +259,7 @@ const buildCols = (
       ),
     },
     {
-      label: 'Rf. No.', key: 'c_number', filterable: true, filterType: 'text',
+      label: 'Rf. No.', key: 'c_number', ownRefRender: true, filterable: true, filterType: 'text',
       render: (v: any, row: any) => (
         <span
           onClick={() => onView(row)}
