@@ -939,6 +939,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
     const fresh = modalData?.data?.[0]?.[0]
     if (!fresh || !viewModal) return
     setViewModal((v: any) => v ? {
+      ...(embedded ? fresh : {}),
       ...v,
       vouchertype: fresh.vouchertype ?? v.vouchertype,
       voucherdate: fresh.voucherdate ?? v.voucherdate,
@@ -1215,21 +1216,37 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   const approvedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 1))
   const rejectedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 2))
 
-  // Embedded: open the requested voucher once the lists have loaded, and report
-  // when the sheet is closed again.
+  // Embedded: open the requested voucher straight away from its own header (looked
+  // up by number, so it never waits for the year's full voucher list), fill in the
+  // list row's extra fields when that arrives, and report when the sheet closes.
   const hadView = useRef(false)
+  const enriched = useRef(false)
+  const shown = useRef(false)
   useEffect(() => {
-    if (!viewRef || viewModal) return
-    if (hadView.current) return
-    if (loadSearch) return
-    const row = [...pending, ...approvedList, ...rejectedList].find((r: any) => String(r.c_number) === viewRef)
-    if (row) { hadView.current = true; setViewModal(row) }
-    else if (onNotFound) { hadView.current = true; onNotFound() }
-    else { hadView.current = true; toast.error(`Voucher ${viewRef} not found`); onViewClose?.() }
+    if (!viewRef || hadView.current) return
+    hadView.current = true
+    setViewModal({ c_number: viewRef })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewRef, loadSearch, searched])
+  }, [viewRef])
   useEffect(() => {
-    if (embedded && hadView.current && !viewModal && !loadSearch) onViewClose?.()
+    if (!viewRef || !viewModal || enriched.current || loadSearch) return
+    const row = [...pending, ...approvedList, ...rejectedList].find((r: any) => String(r.c_number) === viewRef)
+    if (!row) return
+    enriched.current = true
+    setViewModal((v: any) => v && String(v.c_number) === viewRef ? { ...row, ...v } : v)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewRef, viewModal, loadSearch, searched])
+  useEffect(() => {
+    if (!viewRef || modalLoading || !modalData || !viewModal || String(viewModal.c_number) !== viewRef) return
+    if (modalData?.data?.[0]?.[0]) return
+    // No voucher with this number: hand back to the caller, or say so.
+    if (onNotFound) onNotFound()
+    else { toast.error(`Voucher ${viewRef} not found`); onViewClose?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modalData, modalLoading])
+  useEffect(() => {
+    if (viewModal) { shown.current = true; return }
+    if (embedded && shown.current) { shown.current = false; onViewClose?.() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewModal])
 
