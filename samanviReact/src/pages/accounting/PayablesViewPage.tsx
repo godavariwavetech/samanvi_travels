@@ -1947,15 +1947,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
                             {row.c_number && row.c_number !== '-' ? (
                               <div className="flex items-center gap-1.5">
-                                <ReferenceDetailsLink value={row.c_number} onViewClick={() => openRefNoModal(row)} onOtherClick={() => openHistoryModal(row)} />
-                                <button
-                                  onClick={() => openRefNoModal(row)}
-                                  disabled={modal.loading}
-                                  title="View voucher details"
-                                  className="text-slate-300 hover:text-blue-500 transition-colors flex-shrink-0"
-                                >
-                                  {modal.loading && modal.refNo === row.c_number ? <span className="text-xs">…</span> : <Eye className="w-3.5 h-3.5" />}
-                                </button>
+                                <ReferenceDetailsLink value={row.c_number} onOtherClick={() => openHistoryModal(row)} />
                                 {row.isedited > 0 && (
                                   <button
                                     onClick={() => triggerEditMode(row)}

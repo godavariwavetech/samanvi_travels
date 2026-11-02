@@ -1271,7 +1271,7 @@ export default function LedgerWisePage() {
                   >
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-500 text-center">{idx + 1}</td>
                     <td className="px-3 py-2 border-b border-slate-100 whitespace-nowrap">
-                      <ReferenceDetailsLink value={row.c_number} onViewClick={() => openRef(row)} />
+                      <ReferenceDetailsLink value={row.c_number} />
                     </td>
                     <td className="px-3 py-2 border-b border-slate-100 text-slate-600 whitespace-nowrap">
                       {fmt(resolveDisplayDate(row))}
