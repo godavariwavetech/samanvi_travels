@@ -1728,6 +1728,7 @@ export default function TripExpensesPage() {
     },
     { label: 'Bus No', key: 'bus_no', filterable: true },
     { label: 'Service No', key: 'service_no', filterable: true },
+    { label: 'Service For', key: 'trip_for', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
     // Up/Down is set on the service route (Masters > Service Routes).
     { label: 'Up/Down', key: 'up_down', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
     // Each person with what the filed expense pays them beneath the name: the

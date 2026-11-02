@@ -166,13 +166,9 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
   },
   {
     label: 'Service No', key: 'service_no', filterable: true,
-    render: (v, r: any) => (
-      <div>
-        <div>{dashOr(v)}</div>
-        {r.trip_for && <div className="text-xs text-slate-400">{String(r.trip_for)}</div>}
-      </div>
-    ),
+    render: dashOr,
   },
+  { label: 'Service For', key: 'trip_for', filterable: true, render: dashOr },
   // Set on the service route (Masters > Service Routes).
   { label: 'Up/Down', key: 'up_down', filterable: true, render: dashOr },
   { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },
