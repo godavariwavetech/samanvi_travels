@@ -2,7 +2,6 @@ import { usePermissions } from '@/lib/usePermissions'
 ﻿import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Clock, X, User, FileText, ShieldCheck, Pencil } from 'lucide-react'
-import { useNavigate } from 'react-router'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -11,6 +10,7 @@ import type { Column, ApprovalTab } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
 import TripAuditModal from './TripAuditModal'
+import TripCreationPage from './TripCreationPage'
 import { needsAuthorization, awaitingApproval } from '@/lib/tripAuthorization'
 
 const isAuthorized = (t: any) => Number(t.admin_status) === 0 && !!t.authorized_at
@@ -131,13 +131,13 @@ export default function AdminApprovalsPage() {
   const [bulkRejecting, setBulkRejecting] = useState(false)
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [auditRef, setAuditRef] = useState<string | null>(null)
+  const [editRef, setEditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
   const [bulkApproving, setBulkApproving] = useState(false)
   // To Authorize / Authorized open with no date selected, so every trip is listed until a range is picked.
   const [applied, setApplied] = useState(canAuthorize ? { from: '', to: '' } : { from: firstOfMonth, to: today })
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const qc = useQueryClient()
-  const navigate = useNavigate()
   const canReviseApproved = useCanReviseApproved()
 
   // All trips from trip_created table (same source as TripCreationPage)
@@ -325,7 +325,7 @@ export default function AdminApprovalsPage() {
             <button type="button" onClick={() => setViewTrip(row)} className="text-xs font-bold text-blue-600 hover:underline">View</button>
           )}
           {canReviseApproved && (
-            <button type="button" title="Edit the trip" onClick={() => navigate(`/trips/creation?edit=${encodeURIComponent(row.c_number)}`)}
+            <button type="button" title="Edit the trip" onClick={() => setEditRef(String(row.c_number))}
               className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>
           )}
         </div>
@@ -387,6 +387,9 @@ export default function AdminApprovalsPage() {
         subject={rejectTarget && rejectTarget.rows.length === 1
           ? `Trip ${String(rejectTarget.rows[0].c_number ?? '')}`
           : `Rejecting ${rejectTarget?.rows.length ?? 0} trips`} />
+
+      {/* Edit the trip in place - the Trip Creation edit form, with no navigation */}
+      {editRef && <TripCreationPage editRef={editRef} onEditClose={() => { setEditRef(null); qc.invalidateQueries({ queryKey: ['trips'] }) }} />}
 
       {/* View modal */}
       <AnimatePresence>

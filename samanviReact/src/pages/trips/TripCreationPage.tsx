@@ -219,7 +219,10 @@ function PersonToggle({ label, checked, onChange }: { label: string; checked: bo
   )
 }
 
-export default function TripCreationPage() {
+// `editRef` opens just that trip's edit form (no list behind it) - Trip
+// Approvals uses it so Edit happens in place; `onEditClose` fires when the
+// form is closed or saved.
+export default function TripCreationPage({ editRef, onEditClose }: { editRef?: string; onEditClose?: () => void } = {}) {
   const qc = useQueryClient()
   // The create-trips grid is what this page is opened for, so it is open on arrival.
   const [showGrid, setShowGrid] = useState(true)
@@ -676,14 +679,22 @@ export default function TripCreationPage() {
   // Trip Approvals' pencil links here with ?edit=<trip ref>: open that trip's
   // edit form once the list has loaded, then drop the parameter.
   const [searchParams, setSearchParams] = useSearchParams()
-  const editParam = searchParams.get('edit')
+  const embedded = !!editRef
+  const editParam = editRef || searchParams.get('edit')
   useEffect(() => {
     if (!editParam || !allTrips.length) return
     const row = allTrips.find((t: any) => String(t.c_number) === editParam)
     if (row) openEdit(row); else toast.error(`Trip ${editParam} not found`)
-    setSearchParams({}, { replace: true })
+    if (!embedded) setSearchParams({}, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editParam, allTrips.length])
+
+  const hadEditRow = useRef(false)
+  useEffect(() => {
+    if (editRow) { hadEditRow.current = true; return }
+    if (hadEditRow.current) { hadEditRow.current = false; onEditClose?.() }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRow])
 
   const openEdit = (row: any) => {
     setEditRow(row)
@@ -820,6 +831,7 @@ export default function TripCreationPage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
+      <div className={embedded ? 'hidden' : 'space-y-5'}>
       <div className="flex justify-between items-end">
         <PageHeader title="Trip Related Reports" subtitle="Create and manage trip assignments" />
         <Button
@@ -1269,6 +1281,8 @@ export default function TripCreationPage() {
           </div>
         )}
       />
+
+      </div>
 
       {/* ── Edit a created trip (Bus or Van) ── */}
       <AnimatePresence>
