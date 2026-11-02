@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router'
 import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -671,6 +672,18 @@ export default function TripCreationPage() {
     },
     onError: () => toast.error('Server error'),
   })
+
+  // Trip Approvals' pencil links here with ?edit=<trip ref>: open that trip's
+  // edit form once the list has loaded, then drop the parameter.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const editParam = searchParams.get('edit')
+  useEffect(() => {
+    if (!editParam || !allTrips.length) return
+    const row = allTrips.find((t: any) => String(t.c_number) === editParam)
+    if (row) openEdit(row); else toast.error(`Trip ${editParam} not found`)
+    setSearchParams({}, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, allTrips.length])
 
   const openEdit = (row: any) => {
     setEditRow(row)

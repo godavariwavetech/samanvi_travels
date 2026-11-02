@@ -324,8 +324,8 @@ export default function AdminApprovalsPage() {
           {authStage && (
             <button type="button" onClick={() => setViewTrip(row)} className="text-xs font-bold text-blue-600 hover:underline">View</button>
           )}
-          {canReviseApproved && Number(row.status) === 1 && (
-            <button type="button" title="Edit the trip's expense" onClick={() => navigate(`/trips/expenses?edit=${encodeURIComponent(row.c_number)}`)}
+          {canReviseApproved && (
+            <button type="button" title="Edit the trip" onClick={() => navigate(`/trips/creation?edit=${encodeURIComponent(row.c_number)}`)}
               className="p-1.5 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100"><Pencil className="w-4 h-4" /></button>
           )}
         </div>
