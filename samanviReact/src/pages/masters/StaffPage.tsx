@@ -5,7 +5,7 @@ import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Upload, Download
 import ChangeNote from '@/components/shared/ChangeNote'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal, DateField, DateRangePicker } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -1027,8 +1027,8 @@ export default function StaffPage() {
                     <div><Label>DL Issued By</Label><Input value={driverForm.dl_issued_by} onChange={df('dl_issued_by')} /></div>
                     <div><Label>DL Expiry Date <span className="text-red-500">*</span></Label><DateField value={driverForm.dl_expiry_date} onChange={df('dl_expiry_date')} /></div>
                     <div><Label>Transport Issue Date <span className="text-red-500">*</span></Label><DateField max={today} value={driverForm.transportoneissuedate} onChange={df('transportoneissuedate')} /></div>
-                    <div><Label>Transport Valid From <span className="text-red-500">*</span></Label><DateField max={today} value={driverForm.transportvalidityfrom} onChange={df('transportvalidityfrom')} /></div>
-                    <div><Label>Transport Valid To <span className="text-red-500">*</span></Label><DateField value={driverForm.transportvalidityto} onChange={df('transportvalidityto')} /></div>
+                    <div><Label>Transport Validity (From – To) <span className="text-red-500">*</span></Label><DateRangePicker from={driverForm.transportvalidityfrom} to={driverForm.transportvalidityto}
+                      onChange={(r) => setDriverForm((f) => ({ ...f, transportvalidityfrom: r.fromdate, transportvalidityto: r.todate }))} /></div>
                     <ImageUploadField label="DL Front" value={driverImages.dlfront} existingUrl={editingDriverRow?.dl_front} onChange={(v) => setDriverImages((s) => ({ ...s, dlfront: v }))} />
                     <ImageUploadField label="DL Back" value={driverImages.dlback} existingUrl={editingDriverRow?.dl_back} onChange={(v) => setDriverImages((s) => ({ ...s, dlback: v }))} />
                   </SectionBox>

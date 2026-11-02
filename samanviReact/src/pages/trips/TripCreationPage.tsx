@@ -100,6 +100,7 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
     label: 'Van No', key: 'bus_no', filterable: true,
     render: (v) => <span className={`font-semibold ${hireBusNos.has(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</span>,
   },
+  { label: 'Service For', key: 'trip_for', filterable: true, render: dashOr },
   { label: 'Line Code', key: 'line_code', filterable: true, render: dashOr },
   // Set on the van's service route (Masters > Service Routes).
   { label: 'Pick/Drop', key: 'pick_drop', filterable: true, render: (v) => String(v ?? '').trim() ? <span className="capitalize">{String(v)}</span> : dashOr(v) },
@@ -165,11 +166,11 @@ const makeColumns = (hireBusNos: Set<string>, kind: 'Bus' | 'Van'): Column[] => 
     label: 'Bus No', key: 'bus_no', filterable: true,
     render: (v) => <span className={`font-semibold ${hireBusNos.has(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</span>,
   },
+  { label: 'Service For', key: 'trip_for', filterable: true, render: dashOr },
   {
     label: 'Service No', key: 'service_no', filterable: true,
     render: dashOr,
   },
-  { label: 'Service For', key: 'trip_for', filterable: true, render: dashOr },
   // Set on the service route (Masters > Service Routes).
   { label: 'Up/Down', key: 'up_down', filterable: true, render: dashOr },
   { label: 'Driver 1', key: 'driver1_name', filterable: true, render: (v) => <span className="font-medium">{String(v ?? '—')}</span> },

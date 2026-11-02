@@ -14,6 +14,7 @@ const tabs = ['Updated Logs', 'Deleted Logs', 'Counts']
 const updatedCols: Column[] = [
   { label: 'Trip No', key: 'c_number', render: (v) => <span className="font-bold text-blue-600">{String(v)}</span> },
   { label: 'Bus No', key: 'bus_no' },
+  { label: 'Service For', key: 'trip_for' },
   { label: 'Service No', key: 'service_no' },
   { label: 'Trip Date', key: 'trip_date', render: (v) => formatDate(v) },
   { label: 'Driver 1', key: 'driver1_name' },

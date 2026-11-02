@@ -1730,8 +1730,8 @@ export default function TripExpensesPage() {
       render: (v) => <Badge variant={v === 'Halt' ? 'danger' : v === 'Full Trip' ? 'info' : 'success'}>{String(v || 'Running')}</Badge>,
     },
     { label: 'Bus No', key: 'bus_no', filterable: true },
-    { label: 'Service No', key: 'service_no', filterable: true },
     { label: 'Service For', key: 'trip_for', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
+    { label: 'Service No', key: 'service_no', filterable: true },
     // Up/Down is set on the service route (Masters > Service Routes).
     { label: 'Up/Down', key: 'up_down', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
     // Each person with what the filed expense pays them beneath the name: the
@@ -1830,6 +1830,7 @@ export default function TripExpensesPage() {
       label: 'Van No', key: 'bus_no', filterable: true,
       render: (v) => <span className={`font-semibold ${isHireVehicle(String(v ?? '')) ? 'text-amber-700' : ''}`}>{String(v ?? '—')}</span>,
     },
+    { label: 'Service For', key: 'trip_for', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
     { label: 'Line Code', key: 'line_code', filterable: true, render: (v) => v ? String(v) : <span className="text-slate-300">—</span> },
     // Pick/Drop is set on the van's service route (Masters > Service Routes).
     { label: 'Pick/Drop', key: 'pick_drop', filterable: true, render: (v) => v ? <span className="capitalize">{String(v)}</span> : <span className="text-slate-300">—</span> },
