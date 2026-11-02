@@ -1,7 +1,7 @@
 import { usePermissions } from '@/lib/usePermissions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Fuel, Save, Plus, X } from 'lucide-react'
+import { Fuel, Save, Plus, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard, Button, Input, Label, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf } from '@/components/shared'
@@ -555,8 +555,15 @@ export default function FuelEntryPage() {
       <AnimatePresence>
         {viewRow && (
           <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Fuel Entry"
-            onClose={() => setViewRow(null)} footerActions={<ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
-              onApprove={() => onStatusChange(viewRow, 1)} onReject={() => askReject([viewRow])} onReopen={() => onStatusChange(viewRow, 0)} />} />
+            onClose={() => setViewRow(null)} footerActions={<>
+              {canEdit && Number(viewRow.admin_status) === 0 && (
+                <Button variant="outline" onClick={() => { const r = viewRow; setViewRow(null); onEdit(r) }}>
+                  <Pencil className="w-4 h-4" /> Edit
+                </Button>
+              )}
+              <ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
+                onApprove={() => onStatusChange(viewRow, 1)} onReject={() => { const r = viewRow; setViewRow(null); askReject([r]) }} onReopen={() => onStatusChange(viewRow, 0)} />
+            </>} />
         )}
       </AnimatePresence>
 

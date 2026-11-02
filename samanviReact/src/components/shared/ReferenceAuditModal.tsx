@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { motion } from 'motion/react'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen, CheckCircle2, CreditCard, History, RefreshCw, X } from 'lucide-react'
 import api from '@/lib/api'
@@ -117,12 +118,14 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
   const ledgerTitle = title === 'Voucher' ? 'Journal Entry' : 'Transaction Entries'
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-3 sm:p-6" onClick={onClose}>
-      <section role="dialog" aria-modal="true" aria-label={`${title} details for ${reference}`} className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-[26px] bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
-        <header className="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-r from-fuchsia-500 via-purple-600 to-violet-700 px-5 py-4 text-white sm:px-7 sm:py-5">
+    // The same bottom sheet Voucher Approvals uses, so every record view looks and works alike.
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <motion.section initial={{ y: '100%' }} animate={{ y: 0 }} transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        role="dialog" aria-modal="true" aria-label={`${title} details for ${reference}`} className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+        <header className="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-r from-purple-500 to-violet-600 p-5 text-white">
           <div className="min-w-0">
-            <h2 className="flex items-center gap-2 text-lg font-extrabold sm:text-2xl"><CreditCard className="h-5 w-5 shrink-0" /> <span className="truncate">{reference}</span></h2>
-            <p className="mt-1 text-sm text-white/80">{title}{date ? ` · ${formatAuditDate(date)}` : ''}</p>
+            <h2 className="flex items-center gap-2 text-xl font-bold"><CreditCard className="h-5 w-5 shrink-0" /> <span className="truncate">{reference}</span></h2>
+            <p className="mt-1.5 text-sm text-white/80">{title}{date ? ` · ${formatAuditDate(date)}` : ''}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {loadAudit && <button type="button" onClick={() => refetch()} aria-label="Refresh details" title="Refresh" className="rounded-full p-2 text-white/75 hover:bg-white/15 hover:text-white"><RefreshCw className="h-4 w-4" /></button>}
@@ -130,29 +133,29 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-7 sm:py-7">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {isLoading && <p className="mb-4 text-sm text-slate-500">Loading details…</p>}
           {isError && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">Could not load the latest record details. Showing the available row data below.</p>}
           {!record && !isLoading && !isError && <p className="text-sm text-slate-500">No recorded details found for this reference.</p>}
 
           {record && <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
               {[
                 { label: title === 'Voucher' ? 'Voucher Type' : 'Record Type', value: record.vouchertype ?? record.expense_type ?? record.vehicle_type ?? title },
                 { label: 'Total Amount', value: amountValue != null ? currency(amountValue) : '—' },
                 { label: 'Entry By', value: entryBy ?? '—' },
-              ].map(card => <div key={card.label} className="rounded-full bg-slate-50 px-5 py-3.5">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{card.label}</p>
-                <p className="mt-0.5 truncate text-sm font-bold text-slate-900">{String(card.value)}</p>
+              ].map(card => <div key={card.label} className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{card.label}</p>
+                <p className="mt-0.5 truncate font-semibold text-slate-900">{String(card.value)}</p>
               </div>)}
             </div>
 
-            {description && <section className="rounded-3xl border border-amber-100 bg-amber-50/50 px-4 py-3.5 sm:px-5">
+            {description && <section className="rounded-xl border border-amber-100 bg-amber-50/50 px-4 py-3.5 sm:px-5">
               <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Description</h3>
               <p className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{String(description)}</p>
             </section>}
 
-            {ledger.length > 0 && <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+            {ledger.length > 0 && <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
               <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
                 <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-800"><BookOpen className="h-4 w-4 text-slate-500" />{ledgerTitle}</h3>
                 {hasSides && <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold ${balanced ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}><CheckCircle2 className="h-3.5 w-3.5" />{balanced ? 'Balanced' : 'Unbalanced'}</span>}
@@ -180,12 +183,12 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
               </div>
             </section>}
 
-            <section className="rounded-3xl border border-emerald-100 bg-white p-4 sm:p-5">
+            <section className="rounded-xl border border-emerald-100 bg-white p-4 sm:p-5">
               <h3 className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-500">Transaction Details</h3>
               <RecordGrid record={record} />
             </section>
 
-            {data?.report?.trip && <section className="rounded-3xl border border-blue-100 bg-blue-50/30 p-4 sm:p-5 space-y-5">
+            {data?.report?.trip && <section className="rounded-xl border border-blue-100 bg-blue-50/30 p-4 sm:p-5 space-y-5">
               <div><h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Trip Details</h3><RecordGrid record={data.report.trip} fields={TRIP_FIELDS} /></div>
               <div className="border-t border-blue-100 pt-4"><h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Filed Expense</h3><RecordGrid record={data.report.expense} fields={EXPENSE_FIELDS} /></div>
             </section>}
@@ -200,12 +203,12 @@ export default function ReferenceAuditModal({ reference, onClose, initialRecord,
           </div>}
         </div>
 
-        <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-slate-100 bg-white px-5 py-3 sm:px-7">
+        <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-slate-200 bg-white px-6 py-4">
           <button type="button" onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100">Close</button>
           {footerActions && <div className="flex flex-wrap items-center justify-end gap-2">{footerActions}</div>}
         </footer>
-      </section>
-    </div>,
+      </motion.section>
+    </motion.div>,
     document.body,
   )
 }

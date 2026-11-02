@@ -38,7 +38,7 @@ const ledgerLines = (r: any, side: 'debit' | 'credit'): { name: string; amount: 
 // until then trips go straight to Approval as before.
 
 export default function AdminApprovalsPage() {
-  const { canApprove, canAuthorize } = usePermissions()
+  const { canApprove, canAuthorize, canEdit } = usePermissions()
   // 'To Authorize' is this page's own first stage; the other three are the
   // standard approval tabs Fuel uses.
   const [tab, setTab] = useState<TabKey>(canAuthorize ? 'To Authorize' : 'pending')
@@ -315,16 +315,21 @@ export default function AdminApprovalsPage() {
       {viewTrip && !viewTrip.voucher_number && (
         <ReferenceAuditModal reference={String(viewTrip.c_number ?? '')} initialRecord={viewTrip} moduleLabel="Trip"
           onClose={() => setViewTrip(null)}
-          footerActions={
-            canAuthorize && needsAuthorization(viewTrip) ? (
+          footerActions={<>
+            {(canReviseApproved || (canEdit && !viewTrip.authorized_at && Number(viewTrip.admin_status) === 0)) && (
+              <Button variant="outline" onClick={() => { const r = viewTrip; setViewTrip(null); setEditRef(String(r.c_number)) }}>
+                <Pencil className="w-4 h-4" /> Edit
+              </Button>
+            )}
+            {canAuthorize && needsAuthorization(viewTrip) ? (
               <Button disabled={authorizing} onClick={() => { authorize(viewTrip); setViewTrip(null) }}>
                 <ShieldCheck className="w-4 h-4" /> Authorize
               </Button>
             ) : awaitingApproval(viewTrip) || Number(viewTrip.admin_status) === 2 ? (
               <ApprovalModalButtons tab={Number(viewTrip.admin_status) === 2 ? 'rejected' : 'pending'}
                 onApprove={() => onStatusChange(viewTrip, 1)} onReject={() => { const t = viewTrip; setViewTrip(null); askReject([t]) }} onReopen={() => onStatusChange(viewTrip, 0)} />
-            ) : undefined
-          } />
+            ) : undefined}
+          </>} />
       )}
     </motion.div>
   )
