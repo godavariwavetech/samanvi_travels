@@ -1952,7 +1952,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">
                             {row.c_number && row.c_number !== '-' ? (
                               <div className="flex items-center gap-1.5">
-                                <ReferenceDetailsLink value={row.c_number} onOtherClick={() => openHistoryModal(row)} />
+                                <ReferenceDetailsLink value={row.c_number} onViewClick={() => openRefNoModal(row)} onOtherClick={() => openHistoryModal(row)} />
                                 <button
                                   onClick={() => openRefNoModal(row)}
                                   disabled={modal.loading}
