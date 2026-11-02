@@ -133,7 +133,8 @@ export default function AdminApprovalsPage() {
   const [auditRef, setAuditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
   const [bulkApproving, setBulkApproving] = useState(false)
-  const [applied, setApplied] = useState({ from: firstOfMonth, to: today })
+  // To Authorize / Authorized open with no date selected, so every trip is listed until a range is picked.
+  const [applied, setApplied] = useState(canAuthorize ? { from: '', to: '' } : { from: firstOfMonth, to: today })
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -219,7 +220,7 @@ export default function AdminApprovalsPage() {
 
   const changeTab = (next: TabKey) => {
     setTab(next); setSelectedTrips([]); setColFilters({})
-    setApplied(next === 'approved' ? { from: daysAgoISO(10), to: today } : { from: firstOfMonth, to: today })
+    setApplied(next === 'To Authorize' || next === 'Authorized' ? { from: '', to: '' } : next === 'approved' ? { from: daysAgoISO(10), to: today } : { from: firstOfMonth, to: today })
   }
 
   // Date-range filter + status filter
@@ -230,9 +231,8 @@ export default function AdminApprovalsPage() {
       else if (tab === 'Authorized') { if (!isAuthorized(t)) return false }
       else if (tab === 'pending') { if (!awaitingApproval(t)) return false }
       else if (Number(t.admin_status) !== statusMap[tab]) return false
-      // Everything still waiting for authorization is listed, whatever its
-      // date, so no older trip is left out of sight behind the date range.
-      if (tab === 'To Authorize' || tab === 'Authorized') return true
+      // The date range only narrows the list once one is picked; the authorization
+      // tabs start with none, so no older trip is hidden.
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
       if (!d) return true
       if (applied.from && d < applied.from) return false
@@ -345,8 +345,8 @@ export default function AdminApprovalsPage() {
 
       <ApprovalStatusTabs tab={tab} onChange={changeTab} counts={tabCounts} leading={leadingTabs} />
 
-      {/* Date filter - the authorization tabs list everything, so it does not apply there */}
-      {!authStage && <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
+      {/* Date filter */}
+      <GlassCard className="p-4" colorBar="bg-gradient-to-r from-slate-400 to-slate-500">
         <div className="flex items-end gap-3 flex-wrap">
           <div>
             <Label>Date / Date range</Label>
@@ -357,7 +357,7 @@ export default function AdminApprovalsPage() {
             <Button variant="outline" onClick={() => setApplied({ from: '', to: '' })}>Clear dates</Button>
           )}
         </div>
-      </GlassCard>}
+      </GlassCard>
 
       {/* Table */}
       <DataTable
