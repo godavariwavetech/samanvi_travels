@@ -107,6 +107,16 @@ exports.getvouchermodaldataCtrl = function (req, res) {
   });
 };
 
+exports.getbankbulkpaymentsCtrl = function (req, res) {
+  appmdl.getbankbulkpaymentsMdl(req.body, function (err, results) {
+    if (err) {
+      res.send({ status: 500, msg: "Server Error" });
+      return;
+    }
+    res.send({ status: 200, data: results });
+  });
+};
+
 exports.getdashotpCtrl = function (req, res) {
   const { encryptedPayload, signature } = req.body;
 

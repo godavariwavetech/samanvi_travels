@@ -5187,6 +5187,33 @@ exports.getvouchermodaldataMdl = function (data, callback) {
   } else return dbutil.execQuery(sqldb, QRY_TO_EXEC, cntxtDtls);
 };
 
+// Bank bulk-payment file: for the given vouchers, every debit line that settles
+// a Staff / Driver / Helper payable, with that person's bank details (looked up
+// through the ledger_id each register keeps). Lines for any other ledger come
+// back with has_person=0 so the page can list them as skipped.
+exports.getbankbulkpaymentsMdl = function (data, callback) {
+  var cntxtDtls = "in getbankbulkpaymentsMdl";
+  var cNumbers = Array.isArray(data && data.c_numbers) ? data.c_numbers.filter(Boolean) : [];
+  if (!cNumbers.length) return callback(null, []);
+  var QRY = `SELECT s.c_number, s.ledger_id, s.amount, s.description,
+      COALESCE(l.temple_name, '') AS ledger_name,
+      p.person_type, p.account_holder_name, p.account_number, p.ifsc_code
+    FROM mainvoucher_subt s
+    LEFT JOIN mainmasterssubchildtwo l ON l.id = s.ledger_id
+    LEFT JOIN (
+      SELECT ledger_id, 'Staff' AS person_type, accountHolderName AS account_holder_name, accountNumber AS account_number, ifscCode AS ifsc_code FROM staff_register WHERE d_in=0 AND ledger_id IS NOT NULL
+      UNION ALL
+      SELECT ledger_id, 'Driver', account_holder_name, account_number, ifsc_code FROM driver_register WHERE d_in=0 AND ledger_id IS NOT NULL
+      UNION ALL
+      SELECT ledger_id, 'Helper', account_holder_name, account_number, ifsc_code FROM helper_register WHERE d_in=0 AND ledger_id IS NOT NULL
+    ) p ON p.ledger_id = s.ledger_id
+    WHERE s.d_in=0 AND s.account_type='Debit Account' AND s.c_number IN (?)
+    ORDER BY s.c_number, s.id`;
+  dbutil.execupdateQuery(sqldb, QRY, [cNumbers], cntxtDtls, function (err, rows) {
+    callback(err, rows || []);
+  });
+};
+
 exports.getallemployeesdropdownvoucherentryMdl = function (callback) {
   var cntxtDtls = "in getallemployeesdropdownvoucherentryMdl";
   var QRY_TO_EXEC = `select *,id as staff_id,"staff" as "type" from staff_register where  d_in='0' order by id desc;select *,id as staff_id, "helper" as "type" from  helper_register where  d_in='0' order by id desc;select *,id as staff_id,"driver" as "type" from  driver_register where  d_in='0' order by id desc`;

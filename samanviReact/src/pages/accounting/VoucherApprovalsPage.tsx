@@ -13,6 +13,8 @@ import { mastersService } from '@/services/masters.service'
 import { formatCurrency, formatDate, ledgerGroupName, todayISO } from '@/lib/utils'
 import { useFYStore } from '@/store/fy.store'
 import { getCurrentFY } from '@/lib/fy'
+import { buildBankPaymentRows, downloadBankBulkFile, BANK_BULK_MAX_ROWS } from '@/lib/bankBulkFile'
+import type { SkippedLine } from '@/lib/bankBulkFile'
 
 interface EditLedgerItem {
   ledger: any
@@ -1118,6 +1120,30 @@ export default function VoucherApprovalsPage() {
   const [bulkApproving, setBulkApproving] = useState(false)
   const [bulkRejecting, setBulkRejecting] = useState(false)
 
+  // Bank bulk-payment file for the selected approved vouchers: one row per
+  // Staff / Driver / Helper debit line; anything without usable bank details is
+  // left out and listed so it can be fixed on the Staff page.
+  const [bankExporting, setBankExporting] = useState(false)
+  const [bankSkipped, setBankSkipped] = useState<SkippedLine[] | null>(null)
+  const exportBankFile = async () => {
+    if (!selectedRows.length) return
+    setBankExporting(true)
+    try {
+      const res = await accountingService.getBankBulkPayments({ c_numbers: selectedRows.map((r: any) => r.c_number) })
+      if (res?.status !== 200) { toast.error(res?.msg ?? 'Could not load bank details'); return }
+      const { rows, skipped } = buildBankPaymentRows(res.data ?? [])
+      setBankSkipped(skipped.length ? skipped : null)
+      if (!rows.length) { toast.error('No payments with complete bank details in the selection'); return }
+      if (rows.length > BANK_BULK_MAX_ROWS) { toast.error(`The bank accepts at most ${BANK_BULK_MAX_ROWS} transactions per file`); return }
+      const name = downloadBankBulkFile(rows)
+      toast.success(`${name}: ${rows.length} payment${rows.length !== 1 ? 's' : ''}${skipped.length ? `, ${skipped.length} skipped` : ''}`)
+    } catch {
+      toast.error('Server error')
+    } finally {
+      setBankExporting(false)
+    }
+  }
+
   const runBulkAction = async (status: 1 | 2, reason = '') => {
     if (!selectedRows.length) return
     if (status === 2) { setRejectReason(''); setRejectModal({ mode: 'bulk' }); return }
@@ -1297,6 +1323,18 @@ export default function VoucherApprovalsPage() {
         ))}
       </div>
 
+      {bankSkipped && (
+        <GlassCard className="p-4 space-y-2" colorBar="bg-gradient-to-r from-amber-500 to-orange-500">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-bold text-amber-800">{bankSkipped.length} payment{bankSkipped.length !== 1 ? 's' : ''} left out of the bank file</p>
+            <button onClick={() => setBankSkipped(null)} className="text-slate-400 hover:text-slate-600" title="Dismiss"><X className="w-4 h-4" /></button>
+          </div>
+          <ul className="text-xs text-slate-700 space-y-0.5 max-h-40 overflow-auto">
+            {bankSkipped.map((k, i) => <li key={i}><span className="font-semibold">{k.c_number}</span> · {k.name || '—'} — {k.reason}</li>)}
+          </ul>
+        </GlassCard>
+      )}
+
       <DataTable
         title={tab}
         columns={buildCols(handleApprove, handleReject, handleView, handleReopen, canApprove ? getMode() : 'view', {
@@ -1315,7 +1353,16 @@ export default function VoucherApprovalsPage() {
         selectable={canApprove}
         sumKey="debit_total"
         onSelectionChange={(rows) => setSelectedRows(rows)}
-        selectionActions={canApprove && tab === 'Pending Approval' ? (
+        selectionActions={tab === 'Approved' ? (
+          <button
+            onClick={exportBankFile}
+            disabled={bankExporting}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            {bankExporting ? 'Preparing…' : 'Bank Bulk File'}
+          </button>
+        ) : canApprove && tab === 'Pending Approval' ? (
           <>
             <button
               onClick={() => runBulkAction(1)}

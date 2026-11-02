@@ -252,6 +252,7 @@ router.post('/deletevoucherentry',verifyToken, routcontroller.deletevoucherentry
 //courtcases end
 ///booking module ends
 router.post("/getvouchermodaldata",verifyToken,routcontroller.getvouchermodaldataCtrl);
+router.post("/getbankbulkpayments",verifyToken,routcontroller.getbankbulkpaymentsCtrl);
 
 router.post("/getvouchertypedata",verifyToken,routcontroller.getvouchertypedatactrl);
 router.post("/submitvouchertype",verifyToken,routcontroller.submitvouchertypectrl);
