@@ -3102,7 +3102,7 @@ exports.getexpensesMdl = function (data, callback) {
   -- the frontend can split and display each one by name.
   (SELECT GROUP_CONCAT(CONCAT(ed.expensives, ':', ed.amount) ORDER BY ed.id SEPARATOR '|')
    FROM expensive_details ed
-   WHERE ed.c_number = t.voucher_number AND ed.d_in = 0
+   WHERE ed.c_number = t.c_number AND ed.d_in = 0
      AND ed.amount_type = 'Debit Account'
      AND LOWER(REPLACE(ed.expensives, ' ', '')) NOT REGEXP '^(betas?|salari|parking)'
   ) AS exp_other_items,
@@ -3593,7 +3593,7 @@ exports.getexpensesfiltere = function (data, callback) {
   -- the frontend can split and display each one by name.
   (SELECT GROUP_CONCAT(CONCAT(ed.expensives, ':', ed.amount) ORDER BY ed.id SEPARATOR '|')
    FROM expensive_details ed
-   WHERE ed.c_number = t.voucher_number AND ed.d_in = 0
+   WHERE ed.c_number = t.c_number AND ed.d_in = 0
      AND ed.amount_type = 'Debit Account'
      AND LOWER(REPLACE(ed.expensives, ' ', '')) NOT REGEXP '^(betas?|salari|parking)'
   ) AS exp_other_items,

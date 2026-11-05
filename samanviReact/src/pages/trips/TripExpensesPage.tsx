@@ -1776,7 +1776,12 @@ export default function TripExpensesPage() {
           })
           .filter((x) => x.name && x.amount > 0)
 
-        if (parking === 0 && otherItems.length === 0) return <span className="text-slate-300">—</span>
+        // Fallback: if backend didn't return named items but we know there are
+        // free rows from the totals, show a generic "Other" line
+        const freeTotal = Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
+        const showFallback = otherItems.length === 0 && freeTotal > 0
+
+        if (parking === 0 && otherItems.length === 0 && !showFallback) return <span className="text-slate-300">—</span>
 
         return (
           <div className="space-y-0.5">
@@ -1784,6 +1789,7 @@ export default function TripExpensesPage() {
             {otherItems.map((item, i) => (
               <div key={i} className="text-sm font-semibold text-slate-700">{item.name}: ₹{item.amount.toLocaleString('en-IN')}</div>
             ))}
+            {showFallback && <div className="text-sm font-semibold text-slate-700">Other: ₹{freeTotal.toLocaleString('en-IN')}</div>}
           </div>
         )
       },
