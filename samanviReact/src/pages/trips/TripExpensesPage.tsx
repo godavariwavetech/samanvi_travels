@@ -1698,14 +1698,16 @@ export default function TripExpensesPage() {
     // Betas + parking of non-directly-paid seats
     const betaShare = seats.filter(([, , present, , direct]) => present && !Number(direct))
       .reduce((sum, [beta, opt, , opting]) => sum + num(beta) + (opting ? num(opt) : 0), 0)
-      + num(filed ? r.exp_parking : (van || halted) ? 0 : r.rt_parking)
-    // Free debit rows (Wheel Alignment, etc.) — sum amounts from exp_other_items.
-    // Falls back to grantotal - salary_beta_tot_amount if the field isn't present yet.
+    // Free debit rows (Wheel Alignment, Parking if posted, etc.) — sum amounts
+    // from exp_other_items which reflects what's actually in the ledger.
+    // Falls back to grantotal - salary_beta_tot_amount for older rows.
     const freeDebits = filed
-      ? String(r.exp_other_items ?? '').split('|').filter(Boolean)
-          .reduce((s, seg) => { const idx = seg.lastIndexOf(':'); return s + num(seg.slice(idx + 1)) }, 0)
-          || Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
-      : 0
+      ? (() => {
+          const fromItems = String(r.exp_other_items ?? '').split('|').filter(Boolean)
+            .reduce((s, seg) => { const idx = seg.lastIndexOf(':'); return s + num(seg.slice(idx + 1)) }, 0)
+          return fromItems > 0 ? fromItems : Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
+        })()
+      : num(r.rt_parking)
     const share = betaShare + freeDebits
     return { share, filed }
   }
@@ -1750,23 +1752,22 @@ export default function TripExpensesPage() {
     { label: 'Driver 2', key: 'driver2_name', render: (v, r: any) => personCell(v, r.exp_driver2_beta, r.exp_driver2_opt, seatIsOpting(r.driver2_id, r.driver2_name, r.opt_driver2_id), !!r.exp_row_id, true) },
     { label: 'Helper', key: 'helper_name', render: (v, r: any) => personCell(v, r.exp_helper_beta, r.exp_helper_opt, seatIsOpting(r.helper_id, r.helper_name, r.opt_helper_id), !!r.exp_row_id, true) },
     { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v, r: any) => personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true) },
-    // Others: everything that isn't salary or betas — parking + any free debit rows
-    // like Wheel Alignment. For a filed trip: grantotal - salary_beta_tot_amount + parking
-    // gives (parking + free rows). For an unfiled trip: rt_parking only.
+    // Others: actual debit ledger entries that aren't salary or betas — matches
+    // exactly what the view modal shows. Source is exp_other_items (subquery from
+    // expensive_details). For unfiled trips: rt_parking as the expected amount.
     {
       label: 'Others', key: 'salary_beta_tot_amount',
       render: (_v, r: any) => {
         const filed = !!r.exp_row_id
-        const parking = num(r.exp_parking)
 
         if (!filed) {
           const rt = num(r.rt_parking)
           return rt > 0
-            ? <div><div className="text-sm font-semibold text-slate-700">Parking: ₹{rt.toLocaleString('en-IN')}<span className="font-normal text-slate-400 italic"> expected</span></div></div>
+            ? <div className="text-sm font-semibold text-slate-700">Parking: ₹{rt.toLocaleString('en-IN')}<span className="font-normal text-slate-400 italic"> expected</span></div>
             : <span className="text-slate-300">—</span>
         }
 
-        // Parse "Name:amount|Name:amount" from backend subquery
+        // Parse actual ledger entries from backend subquery "Name:amount|..."
         const otherItems: { name: string; amount: number }[] = String(r.exp_other_items ?? '')
           .split('|')
           .filter(Boolean)
@@ -1776,20 +1777,13 @@ export default function TripExpensesPage() {
           })
           .filter((x) => x.name && x.amount > 0)
 
-        // Fallback: if backend didn't return named items but we know there are
-        // free rows from the totals, show a generic "Other" line
-        const freeTotal = Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
-        const showFallback = otherItems.length === 0 && freeTotal > 0
-
-        if (parking === 0 && otherItems.length === 0 && !showFallback) return <span className="text-slate-300">—</span>
+        if (otherItems.length === 0) return <span className="text-slate-300">—</span>
 
         return (
           <div className="space-y-0.5">
-            {parking > 0 && <div className="text-sm font-semibold text-slate-700">Parking: ₹{parking.toLocaleString('en-IN')}</div>}
             {otherItems.map((item, i) => (
               <div key={i} className="text-sm font-semibold text-slate-700">{item.name}: ₹{item.amount.toLocaleString('en-IN')}</div>
             ))}
-            {showFallback && <div className="text-sm font-semibold text-slate-700">Other: ₹{freeTotal.toLocaleString('en-IN')}</div>}
           </div>
         )
       },
