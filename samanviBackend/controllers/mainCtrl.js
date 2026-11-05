@@ -3424,12 +3424,22 @@ exports.tripcreated = function (req, res) {
     return isApprovedEditor(req.auth && req.auth.usid, function (ok) {
       if (ok) return tripcreatedNow(req, res, data);
       sqldb.query("SELECT t.admin_status, (SELECT COUNT(*) FROM trip_authorizations ta WHERE ta.c_number = t.c_number) AS authorized FROM trip_created t WHERE t.c_number = ? AND t.d_in = 0 ORDER BY t.id DESC LIMIT 1", [String(data.c_number || '')], function (lockErr, lockRows) {
+        // Trip Expenses saves the trip's details just before it files or
+        // updates the expense (source 'expense'). Its trips are authorized by
+        // definition - the expense step comes after authorization - so the
+        // authorization lock would make the expense impossible to file for
+        // anyone but an approved editor. Only approved/rejected trips stay
+        // locked here; Trip Expenses refuses those on its own.
+        var fromExpense = data.source === 'expense';
         // trip_authorizations may not exist yet on an older database; fall back to the status alone.
         if (lockErr) return sqldb.query("SELECT admin_status FROM trip_created WHERE c_number = ? AND d_in = 0 ORDER BY id DESC LIMIT 1", [String(data.c_number || '')], function (e2, r2) {
-          if (!e2 && r2 && r2[0] && (Number(r2[0].admin_status) === 1 || Number(r2[0].admin_status) === 2)) return res.send({ status: 403, msg: "This trip is authorized or approved and can only be changed by an authorised user" });
+          var fallbackRow = r2 && r2[0];
+          if (!e2 && fallbackRow && fromExpense && Number(fallbackRow.admin_status) === 0) return tripcreatedNow(req, res, data);
+          if (!e2 && fallbackRow && (Number(fallbackRow.admin_status) === 1 || Number(fallbackRow.admin_status) === 2)) return res.send({ status: 403, msg: "This trip is authorized or approved and can only be changed by an authorised user" });
           tripcreatedNow(req, res, data);
         });
         var row = lockRows && lockRows[0];
+        if (fromExpense && row && Number(row.admin_status) === 0) return tripcreatedNow(req, res, data);
         if (row && (Number(row.authorized) > 0 || Number(row.admin_status) === 1 || Number(row.admin_status) === 2)) {
           return res.send({ status: 403, msg: "This trip is authorized or approved and can only be changed by an authorised user" });
         }
