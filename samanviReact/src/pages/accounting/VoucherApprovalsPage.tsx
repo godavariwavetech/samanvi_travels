@@ -216,7 +216,7 @@ const REQUIRED_VOUCHER_COLS = ['Voucher Type', 'Source', 'Voucher Date', 'Dr. Le
 const OPTIONAL_VOUCHER_COLS = ['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver', 'Value Date', 'Staff Name', 'Description', 'Entry By'] as const
 const ALL_VOUCHER_COLS = [...REQUIRED_VOUCHER_COLS, ...OPTIONAL_VOUCHER_COLS] as const
 type VoucherColId = typeof ALL_VOUCHER_COLS[number]
-const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Job Ref', 'Battery Ref', 'Trip Ref', 'Bus / Vehicle', 'Driver'])
+const DEFAULT_VISIBLE_OPTIONAL = new Set<string>(['Description', 'Bus / Vehicle'])
 
 // Where a voucher came from, as the badges beside its type show it: a payable,
 // or the module that posted it (Job card, Battery, Tyre, Trip, Fuel, Laundry);

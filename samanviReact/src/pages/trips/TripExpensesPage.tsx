@@ -1755,15 +1755,21 @@ export default function TripExpensesPage() {
       label: 'Others', key: 'salary_beta_tot_amount',
       render: (_v, r: any) => {
         const filed = !!r.exp_row_id
-        // Filed: parking_amt + any free debit rows (e.g. Wheel Alignment)
-        // salary_beta_tot_amount = salaries + betas + parking, so:
-        // others = grantotal - salary_beta_tot_amount + parking = free rows + parking
-        const amt = filed
-          ? Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount) + num(r.exp_parking))
-          : num(r.rt_parking)
-        return amt > 0
-          ? <div><div className="text-xs text-slate-500">Parking / other</div><div className="text-sm font-semibold text-slate-700">₹{amt.toLocaleString('en-IN')}{!filed && <span className="font-normal text-slate-400 italic"> expected</span>}</div></div>
-          : <span className="text-slate-300">—</span>
+        const parking = num(r.exp_parking)
+        const freeRows = filed ? Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount)) : 0
+        if (!filed) {
+          const rt = num(r.rt_parking)
+          return rt > 0
+            ? <div><div className="text-xs text-slate-500">Parking</div><div className="text-sm font-semibold text-slate-700">₹{rt.toLocaleString('en-IN')}<span className="font-normal text-slate-400 italic"> expected</span></div></div>
+            : <span className="text-slate-300">—</span>
+        }
+        if (parking === 0 && freeRows === 0) return <span className="text-slate-300">—</span>
+        return (
+          <div className="space-y-0.5">
+            {parking > 0 && <div className="text-sm font-semibold text-slate-700">Parking: ₹{parking.toLocaleString('en-IN')}</div>}
+            {freeRows > 0 && <div className="text-sm font-semibold text-slate-700">Other: ₹{freeRows.toLocaleString('en-IN')}</div>}
+          </div>
+        )
       },
     },
     // what they receive: the pay of every crew member not paid individually, plus
@@ -1936,7 +1942,11 @@ export default function TripExpensesPage() {
         onSelectionChange={(rows) => setSelectedTrips(rows as any[])}
         selectionActions={canApproveTrips ? (
           <Button variant="success" size="sm" disabled={bulkApproving || selectedTrips.filter(awaitingApproval).length === 0} onClick={approveSelected}>
-            <CheckCircle className="w-3.5 h-3.5" />{bulkApproving ? 'Approving…' : `Approve Selected${selectedTrips.filter(awaitingApproval).length ? ` (${selectedTrips.filter(awaitingApproval).length})` : ''}`}
+            <CheckCircle className="w-3.5 h-3.5" />{bulkApproving ? 'Approving…' : (() => {
+              const approvable = selectedTrips.filter(awaitingApproval)
+              const total = approvable.reduce((s, r) => s + num(r.grantotal), 0)
+              return `Approve Selected${approvable.length ? ` (${approvable.length}${total > 0 ? ` · ₹${total.toLocaleString('en-IN')}` : ''})` : ''}`
+            })()}
           </Button>
         ) : undefined}
       />
