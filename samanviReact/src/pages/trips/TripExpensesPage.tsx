@@ -1695,9 +1695,16 @@ export default function TripExpensesPage() {
       [r.rt_helper_beta, 0, held(r.helper_id, r.helper_name, r.opt_helper_id), false, r.helper_paid_direct],
       [r.rt_conductor_beta, 0, held(r.conductor_id, r.conductor_name), false, r.conductor_paid_direct],
     ]
-    const share = seats.filter(([, , present, , direct]) => present && !Number(direct))
+    // Betas + parking of non-directly-paid seats
+    const betaShare = seats.filter(([, , present, , direct]) => present && !Number(direct))
       .reduce((sum, [beta, opt, , opting]) => sum + num(beta) + (opting ? num(opt) : 0), 0)
       + num(filed ? r.exp_parking : (van || halted) ? 0 : r.rt_parking)
+    // Free debit rows (Wheel Alignment, etc.) = grantotal - salary_beta_tot_amount.
+    // salary_beta_tot_amount = salaries + betas + parking, so the remainder is
+    // everything else that was posted on the debit side. These always fall through
+    // to Paid To since they have no individual payee of their own.
+    const freeDebits = filed ? Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount)) : 0
+    const share = betaShare + freeDebits
     return { share, filed }
   }
   const columns: Column[] = [
@@ -1741,7 +1748,24 @@ export default function TripExpensesPage() {
     { label: 'Driver 2', key: 'driver2_name', render: (v, r: any) => personCell(v, r.exp_driver2_beta, r.exp_driver2_opt, seatIsOpting(r.driver2_id, r.driver2_name, r.opt_driver2_id), !!r.exp_row_id, true) },
     { label: 'Helper', key: 'helper_name', render: (v, r: any) => personCell(v, r.exp_helper_beta, r.exp_helper_opt, seatIsOpting(r.helper_id, r.helper_name, r.opt_helper_id), !!r.exp_row_id, true) },
     { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v, r: any) => personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true) },
-    // Paid To is the person the trip is paid to (Trip Creation's Paid To), with
+    // Others: everything that isn't salary or betas — parking + any free debit rows
+    // like Wheel Alignment. For a filed trip: grantotal - salary_beta_tot_amount + parking
+    // gives (parking + free rows). For an unfiled trip: rt_parking only.
+    {
+      label: 'Others', key: 'salary_beta_tot_amount',
+      render: (_v, r: any) => {
+        const filed = !!r.exp_row_id
+        // Filed: parking_amt + any free debit rows (e.g. Wheel Alignment)
+        // salary_beta_tot_amount = salaries + betas + parking, so:
+        // others = grantotal - salary_beta_tot_amount + parking = free rows + parking
+        const amt = filed
+          ? Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount) + num(r.exp_parking))
+          : num(r.rt_parking)
+        return amt > 0
+          ? <div><div className="text-xs text-slate-500">Parking / other</div><div className="text-sm font-semibold text-slate-700">₹{amt.toLocaleString('en-IN')}{!filed && <span className="font-normal text-slate-400 italic"> expected</span>}</div></div>
+          : <span className="text-slate-300">—</span>
+      },
+    },
     // what they receive: the pay of every crew member not paid individually, plus
     // the other payments (parking, toll) that have no payee of their own. Once the
     // expense is filed these are its figures; before that they are the service
@@ -1761,17 +1785,8 @@ export default function TripExpensesPage() {
         )
       },
     },
-    // Others: payments with no payee of their own - Parking, Toll and the like.
-    {
-      label: 'Others', key: 'exp_parking',
-      render: (_v, r: any) => {
-        const filed = !!r.exp_row_id
-        const amt = num(filed ? r.exp_parking : r.rt_parking)
-        return amt > 0
-          ? <div><div className="text-xs text-slate-500">Parking / other</div><div className="text-sm font-semibold text-slate-700">₹{amt.toLocaleString('en-IN')}{!filed && <span className="font-normal text-slate-400 italic"> expected</span>}</div></div>
-          : <span className="text-slate-300">—</span>
-      },
-    },
+    // Others: payments with no payee of their own are now shown in the Others
+    // column above (next to Conductor), so this separate column is removed.
     {
       // trip_created.grantotal is a text column and comes back as the STRING
       // "0" on every trip that has no expense filed yet — truthy, so a plain
