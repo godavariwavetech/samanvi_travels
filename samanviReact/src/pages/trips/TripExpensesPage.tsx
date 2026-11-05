@@ -1699,11 +1699,13 @@ export default function TripExpensesPage() {
     const betaShare = seats.filter(([, , present, , direct]) => present && !Number(direct))
       .reduce((sum, [beta, opt, , opting]) => sum + num(beta) + (opting ? num(opt) : 0), 0)
       + num(filed ? r.exp_parking : (van || halted) ? 0 : r.rt_parking)
-    // Free debit rows (Wheel Alignment, etc.) = grantotal - salary_beta_tot_amount.
-    // salary_beta_tot_amount = salaries + betas + parking, so the remainder is
-    // everything else that was posted on the debit side. These always fall through
-    // to Paid To since they have no individual payee of their own.
-    const freeDebits = filed ? Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount)) : 0
+    // Free debit rows (Wheel Alignment, etc.) — sum amounts from exp_other_items.
+    // Falls back to grantotal - salary_beta_tot_amount if the field isn't present yet.
+    const freeDebits = filed
+      ? String(r.exp_other_items ?? '').split('|').filter(Boolean)
+          .reduce((s, seg) => { const idx = seg.lastIndexOf(':'); return s + num(seg.slice(idx + 1)) }, 0)
+          || Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
+      : 0
     const share = betaShare + freeDebits
     return { share, filed }
   }
@@ -1756,18 +1758,32 @@ export default function TripExpensesPage() {
       render: (_v, r: any) => {
         const filed = !!r.exp_row_id
         const parking = num(r.exp_parking)
-        const freeRows = filed ? Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount)) : 0
+
         if (!filed) {
           const rt = num(r.rt_parking)
           return rt > 0
-            ? <div><div className="text-xs text-slate-500">Parking</div><div className="text-sm font-semibold text-slate-700">₹{rt.toLocaleString('en-IN')}<span className="font-normal text-slate-400 italic"> expected</span></div></div>
+            ? <div><div className="text-sm font-semibold text-slate-700">Parking: ₹{rt.toLocaleString('en-IN')}<span className="font-normal text-slate-400 italic"> expected</span></div></div>
             : <span className="text-slate-300">—</span>
         }
-        if (parking === 0 && freeRows === 0) return <span className="text-slate-300">—</span>
+
+        // Parse "Name:amount|Name:amount" from backend subquery
+        const otherItems: { name: string; amount: number }[] = String(r.exp_other_items ?? '')
+          .split('|')
+          .filter(Boolean)
+          .map((s) => {
+            const idx = s.lastIndexOf(':')
+            return { name: s.slice(0, idx).trim(), amount: num(s.slice(idx + 1)) }
+          })
+          .filter((x) => x.name && x.amount > 0)
+
+        if (parking === 0 && otherItems.length === 0) return <span className="text-slate-300">—</span>
+
         return (
           <div className="space-y-0.5">
             {parking > 0 && <div className="text-sm font-semibold text-slate-700">Parking: ₹{parking.toLocaleString('en-IN')}</div>}
-            {freeRows > 0 && <div className="text-sm font-semibold text-slate-700">Other: ₹{freeRows.toLocaleString('en-IN')}</div>}
+            {otherItems.map((item, i) => (
+              <div key={i} className="text-sm font-semibold text-slate-700">{item.name}: ₹{item.amount.toLocaleString('en-IN')}</div>
+            ))}
           </div>
         )
       },

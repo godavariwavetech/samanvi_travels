@@ -3097,6 +3097,15 @@ exports.getexpensesMdl = function (data, callback) {
   te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
   te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
   te.id AS exp_row_id,
+  -- Extra debit line items (e.g. Wheel Alignment) — everything except the
+  -- standard Betas, Salaries and Parking rows, returned as "Name:amount|..." so
+  -- the frontend can split and display each one by name.
+  (SELECT GROUP_CONCAT(CONCAT(ed.expensives, ':', ed.amount) ORDER BY ed.id SEPARATOR '|')
+   FROM expensive_details ed
+   WHERE ed.c_number = t.voucher_number AND ed.d_in = 0
+     AND ed.amount_type = 'Debit Account'
+     AND LOWER(REPLACE(ed.expensives, ' ', '')) NOT REGEXP '^(betas?|salari|parking)'
+  ) AS exp_other_items,
   -- The hire Journal a hired-van trip posts at creation, so the expense screen
   -- can say the charge is already on the books instead of looking empty.
   vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
@@ -3579,6 +3588,15 @@ exports.getexpensesfiltere = function (data, callback) {
   te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
   te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
   te.id AS exp_row_id,
+  -- Extra debit line items (e.g. Wheel Alignment) — everything except the
+  -- standard Betas, Salaries and Parking rows, returned as "Name:amount|..." so
+  -- the frontend can split and display each one by name.
+  (SELECT GROUP_CONCAT(CONCAT(ed.expensives, ':', ed.amount) ORDER BY ed.id SEPARATOR '|')
+   FROM expensive_details ed
+   WHERE ed.c_number = t.voucher_number AND ed.d_in = 0
+     AND ed.amount_type = 'Debit Account'
+     AND LOWER(REPLACE(ed.expensives, ' ', '')) NOT REGEXP '^(betas?|salari|parking)'
+  ) AS exp_other_items,
   -- The hire Journal a hired-van trip posts at creation, so the expense screen
   -- can say the charge is already on the books instead of looking empty.
   vd.ledger_id AS hire_debit_ledger_id, vd.expensives AS hire_debit_ledger_name,
