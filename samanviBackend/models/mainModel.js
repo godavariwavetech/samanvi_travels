@@ -5877,13 +5877,26 @@ exports.gettripceated1Mdl = function (callback) {
   END AS paid_to_name,
   vd.expensives AS debit_ledger_name,
   vc.expensives AS credit_ledger_name,
-  -- Every ledger line of the trip's voucher with its amount ('|' separated, in
-  -- the same order), so a voucher with several debit or credit ledgers shows
-  -- all of them and not only the first.
-  (SELECT GROUP_CONCAT(x.expensives ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Debit%' AND x.d_in = 0) AS debit_lines_names,
-  (SELECT GROUP_CONCAT(x.amount ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Debit%' AND x.d_in = 0) AS debit_lines_amounts,
-  (SELECT GROUP_CONCAT(x.expensives ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Credit%' AND x.d_in = 0) AS credit_lines_names,
-  (SELECT GROUP_CONCAT(x.amount ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Credit%' AND x.d_in = 0) AS credit_lines_amounts,
+  -- Every ledger line of the trip with its amount ('|' separated, in the same
+  -- order). A trip with a voucher reads the voucher's lines. A trip without one
+  -- (filed for the trip screens only, no voucher posted) reads the rows its
+  -- expense wrote to expensive_details, so Trip Approvals still shows them.
+  COALESCE(
+    (SELECT GROUP_CONCAT(x.expensives ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Debit%' AND x.d_in = 0),
+    (SELECT GROUP_CONCAT(e.expensives ORDER BY e.id SEPARATOR '|') FROM expensive_details e WHERE e.c_number = t.c_number AND e.account_type LIKE 'Debit%' AND e.d_in = 0)
+  ) AS debit_lines_names,
+  COALESCE(
+    (SELECT GROUP_CONCAT(x.amount ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Debit%' AND x.d_in = 0),
+    (SELECT GROUP_CONCAT(e.amount ORDER BY e.id SEPARATOR '|') FROM expensive_details e WHERE e.c_number = t.c_number AND e.account_type LIKE 'Debit%' AND e.d_in = 0)
+  ) AS debit_lines_amounts,
+  COALESCE(
+    (SELECT GROUP_CONCAT(x.expensives ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Credit%' AND x.d_in = 0),
+    (SELECT GROUP_CONCAT(e.expensives ORDER BY e.id SEPARATOR '|') FROM expensive_details e WHERE e.c_number = t.c_number AND e.account_type LIKE 'Credit%' AND e.d_in = 0)
+  ) AS credit_lines_names,
+  COALESCE(
+    (SELECT GROUP_CONCAT(x.amount ORDER BY x.id SEPARATOR '|') FROM mainvoucher_subt x WHERE x.c_number = t.voucher_number AND x.account_type LIKE 'Credit%' AND x.d_in = 0),
+    (SELECT GROUP_CONCAT(COALESCE(e.credit_amount, e.amount) ORDER BY e.id SEPARATOR '|') FROM expensive_details e WHERE e.c_number = t.c_number AND e.account_type LIKE 'Credit%' AND e.d_in = 0)
+  ) AS credit_lines_amounts,
   -- Off the service route the trip ran: Up/Down for a bus, Pick/Drop for a van.
   COALESCE(NULLIF(t.up_down, ''), dn.up_down) AS up_down, dn.trip_type AS pick_drop,
   -- Approval of the trip's voucher (Voucher Approvals), which locks the expense
