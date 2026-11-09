@@ -1337,10 +1337,16 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         </GlassCard>
       )}
 
-      {tab === 'Approved' && (
-        <div className="flex justify-end">
+      {/* Always shown; bank payments are made only for approved vouchers, so
+          from another tab it opens the Approved tab first. */}
+      {(
+        <div className="flex justify-end items-center gap-3">
+          {tab !== 'Approved' && <span className="text-xs text-slate-500">Bank file is made from the Approved tab</span>}
           <button
-            onClick={exportBankFile}
+            onClick={() => {
+              if (tab !== 'Approved') { handleTabChange('Approved'); setSelectedRows([]); toast.info('Approved tab opened — click Download Bank Excel again to download'); return }
+              exportBankFile()
+            }}
             disabled={bankExporting}
             title="Download the vouchers on screen (or the ticked ones) in the bank's bulk-payment format"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"

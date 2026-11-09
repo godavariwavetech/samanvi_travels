@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { useQuery } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { Trash2, X } from 'lucide-react'
 import { GlassCard, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { deletedService } from '@/services/deleted.service'
@@ -47,7 +47,65 @@ function describe(snapshot: string): { line: string; full: string } {
   return { line, full: record ? JSON.stringify(record, null, 2) : '' }
 }
 
+const HIDDEN = new Set(['password', 'd_in', '_sl', 'source_label', 'encryptedPayload', 'signature'])
+const label = (k: string) => k.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, (c) => c.toUpperCase())
+const show = (v: unknown): string => {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'object') return JSON.stringify(v)
+  const t = String(v)
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t) ? formatDateTime(t) : t
+}
+
+// Every field of one deleted record, from the copy saved when it was deleted.
+function DeletedDetails({ row, onClose }: { row: DeletedRow; onClose: () => void }) {
+  let parsed: any = {}
+  try { parsed = row.snapshot ? JSON.parse(row.snapshot) : {} } catch { parsed = {} }
+  const record = parsed?.record && typeof parsed.record === 'object' ? parsed.record
+    : parsed?.request && typeof parsed.request === 'object' ? parsed.request : null
+  const fields = record ? Object.entries(record).filter(([k]) => !HIDDEN.has(k)) : []
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Deleted {row.module} record — <span className="text-red-600">{row.reference || '—'}</span></h3>
+            {row.page && <p className="text-xs text-slate-500">Deleted from {row.page}</p>}
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Close"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 rounded-xl bg-red-50 border border-red-100 sm:col-span-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-red-500">Reason</p>
+              <p className="text-sm text-slate-800 whitespace-pre-wrap">{row.reason || (row.source === 'legacy' ? 'Deleted before reasons were recorded' : 'No reason given')}</p>
+            </div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Module</p><p className="text-sm font-semibold">{row.module}</p></div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Deleted By</p><p className="text-sm font-semibold">{row.deleted_by_name || '—'}</p></div>
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Deleted At</p><p className="text-sm font-semibold">{formatDateTime(row.deleted_at)}</p></div>
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">Record details</h4>
+            {fields.length ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
+                {fields.map(([k, v]) => (
+                  <div key={k} className="border-b border-slate-100 pb-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label(k)}</p>
+                    <p className="text-sm text-slate-800 break-words">{show(v)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">{parsed?.details || parsed?.subject || 'No copy of this record was saved.'}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DeletedRecordsPage() {
+  const [selected, setSelected] = useState<DeletedRow | null>(null)
   const { data, isLoading } = useQuery({
     queryKey: ['deleted-records'],
     queryFn: () => deletedService.getDeletedRecords(),
@@ -65,7 +123,8 @@ export default function DeletedRecordsPage() {
       render: (v) => <Badge variant="slate">{String(v || '—')}</Badge> },
     { label: 'Reference', key: 'reference', render: (v, r: any) => (
       <div>
-        <div className="font-bold text-red-600">{String(v || '—')}</div>
+        <button type="button" onClick={() => setSelected(r)} title="Show all details"
+          className="font-bold text-red-600 hover:underline text-left">{String(v || '—')}</button>
         {r.page && <div className="text-xs text-slate-400">{String(r.page)}</div>}
       </div>
     ) },
@@ -110,6 +169,7 @@ export default function DeletedRecordsPage() {
         actions={[]} onAction={() => {}}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))} />
+      {selected && <DeletedDetails row={selected} onClose={() => setSelected(null)} />}
     </motion.div>
   )
 }

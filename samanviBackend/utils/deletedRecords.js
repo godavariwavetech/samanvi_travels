@@ -57,21 +57,21 @@ function logDeletion(pool, auth, body, callback) {
 // Soft-deleted rows from before the log, one query per table so a table
 // missing on some database only drops its own rows.
 const LEGACY = [
-  { module: 'Trips', sql: `SELECT t.c_number AS reference,
-      CONCAT_WS(' · ', t.bus_no, t.service_no, DATE_FORMAT(t.trip_date, '%d-%m-%Y')) AS details,
-      e.delete_by_name AS deleted_by_name, DATE_FORMAT(e.delete_by_date, '%Y-%m-%d %H:%i:%s') AS deleted_at
+  { module: 'Trips', sql: `SELECT t.*, t.c_number AS _reference,
+      CONCAT_WS(' · ', t.bus_no, t.service_no, DATE_FORMAT(t.trip_date, '%d-%m-%Y')) AS _details,
+      e.delete_by_name AS _by, DATE_FORMAT(e.delete_by_date, '%Y-%m-%d %H:%i:%s') AS _at
     FROM trip_created t
     LEFT JOIN tripexpenses_data e ON e.id = (SELECT MAX(x.id) FROM tripexpenses_data x WHERE x.c_number = t.c_number)
     WHERE t.d_in = 1` },
-  { module: 'Fuel', sql: `SELECT c_number AS reference,
-      CONCAT_WS(' · ', vehicle_number, service_number) AS details,
-      deletedby_name AS deleted_by_name, DATE_FORMAT(deletedby_date, '%Y-%m-%d %H:%i:%s') AS deleted_at
+  { module: 'Fuel', sql: `SELECT *, c_number AS _reference,
+      CONCAT_WS(' · ', vehicle_number, service_number) AS _details,
+      deletedby_name AS _by, DATE_FORMAT(deletedby_date, '%Y-%m-%d %H:%i:%s') AS _at
     FROM fuel_entry WHERE d_in = 1` },
-  { module: 'Laundry', sql: `SELECT c_number AS reference, '' AS details,
-      delete_by_name AS deleted_by_name, DATE_FORMAT(delete_by_date, '%Y-%m-%d %H:%i:%s') AS deleted_at
+  { module: 'Laundry', sql: `SELECT *, c_number AS _reference, '' AS _details,
+      delete_by_name AS _by, DATE_FORMAT(delete_by_date, '%Y-%m-%d %H:%i:%s') AS _at
     FROM laundrybill_maint WHERE d_in = 1` },
-  { module: 'Vouchers', sql: `SELECT c_number AS reference, LEFT(COALESCE(description, ''), 200) AS details,
-      deleted_by_name, DATE_FORMAT(deleted_by_date, '%Y-%m-%d %H:%i:%s') AS deleted_at
+  { module: 'Vouchers', sql: `SELECT *, c_number AS _reference, LEFT(COALESCE(description, ''), 200) AS _details,
+      deleted_by_name AS _by, DATE_FORMAT(deleted_by_date, '%Y-%m-%d %H:%i:%s') AS _at
     FROM mainvoucher_t WHERE d_in = 1` },
 ]
 
@@ -95,11 +95,14 @@ function listDeleted(pool, callback) {
           if (!qErr) {
             // A legacy row can repeat (one per expense revision); keep one per reference.
             for (const r of legacy || []) {
-              const key = `${src.module}|${r.reference}`
-              if (!r.reference || seen.has(key)) continue
+              const key = `${src.module}|${r._reference}`
+              if (!r._reference || seen.has(key)) continue
               seen.add(key)
-              rows.push({ id: null, module: src.module, page: '', reference: r.reference, reason: '', endpoint: '',
-                snapshot: r.details ? JSON.stringify({ details: r.details }) : '', deleted_by_name: r.deleted_by_name, deleted_at: r.deleted_at, source: 'legacy' })
+              // The whole deleted row, so its details can be shown in full.
+              const record = {}
+              for (const [k, v] of Object.entries(r)) if (!k.startsWith('_')) record[k] = v
+              rows.push({ id: null, module: src.module, page: '', reference: r._reference, reason: '', endpoint: '',
+                snapshot: JSON.stringify({ details: r._details || '', record }), deleted_by_name: r._by, deleted_at: r._at, source: 'legacy' })
             }
           } else console.error('[deletedRecords] ' + src.module + ':', qErr.message)
           done()
