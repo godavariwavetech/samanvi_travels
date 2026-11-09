@@ -5,6 +5,8 @@ import { Trash2, X } from 'lucide-react'
 import { GlassCard, DataTable, Badge, PageHeader } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { deletedService } from '@/services/deleted.service'
+import api from '@/lib/api'
+import { ActivityTimeline } from '@/components/shared/ReferenceAuditModal'
 import { formatDateTime } from '@/lib/utils'
 
 // Everything deleted anywhere in the app, in one list: what it was, why it was
@@ -58,6 +60,19 @@ const show = (v: unknown): string => {
 
 // Every field of one deleted record, from the copy saved when it was deleted.
 function DeletedDetails({ row, onClose }: { row: DeletedRow; onClose: () => void }) {
+  // The record's whole life: created, edited, authorized, approved... then deleted.
+  const { data: audit, isLoading: auditLoading } = useQuery({
+    queryKey: ['reference-audit', row.reference],
+    queryFn: async () => {
+      const { data } = await api.post('/getreferenceaudit', { c_number: row.reference })
+      return data?.status === 200 ? data.data : null
+    },
+    enabled: !!row.reference, staleTime: 0,
+  })
+  const steps = [
+    ...((audit?.steps ?? []) as any[]),
+    { label: 'Deleted', who: row.deleted_by_name, when: row.deleted_at, state: 'done' },
+  ]
   let parsed: any = {}
   try { parsed = row.snapshot ? JSON.parse(row.snapshot) : {} } catch { parsed = {} }
   const record = parsed?.record && typeof parsed.record === 'object' ? parsed.record
@@ -82,6 +97,10 @@ function DeletedDetails({ row, onClose }: { row: DeletedRow; onClose: () => void
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Module</p><p className="text-sm font-semibold">{row.module}</p></div>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Deleted By</p><p className="text-sm font-semibold">{row.deleted_by_name || '—'}</p></div>
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Deleted At</p><p className="text-sm font-semibold">{formatDateTime(row.deleted_at)}</p></div>
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-slate-700 mb-2">Complete history</h4>
+            {auditLoading ? <p className="text-sm text-slate-500">Loading history…</p> : <ActivityTimeline steps={steps} />}
           </div>
           <div>
             <h4 className="text-sm font-bold text-slate-700 mb-2">Record details</h4>

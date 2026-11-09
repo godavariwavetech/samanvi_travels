@@ -62,7 +62,7 @@ function RecordGrid({ record, fields }: { record: any; fields?: Array<[string, s
   </div>
 }
 
-function ActivityTimeline({ steps }: { steps: any[] }) {
+export function ActivityTimeline({ steps }: { steps: any[] }) {
   if (!steps.length) return <p className="text-sm text-slate-500">No activity history recorded.</p>
   return <div className="relative space-y-3 pl-7">
     <div className="absolute left-[11px] top-4 bottom-4 w-px bg-blue-200" />
