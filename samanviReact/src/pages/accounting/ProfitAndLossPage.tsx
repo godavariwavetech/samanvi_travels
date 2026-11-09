@@ -879,7 +879,7 @@ export default function ProfitAndLossPage() {
             onToggle={toggleNode}
             onAdd={openAdd}
             onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
-            onDelete={(node) => askDelete(node.name, () => deleteNode(node))}
+            onDelete={(node) => askDelete(node.name, () => deleteNode(node), { id: node.id, name: node.name })}
             onLedgerClick={handleLedgerClick}
             highlightKey={highlightKey}
           />
@@ -892,7 +892,7 @@ export default function ProfitAndLossPage() {
             onToggle={toggleNode}
             onAdd={openAdd}
             onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
-            onDelete={(node) => askDelete(node.name, () => deleteNode(node))}
+            onDelete={(node) => askDelete(node.name, () => deleteNode(node), { id: node.id, name: node.name })}
             onLedgerClick={handleLedgerClick}
             highlightKey={highlightKey}
           />

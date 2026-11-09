@@ -103,7 +103,7 @@ export default function ServiceForPage() {
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => askDelete('Service For', () => del(row.id))}
+                        onClick={() => askDelete('Service For', () => del(row.id), row)}
                         className="p-1.5 rounded-lg bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 transition-colors"
                         title="Delete"
                       >

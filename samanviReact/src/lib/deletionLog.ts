@@ -49,6 +49,8 @@ export function logIfDeletion(api: AxiosInstance, res: AxiosResponse) {
   if (bodyStatus !== undefined && Number(bodyStatus) !== 200) return
   let payload: unknown = res.config?.data
   if (typeof payload === 'string') { try { payload = JSON.parse(payload) } catch { /* keep as text */ } }
+  // Fuel, laundry and voucher calls are encrypted; that blob is unreadable, so keep only the record.
+  if (payload && typeof payload === 'object' && 'encryptedPayload' in payload) payload = null
   const reason = pending && Date.now() - pending.at < PENDING_MS ? pending : null
   pending = null
   const path = typeof window !== 'undefined' ? window.location.pathname.replace(import.meta.env.BASE_URL ?? '/', '/') : ''

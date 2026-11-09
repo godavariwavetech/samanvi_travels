@@ -799,7 +799,7 @@ export default function LaundryBillPage() {
           onView={() => onView(r)}
           onEdit={() => askEdit(`Laundry bill ${String(r.c_number ?? '')}`, () => onEdit(r))} editLocked={canReviseApproved}
           onApprove={() => onStatusChange(r, 1)}
-          onDelete={() => askDelete(`Laundry bill ${String(r.c_number ?? '')}`, () => onDelete(r))}
+          onDelete={() => askDelete(`Laundry bill ${String(r.c_number ?? '')}`, () => onDelete(r), r)}
           onReopen={() => onStatusChange(r, 0)} />
       ),
     },

@@ -164,7 +164,7 @@ function SparePartsMaster() {
               </button>
               {/* Delete */}
               <button
-                onClick={() => askDelete('Garage master', () => del(row.part_id))}
+                onClick={() => askDelete('Garage master', () => del(row.part_id), row)}
                 title="Delete"
                 className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
@@ -415,7 +415,7 @@ function ServiceSchedulesMaster() {
           { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
             <div className="flex items-center justify-center gap-2">
               <button onClick={() => askEdit('Garage master', () => startEdit(row))} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => askDelete('Garage master', () => del(row.id))} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+              <button onClick={() => askDelete('Garage master', () => del(row.id), row)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
             </div>
           ) },
         ]}
@@ -521,7 +521,7 @@ function LubricantsMaster() {
           { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
             <div className="flex items-center justify-center gap-2">
               <button onClick={() => askEdit('Garage master', () => startEdit(row))} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => askDelete('Garage master', () => del(row.id))} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+              <button onClick={() => askDelete('Garage master', () => del(row.id), row)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
             </div>
           ) },
         ]}

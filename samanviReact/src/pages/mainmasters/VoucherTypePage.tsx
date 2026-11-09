@@ -182,7 +182,7 @@ export default function VoucherTypePage() {
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => askDelete(t.voucher_type, () => del(t.id))}
+                        onClick={() => askDelete(t.voucher_type, () => del(t.id), t)}
                         className="text-red-400 hover:text-red-600 transition-colors"
                         title="Delete"
                       >

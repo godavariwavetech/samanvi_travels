@@ -842,7 +842,7 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                   node={node}
                   path={path}
                   onEdit={(n, name) => askEdit(n.name, () => editNode({ node: n, newName: name }))}
-                  onDelete={node => askDelete(node.name, () => deleteNode(node))}
+                  onDelete={node => askDelete(node.name, () => deleteNode(node), { id: node.id, name: node.name })}
                   onMove={node => { setMoveModal(node); setMoveSearch(''); setMoveTarget(null) }}
                   onAdd={openAdd}
                 />
@@ -853,7 +853,7 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                     node={ledger}
                     path={`${path} › ${node.name}`}
                     onEdit={(n, name) => askEdit(n.name, () => editNode({ node: n, newName: name }))}
-                    onDelete={n => askDelete(n.name, () => deleteNode(n))}
+                    onDelete={n => askDelete(n.name, () => deleteNode(n), { id: n.id, name: n.name })}
                     onMove={n => { setMoveModal(n); setMoveSearch(''); setMoveTarget(null) }}
                   />
                 ))}
@@ -962,7 +962,7 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                   onToggle={toggleNode}
                   onAdd={openAdd}
                   onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
-                  onDelete={node => askDelete(node.name, () => deleteNode(node))}
+                  onDelete={node => askDelete(node.name, () => deleteNode(node), { id: node.id, name: node.name })}
                   onMove={node => { setMoveModal(node); setMoveSearch(''); setMoveTarget(null) }}
                 />
               )

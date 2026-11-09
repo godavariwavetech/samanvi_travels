@@ -447,7 +447,7 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
           onView={() => onView(r)}
           onEdit={() => askEdit(`Fuel entry ${String(r.c_number ?? '')}`, () => onEdit(r))} editLocked={canReviseApproved}
           onApprove={() => onStatusChange(r, 1)}
-          onDelete={() => askDelete(`Fuel entry ${String(r.c_number ?? '')}`, () => onDelete(r))}
+          onDelete={() => askDelete(`Fuel entry ${String(r.c_number ?? '')}`, () => onDelete(r), r)}
           onReopen={() => onStatusChange(r, 0)} />
       ),
     },

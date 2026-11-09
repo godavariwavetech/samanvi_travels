@@ -915,7 +915,7 @@ export default function BalanceSheetPage() {
             onToggle={toggleNode}
             onAdd={openAdd}
             onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
-            onDelete={(node) => askDelete(node.name, () => deleteNode(node))}
+            onDelete={(node) => askDelete(node.name, () => deleteNode(node), { id: node.id, name: node.name })}
             onPayables={handlePayables}
             onLedgerClick={handleLedgerClick}
             highlightKey={highlightKey}
@@ -928,7 +928,7 @@ export default function BalanceSheetPage() {
             rootNode={liabilities[0]}
             onAdd={openAdd}
             onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
-            onDelete={(node) => askDelete(node.name, () => deleteNode(node))}
+            onDelete={(node) => askDelete(node.name, () => deleteNode(node), { id: node.id, name: node.name })}
             onToggle={toggleNode}
             onPayables={handlePayables}
             onLedgerClick={handleLedgerClick}

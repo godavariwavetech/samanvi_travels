@@ -189,7 +189,7 @@ export default function StaticEntryPage() {
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => askDelete(row.districtnm, () => del(row.id))}
+                          onClick={() => askDelete(row.districtnm, () => del(row.id), row)}
                           className="text-red-400 hover:text-red-600 transition-colors"
                           title="Delete"
                         >
