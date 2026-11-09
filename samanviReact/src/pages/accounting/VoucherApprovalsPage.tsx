@@ -1126,9 +1126,9 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   // Rows the table is showing after its search and column filters.
   const [visibleRows, setVisibleRows] = useState<any[]>([])
   const [bankSkipped, setBankSkipped] = useState<SkippedLine[] | null>(null)
-  const exportBankFile = async () => {
-    // The selected rows if any are ticked, otherwise every row on screen.
-    const source = selectedRows.length ? selectedRows : visibleRows
+  const exportBankFile = async (from?: any[]) => {
+    // The ticked rows if any, otherwise every row on screen (or the list given).
+    const source = from ?? (selectedRows.length ? selectedRows : visibleRows)
     if (!source.length) { toast.error('No vouchers on screen to export'); return }
     setBankExporting(true)
     try {
@@ -1325,26 +1325,62 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         ))}
       </div>
 
-      {bankSkipped && (
-        <GlassCard className="p-4 space-y-2" colorBar="bg-gradient-to-r from-amber-500 to-orange-500">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-bold text-amber-800">{bankSkipped.length} payment{bankSkipped.length !== 1 ? 's' : ''} left out of the bank file</p>
-            <button onClick={() => setBankSkipped(null)} className="text-slate-400 hover:text-slate-600" title="Dismiss"><X className="w-4 h-4" /></button>
-          </div>
-          <ul className="text-xs text-slate-700 space-y-0.5 max-h-40 overflow-auto">
-            {bankSkipped.map((k, i) => <li key={i}><span className="font-semibold">{k.c_number}</span> · {k.name || '—'} — {k.reason}</li>)}
-          </ul>
-        </GlassCard>
-      )}
+      {bankSkipped && (() => {
+        // Left-out payments in a popup, grouped by why, so they can be fixed.
+        const byReason = Object.entries(bankSkipped.reduce((acc: Record<string, number>, k) => {
+          const key = k.reason.startsWith('IFSC') ? 'IFSC is invalid' : k.reason
+          acc[key] = (acc[key] ?? 0) + 1; return acc
+        }, {})).sort((a, b) => b[1] - a[1])
+        return createPortal(
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={() => setBankSkipped(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-slate-100">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{bankSkipped.length} payment{bankSkipped.length !== 1 ? 's' : ''} left out of the bank file</h3>
+                  <p className="text-xs text-slate-500">The rest were downloaded. Fix these on the Staff page (bank details) and download again.</p>
+                </div>
+                <button onClick={() => setBankSkipped(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100" title="Close"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="px-6 py-3 flex flex-wrap gap-2 border-b border-slate-100">
+                {byReason.map(([reason, n]) => (
+                  <span key={reason} className="px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-semibold text-amber-800">{reason}: {n}</span>
+                ))}
+              </div>
+              <div className="overflow-auto px-6 py-3">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-[11px] uppercase tracking-wide text-slate-400">
+                    <th className="py-2 pr-3">Sl No</th><th className="py-2 pr-3">Voucher</th><th className="py-2 pr-3">Ledger / Person</th><th className="py-2">Reason</th>
+                  </tr></thead>
+                  <tbody>
+                    {bankSkipped.map((k, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        <td className="py-2 pr-3 text-slate-400">{i + 1}</td>
+                        <td className="py-2 pr-3 font-semibold text-slate-800">{k.c_number}</td>
+                        <td className="py-2 pr-3 text-slate-700">{k.name || '—'}</td>
+                        <td className="py-2 text-amber-700">{k.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-6 py-3 border-t border-slate-100 flex justify-end">
+                <Button variant="outline" onClick={() => setBankSkipped(null)}>Close</Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      })()}
 
       {/* Always shown; bank payments are made only for approved vouchers, so
           from another tab it opens the Approved tab first. */}
       {(
         <div className="flex justify-end items-center gap-3">
-          {tab !== 'Approved' && <span className="text-xs text-slate-500">Bank file is made from the Approved tab</span>}
+          {tab !== 'Approved' && <span className="text-xs text-slate-500">Downloads all approved vouchers</span>}
           <button
             onClick={() => {
-              if (tab !== 'Approved') { handleTabChange('Approved'); setSelectedRows([]); toast.info('Approved tab opened — click Download Bank Excel again to download'); return }
+              // One click: from another tab, open Approved and download all approved vouchers.
+              if (tab !== 'Approved') { handleTabChange('Approved'); setSelectedRows([]); exportBankFile(approvedList); return }
               exportBankFile()
             }}
             disabled={bankExporting}
