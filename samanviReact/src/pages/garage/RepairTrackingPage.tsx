@@ -95,9 +95,6 @@ export default function RepairTrackingPage() {
   const [approveRemarks, setApproveRemarks]         = useState('')
   const [approveVoucherBlocks, setApproveVoucherBlocks] = useState<VoucherBlock[]>([emptyVoucherBlock()])
 
-  const [rejectModal, setRejectModal] = useState<{ open: boolean; job: any }>({ open: false, job: null })
-  const [rejectReason, setRejectReason] = useState('')
-
   // ── Queries ─────────────────────────────────────────────────────────────────
   const { data, isLoading } = useQuery({
     queryKey: ['repair-tracking'],
@@ -917,25 +914,6 @@ export default function RepairTrackingPage() {
     onError: () => toast.error('Server error'),
   })
 
-  const { mutate: saveReject, isPending: savingReject } = useMutation({
-    mutationFn: () => garageService.changeJobStatus({
-      id:              rejectModal.job?.id,
-      job_card_number: rejectModal.job?.job_card_number,
-      state:           'REJECTED',
-      remarks:         rejectReason,
-      user_id:         localStorage.getItem('user_id'),
-      user_name:       localStorage.getItem('usr_nm') || '',
-    }),
-    onSuccess: (res: any) => {
-      if (res.status === 200) {
-        toast.success('Job rejected.')
-        setRejectModal({ open: false, job: null })
-        setRejectReason('')
-        qc.invalidateQueries({ queryKey: ['repair-tracking'] })
-      } else toast.error('Failed to reject')
-    },
-    onError: () => toast.error('Server error'),
-  })
 
   const { mutate: updateStatus } = useMutation({
     mutationFn: ({ id, state }: { id: number; state: string }) =>
@@ -1117,11 +1095,6 @@ export default function RepairTrackingPage() {
                             prefillCompleteModal(r.id)
                           }} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors">
                             Complete
-                          </button>
-                        )}
-                        {canApprove && (isOpen || isFinished) && (
-                          <button onClick={() => setRejectModal({ open: true, job: r })} className="px-2.5 py-1 text-xs font-bold rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
-                            Reject
                           </button>
                         )}
                       </div>
@@ -1544,11 +1517,6 @@ export default function RepairTrackingPage() {
                       {canEdit && notDone && (
                         <Button variant="outline" onClick={openEditFromView} disabled={loadingJobCats || loadingStageData}>
                           <Pencil className="w-4 h-4" /> Edit Job
-                        </Button>
-                      )}
-                      {canApprove && (vs === 'OPEN' || vs === 'FINISHED') && (
-                        <Button variant="danger" onClick={() => { setRejectModal({ open: true, job: viewModal.job }); setRejectReason(''); setViewModal({ open: false, job: null }) }} disabled={loadingJobCats}>
-                          <XCircle className="w-4 h-4" /> Reject
                         </Button>
                       )}
                       {canEdit && vs === 'OPEN' && (
@@ -2615,43 +2583,6 @@ export default function RepairTrackingPage() {
         </div>
       )}
 
-      {/* ── Reject Job Modal ──────────────────────────────────────────────────── */}
-      {rejectModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <div>
-                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                  <XCircle className="w-4 h-4 text-red-500" /> Reject Job
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">{rejectModal.job?.job_card_number}</p>
-              </div>
-              <button onClick={() => setRejectModal({ open: false, job: null })} className="text-slate-400 hover:text-slate-600 p-1"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700 font-medium">
-                This job card will be marked as rejected. Please provide a reason.
-              </div>
-              <div>
-                <Label>Reason for Rejection <span className="text-red-500">*</span></Label>
-                <textarea
-                  rows={3}
-                  placeholder="Describe why this job is being rejected…"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-100">
-              <Button variant="outline" onClick={() => setRejectModal({ open: false, job: null })}>Cancel</Button>
-              <Button variant="danger" onClick={() => saveReject()} disabled={savingReject || !rejectReason.trim()}>
-                <XCircle className="w-4 h-4" />{savingReject ? 'Rejecting…' : 'Confirm Reject'}
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      )}
     </motion.div>
   )
 }

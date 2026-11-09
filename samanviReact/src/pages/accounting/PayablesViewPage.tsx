@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker, DateField, askEdit, askDelete } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -2251,17 +2251,17 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                                   ) : (
                                     <div className="flex items-center justify-center gap-2">
                                       <button
-                                        onClick={() => {
+                                        onClick={() => askEdit(String(c.ledger?.temple_name ?? c.ledger?.name ?? 'Credit line'), () => {
                                           setEditingCreditIdx(i)
                                           setEditingCreditForm({ ledger_id: String(c.ledger?.id ?? ''), amount: String(c.amount) })
-                                        }}
+                                        })}
                                         className="text-blue-400 hover:text-blue-600 transition-colors"
                                         title="Edit"
                                       >
                                         <Pencil className="w-3.5 h-3.5" />
                                       </button>
                                       <button
-                                        onClick={() => setCreditEntries(prev => prev.filter((_, j) => j !== i))}
+                                        onClick={() => askDelete(String(c.ledger?.temple_name ?? c.ledger?.name ?? 'Credit line'), () => setCreditEntries(prev => prev.filter((_, j) => j !== i)))}
                                         className="text-red-400 hover:text-red-600 transition-colors"
                                         title="Delete"
                                       >

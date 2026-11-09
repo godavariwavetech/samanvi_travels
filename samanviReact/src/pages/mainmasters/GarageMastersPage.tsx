@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { Save, Pencil, X, History, IndianRupee } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select, NameListMaster } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select, NameListMaster, askEdit, askDelete } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { garageService } from '@/services/garage.service'
@@ -140,7 +140,7 @@ function SparePartsMaster() {
             <div className="flex items-center justify-center gap-2">
               {/* Edit full details */}
               <button
-                onClick={() => startEdit(row)}
+                onClick={() => askEdit('Garage master', () => startEdit(row))}
                 title="Edit details"
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
               >
@@ -148,7 +148,7 @@ function SparePartsMaster() {
               </button>
               {/* Edit price only */}
               <button
-                onClick={() => setPriceModal({ open: true, part: row, newPrice: String(row.price ?? '') })}
+                onClick={() => askEdit('Garage master price', () => setPriceModal({ open: true, part: row, newPrice: String(row.price ?? '') }))}
                 title="Edit cost"
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
               >
@@ -164,7 +164,7 @@ function SparePartsMaster() {
               </button>
               {/* Delete */}
               <button
-                onClick={() => del(row.part_id)}
+                onClick={() => askDelete('Garage master', () => del(row.part_id))}
                 title="Delete"
                 className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors"
               >
@@ -414,8 +414,8 @@ function ServiceSchedulesMaster() {
           ) },
           { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
             <div className="flex items-center justify-center gap-2">
-              <button onClick={() => startEdit(row)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+              <button onClick={() => askEdit('Garage master', () => startEdit(row))} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => askDelete('Garage master', () => del(row.id))} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
             </div>
           ) },
         ]}
@@ -520,8 +520,8 @@ function LubricantsMaster() {
           { label: 'Change Periodicity', key: 'change_periodicity', render: (v) => <span className="font-bold text-slate-800">{v || '—'}</span> },
           { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
             <div className="flex items-center justify-center gap-2">
-              <button onClick={() => startEdit(row)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-              <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+              <button onClick={() => askEdit('Garage master', () => startEdit(row))} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => askDelete('Garage master', () => del(row.id))} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
             </div>
           ) },
         ]}

@@ -4,7 +4,7 @@ import { ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown, Plus, Pencil
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu, DateRangePicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, ExportMenu, DateRangePicker, askEdit, askDelete } from '@/components/shared'
 import { exportRows, type ExportCell, type ExportFormat } from '@/lib/tableExport'
 import { formatDate, todayISO } from '@/lib/utils'
 import { PayablesPopup } from './PayablesPopup'
@@ -914,8 +914,8 @@ export default function BalanceSheetPage() {
             rootNode={assets[0]}
             onToggle={toggleNode}
             onAdd={openAdd}
-            onEdit={(node, newName) => editNode({ node, newName })}
-            onDelete={(node) => deleteNode(node)}
+            onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
+            onDelete={(node) => askDelete(node.name, () => deleteNode(node))}
             onPayables={handlePayables}
             onLedgerClick={handleLedgerClick}
             highlightKey={highlightKey}
@@ -927,8 +927,8 @@ export default function BalanceSheetPage() {
             textColor="text-amber-900"
             rootNode={liabilities[0]}
             onAdd={openAdd}
-            onEdit={(node, newName) => editNode({ node, newName })}
-            onDelete={(node) => deleteNode(node)}
+            onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
+            onDelete={(node) => askDelete(node.name, () => deleteNode(node))}
             onToggle={toggleNode}
             onPayables={handlePayables}
             onLedgerClick={handleLedgerClick}

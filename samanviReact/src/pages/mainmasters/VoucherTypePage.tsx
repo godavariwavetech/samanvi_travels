@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Save, Pencil, X, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu, askEdit, askDelete } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { accountingService } from '@/services/accounting.service'
 
@@ -175,14 +175,14 @@ export default function VoucherTypePage() {
                   ) : (
                     <div className="flex items-center justify-center gap-3">
                       <button
-                        onClick={() => { setEditId(t.id); setEditValue(t.voucher_type) }}
+                        onClick={() => askEdit(t.voucher_type, () => { setEditId(t.id); setEditValue(t.voucher_type) })}
                         className="text-blue-500 hover:text-blue-700 transition-colors"
                         title="Edit"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => del(t.id)}
+                        onClick={() => askDelete(t.voucher_type, () => del(t.id))}
                         className="text-red-400 hover:text-red-600 transition-colors"
                         title="Delete"
                       >

@@ -2,9 +2,9 @@ import { lazy, Suspense, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { CheckCircle, XCircle, RotateCcw, ShieldCheck, Pencil } from 'lucide-react'
+import { CheckCircle, RotateCcw, ShieldCheck, Pencil } from 'lucide-react'
 import { Button } from './Button'
-import { RejectReasonModal } from './ApprovalFlow'
+import { askReason } from './ReasonPrompt'
 import { usePermissions } from '@/lib/usePermissions'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { tripsService } from '@/services/trips.service'
@@ -13,12 +13,12 @@ import { laundryService } from '@/services/laundry.service'
 import { localDateTime } from '@/lib/utils'
 import { needsAuthorization, awaitingApproval } from '@/lib/tripAuthorization'
 
-// The actions every approval screen offers in its record modal (Authorize /
-// Approve / Reject / Reopen / Edit), for any table that opens a Trip, Fuel or
-// Laundry record by its reference number - so the Ref # gives the same buttons
-// wherever it is clicked, not only on the module's own approvals page.
-// Edit opens the record's own edit form over the current page (lazy-loaded, so
-// nothing is pulled in until it is used).
+// The actions every approval screen offers in its record modal (Edit / Authorize /
+// Approve / Reopen), for any table that opens a Trip, Fuel or Laundry record by
+// its reference number - so the Ref # gives the same buttons wherever it is
+// clicked, not only on the module's own approvals page. Reject is no longer
+// offered. Edit asks for a reason first, then opens the record's own edit form
+// over the current page (lazy-loaded, so nothing is pulled in until it is used).
 const TripCreationPage = lazy(() => import('@/pages/trips/TripCreationPage'))
 const FuelEntryPage = lazy(() => import('@/pages/fuel/FuelEntryPage'))
 
@@ -40,7 +40,6 @@ export function RecordActions({ module, reference, record, onClose, setHidden }:
   const fuelPerms = usePermissions('/fuel/entry')
   const laundryPerms = usePermissions('/laundry/bill')
   const canRevise = useCanReviseApproved()
-  const [rejecting, setRejecting] = useState(false)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -97,30 +96,27 @@ export function RecordActions({ module, reference, record, onClose, setHidden }:
   const pending = module === 'Trip' ? awaitingApproval(row) : status === 0
   const canDecide = perms.canApprove && (pending || status === 2)
 
-  const startEdit = () => { setHidden(true); setEditing(true) }
   const stopEdit = () => { setEditing(false); refresh(); onClose() }
+  const askEditRecord = () => askReason({
+    title: 'Reason for Edit', subject: `${module} ${reference}`, confirmLabel: 'Continue to Edit',
+    onConfirm: () => { setHidden(true); setEditing(true) },
+  })
 
   return (
     <>
-      {canEdit && <Button variant="outline" disabled={busy} onClick={startEdit}><Pencil className="w-4 h-4" /> Edit</Button>}
+      {canEdit && <Button variant="outline" disabled={busy} onClick={askEditRecord}><Pencil className="w-4 h-4" /> Edit</Button>}
       {canAuthorize && <Button disabled={busy} onClick={authorize}><ShieldCheck className="w-4 h-4" /> Authorize</Button>}
       {canDecide && pending && (
-        <>
-          <Button variant="danger" disabled={busy} onClick={() => { setHidden(true); setRejecting(true) }}><XCircle className="w-4 h-4" /> Reject</Button>
-          <Button variant="success" disabled={busy} onClick={() => setStatus(1)}><CheckCircle className="w-4 h-4" /> Approve</Button>
-        </>
+        <Button variant="success" disabled={busy} onClick={() => setStatus(1)}><CheckCircle className="w-4 h-4" /> Approve</Button>
       )}
       {canDecide && !pending && status === 2 && (
         <>
-          <Button variant="outline" disabled={busy} onClick={() => setStatus(0)} className="border-amber-300 text-amber-700 hover:bg-amber-50"><RotateCcw className="w-4 h-4" /> Reopen</Button>
           <Button variant="success" disabled={busy} onClick={() => setStatus(1)}><CheckCircle className="w-4 h-4" /> Approve Directly</Button>
+          <Button variant="outline" disabled={busy} onClick={() => setStatus(0)} className="border-amber-300 text-amber-700 hover:bg-amber-50"><RotateCcw className="w-4 h-4" /> Reopen</Button>
         </>
       )}
       {createPortal(
         <>
-          <RejectReasonModal open={rejecting} subject={`${module} ${reference}`}
-            onCancel={() => { setRejecting(false); setHidden(false) }}
-            onConfirm={(reason) => { setRejecting(false); setStatus(2, reason) }} />
           {editing && (
             <Suspense fallback={null}>
               {module === 'Trip' && <TripCreationPage editRef={reference} onEditClose={stopEdit} />}

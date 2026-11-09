@@ -12,6 +12,7 @@ import { usePermissions } from '@/lib/usePermissions'
 import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 import { ReferenceDetailsLink } from './ReferenceDetailsLink'
 import ReferenceAuditModal from './ReferenceAuditModal'
+import { askEdit, askReason } from './ReasonPrompt'
 
 const REFERENCE_KEYS = ['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'parent_job_card_number', 'generated_reminder_ref', 'ref_no', 'reference_no', 'bill_no', 'pnr_no']
 const AUDIT_REFERENCE_KEYS = new Set(['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'generated_reminder_ref'])
@@ -39,7 +40,8 @@ interface DataTableProps<T extends Record<string, unknown>> {
   title?: string
   columns: Column<T>[]
   data: T[]
-  onAction?: (action: ActionType, row: T) => void
+  /** Edit and Delete arrive only after the user gave a reason (passed as `reason`). */
+  onAction?: (action: ActionType, row: T, reason?: string) => void
   loading?: boolean
   actions?: ActionType[]
   /** Hides an action's button on rows where it is not allowed (a locked record). */
@@ -176,6 +178,7 @@ export function DataTable<T extends Record<string, unknown>>({
     : action === 'delete' ? permissions.canDelete : permissions.canView)
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
   // Selection is held by row key, not position: rows that leave the list
   // (vouchers just approved, say) drop out of the selection instead of handing
   // their tick to whichever rows slide into their places, and a search or
@@ -327,7 +330,14 @@ export function DataTable<T extends Record<string, unknown>>({
     : 0
 
   const handleAction = (action: ActionType, row: T) => {
-    if (action === 'delete') { setConfirmDelete(row); return }
+    if (action === 'delete') { setDeleteReason(''); setConfirmDelete(row); return }
+    if (action === 'edit') {
+      askReason({
+        title: 'Reason for Edit', subject: 'Edit this record', confirmLabel: 'Continue to Edit',
+        onConfirm: (reason) => onAction?.('edit', row, reason),
+      })
+      return
+    }
     if (action === 'view') {
       const record = row as any
       const referenceKey = REFERENCE_KEYS.find(key => record[key] !== null && record[key] !== undefined && String(record[key]).trim() !== '')
@@ -354,13 +364,14 @@ export function DataTable<T extends Record<string, unknown>>({
     exportRows({ title: exportTitle || title, headers: cols.map((c) => c.label), rows, format })
   }
 
+  // View, Edit, Delete (Edit and Delete ask for a reason), then the utility icons.
   const actionButtons = [
     { type: 'view' as const, icon: Eye, cls: 'text-blue-600 bg-blue-50 hover:bg-blue-100 border-blue-100' },
     { type: 'edit' as const, icon: Edit2, cls: 'text-amber-600 bg-amber-50 hover:bg-amber-100 border-amber-100' },
+    { type: 'delete' as const, icon: Trash2, cls: 'text-red-600 bg-red-50 hover:bg-red-100 border-red-100' },
     { type: 'history' as const, icon: History, cls: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
     { type: 'pdf' as const, icon: FileText, cls: 'text-purple-600 bg-purple-50 hover:bg-purple-100 border-purple-100' },
     { type: 'print' as const, icon: Printer, cls: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
-    { type: 'delete' as const, icon: Trash2, cls: 'text-red-600 bg-red-50 hover:bg-red-100 border-red-100' },
   ].filter((b) => actions.includes(b.type))
 
   return (
@@ -605,15 +616,22 @@ export function DataTable<T extends Record<string, unknown>>({
                   <AlertCircle className="w-6 h-6" />
                 </div>
                 <h3 className="text-xl font-bold text-slate-900">Delete Record?</h3>
-                <p className="text-slate-500 text-sm mt-2 mb-6">
-                  This action cannot be undone. Are you sure?
+                <p className="text-slate-500 text-sm mt-2 mb-4">
+                  This action cannot be undone. Give a reason to continue.
                 </p>
+                <label className="block text-xs font-bold uppercase tracking-wide text-slate-500 mb-1.5">Reason <span className="text-red-500">*</span></label>
+                <textarea autoFocus rows={3} placeholder="Enter the reason for deleting…" value={deleteReason}
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm resize-none mb-6 focus:outline-none focus:ring-2 focus:ring-red-400/40 placeholder:text-slate-400" />
                 <div className="flex justify-end gap-3">
-                  <Button variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
+                  <Button variant="ghost" onClick={() => { setDeleteReason(''); setConfirmDelete(null) }}>Cancel</Button>
                   <Button
                     variant="danger"
+                    disabled={!deleteReason.trim()}
                     onClick={() => {
-                      onAction?.('delete', confirmDelete)
+                      const reason = deleteReason.trim()
+                      onAction?.('delete', confirmDelete, reason)
+                      setDeleteReason('')
                       setConfirmDelete(null)
                     }}
                   >

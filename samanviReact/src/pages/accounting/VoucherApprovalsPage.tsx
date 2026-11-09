@@ -242,7 +242,6 @@ const SOURCE_STYLE: Record<string, string> = {
 
 const buildCols = (
   onApprove: (row: any) => void,
-  onReject: (row: any) => void,
   onView: (row: any) => void,
   onReopen: (row: any) => void,
   mode: string,
@@ -410,7 +409,6 @@ const buildCols = (
         {mode === 'pending' && (
           <>
             <button onClick={() => onApprove(row)} className="p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100"><CheckCircle className="w-4 h-4" /></button>
-            <button onClick={() => onReject(row)} className="p-1.5 text-red-600 bg-red-50 border border-red-100 rounded-lg hover:bg-red-100"><XCircle className="w-4 h-4" /></button>
           </>
         )}
         {mode === 'approved' && (
@@ -668,8 +666,6 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   const [editReason, setEditReason] = useState('')
   const originalForDiff = useRef<{ vouchertype: string; voucherdate: string; description: string; debits: EditLedgerItem[]; credits: EditLedgerItem[] } | null>(null)
   const [selectedRows, setSelectedRows] = useState<any[]>([])
-  const [rejectModal, setRejectModal] = useState<{ mode: 'single' | 'bulk'; row?: any } | null>(null)
-  const [rejectReason, setRejectReason] = useState('')
   const [optionalCols, setOptionalCols] = useState<Set<string>>(new Set(DEFAULT_VISIBLE_OPTIONAL))
   const qc = useQueryClient()
 
@@ -1118,12 +1114,10 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   })
 
   const handleApprove = (row: any) => updateStatus({ row, status: 1 })
-  const handleReject = (row: any) => { setRejectReason(''); setRejectModal({ mode: 'single', row }) }
   const handleReopen = (row: any) => updateStatus({ row, status: 0 })
   const handleView = (row: any) => setViewModal(row)
 
   const [bulkApproving, setBulkApproving] = useState(false)
-  const [bulkRejecting, setBulkRejecting] = useState(false)
 
   // Bank bulk-payment file for the selected approved vouchers: one row per
   // Staff / Driver / Helper debit line; anything without usable bank details is
@@ -1149,11 +1143,9 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
     }
   }
 
-  const runBulkAction = async (status: 1 | 2, reason = '') => {
+  const runBulkAction = async (status: 1, reason = '') => {
     if (!selectedRows.length) return
-    if (status === 2) { setRejectReason(''); setRejectModal({ mode: 'bulk' }); return }
-    const setLoading = status === 1 ? setBulkApproving : setBulkRejecting
-    setLoading(true)
+    setBulkApproving(true)
     const adminId = localStorage.getItem('user_id')
     const adminName = localStorage.getItem('usr_nm')
     const date = todayISO()
@@ -1168,47 +1160,13 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
       }).catch(() => {})
     }
     const count = selectedRows.length
-    setLoading(false)
+    setBulkApproving(false)
     setSelectedRows([])
     toast.success(`${count} voucher${count !== 1 ? 's' : ''} approved`)
     qc.invalidateQueries({ queryKey: ['voucher-pending'] })
     qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
     qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
     qc.invalidateQueries({ queryKey: ['voucher-search'] })
-  }
-
-  const confirmReject = async () => {
-    const reason = rejectReason.trim()
-    if (!reason) { toast.error('Please enter a rejection reason'); return }
-    const mode = rejectModal?.mode
-    const row = rejectModal?.row
-    setRejectModal(null)
-    if (mode === 'single' && row) {
-      updateStatus({ row, status: 2, rejection_reason: reason })
-    } else if (mode === 'bulk') {
-      setBulkRejecting(true)
-      const adminId = localStorage.getItem('user_id')
-      const adminName = localStorage.getItem('usr_nm')
-      const date = todayISO()
-      for (const r of selectedRows) {
-        await accountingService.updateVoucherStatus({
-          vouchervalue: 2,
-          admin_status_by_id: adminId,
-          admin_status_by_name: adminName,
-          admin_status_by_date: date,
-          rejection_reason: reason,
-          voucherdata: { c_number: r.c_number },
-        }).catch(() => {})
-      }
-      const count = selectedRows.length
-      setBulkRejecting(false)
-      setSelectedRows([])
-      toast.success(`${count} voucher${count !== 1 ? 's' : ''} rejected`)
-      qc.invalidateQueries({ queryKey: ['voucher-pending'] })
-      qc.invalidateQueries({ queryKey: ['voucher-approved-all'] })
-      qc.invalidateQueries({ queryKey: ['voucher-rejected-all'] })
-      qc.invalidateQueries({ queryKey: ['voucher-search'] })
-    }
   }
 
   const searchList: any[] = searched?.data ?? []
@@ -1377,7 +1335,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
 
       <DataTable
         title={tab}
-        columns={buildCols(handleApprove, handleReject, handleView, handleReopen, canApprove ? getMode() : 'view', {
+        columns={buildCols(handleApprove, handleView, handleReopen, canApprove ? getMode() : 'view', {
           voucherTypes: voucherTypeFilterOpts,
           busList,
           staffOptions: staffFilterOpts,
@@ -1406,19 +1364,11 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
           <>
             <button
               onClick={() => runBulkAction(1)}
-              disabled={bulkApproving || bulkRejecting}
+              disabled={bulkApproving}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
             >
               <CheckCircle className="w-3.5 h-3.5" />
               {bulkApproving ? 'Approving…' : 'Approve Selected'}
-            </button>
-            <button
-              onClick={() => runBulkAction(2)}
-              disabled={bulkApproving || bulkRejecting}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
-            >
-              <XCircle className="w-3.5 h-3.5" />
-              {bulkRejecting ? 'Rejecting…' : 'Reject Selected'}
             </button>
           </>
         ) : undefined}
@@ -2018,11 +1968,6 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
                       </>
                     )}
                     {canApprove && !editMode && viewModal.status == 0 && (
-                      <Button variant="danger" onClick={() => { handleReject(viewModal); setViewModal(null) }}>
-                        <XCircle className="w-4 h-4" /> Reject
-                      </Button>
-                    )}
-                    {canApprove && !editMode && viewModal.status == 0 && (
                       <Button variant="success" onClick={() => { handleApprove(viewModal); setViewModal(null) }}>
                         <CheckCircle className="w-4 h-4" /> Approve
                       </Button>
@@ -2051,44 +1996,6 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         )}
       </AnimatePresence>
 
-      {/* Rejection reason modal */}
-      <AnimatePresence>
-        {rejectModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                  <XCircle className="w-5 h-5 text-red-600" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-lg">Reason for Rejection</h3>
-                  <p className="text-sm text-slate-500">
-                    {rejectModal.mode === 'bulk'
-                      ? `Rejecting ${selectedRows.length} voucher${selectedRows.length !== 1 ? 's' : ''}`
-                      : `Voucher ${rejectModal.row?.c_number}`}
-                  </p>
-                </div>
-              </div>
-              <textarea
-                autoFocus
-                rows={4}
-                placeholder="Enter rejection reason…"
-                value={rejectReason}
-                onChange={e => setRejectReason(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-400/40 placeholder:text-slate-400"
-              />
-              <div className="flex justify-end gap-3 pt-1">
-                <Button variant="ghost" onClick={() => setRejectModal(null)}>Cancel</Button>
-                <Button variant="danger" onClick={confirmReject} disabled={!rejectReason.trim()}>
-                  <XCircle className="w-4 h-4" /> Confirm Reject
-                </Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       {payablesEdit && <PayablesPopup ledger={payablesEdit.ledger} editVoucher={payablesEdit.editVoucher} onClose={closePayablesEdit} />}
     </motion.div>
   )

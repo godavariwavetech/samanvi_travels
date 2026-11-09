@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
+import { askEdit, askDelete } from './ReasonPrompt'
 import { Input } from './Input'
 import { Label } from './Label'
 import { DataTable } from './DataTable'
@@ -119,8 +120,8 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
               </div>
             ) : (
               <div className="flex items-center justify-center gap-3">
-                <button onClick={() => { setEditId(row.id); setEditValue(row[fieldKey]) }} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
-                <button onClick={() => del(row.id)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
+                <button onClick={() => askEdit(String(row[fieldKey] ?? ''), () => { setEditId(row.id); setEditValue(row[fieldKey]) })} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => askDelete(String(row[fieldKey] ?? ''), () => del(row.id))} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
               </div>
             )
           ) },

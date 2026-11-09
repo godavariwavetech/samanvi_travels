@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Save, X, Plus, Edit2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu, askEdit, askDelete } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { mastersService } from '@/services/masters.service'
 
@@ -96,14 +96,14 @@ export default function ServiceForPage() {
                   <td className="px-6 py-4 text-right pr-8">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => openEdit(row)}
+                        onClick={() => askEdit('Service For', () => openEdit(row))}
                         className="p-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-600 hover:bg-amber-100 transition-colors"
                         title="Edit"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => del(row.id)}
+                        onClick={() => askDelete('Service For', () => del(row.id))}
                         className="p-1.5 rounded-lg bg-red-50 border border-red-100 text-red-600 hover:bg-red-100 transition-colors"
                         title="Delete"
                       >

@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Building2, Save, Pencil, Check, X, Trash2, Plus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu, askEdit, askDelete } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { mainmastersService } from '@/services/mainmasters.service'
 
@@ -182,14 +182,14 @@ export default function StaticEntryPage() {
                     ) : (
                       <div className="flex items-center justify-center gap-3">
                         <button
-                          onClick={() => { setEditId(row.id); setEditValue(row.districtnm) }}
+                          onClick={() => askEdit(row.districtnm, () => { setEditId(row.id); setEditValue(row.districtnm) })}
                           className="text-amber-500 hover:text-amber-700 transition-colors"
                           title="Edit"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => del(row.id)}
+                          onClick={() => askDelete(row.districtnm, () => del(row.id))}
                           className="text-red-400 hover:text-red-600 transition-colors"
                           title="Delete"
                         >

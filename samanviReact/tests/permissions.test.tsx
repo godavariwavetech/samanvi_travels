@@ -38,12 +38,12 @@ for (const [path, id, moduleId] of [
   assert.equal(canAccess(path, buildAccess(grants)), true)
   for (const tab of ['pending', 'rejected'] as const) {
     const html = render(path, grants, <ApprovalRowActions tab={tab} onView={noop} onEdit={noop}
-      onDelete={noop} onApprove={noop} onReject={noop} onReopen={noop} />)
+      onDelete={noop} onApprove={noop} onReopen={noop} />)
     assert.match(html, /title="View"/)
     assert.doesNotMatch(html, /title="(?:Edit|Delete|Approve|Reject|Reopen)/)
-    assert.equal(render(path, grants, <ApprovalModalButtons tab={tab} onApprove={noop} onReject={noop} onReopen={noop} />), '')
+    assert.equal(render(path, grants, <ApprovalModalButtons tab={tab} onApprove={noop} onReopen={noop} />), '')
   }
-  assert.equal(render(path, grants, <ApprovalBulkButtons onApprove={noop} onReject={noop} />), '')
+  assert.equal(render(path, grants, <ApprovalBulkButtons onApprove={noop} />), '')
   assert.equal(render(path, grants, <Button permission="add">Create record</Button>), '')
   const table = render(path, grants, <DataTable columns={[{ label: 'Name', key: 'name' }]}
     data={[{ id: 1, name: 'Existing record' }]} actions={['view', 'edit', 'delete']} onAction={noop} exportable={false} />)
@@ -62,7 +62,7 @@ assert.equal(permissionsFor('/trips/approvals', mixed).canApprove, false)
 
 const editor = menu(61, 14, { ...viewer, can_edit: 1 })
 const editorHtml = render('/accounting/voucher-approvals', editor,
-  <ApprovalRowActions tab="pending" onView={noop} onEdit={noop} onDelete={noop} onApprove={noop} onReject={noop} onReopen={noop} />)
+  <ApprovalRowActions tab="pending" onView={noop} onEdit={noop} onDelete={noop} onApprove={noop} onReopen={noop} />)
 assert.match(editorHtml, /title="Approve"/)
 assert.match(editorHtml, /title="Edit"/)
 assert.doesNotMatch(editorHtml, /title="Delete"/)

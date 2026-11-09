@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote, approvalTabOf, DateField, askEdit, askDelete } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelTotalItems, FuelTotalsCards } from './fuelTotals'
 import { fuelService } from '@/services/fuel.service'
@@ -226,14 +226,12 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
   const [editForm, setEditForm] = useState<FormState | null>(null)
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
-  // Entries are reviewed the way vouchers are: a tab per status, Approve /
-  // Reject on each pending row or on the selected rows together, and a
-  // rejection that asks for its reason.
+  // Entries are reviewed the way vouchers are: a tab per status, Approve on
+  // each pending row or on the selected rows together. Edit and Delete ask for
+  // a reason first.
   const [tab, setTab] = useState<ApprovalTab>('pending')
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([])
-  const [rejectTarget, setRejectTarget] = useState<{ rows: Record<string, unknown>[] } | null>(null)
   const [bulkApproving, setBulkApproving] = useState(false)
-  const [bulkRejecting, setBulkRejecting] = useState(false)
   // Date and Value Date filters on the table; an empty end is open.
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' })
   const [valueDateFilter, setValueDateFilter] = useState({ from: '', to: '' })
@@ -344,29 +342,21 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
       setViewRow(null)
     } else toast.error(res?.message || 'Failed')
   }
-  // Approve / reject the selected rows one after another, as Voucher Approvals
-  // does, then report the count once.
-  const runBulk = async (rows: Record<string, unknown>[], admin_status: 1 | 2, reason = '') => {
+  // Approve the selected rows one after another, as Voucher Approvals does,
+  // then report the count once.
+  const runBulk = async (rows: Record<string, unknown>[], admin_status: 1) => {
     if (!canApprove) return toast.error('You do not have approval permission')
     if (!rows.length) return
-    const setLoading = admin_status === 1 ? setBulkApproving : setBulkRejecting
-    setLoading(true)
+    setBulkApproving(true)
     let done = 0
     for (const row of rows) {
-      const res = await setStatus(row, admin_status, reason).catch(() => null)
+      const res = await setStatus(row, admin_status, '').catch(() => null)
       if (res?.status === 200) done++
     }
-    setLoading(false)
+    setBulkApproving(false)
     setSelectedRows([])
-    toast.success(`${done} of ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} ${admin_status === 1 ? 'approved' : 'rejected'}`)
+    toast.success(`${done} of ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'} approved`)
     refreshAfterStatus()
-  }
-  const askReject = (rows: Record<string, unknown>[]) => { if (rows.length) setRejectTarget({ rows }) }
-  const confirmReject = (reason: string) => {
-    const rows = rejectTarget?.rows ?? []
-    setRejectTarget(null)
-    if (rows.length === 1) onStatusChange(rows[0], 2, reason)
-    else runBulk(rows, 2, reason)
   }
 
   const onEdit = async (row: Record<string, unknown>) => {
@@ -404,7 +394,6 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
 
   const onDelete = async (row: Record<string, unknown>) => {
     if (!canDelete) return toast.error('You do not have Delete permission')
-    if (!confirm(`Delete fuel entry ${row.c_number}?`)) return
     const res = await fuelService.deleteFuelEntry({ id: row.id, named, user_id })
     if (res?.status === 200) {
       toast.success('Entry deleted')
@@ -455,8 +444,11 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
       label: 'Actions', key: 'id',
       render: (_v, r: Record<string, unknown>) => (
         <ApprovalRowActions tab={tab}
-          onView={() => onView(r)} onEdit={() => onEdit(r)} editLocked={canReviseApproved} onDelete={() => onDelete(r)}
-          onApprove={() => onStatusChange(r, 1)} onReject={() => askReject([r])} onReopen={() => onStatusChange(r, 0)} />
+          onView={() => onView(r)}
+          onEdit={() => askEdit(`Fuel entry ${String(r.c_number ?? '')}`, () => onEdit(r))} editLocked={canReviseApproved}
+          onApprove={() => onStatusChange(r, 1)}
+          onDelete={() => askDelete(`Fuel entry ${String(r.c_number ?? '')}`, () => onDelete(r))}
+          onReopen={() => onStatusChange(r, 0)} />
       ),
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -564,17 +556,13 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
         onSelectionChange={(rows) => setSelectedRows(rows as Record<string, unknown>[])}
         onFilteredChange={(rows) => setVisibleIds(new Set(rows.map((r) => String((r as Record<string, unknown>).id))))}
         selectionActions={canApprove && tab === 'pending' ? (
-          <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
-            onApprove={() => runBulk(selectedRows, 1)} onReject={() => askReject(selectedRows)} />
+          <ApprovalBulkButtons approving={bulkApproving}
+            onApprove={() => runBulk(selectedRows, 1)} />
         ) : undefined}
       />
 
       <TotalsFooter title="Total" items={totalItems} />
 
-      <RejectReasonModal open={!!rejectTarget} onCancel={() => setRejectTarget(null)} onConfirm={confirmReject}
-        subject={rejectTarget && rejectTarget.rows.length === 1
-          ? `Fuel entry ${String(rejectTarget.rows[0].c_number ?? '')}`
-          : `Rejecting ${rejectTarget?.rows.length ?? 0} fuel entries`} />
 
       </div>
 
@@ -584,12 +572,12 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
           <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Fuel Entry"
             onClose={() => setViewRow(null)} footerActions={<>
               {canEdit && (Number(viewRow.admin_status) === 0 || canReviseApproved) && (
-                <Button variant="outline" onClick={() => { const r = viewRow; setViewRow(null); onEdit(r) }}>
+                <Button variant="outline" onClick={() => { const r = viewRow; askEdit(`Fuel entry ${String(r.c_number ?? '')}`, () => { setViewRow(null); onEdit(r) }) }}>
                   <Pencil className="w-4 h-4" /> Edit
                 </Button>
               )}
               <ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
-                onApprove={() => onStatusChange(viewRow, 1)} onReject={() => { const r = viewRow; setViewRow(null); askReject([r]) }} onReopen={() => onStatusChange(viewRow, 0)} />
+                onApprove={() => onStatusChange(viewRow, 1)} onReopen={() => onStatusChange(viewRow, 0)} />
             </>} />
         )}
       </AnimatePresence>

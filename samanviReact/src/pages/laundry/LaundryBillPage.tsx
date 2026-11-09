@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote, approvalTabOf, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote, approvalTabOf, DateField, askEdit, askDelete } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { mastersService } from '@/services/masters.service'
@@ -342,11 +342,10 @@ const VIEW_PRODUCTS = [
   { key: 'curtain', label: 'Curtains' },
 ] as const
 
-function LaundryBillView({ row, onClose, onApprove, onReject, onReopen }: {
+function LaundryBillView({ row, onClose, onApprove, onReopen }: {
   row: Record<string, unknown>
   onClose: () => void
   onApprove: () => void
-  onReject: () => void
   onReopen: () => void
 }) {
   const details = (row._details as { vehicles?: Array<Record<string, unknown>>; accounts?: Array<Record<string, unknown>> }) || {}
@@ -443,7 +442,7 @@ function LaundryBillView({ row, onClose, onApprove, onReject, onReopen }: {
       </div>
 
       <LedgerSideLists rows={accounts} />
-      <ApprovalModalButtons tab={approvalTabOf(row.admin_status)} onApprove={onApprove} onReject={onReject} onReopen={onReopen} />
+      <ApprovalModalButtons tab={approvalTabOf(row.admin_status)} onApprove={onApprove} onReopen={onReopen} />
     </RecordModal>
   )
 }
@@ -461,14 +460,12 @@ export default function LaundryBillPage() {
   const [mode, setMode] = useState<'add' | 'edit'>('add')
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
-  // Bills are reviewed the way vouchers are: a tab per status, Approve /
-  // Reject on each pending row or on the selected rows together, and a
-  // rejection that asks for its reason.
+  // Bills are reviewed the way vouchers are: a tab per status, Approve on each
+  // pending row or on the selected rows together. Edit and Delete ask for a
+  // reason first.
   const [tab, setTab] = useState<ApprovalTab>('pending')
   const [selectedRows, setSelectedRows] = useState<Record<string, unknown>[]>([])
-  const [rejectTarget, setRejectTarget] = useState<{ rows: Record<string, unknown>[] } | null>(null)
   const [bulkApproving, setBulkApproving] = useState(false)
-  const [bulkRejecting, setBulkRejecting] = useState(false)
 
   const named = localStorage.getItem('usr_nm') ?? ''
   const user_id = localStorage.getItem('user_id') ?? '0'
@@ -674,29 +671,21 @@ export default function LaundryBillPage() {
       setViewRow(null)
     } else toast.error(res?.message || 'Failed')
   }
-  // Approve / reject the selected bills one after another, as Voucher Approvals
-  // does, then report the count once.
-  const runBulk = async (rows: Record<string, unknown>[], admin_status: 1 | 2, reason = '') => {
+  // Approve the selected bills one after another, as Voucher Approvals does,
+  // then report the count once.
+  const runBulk = async (rows: Record<string, unknown>[], admin_status: 1) => {
     if (!canApprove) return toast.error('You do not have approval permission')
     if (!rows.length) return
-    const setLoading = admin_status === 1 ? setBulkApproving : setBulkRejecting
-    setLoading(true)
+    setBulkApproving(true)
     let done = 0
     for (const row of rows) {
-      const res = await setStatus(row, admin_status, reason).catch(() => null)
+      const res = await setStatus(row, admin_status, '').catch(() => null)
       if (res?.status === 200) done++
     }
-    setLoading(false)
+    setBulkApproving(false)
     setSelectedRows([])
-    toast.success(`${done} of ${rows.length} bill${rows.length === 1 ? '' : 's'} ${admin_status === 1 ? 'approved' : 'rejected'}`)
+    toast.success(`${done} of ${rows.length} bill${rows.length === 1 ? '' : 's'} approved`)
     refreshAfterStatus()
-  }
-  const askReject = (rows: Record<string, unknown>[]) => { if (rows.length) setRejectTarget({ rows }) }
-  const confirmReject = (reason: string) => {
-    const rows = rejectTarget?.rows ?? []
-    setRejectTarget(null)
-    if (rows.length === 1) onStatusChange(rows[0], 2, reason)
-    else runBulk(rows, 2, reason)
   }
 
   const onEdit = async (row: Record<string, unknown>) => {
@@ -767,7 +756,6 @@ export default function LaundryBillPage() {
 
   const onDelete = async (row: Record<string, unknown>) => {
     if (!canDelete) return toast.error('You do not have Delete permission')
-    if (!confirm(`Delete bill ${row.c_number}?`)) return
     const res = await laundryService.deleteLaundryBill({ c_number: row.c_number, named, user_id })
     if (res?.status === 200) {
       toast.success('Bill deleted')
@@ -808,8 +796,11 @@ export default function LaundryBillPage() {
       label: 'Actions', key: 'c_number',
       render: (_v, r: Record<string, unknown>) => (
         <ApprovalRowActions tab={tab}
-          onView={() => onView(r)} onEdit={() => onEdit(r)} editLocked={canReviseApproved} onDelete={() => onDelete(r)}
-          onApprove={() => onStatusChange(r, 1)} onReject={() => askReject([r])} onReopen={() => onStatusChange(r, 0)} />
+          onView={() => onView(r)}
+          onEdit={() => askEdit(`Laundry bill ${String(r.c_number ?? '')}`, () => onEdit(r))} editLocked={canReviseApproved}
+          onApprove={() => onStatusChange(r, 1)}
+          onDelete={() => askDelete(`Laundry bill ${String(r.c_number ?? '')}`, () => onDelete(r))}
+          onReopen={() => onStatusChange(r, 0)} />
       ),
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -877,27 +868,23 @@ export default function LaundryBillPage() {
         sumKey="total_amount"
         onSelectionChange={(rows) => setSelectedRows(rows as Record<string, unknown>[])}
         selectionActions={canApprove && tab === 'pending' ? (
-          <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
-            onApprove={() => runBulk(selectedRows, 1)} onReject={() => askReject(selectedRows)} />
+          <ApprovalBulkButtons approving={bulkApproving}
+            onApprove={() => runBulk(selectedRows, 1)} />
         ) : undefined}
       />
 
-      <RejectReasonModal open={!!rejectTarget} onCancel={() => setRejectTarget(null)} onConfirm={confirmReject}
-        subject={rejectTarget && rejectTarget.rows.length === 1
-          ? `Laundry bill ${String(rejectTarget.rows[0].c_number ?? '')}`
-          : `Rejecting ${rejectTarget?.rows.length ?? 0} laundry bills`} />
 
       {/* View modal */}
       <AnimatePresence>
         {viewRow && <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Laundry Bill"
           onClose={() => setViewRow(null)} footerActions={<>
             {canEdit && (Number(viewRow.admin_status) === 0 || canReviseApproved) && (
-              <Button variant="outline" onClick={() => { const r = viewRow; setViewRow(null); onEdit(r) }}>
+              <Button variant="outline" onClick={() => { const r = viewRow; askEdit(`Laundry bill ${String(r.c_number ?? '')}`, () => { setViewRow(null); onEdit(r) }) }}>
                 <Pencil className="w-4 h-4" /> Edit
               </Button>
             )}
             <ApprovalModalButtons tab={approvalTabOf(viewRow.admin_status)}
-              onApprove={() => onStatusChange(viewRow, 1)} onReject={() => { const r = viewRow; setViewRow(null); askReject([r]) }} onReopen={() => onStatusChange(viewRow, 0)} />
+              onApprove={() => onStatusChange(viewRow, 1)} onReopen={() => onStatusChange(viewRow, 0)} />
           </>} />}
       </AnimatePresence>
     </motion.div>

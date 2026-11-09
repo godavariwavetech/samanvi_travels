@@ -175,7 +175,7 @@ const toLedgerObj = (item: any): LedgerObj => ({
 
 export default function TripExpensesPage() {
   const qc = useQueryClient()
-  // Approve / Reject is granted on Trip Approvals, not on this page.
+  // Approve is granted on Trip Approvals, not on this page.
   const { canApprove: canApproveTrips, canAuthorize: canAuthorizeTrips } = usePermissions('/trips/approvals')
   // Filing an expense is its own grant (Roles & Permissions > Trips > Expense Creation).
   const { canAdd: canCreateExpense } = usePermissions('/trips/expense-creation')
@@ -1850,7 +1850,6 @@ export default function TripExpensesPage() {
           >
             <option value="0">{awaitingAuth ? 'Awaiting Authorization' : 'On Review'}</option>
             <option value="1" disabled={awaitingAuth} title={awaitingAuth ? 'Authorize this trip on Trip Approvals first' : undefined}>Approve</option>
-            <option value="2" disabled={awaitingAuth} title={awaitingAuth ? 'Authorize this trip on Trip Approvals first' : undefined}>Reject</option>
           </select>
         )
       },

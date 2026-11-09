@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, ExportMenu } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu, askEdit, askDelete } from '@/components/shared'
 import { exportRows, type ExportFormat } from '@/lib/tableExport'
 import { accountingService } from '@/services/accounting.service'
 
@@ -841,8 +841,8 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                 <LevelRow
                   node={node}
                   path={path}
-                  onEdit={(n, name) => editNode({ node: n, newName: name })}
-                  onDelete={node => deleteNode(node)}
+                  onEdit={(n, name) => askEdit(n.name, () => editNode({ node: n, newName: name }))}
+                  onDelete={node => askDelete(node.name, () => deleteNode(node))}
                   onMove={node => { setMoveModal(node); setMoveSearch(''); setMoveTarget(null) }}
                   onAdd={openAdd}
                 />
@@ -852,8 +852,8 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                     key={ledger.id}
                     node={ledger}
                     path={`${path} › ${node.name}`}
-                    onEdit={(n, name) => editNode({ node: n, newName: name })}
-                    onDelete={n => deleteNode(n)}
+                    onEdit={(n, name) => askEdit(n.name, () => editNode({ node: n, newName: name }))}
+                    onDelete={n => askDelete(n.name, () => deleteNode(n))}
                     onMove={n => { setMoveModal(n); setMoveSearch(''); setMoveTarget(null) }}
                   />
                 ))}
@@ -961,8 +961,8 @@ export default function GroupPage({ defaultTab: _ignored, viewLevel }: { default
                   rootNode={root}
                   onToggle={toggleNode}
                   onAdd={openAdd}
-                  onEdit={(node, newName) => editNode({ node, newName })}
-                  onDelete={node => deleteNode(node)}
+                  onEdit={(node, newName) => askEdit(node.name, () => editNode({ node, newName }))}
+                  onDelete={node => askDelete(node.name, () => deleteNode(node))}
                   onMove={node => { setMoveModal(node); setMoveSearch(''); setMoveTarget(null) }}
                 />
               )

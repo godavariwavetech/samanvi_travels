@@ -5,7 +5,7 @@ import { CheckCircle, XCircle, Clock, X, User, FileText, ShieldCheck, Pencil } f
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Label, DataTable, Badge, PageHeader, DateRangePicker, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectReasonModal, RejectionReasonNote } from '@/components/shared'
+import { GlassCard, Button, Label, DataTable, Badge, PageHeader, DateRangePicker, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote } from '@/components/shared'
 import type { Column, ApprovalTab } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { formatDate, todayISO, localDateTime } from '@/lib/utils'
@@ -42,8 +42,6 @@ export default function AdminApprovalsPage() {
   // 'To Authorize' is this page's own first stage; the other three are the
   // standard approval tabs Fuel uses.
   const [tab, setTab] = useState<TabKey>(canAuthorize ? 'To Authorize' : 'pending')
-  const [rejectTarget, setRejectTarget] = useState<{ rows: any[] } | null>(null)
-  const [bulkRejecting, setBulkRejecting] = useState(false)
   const [viewTrip, setViewTrip] = useState<any>(null)
   const [editRef, setEditRef] = useState<string | null>(null)
   const [selectedTrips, setSelectedTrips] = useState<any[]>([])
@@ -109,29 +107,21 @@ export default function AdminApprovalsPage() {
 
   const allTrips: any[] = tripData?.data ?? []
 
-  // Approve / reject the selected trips one after another, as Fuel does.
-  const runBulk = async (rows: any[], status: 1 | 2, reason = '') => {
+  // Approve the selected trips one after another, as Fuel does.
+  const runBulk = async (rows: any[]) => {
     const eligible = rows.filter(awaitingApproval)
     if (!canApprove || !eligible.length) { toast.error('Select trips that are awaiting approval'); return }
-    if (status === 1) setBulkApproving(true); else setBulkRejecting(true)
+    setBulkApproving(true)
     let done = 0
     for (const row of eligible) {
-      const result = await sendStatus(row, status, reason).catch(() => null)
+      const result = await sendStatus(row, 1, '').catch(() => null)
       if (result?.status === 200) done++
     }
-    setBulkApproving(false); setBulkRejecting(false)
+    setBulkApproving(false)
     setSelectedTrips([])
-    const verb = status === 1 ? 'approved' : 'rejected'
-    if (done === eligible.length) toast.success(`${done} trip${done === 1 ? '' : 's'} ${verb}`)
-    else toast.error(`${done} of ${eligible.length} trips ${verb}`)
+    if (done === eligible.length) toast.success(`${done} trip${done === 1 ? '' : 's'} approved`)
+    else toast.error(`${done} of ${eligible.length} trips approved`)
     refreshAfterStatus()
-  }
-  const askReject = (rows: any[]) => { if (rows.length) setRejectTarget({ rows }) }
-  const confirmReject = (reason: string) => {
-    const rows = rejectTarget?.rows ?? []
-    setRejectTarget(null)
-    if (rows.length === 1) onStatusChange(rows[0], 2, reason)
-    else runBulk(rows, 2, reason)
   }
 
   const changeTab = (next: TabKey) => {
@@ -235,7 +225,7 @@ export default function AdminApprovalsPage() {
           {!authStage && (
             <ApprovalRowActions tab={tab as ApprovalTab}
               onView={() => setViewTrip(row)}
-              onApprove={() => onStatusChange(row, 1)} onReject={() => askReject([row])} onReopen={() => onStatusChange(row, 0)} />
+              onApprove={() => onStatusChange(row, 1)} onReopen={() => onStatusChange(row, 0)} />
           )}
           {authStage && (
             <button type="button" onClick={() => setViewTrip(row)} className="text-xs font-bold text-blue-600 hover:underline">View</button>
@@ -287,8 +277,8 @@ export default function AdminApprovalsPage() {
         selectable={canApprove && tab === 'pending'}
         onSelectionChange={(rows) => setSelectedTrips(rows as any[])}
         selectionActions={canApprove && tab === 'pending' ? (
-          <ApprovalBulkButtons approving={bulkApproving} rejecting={bulkRejecting}
-            onApprove={() => runBulk(selectedTrips, 1)} onReject={() => askReject(selectedTrips)} />
+          <ApprovalBulkButtons approving={bulkApproving}
+            onApprove={() => runBulk(selectedTrips)} />
         ) : undefined}
         icon={
           tab === 'To Authorize' ? <ShieldCheck className="w-5 h-5 text-teal-500" />
@@ -299,10 +289,6 @@ export default function AdminApprovalsPage() {
         }
       />
 
-      <RejectReasonModal open={!!rejectTarget} onCancel={() => setRejectTarget(null)} onConfirm={confirmReject}
-        subject={rejectTarget && rejectTarget.rows.length === 1
-          ? `Trip ${String(rejectTarget.rows[0].c_number ?? '')}`
-          : `Rejecting ${rejectTarget?.rows.length ?? 0} trips`} />
 
       {/* Edit the trip in place - the Trip Creation edit form, with no navigation */}
       {editRef && <TripCreationPage editRef={editRef} onEditClose={() => { setEditRef(null); qc.invalidateQueries({ queryKey: ['trips'] }) }} />}
@@ -329,7 +315,7 @@ export default function AdminApprovalsPage() {
               </Button>
             ) : awaitingApproval(viewTrip) || Number(viewTrip.admin_status) === 2 ? (
               <ApprovalModalButtons tab={Number(viewTrip.admin_status) === 2 ? 'rejected' : 'pending'}
-                onApprove={() => onStatusChange(viewTrip, 1)} onReject={() => { const t = viewTrip; setViewTrip(null); askReject([t]) }} onReopen={() => onStatusChange(viewTrip, 0)} />
+                onApprove={() => onStatusChange(viewTrip, 1)} onReopen={() => onStatusChange(viewTrip, 0)} />
             ) : undefined}
           </>} />
       )}
