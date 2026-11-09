@@ -278,6 +278,19 @@ router.post("/gethaltbeta", verifyToken, routcontroller.gethaltbetaCtrl);
 router.post("/savehaltbeta", verifyToken, routcontroller.savehaltbetaCtrl);
 router.post("/getmodaldata",verifyToken,routcontroller.getmodaldataCtrl);
 router.post("/gettripdeletedmodaldata",verifyToken,routcontroller.gettripdeletedmodaldataCtrl);
+// Deleted Records: every delete is logged with its reason; one page lists them all.
+router.post('/logdeletedrecord', verifyToken, function (req, res) {
+  require('../utils/deletedRecords').logDeletion(require('../config/dbconnect'), req.auth, req.body || {}, function (err, id) {
+    if (err) { console.error('[logdeletedrecord]', err.message); return res.send({ status: 500, msg: 'Could not log deletion' }) }
+    res.send({ status: 200, id: id })
+  })
+});
+router.post('/getdeletedrecords', verifyToken, function (req, res) {
+  require('../utils/deletedRecords').listDeleted(require('../config/dbconnect'), function (err, rows) {
+    if (err) { console.error('[getdeletedrecords]', err.message); return res.send({ status: 500, msg: 'Server Error' }) }
+    res.send({ status: 200, data: rows })
+  })
+});
 router.post("/submitlaundrytypemainmasters",verifyToken,routcontroller.submitlaundrytypemainmastersCtrl);
 router.post('/getlaundrytypemainmasters', verifyToken, laundrycontroller.getlaundrytypemainmastersCtrl);
 router.post('/submitlaundrydata', verifyToken, laundrycontroller.submitlaundrydataCtrl);

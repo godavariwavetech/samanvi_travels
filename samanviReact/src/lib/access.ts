@@ -49,6 +49,8 @@ export const PATH_ACCESS: Record<string, AccessRule> = {
   '/trips/approvals': { module: M.trips },
   '/trips/reports': { subs: [41] },
   '/trips/deleted': { subs: [59] },
+  // One list of everything deleted; opens with the same grant Deleted Trips had.
+  '/deleted-records': { subs: [59] },
   '/trips/logs': { subs: [58] },
 
   '/fuel/entry': { subs: [31] },

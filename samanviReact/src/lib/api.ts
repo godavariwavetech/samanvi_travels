@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { logIfDeletion } from './deletionLog'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/nodeapp/',
@@ -41,6 +42,8 @@ api.interceptors.response.use(
     if (s === 401 || (s === 403 && res.data?.msg === 'Token expired')) {
       redirectToLogin()
     }
+    // A successful delete goes to the Deleted Records log.
+    logIfDeletion(api, res)
     return res
   },
   (error) => {

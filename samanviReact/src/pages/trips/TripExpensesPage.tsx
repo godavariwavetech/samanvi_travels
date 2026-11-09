@@ -14,7 +14,7 @@ import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
 import { usePermissions } from '@/lib/usePermissions'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
-import { awaitingAuthorizationBeforeExpense, awaitingApproval } from '@/lib/tripAuthorization'
+import { awaitingAuthorizationBeforeExpense, awaitingApproval, needsAuthorization } from '@/lib/tripAuthorization'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type LedgerObj = {
@@ -1655,7 +1655,24 @@ export default function TripExpensesPage() {
     if (action === 'delete') {
       if (!canActOnExpense(row, canReviseApproved)) { toast.error('Cannot delete — not filed yet, or already approved/rejected'); return }
       removeExpense(row)
+      return
     }
+    if (action === 'authorize') { authorizeTrip(row); return }
+    if (action === 'approve') setAdminStatus({ row, value: '1' })
+  }
+
+  // Which buttons a row offers, so nothing is shown that would only refuse:
+  // View once an expense is filed; Edit to file it, or to change it while it
+  // is still open; Authorize / Approve at the stage the trip has reached (and
+  // only for people holding that grant on Trip Approvals); Delete while open.
+  const rowActionAllowed = (action: string, row: any) => {
+    const filed = row.status === 1
+    if (action === 'view') return filed
+    if (action === 'edit') return !filed ? canCreateExpense : canActOnExpense(row, canReviseApproved)
+    if (action === 'authorize') return filed && canAuthorizeTrips && needsAuthorization(row) && !authorizingTrip
+    if (action === 'approve') return filed && canApproveTrips && awaitingApproval(row) && !settingStatus
+    if (action === 'delete') return filed && canActOnExpense(row, canReviseApproved)
+    return true
   }
 
   // ── Table columns ────────────────────────────────────────────────────────
@@ -1819,41 +1836,6 @@ export default function TripExpensesPage() {
         ? <span className="font-bold text-slate-900">₹{num(v).toLocaleString('en-IN')}</span>
         : <span className="text-slate-300">—</span>,
     },
-    {
-      label: 'Approvals', key: 'admin_status',
-      render: (_v, row: any) => {
-        if (row.status !== 1) return <Badge variant="slate">Not Filed</Badge>
-        const state = Number(row.admin_status ?? 0)
-        // Once anyone holds the Authorize grant a filed trip has to be
-        // authorized (Trip Approvals) before it can be approved; the server
-        // refuses an earlier approval, so the option is shut here too.
-        const awaitingAuth = state === 0 && Number(row.auth_required) === 1 && !row.authorized_at
-        if (awaitingAuth && canAuthorizeTrips) return (
-          <Button size="sm" variant="outline" disabled={authorizingTrip} onClick={() => authorizeTrip(row)}>
-            <ShieldCheck className="w-3.5 h-3.5" />{authorizingTrip ? 'Authorizing…' : 'Authorize'}
-          </Button>
-        )
-        // Approving belongs to people with the Approve grant on Trip Approvals;
-        // everyone else just reads where the trip stands.
-        if (!canApproveTrips) {
-          return state === 1 ? <Badge variant="success">Approved</Badge>
-            : state === 2 ? <Badge variant="danger">Rejected</Badge>
-              : awaitingAuth ? <Badge variant="warning">Awaiting Authorization</Badge>
-                : <Badge variant="info">{Number(row.auth_required) === 1 ? 'Authorized' : 'On Review'}</Badge>
-        }
-        return (
-          <select
-            value={String(state)}
-            disabled={settingStatus}
-            onChange={(e) => setAdminStatus({ row, value: e.target.value })}
-            className="text-xs font-bold rounded-lg border px-2 py-1.5 bg-white"
-          >
-            <option value="0">{awaitingAuth ? 'Awaiting Authorization' : 'On Review'}</option>
-            <option value="1" disabled={awaitingAuth} title={awaitingAuth ? 'Authorize this trip on Trip Approvals first' : undefined}>Approve</option>
-          </select>
-        )
-      },
-    },
   ]
 
   // The Van tab shows what a van trip was created with - line code, pick/drop,
@@ -1909,7 +1891,6 @@ export default function TripExpensesPage() {
         )
       },
     },
-    col('admin_status'),
   ]
 
   return (
@@ -1949,7 +1930,9 @@ export default function TripExpensesPage() {
         data={filteredTrips}
         loading={isLoading}
         onAction={handleAction}
-        actions={['edit', 'view', 'delete']}
+        actions={['view', 'edit', 'authorize', 'approve', 'delete']}
+        rowActionAllowed={rowActionAllowed}
+        editNeedsReason={(row: any) => row.status === 1}
         icon={<Receipt className="w-5 h-5 text-red-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}

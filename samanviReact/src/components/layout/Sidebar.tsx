@@ -5,7 +5,7 @@ import { NavLink, useLocation } from 'react-router'
 import {
   LayoutDashboard, Users, Map, Building2, Briefcase,
   CreditCard, Shirt, Settings, LogOut,
-  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck,
+  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
@@ -67,7 +67,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Trip Expenses',  path: '/trips/expenses' },
       { label: 'Admin Approvals',path: '/trips/approvals' },
       { label: 'Trip Reports',   path: '/trips/reports' },
-      { label: 'Deleted Trips',  path: '/trips/deleted' },
       { label: 'Trip Logs',      path: '/trips/logs' },
     ],
   },
@@ -189,6 +188,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Roles & Permissions', path: '/mainmasters/roles' },
     ],
   },
+  { id: 'deleted', label: 'Deleted Records', icon: Trash2, path: '/deleted-records' },
 ]
 
 // ── What this user may open ────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { Search, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History } from 'lucide-react'
+import { Search, Printer, Eye, Edit2, FileText, Trash2, AlertCircle, History, CheckCircle, ShieldCheck } from 'lucide-react'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
 import { Input } from './Input'
@@ -12,7 +12,8 @@ import { usePermissions } from '@/lib/usePermissions'
 import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 import { ReferenceDetailsLink } from './ReferenceDetailsLink'
 import ReferenceAuditModal from './ReferenceAuditModal'
-import { askEdit, askReason } from './ReasonPrompt'
+import { askReason } from './ReasonPrompt'
+import { noteDeleteReason } from '@/lib/deletionLog'
 
 const REFERENCE_KEYS = ['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'parent_job_card_number', 'generated_reminder_ref', 'ref_no', 'reference_no', 'bill_no', 'pnr_no']
 const AUDIT_REFERENCE_KEYS = new Set(['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'generated_reminder_ref'])
@@ -34,7 +35,7 @@ export interface Column<T = Record<string, unknown>> {
 const alignText: Record<'left' | 'center' | 'right', string> = { left: 'text-left', center: 'text-center', right: 'text-right' }
 const alignJustify: Record<'left' | 'center' | 'right', string> = { left: 'justify-start', center: 'justify-center', right: 'justify-end' }
 
-type ActionType = 'view' | 'edit' | 'pdf' | 'print' | 'delete' | 'history'
+type ActionType = 'view' | 'edit' | 'authorize' | 'approve' | 'pdf' | 'print' | 'delete' | 'history'
 
 interface DataTableProps<T extends Record<string, unknown>> {
   title?: string
@@ -46,6 +47,8 @@ interface DataTableProps<T extends Record<string, unknown>> {
   actions?: ActionType[]
   /** Hides an action's button on rows where it is not allowed (a locked record). */
   rowActionAllowed?: (action: ActionType, row: T) => boolean
+  /** Whether Edit asks for a reason on this row (default: always). Filing a new record is not an edit. */
+  editNeedsReason?: (row: T) => boolean
   icon?: ReactNode
   selectable?: boolean
   sumKey?: string
@@ -153,6 +156,7 @@ export function DataTable<T extends Record<string, unknown>>({
   loading = false,
   actions: requestedActions = ['view', 'edit', 'delete'],
   rowActionAllowed,
+  editNeedsReason,
   icon,
   selectable = false,
   sumKey,
@@ -174,8 +178,11 @@ export function DataTable<T extends Record<string, unknown>>({
   onExport,
 }: DataTableProps<T>) {
   const permissions = usePermissions()
+  // Authorize / Approve rights live on other screens (Trip Approvals), so the
+  // page decides those per row through rowActionAllowed.
   const actions = requestedActions.filter(action => action === 'edit' ? permissions.canEdit
-    : action === 'delete' ? permissions.canDelete : permissions.canView)
+    : action === 'delete' ? permissions.canDelete
+    : action === 'approve' || action === 'authorize' ? true : permissions.canView)
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null)
   const [deleteReason, setDeleteReason] = useState('')
@@ -332,6 +339,7 @@ export function DataTable<T extends Record<string, unknown>>({
   const handleAction = (action: ActionType, row: T) => {
     if (action === 'delete') { setDeleteReason(''); setConfirmDelete(row); return }
     if (action === 'edit') {
+      if (editNeedsReason && !editNeedsReason(row)) { onAction?.('edit', row); return }
       askReason({
         title: 'Reason for Edit', subject: 'Edit this record', confirmLabel: 'Continue to Edit',
         onConfirm: (reason) => onAction?.('edit', row, reason),
@@ -364,10 +372,12 @@ export function DataTable<T extends Record<string, unknown>>({
     exportRows({ title: exportTitle || title, headers: cols.map((c) => c.label), rows, format })
   }
 
-  // View, Edit, Delete (Edit and Delete ask for a reason), then the utility icons.
+  // View, Edit, Authorize, Approve, Delete (Edit and Delete ask for a reason), then the utility icons.
   const actionButtons = [
     { type: 'view' as const, icon: Eye, cls: 'text-blue-600 bg-blue-50 hover:bg-blue-100 border-blue-100' },
     { type: 'edit' as const, icon: Edit2, cls: 'text-amber-600 bg-amber-50 hover:bg-amber-100 border-amber-100' },
+    { type: 'authorize' as const, icon: ShieldCheck, cls: 'text-teal-600 bg-teal-50 hover:bg-teal-100 border-teal-100' },
+    { type: 'approve' as const, icon: CheckCircle, cls: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border-emerald-100' },
     { type: 'delete' as const, icon: Trash2, cls: 'text-red-600 bg-red-50 hover:bg-red-100 border-red-100' },
     { type: 'history' as const, icon: History, cls: 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200' },
     { type: 'pdf' as const, icon: FileText, cls: 'text-purple-600 bg-purple-50 hover:bg-purple-100 border-purple-100' },
@@ -630,6 +640,7 @@ export function DataTable<T extends Record<string, unknown>>({
                     disabled={!deleteReason.trim()}
                     onClick={() => {
                       const reason = deleteReason.trim()
+                      noteDeleteReason(reason, title ?? '', confirmDelete)
                       onAction?.('delete', confirmDelete, reason)
                       setDeleteReason('')
                       setConfirmDelete(null)

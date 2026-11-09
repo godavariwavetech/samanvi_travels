@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { AlertCircle } from 'lucide-react'
 import { Button } from './Button'
+import { noteDeleteReason } from '@/lib/deletionLog'
 
 // The "Reason is mandatory" popup used before any Edit or Delete. The action
 // only goes ahead once a non-empty reason is typed and confirmed.
@@ -72,8 +73,9 @@ export function askReason(next: ReasonRequest) {
 }
 export const askEdit = (subject: ReactNode, run: (reason: string) => void) =>
   askReason({ title: 'Reason for Edit', subject, confirmLabel: 'Continue to Edit', onConfirm: run })
-export const askDelete = (subject: ReactNode, run: (reason: string) => void) =>
-  askReason({ title: 'Reason for Delete', subject, confirmLabel: 'Delete', danger: true, onConfirm: run })
+export const askDelete = (subject: ReactNode, run: (reason: string) => void, row?: unknown) =>
+  askReason({ title: 'Reason for Delete', subject, confirmLabel: 'Delete', danger: true,
+    onConfirm: (reason) => { noteDeleteReason(reason, subject, row); run(reason) } })
 
 export function ReasonPromptHost() {
   const [request, setRequest] = useState<ReasonRequest | null>(null)
