@@ -1138,7 +1138,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
       setBankSkipped(skipped.length ? skipped : null)
       if (!rows.length) { toast.error('No payments with complete bank details in the selection'); return }
       if (rows.length > BANK_BULK_MAX_ROWS) { toast.error(`The bank accepts at most ${BANK_BULK_MAX_ROWS} transactions per file`); return }
-      const name = downloadBankBulkFile(rows)
+      const name = await downloadBankBulkFile(rows)
       toast.success(`${name}: ${rows.length} payment${rows.length !== 1 ? 's' : ''}${skipped.length ? `, ${skipped.length} skipped` : ''}`)
     } catch {
       toast.error('Server error')

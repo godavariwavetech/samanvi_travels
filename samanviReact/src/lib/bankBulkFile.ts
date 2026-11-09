@@ -66,21 +66,72 @@ const HELP: (string | undefined)[][] = [
   ['Uploaded file Size', 'The xlsx file size should not exceed 5MB. At most 7000 transactions per upload.'],
 ]
 
-export function downloadBankBulkFile(rows: (string | number)[][]) {
-  const ws = XLSX.utils.aoa_to_sheet([BANK_BULK_HEADER, ...rows])
-  // Account numbers / amounts stay text so leading zeros survive.
+// The bank's own template (public/templates/bank-bulk-template.xlsx: the
+// bank's file with its sample rows cleared) is filled in place, so the
+// download keeps everything the bank built into it: the Help sheet, header
+// styling, column widths, sheet protection, the Payment Type dropdown and the
+// name / IFSC / amount checks. Each value goes into the template's own cell,
+// keeping that cell's format (account number as text, amount as #,##0.00).
+const INPUT_SHEET = 'xl/worksheets/sheet2.xml'
+const COLS = ['A', 'B', 'C', 'D', 'E', 'F']
+// Formats of an untouched template row, for a row the template lacks.
+const DEFAULT_STYLE: Record<string, string> = { A: '8', B: '8', C: '9', D: '8', E: '8', F: '13' }
+const xmlEscape = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+export function fillBankTemplate(template: Uint8Array, rows: (string | number)[][]): Uint8Array {
+  const zip = XLSX.CFB.read(template, { type: 'array' })
+  // Zip entries are listed with a root prefix, so match on the path ending.
+  const at = zip.FullPaths.findIndex((p: string) => p.replace(/\\/g, '/').endsWith(INPUT_SHEET))
+  const entry = at >= 0 ? zip.FileIndex[at] : null
+  if (!entry || !entry.content) throw new Error('Bank template is missing its Input File sheet')
+  let xml = new TextDecoder().decode(entry.content as Uint8Array)
+  rows.forEach((values, i) => {
+    const n = i + 2
+    const rowRe = new RegExp(`<row r="${n}"[^>]*?(?:/>|>[\\s\\S]*?</row>)`)
+    const existing = xml.match(rowRe)?.[0] ?? ''
+    const open = existing.match(/^<row [^>]*?(?=\/?>)/)?.[0] ?? `<row r="${n}" spans="1:7"`
+    const cells = COLS.map((col, c) => {
+      const style = existing.match(new RegExp(`<c r="${col}${n}" s="(\\d+)"`))?.[1] ?? DEFAULT_STYLE[col]
+      const v = values[c] ?? ''
+      if (col === 'F') return `<c r="F${n}" s="${style}"><v>${Number(v) || 0}</v></c>`
+      return `<c r="${col}${n}" s="${style}" t="inlineStr"><is><t>${xmlEscape(String(v))}</t></is></c>`
+    }).join('')
+    const row = `${open}>${cells}</row>`
+    xml = existing ? xml.replace(existing, row) : xml.replace('</sheetData>', `${row}</sheetData>`)
+  })
+  entry.content = new TextEncoder().encode(xml) as any
+  const out = XLSX.CFB.write(zip, { fileType: 'zip', type: 'array', compression: true }) as ArrayBuffer | Uint8Array
+  return out instanceof Uint8Array ? out : new Uint8Array(out)
+}
+
+// Builds the sheet without the template (only if the template cannot be loaded).
+function plainWorkbook(rows: (string | number)[][]) {
+  const ws = XLSX.utils.aoa_to_sheet([BANK_BULK_HEADER, ...rows.map((r) => [...r.slice(0, 5), Number(r[5]) || 0])])
   for (let r = 1; r <= rows.length; r++) {
-    for (const c of [2, 5]) { const cell = ws[XLSX.utils.encode_cell({ r, c })]; if (cell) cell.t = 's' }
+    const cell = ws[XLSX.utils.encode_cell({ r, c: 2 })]; if (cell) cell.t = 's'
+    const amt = ws[XLSX.utils.encode_cell({ r, c: 5 })]; if (amt) amt.z = '#,##0.00'
   }
   ws['!cols'] = [{ wch: 14 }, { wch: 36 }, { wch: 24 }, { wch: 14 }, { wch: 40 }, { wch: 14 }]
   const help = XLSX.utils.aoa_to_sheet(HELP)
   help['!cols'] = [{ wch: 30 }, { wch: 100 }]
   const wb: XLSX.WorkBook = { Sheets: { Help: help, 'Input File': ws }, SheetNames: ['Help', 'Input File'] }
-  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  return new Uint8Array(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }))
+}
+
+export async function downloadBankBulkFile(rows: (string | number)[][]) {
+  let bytes: Uint8Array
+  try {
+    const res = await fetch(`${import.meta.env.BASE_URL}templates/bank-bulk-template.xlsx`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`template ${res.status}`)
+    bytes = fillBankTemplate(new Uint8Array(await res.arrayBuffer()), rows)
+  } catch (e) {
+    console.error('Bank template unavailable, using the plain layout:', e)
+    bytes = plainWorkbook(rows)
+  }
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
   const name = `BULK_${p(d.getDate())}${p(d.getMonth() + 1)}${d.getFullYear()}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.xlsx`
-  const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
   const a = document.createElement('a')
   a.href = url; a.download = name; a.click()
   URL.revokeObjectURL(url)
