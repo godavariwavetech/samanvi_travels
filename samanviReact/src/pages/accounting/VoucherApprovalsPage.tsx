@@ -1123,12 +1123,16 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   // Staff / Driver / Helper debit line; anything without usable bank details is
   // left out and listed so it can be fixed on the Staff page.
   const [bankExporting, setBankExporting] = useState(false)
+  // Rows the table is showing after its search and column filters.
+  const [visibleRows, setVisibleRows] = useState<any[]>([])
   const [bankSkipped, setBankSkipped] = useState<SkippedLine[] | null>(null)
   const exportBankFile = async () => {
-    if (!selectedRows.length) return
+    // The selected rows if any are ticked, otherwise every row on screen.
+    const source = selectedRows.length ? selectedRows : visibleRows
+    if (!source.length) { toast.error('No vouchers on screen to export'); return }
     setBankExporting(true)
     try {
-      const res = await accountingService.getBankBulkPayments({ c_numbers: selectedRows.map((r: any) => r.c_number) })
+      const res = await accountingService.getBankBulkPayments({ c_numbers: source.map((r: any) => r.c_number) })
       if (res?.status !== 200) { toast.error(res?.msg ?? 'Could not load bank details'); return }
       const { rows, skipped } = buildBankPaymentRows(res.data ?? [])
       setBankSkipped(skipped.length ? skipped : null)
@@ -1333,6 +1337,19 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         </GlassCard>
       )}
 
+      {tab === 'Approved' && (
+        <div className="flex justify-end">
+          <button
+            onClick={exportBankFile}
+            disabled={bankExporting}
+            title="Download the vouchers on screen (or the ticked ones) in the bank's bulk-payment format"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+          >
+            <CreditCard className="w-4 h-4" />
+            {bankExporting ? 'Preparing…' : selectedRows.length ? `Download Bank Excel (${selectedRows.length} ticked)` : 'Download Bank Excel (all on screen)'}
+          </button>
+        </div>
+      )}
       <DataTable
         title={tab}
         columns={buildCols(handleApprove, handleView, handleReopen, canApprove ? getMode() : 'view', {
@@ -1351,16 +1368,8 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         selectable={canApprove}
         sumKey="debit_total"
         onSelectionChange={(rows) => setSelectedRows(rows)}
-        selectionActions={tab === 'Approved' ? (
-          <button
-            onClick={exportBankFile}
-            disabled={bankExporting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-          >
-            <CreditCard className="w-3.5 h-3.5" />
-            {bankExporting ? 'Preparing…' : 'Bank Bulk File'}
-          </button>
-        ) : canApprove && tab === 'Pending Approval' ? (
+        onFilteredChange={(rows) => setVisibleRows(rows)}
+        selectionActions={canApprove && tab === 'Pending Approval' ? (
           <>
             <button
               onClick={() => runBulkAction(1)}
