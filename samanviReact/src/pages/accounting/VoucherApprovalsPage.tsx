@@ -1411,6 +1411,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         sumKey="debit_total"
         onSelectionChange={(rows) => setSelectedRows(rows)}
         onFilteredChange={(rows) => setVisibleRows(rows)}
+        onExport={tab === 'Approved' ? { excel: (rows) => exportBankFile(rows) } : undefined}
         selectionActions={canApprove && tab === 'Pending Approval' ? (
           <>
             <button

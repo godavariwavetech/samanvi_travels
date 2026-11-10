@@ -1514,8 +1514,15 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                 </div>
               )}
               <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50/50">
-                <Button variant="outline" onClick={() => setEditRow(null)}>Cancel</Button>
-                <Button
+                <button
+                  type="button"
+                  onClick={() => setEditRow(null)}
+                  className="inline-flex items-center justify-center rounded-xl font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB] disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] gap-2 border border-slate-200 bg-white/50 hover:bg-slate-50 text-slate-700 px-4 py-2.5 text-sm h-11"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
                   onClick={() => saveEdit()}
                   disabled={savingEdit || (!editForm.bus_no && !editHalted) || hirePostedConflict ||
                     (editRow.vehicle_type === 'van'
@@ -1523,9 +1530,10 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                         || (editHirerActive && !!editForm.phone_number && !isValidMobile(editForm.phone_number))
                         || (editOptingActive && (!String(editForm.opt_driver1_name ?? '').trim() || !isValidMobile(editForm.opt_driver1_mobile))))
                       : (!editNoDriverNeeded && !editForm.driver1_name && !editForm.opt_driver1_name))}
+                  className="inline-flex items-center justify-center rounded-xl font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB] disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] gap-2 bg-gradient-to-r from-[#2563EB] to-[#1D4ED8] text-white hover:shadow-lg hover:shadow-blue-500/25 border border-blue-600/50 px-4 py-2.5 text-sm h-11"
                 >
                   <Save className="w-4 h-4" /> {savingEdit ? 'Saving…' : 'Save Changes'}
-                </Button>
+                </button>
               </div>
             </motion.div>
           </motion.div>
