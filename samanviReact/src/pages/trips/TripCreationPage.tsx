@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -1302,8 +1303,9 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
       </div>
 
       {/* ── Edit a created trip (Bus or Van) ── */}
-      <AnimatePresence>
-        {editRow && (
+      {createPortal(
+        <AnimatePresence>
+          {editRow && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
@@ -1527,8 +1529,10 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
               </div>
             </motion.div>
           </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </motion.div>
   )
 }
