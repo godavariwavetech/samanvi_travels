@@ -1,10 +1,14 @@
-import { useMemo } from 'react'
-import { useLocation } from 'react-router'
+import { useContext, useMemo } from 'react'
+import { UNSAFE_LocationContext } from 'react-router'
 import { useAuthStore } from '@/store/auth.store'
 import { permissionsFor } from './access'
 
 export function usePermissions(pathname?: string) {
-  const location = useLocation()
+  // Read the router's location without useLocation(): that hook throws outside
+  // <RouterProvider>, and the shared Button (which calls this) is also rendered by
+  // hosts mounted beside the router - the Reason for Edit/Delete prompt - where the
+  // throw blanked the whole app. Outside the router, fall back to the browser URL.
+  const location = useContext(UNSAFE_LocationContext)?.location ?? window.location
   const menu = useAuthStore(s => s.menu)
   const roleId = useAuthStore(s => s.user?.role_id)
   // Super Admin is role ID 5 (or legacy role_type 0 with no role ID) - the same
