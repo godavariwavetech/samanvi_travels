@@ -1220,6 +1220,9 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   const handleTabChange = (key: string) => {
     setTab(key)
     setColFilters({})
+    // Ticks belong to the tab they were made on; the Bank Excel must not carry
+    // another tab's ticked vouchers over.
+    setSelectedRows([])
   }
 
   const subRows: any[] = Array.isArray(modalData?.data?.[1]) ? modalData.data[1] : []
@@ -1372,17 +1375,12 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         )
       })()}
 
-      {/* Always shown; bank payments are made only for approved vouchers, so
-          from another tab it opens the Approved tab first. */}
+      {/* Shown on every tab; downloads the vouchers of the tab being looked at
+          (the ticked ones, or every row on screen) - never another tab's list. */}
       {(
         <div className="flex justify-end items-center gap-3">
-          {tab !== 'Approved' && <span className="text-xs text-slate-500">Downloads all approved vouchers</span>}
           <button
-            onClick={() => {
-              // One click: from another tab, open Approved and download all approved vouchers.
-              if (tab !== 'Approved') { handleTabChange('Approved'); setSelectedRows([]); exportBankFile(approvedList); return }
-              exportBankFile()
-            }}
+            onClick={() => exportBankFile()}
             disabled={bankExporting}
             title="Download the vouchers on screen (or the ticked ones) in the bank's bulk-payment format"
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
@@ -1393,6 +1391,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
         </div>
       )}
       <DataTable
+        key={tab}
         title={tab}
         columns={buildCols(handleApprove, handleView, handleReopen, canApprove ? getMode() : 'view', {
           voucherTypes: voucherTypeFilterOpts,
