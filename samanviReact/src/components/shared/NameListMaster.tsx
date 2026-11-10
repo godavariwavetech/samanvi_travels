@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { GlassCard } from './GlassCard'
 import { Button } from './Button'
-import { askEdit, askDelete } from './ReasonPrompt'
+import { askDelete } from './ReasonPrompt'
 import { Input } from './Input'
 import { Label } from './Label'
 import { DataTable } from './DataTable'
@@ -25,6 +25,8 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
   const [name, setName] = useState('')
   const [editId, setEditId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
+  // Required reason, typed after changing the value, before saving the row.
+  const [editReason, setEditReason] = useState('')
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({ queryKey: [queryKey], queryFn: getAll })
@@ -46,6 +48,7 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
     const trimmed = editValue.trim()
     if (!trimmed) return
     if (isDuplicate(trimmed, editId)) { toast.error(`${label} "${trimmed}" already exists`); return }
+    if (!editReason.trim()) { toast.error('Enter the reason for edit before saving'); return }
     editSave()
   }
 
@@ -61,7 +64,7 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
   const { mutate: editSave } = useMutation({
     mutationFn: () => edit({ id: editId, [fieldKey]: editValue.trim() }),
     onSuccess: (res) => {
-      if (res.status === 200) { toast.success('Updated!'); qc.invalidateQueries({ queryKey: [queryKey] }); setEditId(null); setEditValue('') }
+      if (res.status === 200) { toast.success('Updated!'); qc.invalidateQueries({ queryKey: [queryKey] }); setEditId(null); setEditValue(''); setEditReason('') }
       else toast.error('Failed')
     },
     onError: () => toast.error('Server error'),
@@ -101,13 +104,22 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
           { label: 'S.No', key: '_idx', align: 'center', render: (_v, _row, i) => <span className="text-slate-500">{i + 1}</span> },
           { label, key: fieldKey, filterable: true, render: (v, row: any) => (
             editId === row.id ? (
-              <Input
-                autoFocus
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditId(null) }}
-                className="h-9 max-w-xs"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditId(null) }}
+                  className="h-9 max-w-xs"
+                />
+                <Input
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditId(null) }}
+                  placeholder="Reason for edit *"
+                  className={`h-9 max-w-xs ${editReason.trim() ? '' : 'border-red-300'}`}
+                />
+              </div>
             ) : (
               <span className="font-medium text-slate-800">{String(v)}</span>
             )
@@ -116,11 +128,11 @@ export function NameListMaster({ label, placeholder, fieldKey, queryKey, getAll,
             editId === row.id ? (
               <div className="flex items-center justify-center gap-2">
                 <button onClick={handleEditSave} className="text-emerald-500 hover:text-emerald-700 transition-colors" title="Save"><Check className="w-4 h-4" /></button>
-                <button onClick={() => { setEditId(null); setEditValue('') }} className="text-slate-400 hover:text-red-500 transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
+                <button onClick={() => { setEditId(null); setEditValue(''); setEditReason('') }} className="text-slate-400 hover:text-red-500 transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
               </div>
             ) : (
               <div className="flex items-center justify-center gap-3">
-                <button onClick={() => askEdit(String(row[fieldKey] ?? ''), () => { setEditId(row.id); setEditValue(row[fieldKey]) })} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => { setEditId(row.id); setEditValue(row[fieldKey]); setEditReason('') }} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
                 <button onClick={() => askDelete(String(row[fieldKey] ?? ''), () => del(row.id), row)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
               </div>
             )

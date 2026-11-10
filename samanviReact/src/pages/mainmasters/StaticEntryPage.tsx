@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Building2, Save, Pencil, Check, X, Trash2, Plus } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu, askDelete } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { mainmastersService } from '@/services/mainmasters.service'
 
@@ -12,6 +12,8 @@ export default function StaticEntryPage() {
   const [name, setName] = useState('')
   const [editId, setEditId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
+  // Required reason, typed after changing the value, before saving the row.
+  const [editReason, setEditReason] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['districts'],
@@ -34,6 +36,7 @@ export default function StaticEntryPage() {
     const trimmed = editValue.trim()
     if (!trimmed) return
     if (isDuplicate(trimmed, editId)) { toast.error(`Entry "${trimmed}" already exists`); return }
+    if (!editReason.trim()) { toast.error('Enter the reason for edit before saving'); return }
     edit()
   }
 
@@ -55,6 +58,7 @@ export default function StaticEntryPage() {
       if (res.status === 200) {
         toast.success('Updated!')
         setEditId(null)
+        setEditReason('')
         qc.invalidateQueries({ queryKey: ['districts'] })
       } else toast.error(res.message ?? 'Failed')
     },
@@ -146,16 +150,25 @@ export default function StaticEntryPage() {
                   <td className="px-5 py-3 text-sm text-center text-slate-500">{row.i}</td>
                   <td className="px-5 py-3 text-sm font-medium text-slate-800">
                     {editId === row.id ? (
-                      <Input
-                        autoFocus
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleEditSave()
-                          if (e.key === 'Escape') setEditId(null)
-                        }}
-                        className="h-8 max-w-xs text-sm"
-                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleEditSave()
+                            if (e.key === 'Escape') setEditId(null)
+                          }}
+                          className="h-8 max-w-xs text-sm"
+                        />
+                        <Input
+                          value={editReason}
+                          onChange={(e) => setEditReason(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditId(null) }}
+                          placeholder="Reason for edit *"
+                          className={`h-8 max-w-xs text-sm ${editReason.trim() ? '' : 'border-red-300'}`}
+                        />
+                      </div>
                     ) : (
                       row.districtnm
                     )}
@@ -182,7 +195,7 @@ export default function StaticEntryPage() {
                     ) : (
                       <div className="flex items-center justify-center gap-3">
                         <button
-                          onClick={() => askEdit(row.districtnm, () => { setEditId(row.id); setEditValue(row.districtnm) })}
+                          onClick={() => { setEditId(row.id); setEditValue(row.districtnm); setEditReason('') }}
                           className="text-amber-500 hover:text-amber-700 transition-colors"
                           title="Edit"
                         >

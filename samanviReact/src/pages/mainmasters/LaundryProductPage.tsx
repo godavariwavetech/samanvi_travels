@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Shirt, Plus, Save, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 
@@ -11,6 +11,7 @@ export default function LaundryProductPage() {
   const qc = useQueryClient()
   const [name, setName] = useState('')
   const [editing, setEditing] = useState<{ id: number; name: string } | null>(null)
+  const editReason = useEditReason(!!editing)
 
   const { data, isLoading } = useQuery({
     queryKey: ['laundry-products'],
@@ -32,6 +33,7 @@ export default function LaundryProductPage() {
   const handleUpdate = () => {
     const trimmed = editing!.name.trim()
     if (!trimmed) return
+    if (!editReason.check()) return
     if (isDuplicate(trimmed, editing!.id)) { toast.error(`Product "${trimmed}" already exists`); return }
     update()
   }
@@ -75,10 +77,13 @@ export default function LaundryProductPage() {
       key: 'product_name',
       render: (v, row: any) =>
         editing?.id === row.id ? (
-          <div className="flex items-center gap-2">
+          <div className="space-y-2 min-w-[16rem]">
             <Input value={editing!.name} onChange={(e) => setEditing({ ...editing!, name: e.target.value })} className="h-8 text-sm" />
-            <button onClick={handleUpdate} disabled={updating} className="text-emerald-600 hover:text-emerald-700"><Save className="w-4 h-4" /></button>
-            <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+            {editReason.field}
+            <div className="flex items-center gap-2">
+              <button onClick={handleUpdate} disabled={updating || !editReason.ok} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-40"><Save className="w-4 h-4" /></button>
+              <button onClick={() => setEditing(null)} className="text-slate-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+            </div>
           </div>
         ) : (
           <Badge variant="teal">{String(v ?? row.vouchertype ?? '—')}</Badge>

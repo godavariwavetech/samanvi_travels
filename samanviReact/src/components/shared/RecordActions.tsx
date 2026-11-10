@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CheckCircle, RotateCcw, ShieldCheck, Pencil } from 'lucide-react'
 import { Button } from './Button'
-import { askReason } from './ReasonPrompt'
 import { usePermissions } from '@/lib/usePermissions'
 import { useCanReviseApproved } from '@/lib/approvedEditors'
 import { tripsService } from '@/services/trips.service'
@@ -97,10 +96,8 @@ export function RecordActions({ module, reference, record, onClose, setHidden }:
   const canDecide = perms.canApprove && (pending || status === 2)
 
   const stopEdit = () => { setEditing(false); refresh(); onClose() }
-  const askEditRecord = () => askReason({
-    title: 'Reason for Edit', subject: `${module} ${reference}`, confirmLabel: 'Continue to Edit',
-    onConfirm: () => { setHidden(true); setEditing(true) },
-  })
+  // The edit form itself asks for the reason, at its end above Save.
+  const askEditRecord = () => { setHidden(true); setEditing(true) }
 
   return (
     <>

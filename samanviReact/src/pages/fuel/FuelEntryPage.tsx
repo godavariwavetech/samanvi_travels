@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Fuel, Save, Plus, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote, approvalTabOf, DateField, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DateRangePicker, DataTable, TotalsFooter, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, LedgerNameWithGroup, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote, approvalTabOf, DateField, askDelete, useEditReason } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { fuelTotalItems, FuelTotalsCards } from './fuelTotals'
 import { fuelService } from '@/services/fuel.service'
@@ -224,6 +224,8 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(emptyForm())
   const [editForm, setEditForm] = useState<FormState | null>(null)
+  // The edit form ends with the required Reason for Edit, above Update Entry.
+  const editReason = useEditReason(!!editForm, { className: 'pt-4' })
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   // Entries are reviewed the way vouchers are: a tab per status, Approve on
@@ -326,6 +328,7 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
   const onSaveEdit = () => {
     if (!canEdit) return toast.error('You do not have Edit permission')
     if (!editForm) return
+    if (!editReason.check()) return
     const err = validateBalance(editForm)
     if (err) return toast.error(err)
     update()
@@ -445,7 +448,7 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
       render: (_v, r: Record<string, unknown>) => (
         <ApprovalRowActions tab={tab}
           onView={() => onView(r)}
-          onEdit={() => askEdit(`Fuel entry ${String(r.c_number ?? '')}`, () => onEdit(r))} editLocked={canReviseApproved}
+          onEdit={() => onEdit(r)} editLocked={canReviseApproved}
           onApprove={() => onStatusChange(r, 1)}
           onDelete={() => askDelete(`Fuel entry ${String(r.c_number ?? '')}`, () => onDelete(r), r)}
           onReopen={() => onStatusChange(r, 0)} />
@@ -572,7 +575,7 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
           <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Fuel Entry"
             onClose={() => setViewRow(null)} footerActions={<>
               {canEdit && (Number(viewRow.admin_status) === 0 || canReviseApproved) && (
-                <Button variant="outline" onClick={() => { const r = viewRow; askEdit(`Fuel entry ${String(r.c_number ?? '')}`, () => { setViewRow(null); onEdit(r) }) }}>
+                <Button variant="outline" onClick={() => { const r = viewRow; setViewRow(null); onEdit(r) }}>
                   <Pencil className="w-4 h-4" /> Edit
                 </Button>
               )}
@@ -587,9 +590,10 @@ export default function FuelEntryPage({ editRef, onEditClose }: { editRef?: stri
         {editForm && (
           <RecordModal size="xl" title="Edit Fuel Entry" subtitle={editForm.c_number} icon={<Fuel className="w-4 h-4 text-amber-500" />} onClose={() => setEditForm(null)}>
             <FuelForm form={editForm} setForm={setEditForm} buses={buses} ledgers={ledgers} />
+            {editReason.field}
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
               <Button variant="ghost" onClick={() => setEditForm(null)}>Cancel</Button>
-              <Button onClick={onSaveEdit} disabled={updating}>
+              <Button onClick={onSaveEdit} disabled={updating || !editReason.ok}>
                 <Save className="w-4 h-4" /> {updating ? 'Updating…' : 'Update Entry'}
               </Button>
             </div>

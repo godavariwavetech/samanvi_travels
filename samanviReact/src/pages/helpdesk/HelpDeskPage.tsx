@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { HelpCircle, Save, CheckCircle, AlertCircle, Clock, XCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { helpdeskService } from '@/services/helpdesk.service'
 
@@ -43,6 +43,7 @@ export default function HelpDeskPage() {
   const usrNm = localStorage.getItem('usr_nm') ?? 'Admin'
   const [statusFilter, setStatusFilter] = useState('all')
   const [resolveModal, setResolveModal] = useState<ResolveModal | null>(null)
+  const editReason = useEditReason(!!resolveModal)
   const [resolveForm, setResolveForm] = useState({ status: 'Resolved', solved_by: usrNm, remarks: '' })
 
   const [form, setForm] = useState({
@@ -224,10 +225,11 @@ export default function HelpDeskPage() {
                   <Label>Remarks</Label>
                   <Input placeholder="Resolution notes..." value={resolveForm.remarks} onChange={(e) => setResolveForm({ ...resolveForm, remarks: e.target.value })} />
                 </div>
+                {editReason.field}
               </div>
               <div className="flex justify-end gap-3 mt-6">
                 <Button variant="ghost" onClick={() => setResolveModal(null)}>Cancel</Button>
-                <Button onClick={() => resolve()} disabled={resolving}>
+                <Button onClick={() => { if (!editReason.check()) return; resolve() }} disabled={resolving || !editReason.ok}>
                   <CheckCircle className="w-4 h-4" />{resolving ? 'Saving…' : 'Update Ticket'}
                 </Button>
               </div>

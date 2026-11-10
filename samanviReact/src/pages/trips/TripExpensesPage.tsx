@@ -5,7 +5,7 @@ import TripAuditModal from './TripAuditModal'
 import { Receipt, CheckCircle, Save, Search, X, PlusCircle, MinusCircle, FileText, FolderPlus, History, Clock, ShieldCheck } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf, DateRangePicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, Select, TopNavTabs, LedgerGroupTag, useLedgerGroupOf, DateRangePicker, useEditReason } from '@/components/shared'
 import ChangeNote from '@/components/shared/ChangeNote'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
@@ -195,6 +195,8 @@ export default function TripExpensesPage() {
 
   // Add/Edit modal
   const [modal, setModal] = useState<{ mode: 'add' | 'edit' | null; row: any }>({ mode: null, row: null })
+  // Only changing a filed expense is an edit; filing one on an unfiled trip is not.
+  const editReason = useEditReason(modal.mode === 'edit')
   const [form, setForm] = useState<ExpenseForm>(emptyForm())
   const [debitRows, setDebitRows] = useState<LedgerRow[]>([emptyLedgerRow()])
   const [creditRows, setCreditRows] = useState<LedgerRow[]>([emptyLedgerRow()])
@@ -1501,7 +1503,7 @@ export default function TripExpensesPage() {
     onError: () => toast.error('Server error updating trip'),
   })
   const submitting = submittingAdd || submittingEdit || updatingTrip
-  const handleSubmit = () => { if (!validate()) return; updateTripMutate() }
+  const handleSubmit = () => { if (!editReason.check()) return; if (!validate()) return; updateTripMutate() }
 
   const { mutate: removeExpense } = useMutation({
     mutationFn: (row: any) => tripsService.deleteExpense({
@@ -1932,7 +1934,6 @@ export default function TripExpensesPage() {
         onAction={handleAction}
         actions={['view', 'edit', 'authorize', 'approve', 'delete']}
         rowActionAllowed={rowActionAllowed}
-        editNeedsReason={(row: any) => row.status === 1}
         icon={<Receipt className="w-5 h-5 text-red-500" />}
         columnFilters={columnFilters}
         onColumnFilterChange={(k, v) => setColumnFilters((prev) => ({ ...prev, [k]: v }))}
@@ -2374,9 +2375,10 @@ export default function TripExpensesPage() {
                   </>
                   )}
 
+                  {editReason.field}
                   <div className="flex justify-center gap-3 pt-2">
                     <Button variant="ghost" onClick={closeModal}>Cancel</Button>
-                    <Button onClick={handleSubmit} disabled={submitting} className="px-10">
+                    <Button onClick={handleSubmit} disabled={submitting || !editReason.ok} className="px-10">
                       <Save className="w-4 h-4" /> {submitting ? 'Submitting…' : 'Submit'}
                     </Button>
                   </div>

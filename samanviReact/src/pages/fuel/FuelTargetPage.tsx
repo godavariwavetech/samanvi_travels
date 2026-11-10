@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Target, Save, Plus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, RecordModal } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, RecordModal, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { fuelService } from '@/services/fuel.service'
 import { mastersService } from '@/services/masters.service'
@@ -30,6 +30,7 @@ export default function FuelTargetPage() {
   const [form, setForm] = useState<FormState>(emptyForm())
   const [editForm, setEditForm] = useState<FormState | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const editReason = useEditReason(!!editForm)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const { data: targetsResp, isLoading } = useQuery({
@@ -86,6 +87,7 @@ export default function FuelTargetPage() {
 
   const onSaveEdit = () => {
     if (!editForm) return
+    if (!editReason.check()) return
     const err = validate(editForm)
     if (err) return toast.error(err)
     update()
@@ -193,9 +195,10 @@ export default function FuelTargetPage() {
         {editForm && (
           <RecordModal title="Edit Fuel Target" subtitle={editForm.bus_no} icon={<Target className="w-4 h-4 text-green-500" />} onClose={() => setEditForm(null)}>
             {renderForm(editForm, setEditForm)}
+            {editReason.field && <div className="pt-4">{editReason.field}</div>}
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
               <Button variant="ghost" onClick={() => setEditForm(null)}>Cancel</Button>
-              <Button onClick={onSaveEdit} disabled={updating}>
+              <Button onClick={onSaveEdit} disabled={updating || !editReason.ok}>
                 <Save className="w-4 h-4" /> {updating ? 'Updating…' : 'Update Target'}
               </Button>
             </div>

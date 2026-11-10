@@ -12,7 +12,6 @@ import { usePermissions } from '@/lib/usePermissions'
 import { exportRows, loadCellRenderer, nodeText, type ExportFormat } from '@/lib/tableExport'
 import { ReferenceDetailsLink } from './ReferenceDetailsLink'
 import ReferenceAuditModal from './ReferenceAuditModal'
-import { askReason } from './ReasonPrompt'
 import { noteDeleteReason } from '@/lib/deletionLog'
 
 const REFERENCE_KEYS = ['c_number', 'job_card_number', 'ref_number', 'voucher_number', 'trip_c_number', 'parent_job_card_number', 'generated_reminder_ref', 'ref_no', 'reference_no', 'bill_no', 'pnr_no']
@@ -47,8 +46,6 @@ interface DataTableProps<T extends Record<string, unknown>> {
   actions?: ActionType[]
   /** Hides an action's button on rows where it is not allowed (a locked record). */
   rowActionAllowed?: (action: ActionType, row: T) => boolean
-  /** Whether Edit asks for a reason on this row (default: always). Filing a new record is not an edit. */
-  editNeedsReason?: (row: T) => boolean
   icon?: ReactNode
   selectable?: boolean
   sumKey?: string
@@ -156,7 +153,6 @@ export function DataTable<T extends Record<string, unknown>>({
   loading = false,
   actions: requestedActions = ['view', 'edit', 'delete'],
   rowActionAllowed,
-  editNeedsReason,
   icon,
   selectable = false,
   sumKey,
@@ -338,14 +334,9 @@ export function DataTable<T extends Record<string, unknown>>({
 
   const handleAction = (action: ActionType, row: T) => {
     if (action === 'delete') { setDeleteReason(''); setConfirmDelete(row); return }
-    if (action === 'edit') {
-      if (editNeedsReason && !editNeedsReason(row)) { onAction?.('edit', row); return }
-      askReason({
-        title: 'Reason for Edit', subject: 'Edit this record', confirmLabel: 'Continue to Edit',
-        onConfirm: (reason) => onAction?.('edit', row, reason),
-      })
-      return
-    }
+    // Edit opens the page's form straight away; the form itself ends with the
+    // required Reason for Edit field (useEditReason), so no popup comes first.
+    if (action === 'edit') { onAction?.('edit', row); return }
     if (action === 'view') {
       const record = row as any
       const referenceKey = REFERENCE_KEYS.find(key => record[key] !== null && record[key] !== undefined && String(record[key]).trim() !== '')

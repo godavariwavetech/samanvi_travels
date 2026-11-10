@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect, DateRangePicker, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, SearchableSelect, DateRangePicker, DateField, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { accountingService } from '@/services/accounting.service'
@@ -58,6 +58,7 @@ export default function AddVendorPage() {
   const [products, setProducts] = useState<ProductRow[]>([])
   const [draft, setDraft] = useState<{ product: Product | null; amount: string }>({ product: null, amount: '' })
   const [mode, setMode] = useState<'add' | 'edit'>('add')
+  const editReason = useEditReason(mode === 'edit')
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
   const named = localStorage.getItem('usr_nm') ?? ''
@@ -181,6 +182,7 @@ export default function AddVendorPage() {
   const onSave = () => {
     const err = validateSave()
     if (err) return toast.error(err)
+    if (!editReason.check()) return
     if (mode === 'edit') update()
     else save()
   }
@@ -382,9 +384,10 @@ export default function AddVendorPage() {
             </table>
           </section>
         </div>
+        {editReason.field && <div className="mt-6">{editReason.field}</div>}
         <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
           <Button variant="ghost" onClick={resetForm}>{mode === 'edit' ? 'Cancel' : 'Clear'}</Button>
-          <Button onClick={onSave} disabled={saving || updating}>
+          <Button onClick={onSave} disabled={saving || updating || !editReason.ok}>
             <Save className="w-4 h-4" />
             {(saving || updating) ? 'Saving…' : (mode === 'edit' ? 'Update Vendor Contract' : 'Save Vendor Contract')}
           </Button>

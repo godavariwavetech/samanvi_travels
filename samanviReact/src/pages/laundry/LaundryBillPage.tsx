@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Shirt, Save, Plus, Trash2, X, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote, approvalTabOf, DateField, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerLines, emptyLedgerLine, filledLedgerLines, halfFilledLedgerLine, ledgerLinesTotal, syncAutoLedgerLines, RecordModal, DetailGrid, DetailField, RemarksBlock, LedgerSideLists, ApprovalStatusTabs, ApprovalRowActions, ApprovalBulkButtons, ApprovalModalButtons, RejectionReasonNote, approvalTabOf, DateField, askDelete, useEditReason } from '@/components/shared'
 import type { Column, LedgerLine, ApprovalTab } from '@/components/shared'
 import { laundryService } from '@/services/laundry.service'
 import { mastersService } from '@/services/masters.service'
@@ -458,6 +458,8 @@ export default function LaundryBillPage() {
   const [debits, setDebits] = useState<LedgerRow[]>([emptyLedgerLine<Ledger>()])
   const [credits, setCredits] = useState<LedgerRow[]>([emptyLedgerLine<Ledger>()])
   const [mode, setMode] = useState<'add' | 'edit'>('add')
+  // Editing a bill ends with the required Reason for Edit, above Update Bill.
+  const editReason = useEditReason(showForm && mode === 'edit', { className: 'mt-6' })
   const [viewRow, setViewRow] = useState<Record<string, unknown> | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   // Bills are reviewed the way vouchers are: a tab per status, Approve on each
@@ -638,6 +640,7 @@ export default function LaundryBillPage() {
   // vehicle missing, nothing billed, or ledgers that do not add up to it.
   const onSave = () => {
     if (mode === 'edit' ? !canEdit : !canAdd) return toast.error('You do not have permission to save this bill')
+    if (!editReason.check()) return
     if (!form.vendor) return toast.error('Vendor Name is required')
     if (!form.voucherdate) return toast.error('Bill Date is required')
     if (vehicleRows.length === 0) return toast.error('Add at least one vehicle row')
@@ -797,7 +800,7 @@ export default function LaundryBillPage() {
       render: (_v, r: Record<string, unknown>) => (
         <ApprovalRowActions tab={tab}
           onView={() => onView(r)}
-          onEdit={() => askEdit(`Laundry bill ${String(r.c_number ?? '')}`, () => onEdit(r))} editLocked={canReviseApproved}
+          onEdit={() => onEdit(r)} editLocked={canReviseApproved}
           onApprove={() => onStatusChange(r, 1)}
           onDelete={() => askDelete(`Laundry bill ${String(r.c_number ?? '')}`, () => onDelete(r), r)}
           onReopen={() => onStatusChange(r, 0)} />
@@ -840,9 +843,10 @@ export default function LaundryBillPage() {
                 vehicleRows={vehicleRows} setVehicleRows={setVehicleRows}
                 debits={debits} setDebits={setDebits} credits={credits} setCredits={setCredits}
               />
+              {editReason.field}
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
                 <Button variant="ghost" onClick={resetForm}>Cancel</Button>
-                <Button onClick={onSave} disabled={saving || updating}>
+                <Button onClick={onSave} disabled={saving || updating || !editReason.ok}>
                   <Save className="w-4 h-4" />
                   {(saving || updating) ? 'Saving…' : (mode === 'edit' ? 'Update Bill' : 'Save Bill')}
                 </Button>
@@ -879,7 +883,7 @@ export default function LaundryBillPage() {
         {viewRow && <ReferenceAuditModal reference={String(viewRow.c_number ?? '')} initialRecord={viewRow} moduleLabel="Laundry Bill"
           onClose={() => setViewRow(null)} footerActions={<>
             {canEdit && (Number(viewRow.admin_status) === 0 || canReviseApproved) && (
-              <Button variant="outline" onClick={() => { const r = viewRow; askEdit(`Laundry bill ${String(r.c_number ?? '')}`, () => { setViewRow(null); onEdit(r) }) }}>
+              <Button variant="outline" onClick={() => { const r = viewRow; setViewRow(null); onEdit(r) }}>
                 <Pencil className="w-4 h-4" /> Edit
               </Button>
             )}

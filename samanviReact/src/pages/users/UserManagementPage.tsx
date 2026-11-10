@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { Eye, EyeOff, Pencil, Save, UserCircle, Users, SlidersHorizontal } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Badge, Button, DataTable, FormModal, GlassCard, Input, Label, PageHeader, Select } from '@/components/shared'
+import { Badge, Button, DataTable, FormModal, GlassCard, Input, Label, PageHeader, Select, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { usersService } from '@/services/users.service'
 import { useAuthStore } from '@/store/auth.store'
@@ -79,6 +79,7 @@ function EditUserPanel({ user, onClose }: { user: any; onClose: () => void }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const editReason = useEditReason(true)
   const change = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm((v) => ({ ...v, [key]: key === 'number' ? digitsOnly(e.target.value) : e.target.value }))
   const errors = !form.name.trim() || !isValidMobile(form.number) || (password.trim() && password !== confirm)
   const save = useMutation({
@@ -100,7 +101,8 @@ function EditUserPanel({ user, onClose }: { user: any; onClose: () => void }) {
         <div><Label>New Password</Label><div className="relative"><Input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} /><button type="button" className="absolute right-3 top-3" onClick={() => setShowPassword((v) => !v)}>{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button></div></div>
         <div><Label>Confirm Password</Label><Input type={showPassword ? 'text' : 'password'} value={confirm} onChange={(e) => setConfirm(e.target.value)} /></div>
       </div>
-      <div className="flex justify-end gap-2 mt-5"><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => save.mutate()} disabled={save.isPending || Boolean(errors)}><Save className="w-4 h-4" />{save.isPending ? 'Saving…' : 'Update User'}</Button></div>
+      <div className="mt-4">{editReason.field}</div>
+      <div className="flex justify-end gap-2 mt-5"><Button variant="secondary" onClick={onClose}>Cancel</Button><Button onClick={() => { if (!editReason.check()) return; save.mutate() }} disabled={save.isPending || Boolean(errors) || !editReason.ok}><Save className="w-4 h-4" />{save.isPending ? 'Saving…' : 'Update User'}</Button></div>
     </GlassCard>
   </motion.div>
 }

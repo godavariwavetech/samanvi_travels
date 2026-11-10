@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { Save, Pencil, X, History, IndianRupee } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select, NameListMaster, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, TopNavTabs, SearchableSelect, DataTable, Select, NameListMaster, askDelete, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { garageService } from '@/services/garage.service'
@@ -91,6 +91,9 @@ function SparePartsMaster() {
     onError: () => toast.error('Server error'),
   })
 
+  const priceReason = useEditReason(priceModal.open)
+  const submitPrice = () => { if (!priceReason.check()) return; savePrice() }
+
   const startEdit = (row: any) => {
     setForm({ part_number: row.part_number ?? '', part_name: row.part_name ?? '', price: row.price ?? '', category_id: row.category_id ? String(row.category_id) : '' })
     setEditId(row.part_id)
@@ -98,6 +101,9 @@ function SparePartsMaster() {
   }
   const reset = () => { setForm(EMPTY_PART); setEditId(null) }
   const canSave = !!form.part_name.trim()
+
+  // Editing an existing row ends with the required Reason for Edit, on its own line above Update.
+  const editReason = useEditReason(!!editId, { className: 'basis-full' })
 
   return (
     <>
@@ -118,7 +124,8 @@ function SparePartsMaster() {
             />
           </div>
           <div><Label>Cost (₹)</Label><Input type="number" placeholder="0" value={form.price} onChange={f('price')} className="w-28" /></div>
-          <Button onClick={() => save()} disabled={isPending || !canSave}>
+          {editReason.field}
+          <Button onClick={() => { if (!editReason.check()) return; save() }} disabled={isPending || !canSave || !editReason.ok}>
             <Save className="w-4 h-4" />{isPending ? 'Saving…' : editId ? 'Update' : 'Submit'}
           </Button>
           {editId && <Button variant="ghost" onClick={reset}><X className="w-4 h-4" /> Cancel</Button>}
@@ -140,7 +147,7 @@ function SparePartsMaster() {
             <div className="flex items-center justify-center gap-2">
               {/* Edit full details */}
               <button
-                onClick={() => askEdit('Garage master', () => startEdit(row))}
+                onClick={() => startEdit(row)}
                 title="Edit details"
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors"
               >
@@ -148,7 +155,7 @@ function SparePartsMaster() {
               </button>
               {/* Edit price only */}
               <button
-                onClick={() => askEdit('Garage master price', () => setPriceModal({ open: true, part: row, newPrice: String(row.price ?? '') }))}
+                onClick={() => setPriceModal({ open: true, part: row, newPrice: String(row.price ?? '') })}
                 title="Edit cost"
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
               >
@@ -205,15 +212,16 @@ function SparePartsMaster() {
                   placeholder="Enter new cost"
                   value={priceModal.newPrice}
                   onChange={(e) => setPriceModal(s => ({ ...s, newPrice: e.target.value }))}
-                  onKeyDown={(e) => e.key === 'Enter' && priceModal.newPrice && savePrice()}
+                  onKeyDown={(e) => e.key === 'Enter' && priceModal.newPrice && submitPrice()}
                 />
               </div>
+              {priceReason.field}
             </div>
             <div className="flex gap-3 px-6 py-4 border-t border-slate-100 justify-end">
               <Button variant="outline" onClick={() => setPriceModal({ open: false, part: null, newPrice: '' })}>Cancel</Button>
               <Button
-                disabled={savingPrice || !priceModal.newPrice || priceModal.newPrice === String(priceModal.part?.price ?? '')}
-                onClick={() => savePrice()}
+                disabled={savingPrice || !priceModal.newPrice || priceModal.newPrice === String(priceModal.part?.price ?? '') || !priceReason.ok}
+                onClick={submitPrice}
               >
                 <Save className="w-4 h-4" />{savingPrice ? 'Saving…' : 'Update Cost'}
               </Button>
@@ -365,6 +373,9 @@ function ServiceSchedulesMaster() {
   const reset = () => { setForm(EMPTY_SCHEDULE); setEditId(null) }
   const canSave = !!form.company_name && !!form.service_type.trim() && !!form.km_interval
 
+  // Editing an existing row ends with the required Reason for Edit, on its own line above Update.
+  const editReason = useEditReason(!!editId, { className: 'basis-full' })
+
   return (
     <>
       <div ref={formRef}>
@@ -392,7 +403,8 @@ function ServiceSchedulesMaster() {
               <option value="Paid">Paid</option>
             </Select>
           </div>
-          <Button onClick={() => save()} disabled={isPending || !canSave}>
+          {editReason.field}
+          <Button onClick={() => { if (!editReason.check()) return; save() }} disabled={isPending || !canSave || !editReason.ok}>
             <Save className="w-4 h-4" />{isPending ? 'Saving…' : editId ? 'Update' : 'Submit'}
           </Button>
           {editId && <Button variant="ghost" onClick={reset}><X className="w-4 h-4" /> Cancel</Button>}
@@ -414,7 +426,7 @@ function ServiceSchedulesMaster() {
           ) },
           { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
             <div className="flex items-center justify-center gap-2">
-              <button onClick={() => askEdit('Garage master', () => startEdit(row))} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => startEdit(row)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
               <button onClick={() => askDelete('Garage master', () => del(row.id), row)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
             </div>
           ) },
@@ -479,6 +491,9 @@ function LubricantsMaster() {
   const reset = () => { setForm(EMPTY_LUBRICANT); setEditId(null) }
   const canSave = !!form.company_name && !!form.aggregate_name.trim()
 
+  // Editing an existing row ends with the required Reason for Edit, on its own line above Update.
+  const editReason = useEditReason(!!editId, { className: 'basis-full' })
+
   return (
     <>
       <div ref={formRef}>
@@ -500,7 +515,8 @@ function LubricantsMaster() {
           <div className="flex-1 min-w-[150px]"><Label>Fluid Type/Grade</Label><Input placeholder="e.g. 10W30 CK4" value={form.fluid_type} onChange={f('fluid_type')} /></div>
           <div className="flex-1 min-w-[170px]"><Label>Recommended Brand</Label><Input placeholder="e.g. Tata Genuine Engine Oil" value={form.recommended_brand} onChange={f('recommended_brand')} /></div>
           <div className="flex-1 min-w-[150px]"><Label>Change Periodicity</Label><Input placeholder="e.g. 40,000 km" value={form.change_periodicity} onChange={f('change_periodicity')} /></div>
-          <Button onClick={() => save()} disabled={isPending || !canSave}>
+          {editReason.field}
+          <Button onClick={() => { if (!editReason.check()) return; save() }} disabled={isPending || !canSave || !editReason.ok}>
             <Save className="w-4 h-4" />{isPending ? 'Saving…' : editId ? 'Update' : 'Submit'}
           </Button>
           {editId && <Button variant="ghost" onClick={reset}><X className="w-4 h-4" /> Cancel</Button>}
@@ -520,7 +536,7 @@ function LubricantsMaster() {
           { label: 'Change Periodicity', key: 'change_periodicity', render: (v) => <span className="font-bold text-slate-800">{v || '—'}</span> },
           { label: 'Actions', key: 'id', align: 'center', render: (_v, row: any) => (
             <div className="flex items-center justify-center gap-2">
-              <button onClick={() => askEdit('Garage master', () => startEdit(row))} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
+              <button onClick={() => startEdit(row)} className="text-blue-500 hover:text-blue-700 transition-colors" title="Edit"><Pencil className="w-4 h-4" /></button>
               <button onClick={() => askDelete('Garage master', () => del(row.id), row)} className="text-red-400 hover:text-red-600 transition-colors" title="Delete"><X className="w-4 h-4" /></button>
             </div>
           ) },

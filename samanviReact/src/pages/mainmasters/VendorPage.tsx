@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Save, X, Building2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DataTable, SearchableSelect } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DataTable, SearchableSelect, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mainmastersService } from '@/services/mainmasters.service'
 import { accountingService } from '@/services/accounting.service'
@@ -21,6 +21,7 @@ export default function VendorPage() {
   const { canAdd } = usePermissions()
   const [form, setForm] = useState(empty)
   const [editId, setEditId] = useState<number | null>(null)
+  const editReason = useEditReason(!!editId)
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
 
   const { data, isLoading } = useQuery({ queryKey: ['vendors'], queryFn: () => mainmastersService.getVendors() })
@@ -154,8 +155,9 @@ export default function VendorPage() {
               {fieldError(errors.ifsc_code)}
             </div>
           </div>
+          {editReason.field && <div className="mt-4">{editReason.field}</div>}
           <div className="flex gap-3 mt-5">
-            <Button onClick={() => save()} disabled={isPending || invalid}>
+            <Button onClick={() => { if (!editReason.check()) return; save() }} disabled={isPending || invalid || !editReason.ok}>
               <Save className="w-4 h-4" /> {isPending ? 'Saving…' : editId ? 'Update Vendor' : 'Save Vendor'}
             </Button>
             {(editId || form.vendor_name) && <Button variant="outline" onClick={reset}><X className="w-4 h-4" /> {editId ? 'Cancel' : 'Clear'}</Button>}

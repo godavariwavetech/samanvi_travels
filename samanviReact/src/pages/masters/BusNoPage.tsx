@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Bus, Save, Plus, X, Edit2, Upload, Download, History, Clock, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect, FormModal, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, ExcelImportPreviewModal, MasterListPicker, SearchableSelect, FormModal, DateField, useEditReason } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -204,6 +204,7 @@ export default function BusNoPage() {
   const [busType, setBusType] = useState<'normal' | 'spare' | 'hire'>('normal')
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
+  const editReason = useEditReason(showForm && isEdit)
   const [normalForm, setNormalForm] = useState(EMPTY_NORMAL)
   const [spareForm, setSpareForm] = useState(EMPTY_SPARE)
   const [hireForm, setHireForm] = useState(EMPTY_HIRE)
@@ -769,8 +770,9 @@ export default function BusNoPage() {
                 </div>
               )}
 
+              {editReason.field && <div className="mt-4">{editReason.field}</div>}
               <div className="flex gap-3 mt-6">
-                <Button onClick={() => save()} disabled={isPending || !canSave}>
+                <Button onClick={() => { if (!editReason.check()) return; save() }} disabled={isPending || !canSave || !editReason.ok}>
                   <Save className="w-4 h-4" />{isPending ? 'Saving…' : isEdit ? 'Update Bus' : 'Submit'}
                 </Button>
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>

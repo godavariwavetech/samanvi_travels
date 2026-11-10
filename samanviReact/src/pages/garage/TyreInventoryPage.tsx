@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CircleDot, Save, Plus, X, Edit2, Truck, ShoppingCart, MinusCircle } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows, LedgerNameWithGroup, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DynamicRows, LedgerNameWithGroup, DateField, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { mainmastersService } from '@/services/mainmasters.service'
@@ -42,6 +42,7 @@ export default function TyreInventoryPage() {
   const [showForm, setShowForm] = useState(false)
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
+  const editReason = useEditReason(showForm && isEdit)
   const [editCode, setEditCode] = useState('')
   // Not shown on the edit form, but the model writes it, so it has to be carried
   // from the row or every save orphans the tyre from its vendor.
@@ -313,6 +314,7 @@ export default function TyreInventoryPage() {
   const saving = isPending || savingWithBus
 
   const handleSaveClick = () => {
+    if (!editReason.check()) return
     if (!isEdit && entryMode === 'with_bus') saveWithBus()
     else save()
   }
@@ -644,8 +646,10 @@ export default function TyreInventoryPage() {
                 </div>
               )}
 
+              {editReason.field && <div className="mt-6">{editReason.field}</div>}
+
               <div className="flex gap-3 mt-6">
-                <Button onClick={handleSaveClick} disabled={saving || !canSave}>
+                <Button onClick={handleSaveClick} disabled={saving || !canSave || !editReason.ok}>
                   <Save className="w-4 h-4" />{saving ? 'Saving…' : isEdit ? 'Update Tyre' : !isEdit && entryMode === 'new' && tyreRows.length > 1 ? `Save ${tyreRows.length} Tyres` : 'Save Tyre'}
                 </Button>
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>

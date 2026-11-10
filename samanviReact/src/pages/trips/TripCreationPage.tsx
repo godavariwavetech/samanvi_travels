@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Map, Save, X, Plus, Trash2, Pencil, ArrowUp, ArrowDown } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, DateRangePicker, SearchableSelect, LedgerNameWithGroup } from '@/components/shared'
+import { DualScrollTable, GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, TopNavTabs, MasterListPicker, DateRangePicker, SearchableSelect, LedgerNameWithGroup, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { tripsService } from '@/services/trips.service'
 import { isVanVehicleType, formatDate, isValidMobile, todayISO, localDateTime } from '@/lib/utils'
@@ -744,6 +744,8 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
   const editHirerActive = !editHalted && isHireBus(editForm.bus_no)
   const editOptingActive = !editHalted && !isHireBus(editForm.bus_no) && isOptingName(editForm.driver1_name)
   const patchEdit = (patch: Record<string, string>) => setEditForm((f) => ({ ...f, ...patch }))
+  // The edit form ends with the required Reason for Edit, just above Save.
+  const editReason = useEditReason(!!editRow)
   // The hire on this trip is already filed and sits on the books against the
   // hired van. Turning the trip into an own-van one would leave that voucher
   // standing for a vehicle the trip no longer used, so the expense has to come
@@ -1490,6 +1492,7 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                   <Label>Remarks</Label>
                   <Input value={editForm.remarks} onChange={(e) => patchEdit({ remarks: e.target.value })} />
                 </div>
+                <div className="md:col-span-2">{editReason.field}</div>
               </div>
 
               {vanFiled && (
@@ -1523,8 +1526,8 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                 </button>
                 <button
                   type="button"
-                  onClick={() => saveEdit()}
-                  disabled={savingEdit || (!editForm.bus_no && !editHalted) || hirePostedConflict ||
+                  onClick={() => { if (editReason.check()) saveEdit() }}
+                  disabled={savingEdit || !editReason.ok || (!editForm.bus_no && !editHalted) || hirePostedConflict ||
                     (editRow.vehicle_type === 'van'
                       ? ((editHirerActive && !editForm.hirer_name) || (editAmountActive ? !(Number(editForm.booking_amount) > 0) : (!editNoDriverNeeded && !editForm.driver1_name))
                         || (editHirerActive && !!editForm.phone_number && !isValidMobile(editForm.phone_number))

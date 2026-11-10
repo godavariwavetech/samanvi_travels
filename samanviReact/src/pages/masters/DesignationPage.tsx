@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Save, X, Plus, Edit2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, DualScrollTable, ExportMenu, askDelete, useEditReason } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { mastersService } from '@/services/masters.service'
 
@@ -29,6 +29,10 @@ export default function DesignationPage() {
   const openAdd = () => { setEditRow(null); setName(''); setLevel(''); setShowModal(true) }
   const openEdit = (row: any) => { setEditRow({ id: row.id, type_name: row.type_name }); setName(row.type_name); setLevel(row.level != null ? String(row.level) : ''); setShowModal(true) }
   const closeModal = () => { setShowModal(false); setName(''); setLevel(''); setEditRow(null) }
+
+  // Editing an existing row ends with the required Reason for Edit field.
+  const editReason = useEditReason(!!editRow, { className: 'mb-6' })
+  const submitForm = () => { if (!editReason.check()) return; save() }
 
   const { mutate: save, isPending } = useMutation({
     mutationFn: () => {
@@ -98,7 +102,7 @@ export default function DesignationPage() {
                   <td className="px-6 py-4 text-right pr-8">
                     <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => askEdit('Designation', () => openEdit(row))}
+                        onClick={() => openEdit(row)}
                         className="p-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-600 hover:bg-amber-100 transition-colors"
                         title="Edit"
                       >
@@ -153,7 +157,7 @@ export default function DesignationPage() {
                   placeholder="Enter Designation"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && name.trim() && save()}
+                  onKeyDown={(e) => e.key === 'Enter' && name.trim() && submitForm()}
                   autoFocus
                 />
               </div>
@@ -164,15 +168,16 @@ export default function DesignationPage() {
                   placeholder="Seniority rank — 1 is most senior (optional)"
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && name.trim() && save()}
+                  onKeyDown={(e) => e.key === 'Enter' && name.trim() && submitForm()}
                 />
               </div>
+              {editReason.field}
 
               {/* Buttons */}
               <div className="flex gap-3">
                 <Button
-                  onClick={() => save()}
-                  disabled={isPending || !name.trim()}
+                  onClick={submitForm}
+                  disabled={isPending || !name.trim() || !editReason.ok}
                   className="flex-1"
                 >
                   <Save className="w-4 h-4" />

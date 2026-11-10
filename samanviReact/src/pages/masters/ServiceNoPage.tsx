@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Plus, X, Save, Edit2, Search, Route, Upload, Download } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, MasterListPicker, ExcelImportPreviewModal, TopNavTabs, FormModal } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, MasterListPicker, ExcelImportPreviewModal, TopNavTabs, FormModal, useEditReason } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -130,6 +130,7 @@ export default function ServiceNoPage() {
   const [formTab, setFormTab] = useState<'Bus' | 'Van' | 'Halt'>('Bus')
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
+  const editReason = useEditReason(showForm && isEdit && formTab !== 'Halt')
   const [form, setForm] = useState({ ...EMPTY })
 
   // Which kind of service number the list, the template, the export and the
@@ -624,8 +625,9 @@ export default function ServiceNoPage() {
                 </div>
               )}
 
+              {editReason.field && <div className="mt-4">{editReason.field}</div>}
               <div className="flex gap-3 mt-6">
-                <Button onClick={() => (formTab === 'Halt' ? saveHaltBeta() : save())} disabled={isPending || haltSaving || !canSave}>
+                <Button onClick={() => { if (formTab === 'Halt') { saveHaltBeta(); return } if (!editReason.check()) return; save() }} disabled={isPending || haltSaving || !canSave || !editReason.ok}>
                   <Save className="w-4 h-4" />
                   {isPending || haltSaving ? 'Saving…' : formTab === 'Halt' ? 'Save Halt Beta' : isEdit ? 'Update Route' : 'Submit'}
                 </Button>

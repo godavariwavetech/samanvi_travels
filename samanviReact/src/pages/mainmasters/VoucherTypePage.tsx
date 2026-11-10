@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Save, Pencil, X, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, ExportMenu, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, ExportMenu, askDelete } from '@/components/shared'
 import { exportRows } from '@/lib/tableExport'
 import { accountingService } from '@/services/accounting.service'
 
@@ -12,6 +12,8 @@ export default function VoucherTypePage() {
   const [typeName, setTypeName] = useState('')
   const [editId, setEditId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
+  // Required reason, typed after changing the value, before saving the row.
+  const [editReason, setEditReason] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['voucher-types'],
@@ -34,6 +36,7 @@ export default function VoucherTypePage() {
     const trimmed = editValue.trim()
     if (!trimmed) return
     if (isDuplicate(trimmed, editId)) { toast.error(`Voucher type "${trimmed}" already exists`); return }
+    if (!editReason.trim()) { toast.error('Enter the reason for edit before saving'); return }
     editSave()
   }
 
@@ -64,6 +67,7 @@ export default function VoucherTypePage() {
         qc.invalidateQueries({ queryKey: ['voucher-types'] })
         setEditId(null)
         setEditValue('')
+        setEditReason('')
       } else toast.error('Failed')
     },
     onError: () => toast.error('Server error'),
@@ -143,13 +147,22 @@ export default function VoucherTypePage() {
                 <td className="px-5 py-3 text-sm text-center text-slate-500">{idx + 1}</td>
                 <td className="px-5 py-3 text-sm">
                   {editId === t.id ? (
-                    <Input
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
-                      className="h-9 max-w-xs"
-                      autoFocus
-                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
+                        className="h-9 max-w-xs"
+                        autoFocus
+                      />
+                      <Input
+                        value={editReason}
+                        onChange={(e) => setEditReason(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleEditSave()}
+                        placeholder="Reason for edit *"
+                        className={`h-9 max-w-xs ${editReason.trim() ? '' : 'border-red-300'}`}
+                      />
+                    </div>
                   ) : (
                     <span className="font-medium text-slate-800">{t.voucher_type}</span>
                   )}
@@ -175,7 +188,7 @@ export default function VoucherTypePage() {
                   ) : (
                     <div className="flex items-center justify-center gap-3">
                       <button
-                        onClick={() => askEdit(t.voucher_type, () => { setEditId(t.id); setEditValue(t.voucher_type) })}
+                        onClick={() => { setEditId(t.id); setEditValue(t.voucher_type); setEditReason('') }}
                         className="text-blue-500 hover:text-blue-700 transition-colors"
                         title="Edit"
                       >

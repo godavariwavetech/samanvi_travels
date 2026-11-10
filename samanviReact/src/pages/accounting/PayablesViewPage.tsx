@@ -5,7 +5,7 @@ import { motion } from 'motion/react'
 import { ArrowLeft, RefreshCw, Send, Plus, Trash2, X, History, Search, ChevronDown, Eye, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker, DateField, askEdit, askDelete } from '@/components/shared'
+import { GlassCard, Button, Input, Label, PageHeader, FYSelector, DualScrollTable, ExportMenu, LedgerGroupTag, useLedgerGroupOf, DateRangePicker, DateField, askDelete } from '@/components/shared'
 import ActivityHistory from '@/components/shared/ActivityHistory'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -981,6 +981,8 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
   const [creditAddForm, setCreditAddForm] = useState({ ledger_id: '', amount: '' })
   const [editingCreditIdx, setEditingCreditIdx] = useState<number | null>(null)
   const [editingCreditForm, setEditingCreditForm] = useState({ ledger_id: '', amount: '' })
+  // Required reason, typed after changing the credit line, before saving it.
+  const [editingCreditReason, setEditingCreditReason] = useState('')
 
   // Clamp the voucher entry sub-form's dates into the newly selected financial year's bounds
   useEffect(() => {
@@ -2226,8 +2228,15 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                                 <td className="px-3 py-2 text-center">
                                   {isEditing ? (
                                     <div className="flex items-center justify-center gap-1">
+                                      <input
+                                        value={editingCreditReason}
+                                        onChange={e => setEditingCreditReason(e.target.value)}
+                                        placeholder="Reason for edit *"
+                                        className={`w-36 px-2 py-0.5 text-xs rounded border focus:outline-none focus:ring-2 focus:ring-blue-500/30 ${editingCreditReason.trim() ? 'border-slate-300' : 'border-red-300'}`}
+                                      />
                                       <button
                                         onClick={() => {
+                                          if (!editingCreditReason.trim()) { toast.error('Enter the reason for edit before saving'); return }
                                           const amt = parseFloat(editingCreditForm.amount)
                                           const led = expenseList.find((e: any) => String(e.id) === editingCreditForm.ledger_id)
                                           if (amt > 0 && led) {
@@ -2251,10 +2260,11 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
                                   ) : (
                                     <div className="flex items-center justify-center gap-2">
                                       <button
-                                        onClick={() => askEdit(String(c.ledger?.temple_name ?? c.ledger?.name ?? 'Credit line'), () => {
+                                        onClick={() => {
                                           setEditingCreditIdx(i)
                                           setEditingCreditForm({ ledger_id: String(c.ledger?.id ?? ''), amount: String(c.amount) })
-                                        })}
+                                          setEditingCreditReason('')
+                                        }}
                                         className="text-blue-400 hover:text-blue-600 transition-colors"
                                         title="Edit"
                                       >

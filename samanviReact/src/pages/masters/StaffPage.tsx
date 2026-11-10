@@ -5,7 +5,7 @@ import { Users, Save, X, AlertTriangle, RotateCcw, ChevronDown, Upload, Download
 import ChangeNote from '@/components/shared/ChangeNote'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal, DateField, DateRangePicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, Select, DataTable, Badge, PageHeader, ExcelImportPreviewModal, FormModal, DateField, DateRangePicker, useEditReason } from '@/components/shared'
 import type { ExcelPreviewRow } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { mastersService } from '@/services/masters.service'
@@ -451,6 +451,7 @@ export default function StaffPage() {
   // Which person the open form is editing, if any. Drives the heading, the Save
   // button's label, and whether it calls the edit or the add mutation.
   const editingRow = dataType === 'Driver' ? editingDriverRow : dataType === 'Staff' ? editingStaffRow : dataType === 'Helper' ? editingHelperRow : null
+  const editReason = useEditReason(showForm && !!editingRow)
 
   // Closing the form has to clear the edit target and all three forms, otherwise
   // reopening it for an Add shows the previously edited person still filled in.
@@ -1122,11 +1123,12 @@ export default function StaffPage() {
                 </div>
               )}
 
+              {editReason.field && <div className="mt-4">{editReason.field}</div>}
               <div className="flex gap-3 mt-6">
                 {dataType === 'Staff' && (
                   <Button
-                    onClick={() => editingStaffRow ? editStaffMutate() : addStaff()}
-                    disabled={(editingStaffRow ? editingStaffPending : addingStaff) || !staffForm.fullName}
+                    onClick={() => { if (!editReason.check()) return; if (editingStaffRow) editStaffMutate(); else addStaff() }}
+                    disabled={(editingStaffRow ? editingStaffPending : addingStaff) || !staffForm.fullName || !editReason.ok}
                   >
                     <Save className="w-4 h-4" />
                     {(editingStaffRow ? editingStaffPending : addingStaff) ? 'Saving…' : editingStaffRow ? `Update ${dataType}` : `Save ${dataType}`}
@@ -1134,8 +1136,8 @@ export default function StaffPage() {
                 )}
                 {dataType === 'Driver' && (
                   <Button
-                    onClick={() => editingDriverRow ? editDriverMutate() : addDriver()}
-                    disabled={(editingDriverRow ? editingDriverPending : addingDriver) || !driverForm.driver_name || !driverForm.nickname}
+                    onClick={() => { if (!editReason.check()) return; if (editingDriverRow) editDriverMutate(); else addDriver() }}
+                    disabled={(editingDriverRow ? editingDriverPending : addingDriver) || !driverForm.driver_name || !driverForm.nickname || !editReason.ok}
                   >
                     <Save className="w-4 h-4" />
                     {(editingDriverRow ? editingDriverPending : addingDriver) ? 'Saving…' : editingDriverRow ? 'Update Driver' : 'Save Driver'}
@@ -1143,8 +1145,8 @@ export default function StaffPage() {
                 )}
                 {dataType === 'Helper' && (
                   <Button
-                    onClick={() => editingHelperRow ? editHelperMutate() : addHelper()}
-                    disabled={(editingHelperRow ? editingHelperPending : addingHelper) || !helperForm.helper_name}
+                    onClick={() => { if (!editReason.check()) return; if (editingHelperRow) editHelperMutate(); else addHelper() }}
+                    disabled={(editingHelperRow ? editingHelperPending : addingHelper) || !helperForm.helper_name || !editReason.ok}
                   >
                     <Save className="w-4 h-4" />
                     {(editingHelperRow ? editingHelperPending : addingHelper) ? 'Saving…' : editingHelperRow ? 'Update Helper' : 'Save Helper'}

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { BatteryCharging, Save, Plus, X, Edit2, MinusCircle, History, Clock, Truck, ShoppingCart } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField, useEditReason } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -39,6 +39,7 @@ export default function BatteryManagementPage() {
   const [showForm, setShowForm] = useState(false)
   const [isEdit, setIsEdit] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
+  const editReason = useEditReason(showForm && isEdit)
   const [form, setForm] = useState(EMPTY_FORM)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
   const [entryMode, setEntryMode] = useState<'new' | 'with_bus'>('new')
@@ -335,8 +336,10 @@ export default function BatteryManagementPage() {
               </div>
               )}
 
+              {editReason.field && <div className="mt-6">{editReason.field}</div>}
+
               <div className="flex items-center gap-3 mt-6">
-                <Button onClick={() => save()} disabled={isPending || !canSave}>
+                <Button onClick={() => { if (!editReason.check()) return; save() }} disabled={isPending || !canSave || !editReason.ok}>
                   <Save className="w-4 h-4" />{isPending ? 'Saving…' : isEdit ? 'Update Battery' : 'Save Battery'}
                 </Button>
                 <Button variant="ghost" onClick={closeForm}><X className="w-4 h-4" /> Cancel</Button>
