@@ -432,7 +432,11 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
     const map: Record<string, any> = {}
     allTrips.forEach((t) => {
       const d = String(t.trip_date ?? t.cts ?? '').split('T')[0]
-      if (d === tripDate && t.service_no_id) map[String(t.service_no_id)] = t
+      if (d !== tripDate) return
+      if (t.service_no_id) map[String(t.service_no_id)] = t
+      // A van service merged into the same driver's trip that day is on that trip.
+      String(t.merged_service_ids ?? '').split(',').map((x: string) => x.trim()).filter(Boolean)
+        .forEach((id: string) => { map[id] = t })
     })
     return map
   }, [allTrips, tripDate])
@@ -631,8 +635,42 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
   }
   // Only services that have no trip for this date yet, so the same van service
   // cannot be booked twice on one day - the rule the bus roster already applies.
+  // One van trip per driver per day: rows with the same driver (a registered
+  // driver by id, an opting driver by mobile) on this date are saved as ONE
+  // trip - the services listed together, amounts added up. The same key the
+  // server merges on (vanDriverKey in mainModel.js).
+  const vanDriverKey = (v: { trip_run_status?: string; status?: string; driver1_id?: any; driver_id?: any; driver1_name?: any; driver_name?: any; opt_driver1_mobile?: any; opt_driver_mobile?: any; bus_no?: any }) => {
+    const st = String(v.trip_run_status ?? v.status ?? '')
+    if (st === 'Halt' || isHireBus(String(v.bus_no ?? ''))) return ''
+    const name = v.driver1_name ?? v.driver_name
+    if (isOptingName(name)) { const m = String(v.opt_driver1_mobile ?? v.opt_driver_mobile ?? '').trim(); return m ? `o:${m}` : '' }
+    const id = String(v.driver1_id ?? v.driver_id ?? '').trim()
+    return id && id !== '0' ? `d:${id}` : ''
+  }
+  // Who each driver is already with this date: a saved van trip, else the
+  // first open row (in sheet order) that has them.
+  const vanMergeInfo = useMemo(() => {
+    const firstByKey: Record<string, { label: string; bus: string; saved: boolean; routeId?: number }> = {}
+    Object.values(existingByRoute).forEach((t: any) => {
+      if (String(t.vehicle_type ?? '') !== 'van') return
+      const k = vanDriverKey(t)
+      if (k && !firstByKey[k]) firstByKey[k] = { label: `${t.c_number ?? ''} (${t.service_no ?? ''})`, bus: String(t.bus_no ?? ''), saved: true }
+    })
+    const info: Record<number, { with: string; conflict: boolean }> = {}
+    vanRoutes.forEach((r) => {
+      if (existingByRoute[String(r.id)]) return
+      const row = vanRows[r.id]
+      if (!row) return
+      const k = vanDriverKey(row)
+      if (!k) return
+      const first = firstByKey[k]
+      if (!first) { firstByKey[k] = { label: r.serviceNo, bus: row.bus_no, saved: false, routeId: r.id }; return }
+      info[r.id] = { with: first.label, conflict: !!row.bus_no && !!first.bus && row.bus_no !== first.bus }
+    })
+    return info
+  }, [vanRoutes, vanRows, existingByRoute, hireBusNos])
   const readyVanRows = vanRoutes
-    .filter((r) => !existingByRoute[String(r.id)] && vanRowReady(vanRows[r.id]))
+    .filter((r) => !existingByRoute[String(r.id)] && vanRowReady(vanRows[r.id]) && !vanMergeInfo[r.id]?.conflict)
     .map((r) => ({ route: r, row: vanRows[r.id] as VanRow }))
 
   const { mutate: submitVanRows, isPending: submittingVan } = useMutation({
@@ -668,7 +706,7 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
     },
     onSuccess: (res: any) => {
       if (res.status === 200) {
-        toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}${res.data?.skipped ? ` (${res.data.skipped} already booked for this date, skipped)` : ''}${res.data?.skipped_invalid ? ` (${res.data.skipped_invalid} incomplete, skipped)` : ''}`)
+        toast.success(`${res.data?.inserted ?? 0} van trip(s) created for ${tripDate}${res.data?.merged ? ` (${res.data.merged} service(s) merged into the same driver's trip${res.data?.merged_into?.length ? ` ${res.data.merged_into.join(', ')}` : ''})` : ''}${res.data?.skipped ? ` (${res.data.skipped} already booked for this date, skipped)` : ''}${res.data?.skipped_invalid ? ` (${res.data.skipped_invalid} not saved)` : ''}`)
         if (res.data?.skipped_invalid) toast.error(`Not saved: ${(res.data.invalid_reasons ?? []).join('; ')}`)
         qc.invalidateQueries({ queryKey: ['trips'] })
         qc.invalidateQueries({ queryKey: ['trip-expenses'] })
@@ -1045,6 +1083,9 @@ export default function TripCreationPage({ editRef, onEditClose }: { editRef?: s
                                     onClear={() => updateVanRow(r.id, { driver_id: '', driver_name: '', amount: '', opt_driver_name: '', opt_driver_mobile: '' })} />
                                 )}
                                 {optingActive && <p className="text-[10px] font-bold text-blue-700 mt-1">Name and mobile in the next two cells</p>}
+                                {vanMergeInfo[r.id] && (vanMergeInfo[r.id].conflict
+                                  ? <p className="text-[10px] font-bold text-red-600 mt-1 max-w-[14rem]">Same driver is on {vanMergeInfo[r.id].with} with another van - pick the same van to merge</p>
+                                  : <p className="text-[10px] font-bold text-violet-700 mt-1 max-w-[14rem]">Same driver: merges with {vanMergeInfo[r.id].with} into one trip</p>)}
                               </td>
                               {/* Hirer on a hired van, opting driver on an own van: the
                                   same two cells, bound to whichever the row has. */}

@@ -418,6 +418,19 @@ function approveSel(alias) { return approveCol.present ? alias + '.can_approve' 
       }
     });
   });
+  // Van trips merged by driver: one trip_created row per driver per day, and
+  // the other van services it covers are listed here (kept out of
+  // trip_created, which sits at InnoDB's row-size limit).
+  sqldb.query(`CREATE TABLE IF NOT EXISTS trip_merged_services (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      trip_id INT NOT NULL,
+      trip_date DATE NULL,
+      service_no_id VARCHAR(50) NOT NULL,
+      service_no VARCHAR(255) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_tms_trip (trip_id),
+      KEY idx_tms_date (trip_date)
+    )`, function (err) { if (err) console.log('[DB] trip_merged_services migration:', err.message); });
   sqldb.query(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_created' AND COLUMN_NAME = 'voucher_number'`, function (err, rows) {
     if (!err && rows && rows.length === 0) {
       sqldb.query(`ALTER TABLE trip_created ADD COLUMN voucher_number VARCHAR(30) DEFAULT NULL, ADD COLUMN hirer_ledger_id INT DEFAULT NULL`, function (err) {
@@ -5439,6 +5452,21 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
         }
       }
       var busNo = eff('bus_no');
+      // One van trip per driver per day: an edit cannot put this trip on a
+      // driver who already has another live van trip that date.
+      var guardDriver = function (then) {
+        var key = exports.vanDriverKey({ vehicle_type: 'van', trip_run_status: eff('trip_run_status'), driver1_id: eff('driver1_id'), driver1_name: eff('driver1_name'), opt_driver1_mobile: eff('opt_driver1_mobile') });
+        var beforeKey = exports.vanDriverKey(Object.assign({}, before, { vehicle_type: 'van' }));
+        if (!key || key === beforeKey) return then();
+        var byId = key.indexOf('d:') === 0;
+        sqldb.query("SELECT c_number FROM trip_created WHERE d_in = 0 AND vehicle_type = 'van' AND trip_date = ? AND id <> ? AND (trip_run_status IS NULL OR trip_run_status <> 'Halt') AND " +
+          (byId ? "driver1_id = ?" : "driver1_name LIKE 'opting%' AND opt_driver1_mobile = ?") + " LIMIT 1",
+          [before.trip_date, Number(data.id), key.slice(2)], function (dErr, dRows) {
+            if (!dErr && dRows && dRows.length) return callback(null, { affectedRows: 0, conflict: 'This driver already has van trip ' + dRows[0].c_number + ' that day - one driver gets one van trip a day' });
+            then();
+          });
+      };
+      guardDriver(function () {
       sqldb.query("SELECT bus_category FROM busses WHERE bus_no = ? AND d_in = 0 LIMIT 1", [busNo || ''], function (bErr, bRows) {
         var hired = !bErr && bRows && bRows[0] && String(bRows[0].bus_category || '') === 'hire';
         var problem = exports.vanTripRowProblem({
@@ -5448,6 +5476,7 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
         }, hired);
         if (problem) return callback(null, { affectedRows: 0, conflict: problem });
         next();
+      });
       });
     };
     guardBus(function () { guardVan(function () {
@@ -5523,6 +5552,118 @@ exports.tripcreated = function (c_id, c_number, data, callback) {
 // used to save an own van with no driver, an opting driver with no name or a
 // bad mobile, and a hired van with no hirer or amount. Returns the reason a row
 // is incomplete, or '' when it is fine. A halted van needs nothing.
+// Who a van row's driver is, for one-trip-per-driver-per-day: a registered
+// driver by id, an opting driver by the mobile typed for them. '' = no driver
+// (a halted row, or nothing picked) - such rows never merge.
+exports.vanDriverKey = function (r) {
+  var s = function (v) { return String(v == null ? '' : v).trim(); };
+  if (String(r.vehicle_type || '') !== 'van' || s(r.trip_run_status) === 'Halt') return '';
+  if (/^opting/i.test(s(r.driver1_name))) return s(r.opt_driver1_mobile) ? 'o:' + s(r.opt_driver1_mobile) : '';
+  return s(r.driver1_id) && s(r.driver1_id) !== '0' ? 'd:' + s(r.driver1_id) : '';
+};
+
+// Folds van rows of the same driver on trip_date into one trip. Rows in the
+// batch merge into an already-saved van trip of that driver (UPDATE), or else
+// into the first row of the group (which is then inserted carrying _merged).
+// The merged trip lists every service ("S1, S2"), keeps each distinct line
+// code, adds up the amounts and joins the remarks. A driver on two different
+// vans, or a saved trip that is already filed/approved, cannot be merged into
+// and those rows come back as problems instead.
+exports.mergeVanTripsByDriver = function (trip_date, rows, callback) {
+  var s = function (v) { return String(v == null ? '' : v).trim(); };
+  var joinUniq = function (a, b, sep) {
+    var out = [];
+    [a, b].forEach(function (v) { s(v).split(sep.trim()).map(function (x) { return x.trim(); }).forEach(function (x) { if (x && out.indexOf(x) < 0) out.push(x); }); });
+    return out.join(sep);
+  };
+  var groups = {}, order = [];
+  rows.forEach(function (r) {
+    var k = exports.vanDriverKey(r);
+    if (!k) return;
+    if (!groups[k]) { groups[k] = []; order.push(k); }
+    groups[k].push(r);
+  });
+  var result = { rows: rows.slice(), merged: 0, mergedInto: [], problems: [] };
+  if (!order.length) return callback(null, result);
+  var drop = function (r) { result.rows = result.rows.filter(function (x) { return x !== r; }); };
+  var who = function (r) { return /^opting/i.test(s(r.driver1_name)) ? (s(r.opt_driver1_name) || 'Opting driver') : (s(r.driver1_name) || 'Driver'); };
+
+  var ids = [], mobiles = [];
+  order.forEach(function (k) { if (k.indexOf('d:') === 0) ids.push(k.slice(2)); else mobiles.push(k.slice(2)); });
+  // Authorization lives in trip_authorizations (when that table exists).
+  var authSel = tripAuthTable.present ? ', (SELECT ta.authorized_at FROM trip_authorizations ta WHERE ta.c_number = t.c_number LIMIT 1) AS authorized_at' : '';
+  sqldb.query("SELECT t.id, t.c_number, t.bus_no, t.service_no, t.service_no_id, t.line_code, t.booking_amount, t.remarks, t.driver1_id, t.driver1_name, t.opt_driver1_mobile, t.trip_run_status, t.status, t.admin_status" + authSel + " FROM trip_created t WHERE t.d_in = 0 AND t.vehicle_type = 'van' AND t.trip_date = ? AND (t.trip_run_status IS NULL OR t.trip_run_status <> 'Halt') AND (t.driver1_id IN (?) OR (t.driver1_name LIKE 'opting%' AND t.opt_driver1_mobile IN (?))) ORDER BY t.id",
+    [trip_date, ids.length ? ids : ['-'], mobiles.length ? mobiles : ['-']], function (err, saved) {
+    if (err) return callback(err);
+    var savedByKey = {};
+    (saved || []).forEach(function (t) {
+      var k = exports.vanDriverKey(Object.assign({ vehicle_type: 'van' }, t));
+      if (k && !savedByKey[k]) savedByKey[k] = t;
+    });
+    var updates = [];
+    order.forEach(function (k) {
+      var list = groups[k];
+      var target = savedByKey[k];
+      var base = target ? null : list[0];
+      var van = s(target ? target.bus_no : base.bus_no);
+      var rest = target ? list : list.slice(1);
+      var ok = [];
+      rest.forEach(function (r) {
+        if (s(r.bus_no) !== van) {
+          drop(r);
+          result.problems.push(s(r.service_no) + ': ' + who(r) + ' is already on van ' + van + ' that day (' + (target ? target.c_number : s(base.service_no)) + ') - one driver gets one van trip a day, so pick the same van');
+          return;
+        }
+        ok.push(r);
+      });
+      if (!ok.length) return;
+      if (target) {
+        if (Number(target.status) === 1 || target.authorized_at || Number(target.admin_status) === 1 || Number(target.admin_status) === 2) {
+          ok.forEach(function (r) { drop(r); result.problems.push(s(r.service_no) + ': ' + who(r) + ' already has trip ' + target.c_number + ' that day, whose expense is filed or approved - it cannot take another service'); });
+          return;
+        }
+        var t = { service_no: target.service_no, line_code: target.line_code, amount: parseFloat(target.booking_amount) || 0, remarks: target.remarks };
+        ok.forEach(function (r) {
+          drop(r);
+          t.service_no = joinUniq(t.service_no, r.service_no, ', ');
+          t.line_code = joinUniq(t.line_code, r.line_code, ', ');
+          t.amount += parseFloat(r.booking_amount) || 0;
+          t.remarks = joinUniq(t.remarks, r.remarks, ' | ');
+        });
+        updates.push({ target: target, t: t, services: ok.map(function (r) { return { service_no_id: r.service_no_id, service_no: r.service_no }; }) });
+        result.merged += ok.length;
+        result.mergedInto.push(target.c_number);
+      } else {
+        base._merged = base._merged || [];
+        ok.forEach(function (r) {
+          drop(r);
+          base.service_no = joinUniq(base.service_no, r.service_no, ', ');
+          base.line_code = joinUniq(base.line_code, r.line_code, ', ');
+          var sum = (parseFloat(base.booking_amount) || 0) + (parseFloat(r.booking_amount) || 0);
+          base.booking_amount = sum ? String(sum) : base.booking_amount;
+          base.remarks = joinUniq(base.remarks, r.remarks, ' | ');
+          base._merged.push({ service_no_id: r.service_no_id, service_no: r.service_no });
+        });
+        result.merged += ok.length;
+      }
+    });
+    if (!updates.length) return callback(null, result);
+    var n = 0, failed = null;
+    updates.forEach(function (u) {
+      var q = 'UPDATE trip_created SET service_no = ?, line_code = ?, booking_amount = ?, remarks = ? WHERE id = ?;';
+      var p = [u.t.service_no, u.t.line_code || null, u.t.amount || null, u.t.remarks || null, u.target.id];
+      u.services.forEach(function (m) {
+        q += ' INSERT INTO trip_merged_services (trip_id, trip_date, service_no_id, service_no) VALUES (?, ?, ?, ?);';
+        p.push(u.target.id, trip_date, String(m.service_no_id), m.service_no || null);
+      });
+      sqldb.query(q, p, function (e) {
+        if (e && !failed) failed = e;
+        if (++n === updates.length) callback(failed, failed ? null : result);
+      });
+    });
+  });
+};
+
 exports.vanTripRowProblem = function (r, hired) {
   var s = function (v) { return String(v == null ? '' : v).trim(); };
   var validMobile = function (m) { return /^[6-9]\d{9}$/.test(s(m)); };
@@ -5613,7 +5754,8 @@ exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback)
   var dedupe = function (next) {
     var byService = function (then) {
       if (!serviceIds.length) return then();
-      sqldb.query('SELECT service_no_id FROM trip_created WHERE d_in = 0 AND trip_date = ? AND service_no_id IN (?)', [trip_date, serviceIds], function (err, rows) {
+      // A van service merged into another trip of the same driver is taken too.
+      sqldb.query('SELECT service_no_id FROM trip_created WHERE d_in = 0 AND trip_date = ? AND service_no_id IN (?) UNION SELECT ms.service_no_id FROM trip_merged_services ms JOIN trip_created t ON t.id = ms.trip_id AND t.d_in = 0 WHERE t.trip_date = ? AND ms.service_no_id IN (?)', [trip_date, serviceIds, trip_date, serviceIds.map(String)], function (err, rows) {
         if (err || !rows) return then();
         var taken = {};
         rows.forEach(function (x) { taken[String(x.service_no_id)] = true; });
@@ -5673,10 +5815,26 @@ exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback)
         then();
       });
     };
-    byInactive(function () { byVanRules(function () { byService(function () { byBus(next); }); }); });
+    // One van trip per driver per day: rows of the same driver (registered id,
+    // or an opting driver's mobile) on this date fold into a single trip - into
+    // the trip already saved for that driver, or into the first such row here.
+    var byDriver = function (then) {
+      exports.mergeVanTripsByDriver(trip_date, toInsert, function (err, out) {
+        if (err) return callback(err, null);
+        toInsert = out.rows;
+        merged = out.merged; mergedInto = out.mergedInto;
+        out.problems.forEach(function (p) { skippedInvalid++; invalidReasons.push(p); });
+        then();
+      });
+    };
+    byInactive(function () { byVanRules(function () { byService(function () { byDriver(function () { byBus(next); }); }); }); });
+  };
+  var merged = 0, mergedInto = [];
+  var summary = function (inserted) {
+    return { inserted: inserted, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, skipped_inactive: skippedInactive, skipped_invalid: skippedInvalid, invalid_reasons: invalidReasons, merged: merged, merged_into: mergedInto };
   };
   dedupe(function () {
-    if (toInsert.length === 0) return callback(null, { inserted: 0, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, skipped_inactive: skippedInactive, skipped_invalid: skippedInvalid, invalid_reasons: invalidReasons, voucherCandidates: [] });
+    if (toInsert.length === 0) return callback(null, Object.assign(summary(0), { voucherCandidates: [] }));
     resolveNext();
   });
 
@@ -5743,7 +5901,18 @@ exports.bulkCreateTripsNow = function (trip_date, rows, userId, usrNm, callback)
       var QRY = 'INSERT INTO trip_created (bus_no, service_no, optreg, driver1_name, optreg1, driver2_name, optreg2, helper_name, conductor_name, cts, trip_date, trip_for, trip_for_id, service_no_id, paid_to_id, paid_to_name, paid_to_type, remarks, created_id, created_name, driver1_id, driver2_id, conductor_id, helper_id, c_id, c_number, trip_run_status, vehicle_type, line_code, hirer_name, booking_amount, phone_number, hirer_ledger_id, opt_driver1_id, opt_driver1_name, opt_driver1_mobile, opt_driver2_id, opt_driver2_name, opt_helper_id, opt_helper_name, driver1_paid_direct, driver2_paid_direct, helper_paid_direct, conductor_paid_direct, up_down) VALUES ?';
       dbutil.execupdateQuery(sqldb, QRY, [vals], cntxtDtls, function (err) {
         if (err) return callback(err, null);
-        callback(null, { inserted: toInsert.length, total: (rows || []).length, skipped: skipped, skipped_bus: skippedBus, skipped_inactive: skippedInactive, skipped_invalid: skippedInvalid, invalid_reasons: invalidReasons, voucherCandidates: voucherCandidates });
+        var done = function () { callback(null, Object.assign(summary(toInsert.length), { voucherCandidates: voucherCandidates })); };
+        // Record the extra services a merged new trip covers, against its id.
+        var extra = [];
+        toInsert.forEach(function (r, idx) { (r._merged || []).forEach(function (m) { extra.push([tripNumbers[idx], m.service_no_id, m.service_no]); }); });
+        if (!extra.length) return done();
+        var n = 0, failed = null;
+        extra.forEach(function (x) {
+          sqldb.query('INSERT INTO trip_merged_services (trip_id, trip_date, service_no_id, service_no) SELECT id, trip_date, ?, ? FROM trip_created WHERE c_number = ? AND d_in = 0 ORDER BY id DESC LIMIT 1', [String(x[1]), x[2] || null, x[0]], function (e) {
+            if (e && !failed) failed = e;
+            if (++n === extra.length) { if (failed) console.log('[bulkCreateTrips] merged services:', failed.message); done(); }
+          });
+        });
       });
       });
     });
@@ -5865,6 +6034,7 @@ exports.gettripceated1Mdl = function (callback) {
   // assigned to one of those drivers, even though the trip was saved correctly.
   var QRY_TO_EXEC = `SELECT
   t.*,
+  (SELECT GROUP_CONCAT(ms.service_no_id ORDER BY ms.id) FROM trip_merged_services ms WHERE ms.trip_id = t.id) AS merged_service_ids,
   COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, t.driver1_name) AS driver1_name,
   COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, t.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, t.helper_name) AS helper_name,
@@ -12984,6 +13154,7 @@ exports.getpdfpatchdata1Mdl = function (data, callback) {
   var cntxtDtls = "getpdfpatchdata1Mdl";
   var QRY_TO_EXEC = `SELECT
   t.*,
+  (SELECT GROUP_CONCAT(ms.service_no_id ORDER BY ms.id) FROM trip_merged_services ms WHERE ms.trip_id = t.id) AS merged_service_ids,
   COALESCE(NULLIF(d1.nickname, ''), d1.driver_name, t.driver1_name) AS driver1_name,
   COALESCE(NULLIF(d2.nickname, ''), d2.driver_name, t.driver2_name) AS driver2_name,
   COALESCE(h.helper_name, t.helper_name) AS helper_name,
