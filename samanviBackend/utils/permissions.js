@@ -4,6 +4,9 @@
 // database that has no can_approve column yet falls back to the old rule
 // (a write grant), so a failed migration does not lock approvers out.
 function allows(grants, action) {
+  // Job status changes: the controller picks the stage's exact right; the
+  // route gate only needs one of them (Finish = Edit, Approve/Close = Approve).
+  if (action === 'edit_or_approve') return allows(grants, 'edit') || allows(grants, 'approve');
   // Authorize is only ever an explicit tick, with no fallback to a write grant.
   if (action === 'authorize') return grants.some(grant => Number(grant.can_view) === 1 && Number(grant.can_authorize) === 1);
   return grants.some(grant => Number(grant.can_view) === 1 && (action === 'approve'
@@ -116,7 +119,9 @@ const API_PERMISSIONS = {
   '/garage/edit-job': [{ subs: [63] }, 'edit'],
   '/submitrepairtracking': [{ subs: [201], adminFallback: [63] }, 'approve'],
   '/garage/workflow-action': [{ subs: [63, 200] }, 'approve'],
-  '/changeJobSatus': [{ subs: [63, 200, 201] }, 'approve'],
+  // Route-level gate only: the controller then checks the stage-specific right
+  // (Finish = Repair Tracking Edit, Approve/Reject = 200, Close = 201).
+  '/changeJobSatus': [{ subs: [63, 200, 201] }, 'edit_or_approve'],
 };
 
 const normalizedOperations = new Map(Object.entries(API_PERMISSIONS).map(([route, rule]) => [route.toLowerCase(), rule]));

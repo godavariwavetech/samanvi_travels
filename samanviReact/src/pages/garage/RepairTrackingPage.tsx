@@ -870,7 +870,7 @@ export default function RepairTrackingPage() {
         qc.invalidateQueries({ queryKey: ['repair-tracking'] })
       } else toast.error('Failed to finish job')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e: any) => toast.error(e?.response?.data?.msg || e?.response?.data?.message || 'Server error'),
   })
 
   const { mutate: saveApprove, isPending: savingApprove } = useMutation({

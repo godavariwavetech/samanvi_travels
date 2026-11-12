@@ -255,7 +255,7 @@ export default function RepairEntryPage() {
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
       } else toast.error('Failed to finish job')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e: any) => toast.error(e?.response?.data?.msg || e?.response?.data?.message || 'Server error'),
   })
 
   const { mutate: updateStatus } = useMutation({

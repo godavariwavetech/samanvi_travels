@@ -6169,7 +6169,11 @@ exports.changeJobSatusCtrl = function (req, res) {
   const subs = stage === 'APPROVED' || stage === 'REJECTED' ? [200]
     : stage === 'CLOSED' || stage === 'COMPLETED' ? [201] : [63];
   const rule = { subs, ...(subs[0] !== 63 ? { adminFallback: [63] } : {}) };
-  require('../utils/permissions').requirePermission(rule, 'approve')(req, res, () => {
+  // Marking a job Finished is the technician's step: the same Repair Tracking
+  // Edit right that shows the "Mark as Finished" button. Approve/Close keep
+  // requiring the Approve grant.
+  const action = stage === 'FINISHED' ? 'edit' : 'approve';
+  require('../utils/permissions').requirePermission(rule, action)(req, res, () => {
     require('../utils/tripActionActor').tripActionData(require('../config/dbconnect'), req.auth, data, function (actorError, recorded) {
       if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
       data = recorded;

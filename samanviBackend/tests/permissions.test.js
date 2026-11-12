@@ -108,3 +108,11 @@ test('trip authorization requirement excludes unrelated and inactive grants', ()
     assert.ok(tripAuthorizersSql.includes(clause), clause);
   }
 });
+
+test('Mark as Finished needs Repair Tracking Edit, not Approve', () => {
+  const editor = { ...viewer, can_edit: 1, can_approve: 0 };
+  const [rule, action] = API_PERMISSIONS['/changeJobSatus'];
+  assert.equal(check(rule, action, [editor]).allowed, true);
+  assert.equal(check({ subs: [63] }, 'edit', [editor]).allowed, true);
+  assert.equal(check({ subs: [200], adminFallback: [63] }, 'approve', [editor]).allowed, false);
+});
