@@ -13950,6 +13950,8 @@ exports.getrepairentryMdl = function (data, callback) {
      FROM job_categories jc2
      JOIN repair_category rc2 ON rc2.id = jc2.category_id
      WHERE jc2.job_card_id = vj.id AND jc2.d_in = 0) AS all_categories,
+    (SELECT GROUP_CONCAT(NULLIF(TRIM(jc3.description), '') ORDER BY jc3.id SEPARATOR ' | ')
+     FROM job_categories jc3 WHERE jc3.job_card_id = vj.id AND jc3.d_in = 0) AS all_descriptions,
     (SELECT COUNT(*) FROM job_categories WHERE job_card_id = vj.id AND d_in = 0) AS category_count,
     COALESCE((SELECT SUM(jp.amount) FROM job_parts_used jp WHERE jp.job_card_id = vj.id AND jp.d_in = 0), 0) AS parts_cost,
     GREATEST(COALESCE(vj.amount, 0) - COALESCE((SELECT SUM(jp.amount) FROM job_parts_used jp WHERE jp.job_card_id = vj.id AND jp.d_in = 0), 0), 0) AS labour_cost,

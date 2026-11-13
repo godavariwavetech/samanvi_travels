@@ -19,7 +19,9 @@ import {
   DateRangePicker,
   DateField,
   PriorityBadge, PriorityOption, PrioritySelect, normPriority, priorityPdfCell,
+  SortToggle, RangeFilterDropdown, inRange, compareValues,
 } from '@/components/shared'
+import type { SortDir, RangeValue } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
@@ -56,6 +58,8 @@ export default function RepairTrackingPage() {
 
   const [stageFilter, setStageFilter] = useState('OPEN')
   const [colFilters, setColFilters]   = useState<Record<string, string[]>>({})
+  const [ranges, setRanges]           = useState<Record<string, RangeValue>>({})
+  const [sort, setSort]               = useState<{ key: string; dir: SortDir }>({ key: '', dir: null })
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate]     = useState('')
 
@@ -313,11 +317,37 @@ export default function RepairTrackingPage() {
     if (key === 'assignedTo') return r.staff_name || ''
     if (key === 'createdBy')  return r.created_by || ''
     if (key === 'priority')   return normPriority(r.priority)
+    if (key === 'jobCard')    return r.job_card_number || ''
+    if (key === 'description') return jobDescription(r)
+    if (key === 'driver')     return r.driver_name || ''
+    if (key === 'status')     return stateLabel(getJobState(r))
     return ''
   }
 
+  // Description: each category's own description, else the job's remarks.
+  const jobDescription = (r: any): string => String(r.all_descriptions || r.remarks || '').trim()
+  const stateLabel = (st: string) => st === 'CLOSED' || st === 'COMPLETED' ? 'Completed' : st === 'REJECTED' ? 'Rejected' : st === 'APPROVED' ? 'Approved' : st === 'FINISHED' ? 'Finished' : 'Open'
+  const daysSince = (d: any): number | null => {
+    if (!d) return null
+    const t = new Date(d).getTime()
+    if (isNaN(t)) return null
+    const diff = Math.floor((Date.now() - t) / 86400000)
+    return diff >= 0 ? diff : null
+  }
+  const PRIORITY_RANK: Record<string, number> = { High: 3, Medium: 2, Low: 1 }
+  // Value a column sorts / range-filters on.
+  const sortValue = (r: any, key: string): unknown => {
+    if (key === 'createdDate') return String(r.job_date || r.created_at || '').slice(0, 10)
+    if (key === 'dueDays')     return daysSince(r.job_date || r.created_at)
+    if (key === 'odometer')    return r.odometer_reading === '' || r.odometer_reading == null ? null : Number(r.odometer_reading)
+    if (key === 'amount')      return r.total_amount == null ? null : Number(r.total_amount)
+    if (key === 'priority')    return PRIORITY_RANK[normPriority(r.priority)] ?? null
+    return colValue(r, key)
+  }
+  const RANGE_KIND: Record<string, 'number' | 'date'> = { createdDate: 'date', dueDays: 'number', odometer: 'number', amount: 'number' }
+
   const filterColOptions = useMemo(() => {
-    const keys = ['busNo', 'category', 'priority', 'assignedTo', 'createdBy']
+    const keys = ['jobCard', 'busNo', 'category', 'description', 'priority', 'driver', 'assignedTo', 'createdBy', 'status']
     const result: Record<string, string[]> = {}
     keys.forEach(k => {
       result[k] = Array.from(new Set(list.map(r => colValue(r, k)).filter(Boolean))).sort()
@@ -326,6 +356,7 @@ export default function RepairTrackingPage() {
   }, [list])
 
   const activeFilterCount = Object.values(colFilters).filter(v => v && v.length > 0).length
+    + Object.values(ranges).filter(v => v && (v.min || v.max)).length
 
   const filteredList = useMemo(() => {
     const byTab = stageFilter === 'all' ? list : list.filter(r => getJobState(r) === stageFilter)
@@ -339,15 +370,19 @@ export default function RepairTrackingPage() {
       return true
     }) : byTab
     const hasCol = Object.values(colFilters).some(v => v && v.length > 0)
-    if (!hasCol) return byDate
-    return byDate.filter(r => {
+    const byCol = !hasCol ? byDate : byDate.filter(r => {
       for (const [key, vals] of Object.entries(colFilters)) {
         if (!vals || vals.length === 0) continue
         if (!vals.includes(colValue(r, key))) return false
       }
       return true
     })
-  }, [list, stageFilter, colFilters, fromDate, toDate])
+    const byRange = byCol.filter(r => Object.entries(ranges).every(([key, rg]) => inRange(sortValue(r, key) as any, rg, RANGE_KIND[key] ?? 'number')))
+    if (!sort.key || !sort.dir) return byRange
+    const dir = sort.dir
+    return [...byRange].sort((a, b) => compareValues(sortValue(a, sort.key), sortValue(b, sort.key), dir))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list, stageFilter, colFilters, ranges, sort, fromDate, toDate])
 
   const countByState = (s: string) => list.filter((r: any) => getJobState(r) === s).length
 
@@ -589,7 +624,11 @@ export default function RepairTrackingPage() {
       'Due Days':        dueDays(r.job_date || r.created_at),
       'Bus No':          r.vehicle_number,
       'Repair Category': r.all_categories || r.repair_category_name || '',
+      'Description':     jobDescription(r),
       'Priority':        normPriority(r.priority),
+      'Driver':          r.driver_name || '',
+      'Odometer':        r.odometer_reading || '',
+      'Amount':          Number(r.total_amount) || 0,
       'Assigned To':     r.staff_name || '',
       'Created By':      r.created_by || '',
       'Status':          getJobState(r),
@@ -606,13 +645,14 @@ export default function RepairTrackingPage() {
     doc.text('Repair Tracking', 40, 40)
     autoTable(doc, {
       startY: 60,
-      head: [['Sl No', 'Job Card Number', 'Created Date', 'Due Days', 'Bus No', 'Repair Category', 'Priority', 'Assigned To', 'Created By', 'Status']],
-      didParseCell: priorityPdfCell(6),
+      head: [['Sl No', 'Job Card Number', 'Created Date', 'Due Days', 'Bus No', 'Repair Category', 'Description', 'Priority', 'Driver', 'Odometer', 'Amount', 'Assigned To', 'Created By', 'Status']],
+      didParseCell: priorityPdfCell(7),
       body: filteredList.map((r: any, i: number) => [
         i + 1, r.job_card_number, fmtDate(r.job_date || r.created_at),
         dueDays(r.job_date || r.created_at), r.vehicle_number,
-        r.all_categories || r.repair_category_name || '', normPriority(r.priority),
-        r.staff_name || '', r.created_by || '', getJobState(r),
+        r.all_categories || r.repair_category_name || '', jobDescription(r), normPriority(r.priority),
+        r.driver_name || '', r.odometer_reading || '', Number(r.total_amount) ? Number(r.total_amount).toLocaleString('en-IN') : '',
+        r.staff_name || '', r.created_by || '', stateLabel(getJobState(r)),
       ]),
       styles: { fontSize: 8 },
     })
@@ -997,7 +1037,7 @@ export default function RepairTrackingPage() {
           {activeFilterCount > 0 && (
             <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
               {activeFilterCount} filter{activeFilterCount !== 1 ? 's' : ''} active ·{' '}
-              <button onClick={() => setColFilters({})} className="text-blue-600 font-semibold hover:underline">Clear all</button>
+              <button onClick={() => { setColFilters({}); setRanges({}) }} className="text-blue-600 font-semibold hover:underline">Clear all</button>
             </span>
           )}
         </div>
@@ -1007,17 +1047,21 @@ export default function RepairTrackingPage() {
               <tr>
                 {([
                   { label: 'Sl No' },
-                  { label: 'Job Card Number' },
-                  { label: 'Created Date' },
-                  { label: 'Due Days' },
-                  { label: 'Bus No',          fk: 'busNo' },
-                  { label: 'Repair Category', fk: 'category' },
-                  { label: 'Priority',        fk: 'priority' },
-                  { label: 'Assigned To',     fk: 'assignedTo' },
-                  { label: 'Created By',       fk: 'createdBy' },
-                  { label: 'Status' },
+                  { label: 'Job Card Number', fk: 'jobCard',     sk: 'jobCard' },
+                  { label: 'Created Date',                       sk: 'createdDate', range: 'date' },
+                  { label: 'Due Days',                           sk: 'dueDays',     range: 'number', unit: 'days' },
+                  { label: 'Bus No',          fk: 'busNo',       sk: 'busNo' },
+                  { label: 'Repair Category', fk: 'category',    sk: 'category' },
+                  { label: 'Description',     fk: 'description', sk: 'description' },
+                  { label: 'Priority',        fk: 'priority',    sk: 'priority' },
+                  { label: 'Driver',          fk: 'driver',      sk: 'driver' },
+                  { label: 'Odometer',                           sk: 'odometer',    range: 'number', unit: 'km' },
+                  { label: 'Amount',                             sk: 'amount',      range: 'number', unit: '₹' },
+                  { label: 'Assigned To',     fk: 'assignedTo',  sk: 'assignedTo' },
+                  { label: 'Created By',      fk: 'createdBy',   sk: 'createdBy' },
+                  { label: 'Status',          fk: 'status',      sk: 'status' },
                   { label: 'Action' },
-                ] as { label: string; fk?: string }[]).map(({ label, fk }) => (
+                ] as { label: string; fk?: string; sk?: string; range?: 'number' | 'date'; unit?: string }[]).map(({ label, fk, sk, range, unit }) => (
                   <th key={label} className="sticky top-0 z-10 px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
                     <div className="flex items-center gap-1.5">
                       <span>{label}</span>
@@ -1030,6 +1074,16 @@ export default function RepairTrackingPage() {
                           renderOption={fk === 'priority' ? (v) => <PriorityOption value={v} /> : undefined}
                         />
                       )}
+                      {sk && range && (
+                        <RangeFilterDropdown kind={range} unit={unit}
+                          value={ranges[sk] ?? { min: '', max: '' }}
+                          onChange={v => setRanges(rg => ({ ...rg, [sk]: v }))}
+                          dir={sort.key === sk ? sort.dir : null}
+                          onSort={d => setSort({ key: sk, dir: d })} />
+                      )}
+                      {sk && (
+                        <SortToggle dir={sort.key === sk ? sort.dir : null} onChange={d => setSort({ key: sk, dir: d })} />
+                      )}
                     </div>
                   </th>
                 ))}
@@ -1037,9 +1091,9 @@ export default function RepairTrackingPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
+                <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
               ) : filteredList.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
+                <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
               ) : filteredList.map((r: any, i: number) => {
                 const state = getJobState(r)
                 const isOpen     = state === 'OPEN'
@@ -1067,7 +1121,13 @@ export default function RepairTrackingPage() {
                     </td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700">{r.vehicle_number}</td>
                     <td className="px-3 py-3 border-b border-slate-100 text-slate-700">{r.all_categories || r.repair_category_name || '-'}</td>
+                    <td className="px-3 py-3 border-b border-slate-100 text-slate-600 min-w-[12rem] max-w-xs">
+                      <span className="line-clamp-2" title={jobDescription(r)}>{jobDescription(r) || '-'}</span>
+                    </td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap"><PriorityBadge value={r.priority} /></td>
+                    <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.driver_name || '-'}</td>
+                    <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-right text-slate-600">{r.odometer_reading ? `${Number(r.odometer_reading).toLocaleString('en-IN')} km` : '-'}</td>
+                    <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-right font-semibold text-slate-800">{Number(r.total_amount) ? `₹${Number(r.total_amount).toLocaleString('en-IN')}` : '-'}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.staff_name || '-'}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.created_by || '-'}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">{statusBadge(state)}</td>
