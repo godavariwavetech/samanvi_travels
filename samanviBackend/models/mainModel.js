@@ -16576,3 +16576,83 @@ exports.deleteVendorMdl = function (data, callback) {
     dbutil.execupdateQuery(sqldb, VENDOR_LEDGER_CLEAR, [data.id], cx, function (e2) { callback(e2, res); });
   });
 };
+
+// One van trip per driver per day also for trips saved before that rule:
+// same-driver van trips on one date are folded into the earliest of them, the
+// way a new submission would be. The others are soft-deleted (d_in = 1, so
+// nothing is lost) and their services listed against the kept trip in
+// trip_merged_services. A group is left alone when any trip in it has its
+// expense filed, a voucher, an approval/authorization, or a different van -
+// those need a person to sort out. Safe to run repeatedly: once merged there
+// is nothing left to group.
+exports.mergeExistingVanDuplicates = function (callback, onlyDate) {
+  callback = callback || function () {};
+  var s = function (v) { return String(v == null ? '' : v).trim(); };
+  var joinUniq = function (a, b, sep) {
+    var out = [];
+    [a, b].forEach(function (v) { s(v).split(sep.trim()).map(function (x) { return x.trim(); }).forEach(function (x) { if (x && out.indexOf(x) < 0) out.push(x); }); });
+    return out.join(sep);
+  };
+  sqldb.query("SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'trip_authorizations'", function (e0, r0) {
+    if (e0) return callback(e0);
+    var authSel = r0 && r0[0] && Number(r0[0].n) > 0 ? ', (SELECT COUNT(*) FROM trip_authorizations ta WHERE ta.c_number = t.c_number AND ta.authorized_at IS NOT NULL) AS authorized' : ', 0 AS authorized';
+    sqldb.query("SELECT t.id, t.c_number, t.trip_date, t.bus_no, t.service_no, t.service_no_id, t.line_code, t.booking_amount, t.remarks, t.driver1_id, t.driver1_name, t.opt_driver1_mobile, t.trip_run_status, t.status, t.admin_status, t.voucher_number" + authSel +
+      " FROM trip_created t WHERE t.d_in = 0 AND t.vehicle_type = 'van' AND (t.trip_run_status IS NULL OR t.trip_run_status <> 'Halt')" + (onlyDate ? " AND t.trip_date = ?" : "") + " ORDER BY t.trip_date, t.id", onlyDate ? [onlyDate] : [], function (err, trips) {
+      if (err) return callback(err);
+      var groups = {}, order = [];
+      (trips || []).forEach(function (t) {
+        var k = exports.vanDriverKey(Object.assign({}, t, { vehicle_type: 'van' }));
+        if (!k) return;
+        var g = s(t.trip_date).slice(0, 10) + '|' + k;
+        if (!groups[g]) { groups[g] = []; order.push(g); }
+        groups[g].push(t);
+      });
+      var jobs = [], skippedGroups = [];
+      order.forEach(function (g) {
+        var list = groups[g];
+        if (list.length < 2) return;
+        var locked = list.some(function (t) { return Number(t.status) === 1 || s(t.voucher_number) || Number(t.admin_status) === 1 || Number(t.admin_status) === 2 || Number(t.authorized) > 0; });
+        var vans = list.map(function (t) { return s(t.bus_no); }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+        if (locked || vans.length > 1) { skippedGroups.push(list.map(function (t) { return t.c_number; }).join('+') + (locked ? ' (filed/approved)' : ' (different vans)')); return; }
+        var keep = list[0], rest = list.slice(1);
+        var t = { service_no: s(keep.service_no), line_code: keep.line_code, amount: parseFloat(keep.booking_amount) || 0, remarks: keep.remarks };
+        rest.forEach(function (r) {
+          t.service_no = joinUniq(t.service_no, r.service_no, ', ');
+          t.line_code = joinUniq(t.line_code, r.line_code, ', ');
+          t.amount += parseFloat(r.booking_amount) || 0;
+          t.remarks = joinUniq(t.remarks, r.remarks, ' | ');
+        });
+        var restIds = rest.map(function (r) { return r.id; });
+        var q = 'UPDATE trip_created SET service_no = ?, line_code = ?, booking_amount = ?, remarks = ? WHERE id = ?;';
+        var p = [t.service_no, t.line_code || null, t.amount || null, t.remarks || null, keep.id];
+        // Services already merged into a trip being folded move with it.
+        q += ' UPDATE trip_merged_services SET trip_id = ? WHERE trip_id IN (?);';
+        p.push(keep.id, restIds);
+        rest.forEach(function (r) {
+          q += ' INSERT INTO trip_merged_services (trip_id, trip_date, service_no_id, service_no) VALUES (?, ?, ?, ?);';
+          p.push(keep.id, s(keep.trip_date).slice(0, 10), String(r.service_no_id || ''), s(r.service_no) || null);
+        });
+        q += ' UPDATE trip_created SET d_in = 1 WHERE id IN (?);';
+        p.push(restIds);
+        jobs.push({ q: q, p: p, label: keep.c_number + ' <- ' + rest.map(function (r) { return r.c_number; }).join(', ') });
+      });
+      if (skippedGroups.length) console.log('[van merge] left as is:', skippedGroups.join('; '));
+      if (!jobs.length) return callback(null, { merged: [], skipped: skippedGroups });
+      var done = [], i = 0;
+      var next = function () {
+        if (i >= jobs.length) { console.log('[van merge] merged existing same-driver van trips:', done.join('; ')); return callback(null, { merged: done, skipped: skippedGroups }); }
+        var j = jobs[i++];
+        sqldb.query(j.q, j.p, function (e) {
+          if (e) console.log('[van merge] ' + j.label + ' failed:', e.message); else done.push(j.label);
+          next();
+        });
+      };
+      next();
+    });
+  });
+};
+// Run once a little after boot (the trip_merged_services table is created at
+// boot too). Not in tests that load this module and exit sooner.
+setTimeout(function () {
+  exports.mergeExistingVanDuplicates(function (err) { if (err) console.log('[van merge] failed:', err.message); });
+}, 20000).unref();
