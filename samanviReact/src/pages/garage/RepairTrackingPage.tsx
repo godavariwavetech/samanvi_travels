@@ -59,7 +59,7 @@ export default function RepairTrackingPage() {
   const [stageFilter, setStageFilter] = useState('OPEN')
   const [colFilters, setColFilters]   = useState<Record<string, string[]>>({})
   const [ranges, setRanges]           = useState<Record<string, RangeValue>>({})
-  const [sort, setSort]               = useState<{ key: string; dir: SortDir }>({ key: '', dir: null })
+  const [sort, setSort]               = useState<{ key: string; dir: SortDir }>({ key: 'priority', dir: 'desc' }) // High priority first by default
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate]     = useState('')
 
