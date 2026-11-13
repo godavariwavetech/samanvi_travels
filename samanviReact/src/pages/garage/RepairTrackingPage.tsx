@@ -795,7 +795,7 @@ export default function RepairTrackingPage() {
         qc.invalidateQueries({ queryKey: ['repair-entries'] })
         qc.invalidateQueries({ queryKey: ['job-stage-data'] })
         qc.invalidateQueries({ queryKey: ['job-full-history'] })
-      } else toast.error('Failed to update')
+      } else toast.error(res?.msg || 'Failed to update')
     },
     onError: () => toast.error('Server error'),
   })
@@ -904,8 +904,7 @@ export default function RepairTrackingPage() {
     },
     onSuccess: (res: any) => {
       if (res.status === 200) {
-        const vNums: string[] = res.voucher_numbers || []
-        toast.success(vNums.length ? `Job approved! Voucher ${vNums.join(', ')} created — see Voucher Approvals.` : 'Job approved!')
+        toast.success(res.ledger_lines ? 'Job approved! Its Debit / Credit lines are posted to the ledgers.' : 'Job approved!')
         setApproveModal({ open: false, job: null })
         setApproveRemarks('')
         setApproveVoucherBlocks([emptyVoucherBlock()])

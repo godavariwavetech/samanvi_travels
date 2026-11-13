@@ -34,6 +34,7 @@ function resolveDateStr(e: any): string {
     mainvoucher_subt: e.voucherdate,
     fuelentry_subt: e.voucherdate,
     laundrybill_subt: e.i_ts,
+    jobsheet_subt: e.voucherdate,
   }
   return map[e.source_table] || e.i_ts || e.voucherdate || e.trip_date || ''
 }
@@ -1192,6 +1193,7 @@ export function PayablesView({ initialData, onClose }: { initialData?: any; onCl
       ...(tx.mainvoucher_subt ?? []),
       ...(tx.fuelentry_subt ?? []),
       ...(tx.laundrybill_subt ?? []),
+      ...(tx.jobsheet_subt ?? []),
     ]
     const built: TxRow[] = all
       .filter((r: any) => {

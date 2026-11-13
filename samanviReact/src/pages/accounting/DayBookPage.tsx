@@ -80,6 +80,7 @@ export default function DayBookPage() {
       ...(raw.mainVoucherDetails ?? []),
       ...(raw.fuelEntryDetails   ?? []),
       ...(raw.laundryDetails     ?? []),
+      ...(raw.jobSheetDetails    ?? []),
     ]
   }, [raw])
 

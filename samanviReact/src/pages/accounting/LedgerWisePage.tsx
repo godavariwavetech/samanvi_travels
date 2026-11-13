@@ -59,6 +59,7 @@ function resolveDate(e: any): Date {
     mainvoucher_subt: e.voucherdate,
     fuelentry_subt: e.voucherdate,
     laundrybill_subt: e.i_ts,
+    jobsheet_subt: e.voucherdate,
   }
   const v = map[e.source_table] || e.i_ts || e.voucherdate || e.trip_date
   return v ? new Date(v) : new Date()
@@ -70,6 +71,7 @@ function resolveDisplayDate(e: any): string {
     mainvoucher_subt: e.voucherdate,
     fuelentry_subt: e.voucherdate,
     laundrybill_subt: e.i_ts,
+    jobsheet_subt: e.voucherdate,
   }
   return map[e.source_table] || e.i_ts || e.voucherdate || e.trip_date || ''
 }
@@ -663,7 +665,7 @@ export default function LedgerWisePage() {
   const raw = searchRes?.data
 
   const voucherCNum = modal.open && !modal.loading && modal.data &&
-    !['fuelentry_subt', 'laundrybill_subt'].includes(modal.data.source_table)
+    !['fuelentry_subt', 'laundrybill_subt', 'jobsheet_subt'].includes(modal.data.source_table)
     ? (modal.data.c_number || modal.entry?.c_number || null) : null
 
   const { data: auditRes } = useQuery({
@@ -699,6 +701,7 @@ export default function LedgerWisePage() {
       ...(tx.mainvoucher_subt ?? []),
       ...(tx.fuelentry_subt ?? []),
       ...(tx.laundrybill_subt ?? []),
+      ...(tx.jobsheet_subt ?? []),
     ].map(r => ({ ...r, amount: Math.abs(Number(r.amount ?? 0)) }))
     return all.sort((a, b) => resolveDate(a).getTime() - resolveDate(b).getTime())
   }, [raw])

@@ -6595,6 +6595,7 @@ exports.SelectdatagetfinaltranscationsreportMdl = function (data, callback) {
   let voucherCondition = `mv.d_in='0' AND mv.status='1' AND ${voucherHeaderApproved('mv')}`;
   let fuelCondition = `f.d_in='0' AND f.admin_status='1'`;
   let laundryCondition = `l.d_in='0' AND l.admin_status='1'`;
+  let jobCondition = `j.d_in='0' AND j.admin_status='1'`;
 
   // const typeFilter = `(mm.district_id = "3" OR mm.district_id = "4")`;
   const typeFilter = ``;
@@ -6616,6 +6617,7 @@ exports.SelectdatagetfinaltranscationsreportMdl = function (data, callback) {
     voucherCondition += ` AND ${between('mv.voucherdate', 'mv.i_ts')}` + ledgerMatch('mv.expensives', 'mv.ledger_id');
     fuelCondition += ` AND ${between('f.voucherdate', 'f.i_ts')}` + ledgerMatch('f.expensives', 'f.ledger_id');
     laundryCondition += ` AND DATE(l.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'` + ledgerMatch('l.expensives', 'l.ledger_id');
+    jobCondition += ` AND ${between('j.voucherdate', 'j.i_ts')}` + ledgerMatch('j.expensives', 'j.ledger_id');
   }
 
   const QRY_TO_EXEC = `
@@ -6634,6 +6636,10 @@ exports.SelectdatagetfinaltranscationsreportMdl = function (data, callback) {
         SELECT l.*, mm.district_id FROM laundrybill_subt AS l
         JOIN mainmasterssubchildtwo AS mm ON mm.id = l.ledger_id
         WHERE mm.d_in = '0' AND ${laundryCondition};
+
+        SELECT j.*, mm.district_id FROM jobsheet_subt AS j
+        JOIN mainmasterssubchildtwo AS mm ON mm.id = j.ledger_id
+        WHERE mm.d_in = '0' AND ${jobCondition};
     `;
 
   console.log(QRY_TO_EXEC, 3360);
@@ -8027,6 +8033,7 @@ exports.Selectdatagetfinaltranscationsreport1Mdl = function (data, callback) {
   var voucherCondition = "d_in='0' AND status='1' AND " + voucherHeaderApproved('mainvoucher_subt');
   var fuelCondition = "d_in='0' AND admin_status='1'";
   var laundryCondition = "d_in='0' AND admin_status='1'";
+  var jobCondition = "d_in='0' AND admin_status='1'";
   if (data.fromdate && data.todate) {
     const dateFilter = `DATE(i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}'`;
     expenseCondition += ` AND ${dateFilter}`;
@@ -8037,6 +8044,8 @@ exports.Selectdatagetfinaltranscationsreport1Mdl = function (data, callback) {
     if (data.ledger_name) fuelCondition += ` AND expensives = '${data.ledger_name}'`;
     laundryCondition += ` AND ${dateFilter}`;
     if (data.ledger_name) laundryCondition += ` AND expensives = '${data.ledger_name}'`;
+    jobCondition += ` AND ${dateFilter}`;
+    if (data.ledger_name) jobCondition += ` AND expensives = '${data.ledger_name}'`;
   }
 
   const QRY_TO_EXEC = `
@@ -8044,6 +8053,7 @@ exports.Selectdatagetfinaltranscationsreport1Mdl = function (data, callback) {
         SELECT * FROM mainvoucher_subt WHERE ${voucherCondition};
         SELECT * FROM fuelentry_subt WHERE ${fuelCondition};
         SELECT * FROM  laundrybill_subt WHERE ${laundryCondition};
+        SELECT * FROM jobsheet_subt WHERE ${jobCondition};
     `;
 
   //console.log()QRY_TO_EXEC, 8081);
@@ -9198,11 +9208,13 @@ exports.getsearchdataMdl = function (data, callback) {
   let openingVoucher = "";
   let openingFuel = "";
   let openingLaundry = "";
+  let openingJob = "";
 
   let transExp = "";
   let transVoucher = "";
   let transFuel = "";
   let transLaundry = "";
+  let transJob = "";
 
   if (data.fromdate && data.todate) {
     openingExp = ` AND DATE(ed.trip_date) < '${data.fromdate}' `;
@@ -9214,6 +9226,8 @@ exports.getsearchdataMdl = function (data, callback) {
     transVoucher = ` AND DATE(mv.voucherdate) BETWEEN '${data.fromdate}' AND '${data.todate}' `;
     transFuel = ` AND DATE(fe.voucherdate) BETWEEN '${data.fromdate}' AND '${data.todate}' `;
     transLaundry = ` AND DATE(lb.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' `;
+    openingJob = ` AND DATE(js.voucherdate) < '${data.fromdate}' `;
+    transJob = ` AND DATE(js.voucherdate) BETWEEN '${data.fromdate}' AND '${data.todate}' `;
   }
 
   // Value-date mode: only lines that carry a value date (vouchers, fuel fills)
@@ -9222,7 +9236,7 @@ exports.getsearchdataMdl = function (data, callback) {
     const vf = String(data.valuefrom).replace(/[^0-9-]/g, '');
     const vt = String(data.valueto).replace(/[^0-9-]/g, '');
     const fuelIds = (cond) => ` AND EXISTS (SELECT 1 FROM fuel_entry fv WHERE fv.id = fe.lastinsert_id AND fv.value_date ${cond}) `;
-    openingExp = transExp = openingLaundry = transLaundry = ' AND 1=0 ';
+    openingExp = transExp = openingLaundry = transLaundry = openingJob = transJob = ' AND 1=0 ';
     openingVoucher = ` AND DATE(mv.valueDate) < '${vf}' `;
     transVoucher = ` AND DATE(mv.valueDate) BETWEEN '${vf}' AND '${vt}' `;
     openingFuel = fuelIds(`< '${vf}'`);
@@ -9236,12 +9250,14 @@ exports.getsearchdataMdl = function (data, callback) {
   let ledgerVoucher = "";
   let ledgerFuel = "";
   let ledgerLaundry = "";
+  let ledgerJob = "";
 
   if (data.ledger_id) {
     ledgerExp = ` AND ed.ledger_id = "${data.ledger_id}" `;
     ledgerVoucher = ` AND mv.ledger_id = "${data.ledger_id}" `;
     ledgerFuel = ` AND fe.ledger_id = "${data.ledger_id}" `;
     ledgerLaundry = ` AND lb.ledger_id = "${data.ledger_id}" `;
+    ledgerJob = ` AND js.ledger_id = "${data.ledger_id}" `;
   }
 
   // -------------------------------
@@ -9269,6 +9285,11 @@ exports.getsearchdataMdl = function (data, callback) {
           WHERE lb.d_in='0' AND lb.admin_status='1'
           AND lb.account_type='Credit Account'
           ${openingLaundry} ${ledgerLaundry}), 0)
+        +
+        COALESCE((SELECT SUM(js.amount) FROM jobsheet_subt js
+          WHERE js.d_in='0' AND js.admin_status='1'
+          AND js.account_type='Credit Account'
+          ${openingJob} ${ledgerJob}), 0)
       ) AS total_credit,
 
       (
@@ -9291,6 +9312,11 @@ exports.getsearchdataMdl = function (data, callback) {
           WHERE lb.d_in='0' AND lb.admin_status='1'
           AND lb.account_type='Debit Account'
           ${openingLaundry} ${ledgerLaundry}), 0)
+        +
+        COALESCE((SELECT SUM(js.amount) FROM jobsheet_subt js
+          WHERE js.d_in='0' AND js.admin_status='1'
+          AND js.account_type='Debit Account'
+          ${openingJob} ${ledgerJob}), 0)
       ) AS total_debit;
   `;
 
@@ -9363,6 +9389,20 @@ exports.getsearchdataMdl = function (data, callback) {
     WHERE lb.d_in='0' AND lb.admin_status='1'
     ${transLaundry} ${ledgerLaundry}
     GROUP BY lb.id;
+
+    -- JOB SHEET
+    -- A garage job's lines, booked when the job was approved; the job card
+    -- (vehicle_jobs) is the reference.
+    SELECT js.*, 'jobsheet_subt' AS source_table,
+      GROUP_CONCAT(DISTINCT mm.temple_name) AS opp_ledgers,
+      js.voucherdate AS valueDate
+    FROM jobsheet_subt js
+    LEFT JOIN jobsheet_subt js2
+      ON js.c_number = js2.c_number AND js2.d_in='0' AND js2.ledger_id != js.ledger_id
+    LEFT JOIN mainmasterssubchildtwo mm ON js2.ledger_id = mm.id
+    WHERE js.d_in='0' AND js.admin_status='1'
+    ${transJob} ${ledgerJob}
+    GROUP BY js.id;
   `;
 
   // -------------------------------
@@ -9400,7 +9440,8 @@ exports.getsearchdataMdl = function (data, callback) {
         expensive_details: results[1],
         mainvoucher_subt: results[2],
         fuelentry_subt: results[3],
-        laundrybill_subt: results[4]
+        laundrybill_subt: results[4],
+        jobsheet_subt: results[5] || []
       }
     };
 
@@ -10024,6 +10065,7 @@ exports.getdaybookreportsMdl = function (data, callback) {
          FROM laundrybill_maint m WHERE m.c_number = lb.c_number AND m.d_in = 0) AS quantity,
       NULL AS rate, 'pcs' AS quantity_unit
     FROM laundrybill_subt lb WHERE lb.d_in = 0 AND DATE(lb.i_ts) BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY lb.i_ts DESC;`;
+  const query5 = `SELECT js.* FROM jobsheet_subt js WHERE js.d_in = 0 AND js.voucherdate BETWEEN '${data.fromdate}' AND '${data.todate}' ORDER BY js.i_ts DESC;`;
 
   //console.log()'Query1:', query1);
   //console.log()'Query2:', query2);
@@ -10056,15 +10098,16 @@ exports.getdaybookreportsMdl = function (data, callback) {
                   cntxtDtls,
                   function (err4, result4) {
                     if (err4) return callback(err4, null);
-                    // Return all 3 result sets
-                    const combinedResult = {
-                      expensiveDetails: result1,
-                      mainVoucherDetails: result2,
-                      fuelEntryDetails: result3,
-                      laundryDetails: result4,
-                    };
-
-                    return callback(null, combinedResult);
+                    dbutil.execQuery(sqldb, query5, cntxtDtls, function (err5, result5) {
+                      if (err5) return callback(err5, null);
+                      return callback(null, {
+                        expensiveDetails: result1,
+                        mainVoucherDetails: result2,
+                        fuelEntryDetails: result3,
+                        laundryDetails: result4,
+                        jobSheetDetails: result5,
+                      });
+                    });
                   }
                 );
               }
@@ -12722,6 +12765,15 @@ exports.getRefDetailsMdl = function (data, callback) {
                            p.voucherdate as parent_date,
                            p.totalamount as parent_total_amount`;
       break;
+    case "jobsheet_subt":
+      statusCondition = "d_in='0' AND t.admin_status='1'";
+      parentJoin = "LEFT JOIN vehicle_jobs p ON t.c_number = p.job_card_number AND COALESCE(p.d_in, 0) = 0";
+      parentFields = `, p.id as parent_id,
+                           t.voucherdate as parent_date,
+                           'Job Sheet' as parent_vouchertype,
+                           p.vehicle_number as parent_vehicleNo,
+                           p.approval_remarks as parent_description`;
+      break;
     default:
       return callback(new Error("Invalid source table"));
   }
@@ -13522,7 +13574,8 @@ exports.payablesledgerupdate = function (data, settledByCNumber, callback) {
     expensive_details: 'expensive_details',
     mainvoucher_subt: 'mainvoucher_subt',
     fuelentry_subt: 'fuelentry_subt',
-    laundrybill_subt: 'laundrybill_subt'
+    laundrybill_subt: 'laundrybill_subt',
+    jobsheet_subt: 'jobsheet_subt'
   };
   // expensive_details is already at MariaDB's max inline row size and can't
   // take this column — payment/balance still get recorded there, it just
@@ -13531,7 +13584,8 @@ exports.payablesledgerupdate = function (data, settledByCNumber, callback) {
     expensive_details: false,
     mainvoucher_subt: true,
     fuelentry_subt: true,
-    laundrybill_subt: true
+    laundrybill_subt: true,
+    jobsheet_subt: true
   };
 
   let idx = 0;
@@ -13660,17 +13714,18 @@ exports.getpayablessettledrowsMdl = function (data, callback) {
     SELECT *, 'mainvoucher_subt' AS source_table FROM mainvoucher_subt WHERE payables_settled_by = ? AND d_in='0';
     SELECT *, 'fuelentry_subt' AS source_table FROM fuelentry_subt WHERE payables_settled_by = ? AND d_in='0';
     SELECT *, 'laundrybill_subt' AS source_table FROM laundrybill_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT *, 'jobsheet_subt' AS source_table FROM jobsheet_subt WHERE payables_settled_by = ? AND d_in='0';
     SELECT ed.*, 'expensive_details' AS source_table
       FROM expensive_details ed
       JOIN payables_settled_links psl ON psl.source_table='expensive_details' AND psl.source_id = ed.id
       WHERE psl.c_number = ? AND ed.d_in='0';
   `;
-  const params = [c_number, c_number, c_number, c_number];
+  const params = [c_number, c_number, c_number, c_number, c_number];
   if (!(callback && typeof callback === "function")) return dbutil.execQuery(sqldb, { sql: QRY_TO_EXEC, values: params }, cntxtDtls);
 
   dbutil.execQuery(sqldb, { sql: QRY_TO_EXEC, values: params }, cntxtDtls, function (err, results) {
     if (err) return callback(err, null);
-    const combined = [].concat(results[0] || [], results[1] || [], results[2] || [], results[3] || []);
+    const combined = [].concat(results[0] || [], results[1] || [], results[2] || [], results[3] || [], results[4] || []);
     if (combined.length === 0) return callback(null, combined);
 
     let idx = 0;
@@ -13729,17 +13784,18 @@ exports.unsettlePayablesRowsMdl = function (c_number, actorId, actorName, callba
     SELECT id, payment, balance, amount, 'mainvoucher_subt' AS source_table FROM mainvoucher_subt WHERE payables_settled_by = ? AND d_in='0';
     SELECT id, payment, balance, amount, 'fuelentry_subt' AS source_table FROM fuelentry_subt WHERE payables_settled_by = ? AND d_in='0';
     SELECT id, payment, balance, amount, 'laundrybill_subt' AS source_table FROM laundrybill_subt WHERE payables_settled_by = ? AND d_in='0';
+    SELECT id, payment, balance, amount, 'jobsheet_subt' AS source_table FROM jobsheet_subt WHERE payables_settled_by = ? AND d_in='0';
     SELECT ed.id, ed.payment, ed.balance, ed.amount, 'expensive_details' AS source_table
       FROM expensive_details ed
       JOIN payables_settled_links psl ON psl.source_table='expensive_details' AND psl.source_id = ed.id
       WHERE psl.c_number = ? AND ed.d_in='0';
   `;
-  const params = [c_number, c_number, c_number, c_number];
-  const SUPPORTS_SETTLED_BY = { mainvoucher_subt: true, fuelentry_subt: true, laundrybill_subt: true, expensive_details: false };
+  const params = [c_number, c_number, c_number, c_number, c_number];
+  const SUPPORTS_SETTLED_BY = { mainvoucher_subt: true, fuelentry_subt: true, laundrybill_subt: true, jobsheet_subt: true, expensive_details: false };
 
   dbutil.execQuery(sqldb, { sql: SELECT_QRY, values: params }, cntxtDtls, function (err, results) {
     if (err || !results) return callback && callback(err);
-    const rows = [].concat(results[0] || [], results[1] || [], results[2] || [], results[3] || []);
+    const rows = [].concat(results[0] || [], results[1] || [], results[2] || [], results[3] || [], results[4] || []);
     if (rows.length === 0) return callback && callback(null, { affected: 0 });
 
     let idx = 0;
@@ -14191,26 +14247,17 @@ exports.editJobMdl = function (data, callback) {
       console.log('[editJobMdl] DB SUCCESS for jobId:', jobId);
     }
     if (err || !hasLedgers) return callback(err, result);
-    // The job's voucher is posted at approval: an edit of the Debit / Credit
-    // lines afterwards is carried onto that voucher while it is still pending
-    // in Voucher Approvals. An approved voucher is left alone (it is locked;
-    // revert it there first).
-    sqldb.query("SELECT c_number, status FROM mainvoucher_t WHERE source_type = 'job' AND job_card_number = ? AND d_in = 0 ORDER BY id", [data.job_card_number || ''], function (vErr, vRows) {
-      if (vErr || !vRows || vRows.length !== 1 || Number(vRows[0].status) !== 0) return callback(err, result);
-      var merged = { description: (blocks[0] && blocks[0].description) || '', debit: [], credit: [] };
-      blocks.forEach(function (b) {
-        merged.debit = merged.debit.concat((b.debit || []).filter(function (e) { return e.ledger_id && parseFloat(e.amount); }));
-        merged.credit = merged.credit.concat((b.credit || []).filter(function (e) { return e.ledger_id && parseFloat(e.amount); }));
-      });
-      var ids = merged.debit.concat(merged.credit).map(function (e) { return Number(e.ledger_id); });
-      sqldb.query('SELECT id, temple_name FROM mainmasterssubchildtwo WHERE id IN (?)', [ids.length ? ids : [0]], function (nErr, nRows) {
-        var names = {};
-        (nRows || []).forEach(function (r) { names[String(r.id)] = r.temple_name; });
-        merged.debit.concat(merged.credit).forEach(function (e) { e.ledger_name = names[String(e.ledger_id)] || e.ledger_name || ''; });
-        exports.updateJobVoucherMdl({ c_number: vRows[0].c_number, voucher_blocks: [merged], user_id: data.user_id, user_name: data.user_name }, function (uErr) {
-          if (uErr) console.log('[editJobMdl] voucher sync failed:', uErr.message);
-          callback(err, result);
-        });
+    // An approved job's lines are in the books (jobsheet_subt): an edit of
+    // its Debit / Credit lines is carried onto them, on their original date.
+    exports.jobSheetRowsMdl(data.job_card_number, function (rErr, rows) {
+      if (rErr || !rows.length) return callback(err, result);
+      exports.postJobLedgerMdl({ id: jobId, job_card_number: data.job_card_number, voucher_blocks: blocks, user_id: data.user_id, user_name: data.user_name }, function (pErr) {
+        if (pErr) {
+          console.log('[editJobMdl] ledger sync failed:', pErr.userMessage || pErr.message);
+          var e2 = new Error(pErr.userMessage || pErr.message); e2.userMessage = 'Job saved, but its ledger lines were not updated: ' + (pErr.userMessage || pErr.message);
+          return callback(e2, result);
+        }
+        callback(err, result);
       });
     });
   });
@@ -14488,7 +14535,43 @@ exports.createGarageVouchersMdl = function (data, callback) {
   );
 };
 
-// Live garage vouchers already posted for a job card (source_type 'job').
+// ── Job Sheet ledger lines ──────────────────────────────────────────────────
+// A job's Debit / Credit lines reach the books the way a fuel entry's or a
+// trip's do: as the job's own ledger lines (jobsheet_subt, same shape as
+// fuelentry_subt, c_number = the job card number), not as a voucher. They are
+// written when DSP approves the job (admin_status 1 straight away - the job
+// approval IS the approval) and show in Ledger Wise, Day Book, Payables,
+// Balance Sheet, P&L and Group Wise. No voucher, nothing in Voucher Approvals.
+var jobSheetTableReady = null;
+function ensureJobSheetTable(cb) {
+  if (jobSheetTableReady === true) return cb(null);
+  sqldb.query("CREATE TABLE IF NOT EXISTS jobsheet_subt LIKE fuelentry_subt", function (err) {
+    if (err) return cb(err);
+    sqldb.query("SHOW COLUMNS FROM jobsheet_subt LIKE 'description'", function (cErr, cols) {
+      if (cErr) return cb(cErr);
+      var done = function (e) { if (!e) jobSheetTableReady = true; cb(e || null); };
+      if (cols && cols.length) return done();
+      sqldb.query("ALTER TABLE jobsheet_subt ADD COLUMN description TEXT DEFAULT NULL", function (aErr) { done(aErr && !/Duplicate column/i.test(aErr.message) ? aErr : null); });
+    });
+  });
+}
+exports.ensureJobSheetTable = ensureJobSheetTable;
+ensureJobSheetTable(function (err) { if (err) console.log('[job sheet] jobsheet_subt not ready:', err.message); });
+
+// Live job-sheet lines of a job card.
+exports.jobSheetRowsMdl = function (jobCardNumber, callback) {
+  if (!jobCardNumber) return callback(null, []);
+  ensureJobSheetTable(function (tErr) {
+    if (tErr) return callback(tErr);
+    sqldb.query("SELECT * FROM jobsheet_subt WHERE c_number = ? AND d_in = 0 ORDER BY id", [String(jobCardNumber)], function (err, rows) {
+      callback(err, rows || []);
+    });
+  });
+};
+
+// A job approved before this change may already have an approved voucher in
+// Voucher Approvals; that voucher is its entry in the books, so no lines are
+// written for it (they would count it twice).
 exports.jobVoucherNumbersMdl = function (jobCardNumber, callback) {
   if (!jobCardNumber) return callback(null, []);
   sqldb.query("SELECT c_number FROM mainvoucher_t WHERE source_type = 'job' AND job_card_number = ? AND d_in = 0 ORDER BY id",
@@ -14498,93 +14581,180 @@ exports.jobVoucherNumbersMdl = function (jobCardNumber, callback) {
     });
 };
 
-// Posts a job's Journal voucher(s) when the job is approved, from the approved
-// Debit / Credit lines. Each block must balance. A job that already has a live
-// voucher is not posted again (re-approval after a revert keeps the one it
-// has; edit that voucher instead). No lines at all = nothing to post.
-// Ledger names and the vehicle / driver are read from the database rather than
-// trusted from the screen. Calls back (err, [voucher numbers posted]); an
-// err.userMessage is safe to show as is.
-exports.postJobVoucherMdl = function (data, callback) {
+// Writes (or rewrites) a job's ledger lines from its Debit / Credit blocks.
+// Every block must balance. Ledger names and their groups, the vehicle and
+// the driver come from the database. data: { id, job_card_number,
+// voucher_blocks, user_id, user_name, voucher_date? }. A rewrite keeps the
+// date the lines were first booked on, and is refused once any line has been
+// settled in Payables. Calls back (err, { posted: n, date }); err.userMessage
+// is safe to show.
+exports.postJobLedgerMdl = function (data, callback) {
+  var moment = require('moment');
   var blocks = (data.voucher_blocks || []).map(function (b) {
     var lines = function (list) { return (list || []).filter(function (e) { return e && e.ledger_id && (parseFloat(e.amount) || 0) > 0; }); };
     return { description: b.description || '', debit: lines(b.debit), credit: lines(b.credit) };
   }).filter(function (b) { return b.debit.length || b.credit.length; });
-  if (!blocks.length) return callback(null, []);
   for (var i = 0; i < blocks.length; i++) {
     var sum = function (list) { return list.reduce(function (t, e) { return t + (parseFloat(e.amount) || 0); }, 0); };
     var d = sum(blocks[i].debit), c = sum(blocks[i].credit);
     if (!blocks[i].debit.length || !blocks[i].credit.length || Math.abs(d - c) > 0.005) {
-      var e = new Error('unbalanced'); e.userMessage = 'Voucher ' + (i + 1) + ' is not balanced (Debit ' + d.toFixed(2) + ' / Credit ' + c.toFixed(2) + '). Fix the Debit and Credit lines before approving.';
+      var e = new Error('unbalanced');
+      e.userMessage = (blocks.length > 1 ? 'Entry ' + (i + 1) + ' is' : 'The Debit and Credit lines are') + ' not balanced (Debit ' + d.toFixed(2) + ' / Credit ' + c.toFixed(2) + '). Fix them before approving.';
       return callback(e);
     }
   }
-  exports.jobVoucherNumbersMdl(data.job_card_number, function (err, existing) {
-    if (err) return callback(err);
-    if (existing.length) return callback(null, []);
-    var ids = [];
-    blocks.forEach(function (b) { b.debit.concat(b.credit).forEach(function (e) { ids.push(Number(e.ledger_id)); }); });
-    sqldb.query("SELECT id, temple_name FROM mainmasterssubchildtwo WHERE id IN (?); SELECT vj.vehicle_number, COALESCE(NULLIF(dr.nickname, ''), dr.driver_name, '') AS driver_name FROM vehicle_jobs vj LEFT JOIN driver_register dr ON dr.id = vj.reported_driver_id WHERE vj.id = ? LIMIT 1",
-      [ids, String(data.id || '')], function (qErr, res) {
-        if (qErr) return callback(qErr);
-        var names = {};
-        ((res && res[0]) || []).forEach(function (r) { names[String(r.id)] = r.temple_name; });
-        var job = (res && res[1] && res[1][0]) || {};
-        blocks.forEach(function (b) { b.debit.concat(b.credit).forEach(function (e) { e.ledger_name = names[String(e.ledger_id)] || e.ledger_name || ''; }); });
-        exports.createGarageVouchersMdl({
-          voucher_blocks: blocks,
-          job_card_number: data.job_card_number,
-          vehicle_number: job.vehicle_number || data.vehicle_number || '',
-          driver_name: job.driver_name || '',
-          entry_by: data.user_name || data.usr_nm || '',
-          user_id: data.user_id || 0,
-          voucher_date: data.voucher_date,
-        }, callback);
-      });
+  var jobNum = String(data.job_card_number || '');
+  if (!jobNum) return callback(null, { posted: 0 });
+  exports.jobVoucherNumbersMdl(jobNum, function (vErr, vouchers) {
+    if (vErr) return callback(vErr);
+    if (vouchers.length) return callback(null, { posted: 0, voucher: vouchers[0] });
+    exports.jobSheetRowsMdl(jobNum, function (rErr, existing) {
+      if (rErr) return callback(rErr);
+      if (existing.some(function (r) { return Number(r.payment) > 0 || r.payables_settled_by; })) {
+        var s = new Error('settled');
+        s.userMessage = 'This job\'s amount is already settled in Payables, so its Debit / Credit lines can\'t change. Undo that payment first.';
+        return callback(s);
+      }
+      var ids = [];
+      blocks.forEach(function (b) { b.debit.concat(b.credit).forEach(function (l) { ids.push(Number(l.ledger_id)); }); });
+      sqldb.query("SELECT * FROM mainmasterssubchildtwo WHERE id IN (?); SELECT vj.id, vj.vehicle_number FROM vehicle_jobs vj WHERE vj.job_card_number = ? AND COALESCE(vj.d_in, 0) = 0 ORDER BY vj.id DESC LIMIT 1",
+        [ids.length ? ids : [0], jobNum], function (qErr, res) {
+          if (qErr) return callback(qErr);
+          var masters = {};
+          ((res && res[0]) || []).forEach(function (m) { masters[String(m.id)] = m; });
+          var job = (res && res[1] && res[1][0]) || {};
+          var now = moment().utcOffset('+05:30');
+          var vDate = (existing[0] && existing[0].voucherdate) || (data.voucher_date ? String(data.voucher_date).slice(0, 10) : now.format('YYYY-MM-DD'));
+          var iTs = (existing[0] && existing[0].i_ts) || now.format('YYYY-MM-DD HH:mm:ss');
+          var rows = [];
+          blocks.forEach(function (b) {
+            var total = b.debit.reduce(function (t, l) { return t + (parseFloat(l.amount) || 0); }, 0);
+            var add = function (l, type) {
+              var m = masters[String(l.ledger_id)] || {};
+              rows.push({
+                parent_subgroup_id: m.parent_subgroup_id, parent_subchild_id: m.parent_subchild_id,
+                account_type: type, amount: String(parseFloat(l.amount) || 0),
+                child: m.child, staticname: m.staticname, district_id: m.district_id,
+                mandal_name: m.mandal_name, mandal_id: m.mandal_id, subchildtwo: m.subchildtwo, subchildtwo_id: m.subchildtwo_id,
+                expensives: m.temple_name || l.ledger_name || '', village_id: m.village_id, parent_grp_level: m.parent_grp_level,
+                ledger_id: String(l.ledger_id), i_ts: iTs, d_in: 0, lastinsert_id: String(job.id || data.id || ''),
+                c_number: jobNum, entry_by: data.user_name || data.usr_nm || '', user_id: Number(data.user_id) || 0,
+                vehicleNo: job.vehicle_number || data.vehicle_number || '', creditanddebitamount: String(total),
+                admin_status: 1, voucherdate: vDate, description: (b.description || '') + ' [Job: ' + jobNum + ']',
+              });
+            };
+            b.debit.forEach(function (l) { add(l, 'Debit Account'); });
+            b.credit.forEach(function (l) { add(l, 'Credit Account'); });
+          });
+          var cols = rows.length ? Object.keys(rows[0]) : [];
+          var sql = "UPDATE jobsheet_subt SET d_in = 1 WHERE c_number = ? AND d_in = 0;" +
+            (rows.length ? "INSERT INTO jobsheet_subt (" + cols.join(', ') + ") VALUES ?;" : '');
+          var params = [jobNum];
+          if (rows.length) params.push(rows.map(function (r) { return cols.map(function (k) { return r[k] === undefined ? null : r[k]; }); }));
+          sqldb.getConnection(function (cErr, conn) {
+            if (cErr) return callback(cErr);
+            conn.beginTransaction(function (bErr) {
+              if (bErr) { conn.release(); return callback(bErr); }
+              conn.query(sql, params, function (wErr) {
+                if (wErr) return conn.rollback(function () { conn.release(); callback(wErr); });
+                conn.commit(function (kErr) {
+                  if (kErr) return conn.rollback(function () { conn.release(); callback(kErr); });
+                  conn.release();
+                  callback(null, { posted: rows.length, date: vDate });
+                });
+              });
+            });
+          });
+        });
+    });
   });
 };
 
-// Jobs approved before approval posted vouchers have none: post one for each
-// from the lines saved at approval (job_ledger_entries), dated the day it was
-// approved. Runs once after boot; a job that has a voucher is skipped, so it
-// is safe to run again.
-exports.backfillApprovedJobVouchers = function (callback) {
+// Turns the job vouchers into job-sheet lines, once, after boot:
+//  - a job voucher still pending in Voucher Approvals (posted at approval or
+//    Complete Job, never approved there) becomes the job's ledger lines, on
+//    the voucher's date, and the voucher is withdrawn;
+//  - an approved / closed job with saved lines and no voucher gets its lines,
+//    dated the day it was approved;
+//  - an approved job voucher stays as it is (it is already in the books).
+// Safe to run again: a job that has lines or a voucher is skipped.
+exports.migrateJobVouchersToLedger = function (callback) {
   callback = callback || function () {};
-  sqldb.query("SELECT vj.id, vj.job_card_number, vj.approval_remarks, vj.finish_remarks, " +
-    "(SELECT DATE_FORMAT(MAX(s.action_at), '%Y-%m-%d') FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved') AS approved_at, " +
-    "(SELECT s.action_by_name FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved' ORDER BY s.action_at DESC LIMIT 1) AS approved_by, " +
-    "(SELECT s.action_by_id FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved' ORDER BY s.action_at DESC LIMIT 1) AS approved_by_id " +
-    "FROM vehicle_jobs vj WHERE vj.state = 'APPROVED' AND COALESCE(vj.d_in, 0) = 0 " +
-    "AND NOT EXISTS (SELECT 1 FROM mainvoucher_t mv WHERE mv.source_type = 'job' AND mv.job_card_number = vj.job_card_number AND mv.d_in = 0) " +
-    "AND EXISTS (SELECT 1 FROM job_ledger_entries le WHERE le.job_card_id = vj.id)", function (err, jobs) {
-    if (err) return callback(err);
-    var posted = [], failed = [], i = 0;
-    var next = function () {
-      if (i >= (jobs || []).length) {
-        if (posted.length || failed.length) console.log('[job vouchers] backfill posted:', posted.join('; ') || 'none', failed.length ? '| not posted: ' + failed.join('; ') : '');
-        return callback(null, { posted: posted, failed: failed });
-      }
-      var j = jobs[i++];
-      sqldb.query("SELECT ledger_id, amount, entry_type FROM job_ledger_entries WHERE job_card_id = ? ORDER BY id", [String(j.id)], function (lErr, lines) {
-        if (lErr) { failed.push(j.job_card_number + ' (' + lErr.message + ')'); return next(); }
-        var pick = function (t) { return (lines || []).filter(function (l) { return l.entry_type === t; }).map(function (l) { return { ledger_id: l.ledger_id, amount: l.amount }; }); };
-        exports.postJobVoucherMdl({
-          id: j.id, job_card_number: j.job_card_number,
-          voucher_blocks: [{ description: j.approval_remarks || j.finish_remarks || '', debit: pick('debit'), credit: pick('credit') }],
-          user_name: j.approved_by || '', user_id: j.approved_by_id || 0,
-          voucher_date: j.approved_at ? String(j.approved_at).slice(0, 10) : undefined,
-        }, function (pErr, nums) {
-          if (pErr) failed.push(j.job_card_number + ' (' + (pErr.userMessage || pErr.message) + ')');
-          else if (nums && nums.length) posted.push(j.job_card_number + ' -> ' + nums.join(', '));
-          next();
+  ensureJobSheetTable(function (tErr) {
+    if (tErr) return callback(tErr);
+    var done = [], failed = [];
+    sqldb.query("SELECT mv.c_number, mv.job_card_number, mv.voucherdate, mv.description, mv.entry_by, mv.user_id FROM mainvoucher_t mv " +
+      "WHERE mv.source_type = 'job' AND mv.d_in = 0 AND COALESCE(mv.status, 0) = 0 " +
+      "AND EXISTS (SELECT 1 FROM vehicle_jobs vj WHERE vj.job_card_number = mv.job_card_number AND vj.state IN ('APPROVED', 'CLOSED') AND COALESCE(vj.d_in, 0) = 0) ORDER BY mv.id", function (err, pending) {
+      if (err) return callback(err);
+      var i = 0;
+      var nextPending = function () {
+        if (i >= (pending || []).length) return backfill();
+        var v = pending[i++];
+        sqldb.query("SELECT id, ledger_id, amount, account_type FROM mainvoucher_subt WHERE c_number = ? AND d_in = 0 ORDER BY id", [v.c_number], function (lErr, lines) {
+          if (lErr) { failed.push(v.job_card_number + ' (' + lErr.message + ')'); return nextPending(); }
+          var pick = function (t) { return (lines || []).filter(function (l) { return l.account_type === t; }).map(function (l) { return { ledger_id: l.ledger_id, amount: l.amount }; }); };
+          var desc = String(v.description || '').replace(/\s*\[Job: [^\]]*\]\s*$/, '');
+          // Withdraw the voucher first, so postJobLedgerMdl doesn't see it.
+          sqldb.query("UPDATE mainvoucher_t SET d_in = 1 WHERE c_number = ? AND d_in = 0 AND COALESCE(status, 0) = 0; UPDATE mainvoucher_subt SET d_in = 1 WHERE c_number = ? AND d_in = 0", [v.c_number, v.c_number], function (dErr) {
+            if (dErr) { failed.push(v.job_card_number + ' (' + dErr.message + ')'); return nextPending(); }
+            exports.postJobLedgerMdl({
+              job_card_number: v.job_card_number, voucher_blocks: [{ description: desc, debit: pick('Debit Account'), credit: pick('Credit Account') }],
+              user_name: v.entry_by || '', user_id: v.user_id || 0, voucher_date: v.voucherdate ? String(v.voucherdate).slice(0, 10) : undefined,
+            }, function (pErr, r) {
+              if (pErr) {
+                // Put the voucher back rather than lose the entry.
+                var subIds = (lines || []).map(function (l) { return l.id; });
+                sqldb.query("UPDATE mainvoucher_t SET d_in = 0 WHERE c_number = ?; UPDATE mainvoucher_subt SET d_in = 0 WHERE id IN (?)", [v.c_number, subIds.length ? subIds : [0]], function () {});
+                failed.push(v.job_card_number + ' (' + (pErr.userMessage || pErr.message) + ')');
+              } else done.push(v.job_card_number + ': voucher ' + v.c_number + ' -> ' + (r && r.posted) + ' ledger lines');
+              nextPending();
+            });
+          });
         });
-      });
-    };
-    next();
+      };
+      var backfill = function () {
+        sqldb.query("SELECT vj.id, vj.job_card_number, vj.approval_remarks, vj.finish_remarks, " +
+          "(SELECT DATE_FORMAT(MAX(s.action_at), '%Y-%m-%d') FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved') AS approved_at, " +
+          "(SELECT s.action_by_name FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved' ORDER BY s.action_at DESC LIMIT 1) AS approved_by, " +
+          "(SELECT s.action_by_id FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved' ORDER BY s.action_at DESC LIMIT 1) AS approved_by_id " +
+          "FROM vehicle_jobs vj WHERE vj.state IN ('APPROVED', 'CLOSED') AND COALESCE(vj.d_in, 0) = 0 " +
+          "AND EXISTS (SELECT 1 FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved') " +
+          "AND NOT EXISTS (SELECT 1 FROM mainvoucher_t mv WHERE mv.source_type = 'job' AND mv.job_card_number = vj.job_card_number AND mv.d_in = 0) " +
+          "AND NOT EXISTS (SELECT 1 FROM jobsheet_subt js WHERE js.c_number = vj.job_card_number AND js.d_in = 0) " +
+          "AND EXISTS (SELECT 1 FROM job_ledger_entries le WHERE le.job_card_id = vj.id)", function (jErr, jobs) {
+          if (jErr) return callback(jErr);
+          var k = 0;
+          var nextJob = function () {
+            if (k >= (jobs || []).length) {
+              if (done.length || failed.length) console.log('[job sheet] ledger lines:', done.join('; ') || 'none', failed.length ? '| not done: ' + failed.join('; ') : '');
+              return callback(null, { done: done, failed: failed });
+            }
+            var j = jobs[k++];
+            sqldb.query("SELECT ledger_id, amount, entry_type FROM job_ledger_entries WHERE job_card_id = ? ORDER BY id", [String(j.id)], function (lErr, lines) {
+              if (lErr) { failed.push(j.job_card_number + ' (' + lErr.message + ')'); return nextJob(); }
+              var pick = function (t) { return (lines || []).filter(function (l) { return l.entry_type === t; }).map(function (l) { return { ledger_id: l.ledger_id, amount: l.amount }; }); };
+              exports.postJobLedgerMdl({
+                id: j.id, job_card_number: j.job_card_number,
+                voucher_blocks: [{ description: j.approval_remarks || j.finish_remarks || '', debit: pick('debit'), credit: pick('credit') }],
+                user_name: j.approved_by || '', user_id: j.approved_by_id || 0,
+                voucher_date: j.approved_at ? String(j.approved_at).slice(0, 10) : undefined,
+              }, function (pErr, r) {
+                if (pErr) failed.push(j.job_card_number + ' (' + (pErr.userMessage || pErr.message) + ')');
+                else if (r && r.posted) done.push(j.job_card_number + ' -> ' + r.posted + ' ledger lines (' + r.date + ')');
+                nextJob();
+              });
+            });
+          };
+          nextJob();
+        });
+      };
+      nextPending();
+    });
   });
 };
 setTimeout(function () {
-  exports.backfillApprovedJobVouchers(function (err) { if (err) console.log('[job vouchers] backfill failed:', err.message); });
+  exports.migrateJobVouchersToLedger(function (err) { if (err) console.log('[job sheet] migration failed:', err.message); });
 }, 25000).unref();
 
 exports.updateJobVoucherMdl = function (data, callback) {
