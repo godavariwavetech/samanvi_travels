@@ -6117,17 +6117,27 @@ exports.submitrepairtrackingCtrl = function (req, res) {
     return;
   }
 
-  appmdl.submitrepairtrackingMdl(data, function (err) {
-    if (err) { console.log(err); return res.send({ status: 500 }); }
-    var blocks = data.voucher_blocks || [];
-    var targetState = (data.target_state || 'CLOSED').toUpperCase();
-    // Only create accounting vouchers when closing the job
-    if (targetState !== 'CLOSED' || blocks.length === 0) {
-      return res.send({ status: 200, voucher_numbers: [] });
-    }
-    appmdl.createGarageVouchersMdl(data, function (err2, voucherNumbers) {
-      if (err2) { console.log(err2); return res.send({ status: 200, voucher_numbers: [] }); }
-      res.send({ status: 200, voucher_numbers: voucherNumbers || [] });
+  var blocks = data.voucher_blocks || [];
+  var targetState = (data.target_state || 'CLOSED').toUpperCase();
+  // The voucher is normally posted when the job is approved. Completing only
+  // posts one for a job that has none yet, and does so BEFORE closing it: a
+  // voucher that fails to save used to be swallowed after the job was already
+  // closed, leaving a completed job with no voucher and no error.
+  var voucherFirst = function (then) {
+    if (targetState !== 'CLOSED' || blocks.length === 0) return then([]);
+    appmdl.jobVoucherNumbersMdl(data.job_card_number, function (fErr, existing) {
+      if (fErr) return res.send({ status: 500, msg: 'Could not check the job voucher' });
+      if (existing && existing.length) return then([]);
+      appmdl.createGarageVouchersMdl(data, function (err2, voucherNumbers) {
+        if (err2) { console.log(err2); return res.send({ status: 500, msg: 'Voucher could not be created: ' + (err2.sqlMessage || err2.message) + '. The job was not completed.' }); }
+        then(voucherNumbers || []);
+      });
+    });
+  };
+  voucherFirst(function (voucherNumbers) {
+    appmdl.submitrepairtrackingMdl(data, function (err) {
+      if (err) { console.log(err); return res.send({ status: 500, msg: 'Job could not be completed' + (voucherNumbers.length ? ' (voucher ' + voucherNumbers.join(', ') + ' was created)' : '') }); }
+      res.send({ status: 200, voucher_numbers: voucherNumbers });
     });
   });
   });
@@ -6178,6 +6188,21 @@ exports.changeJobSatusCtrl = function (req, res) {
       if (actorError) return res.status(500).send({ status: 500, message: 'Could not record action details' });
       data = recorded;
     console.log('[changeJobSatus] id:', data.id, '| state:', data.state);
+    // Approval posts the job's Journal voucher first (from the approved Debit /
+    // Credit lines); if that fails the job is not marked approved, so an
+    // approved job never sits without its voucher.
+    var postFirst = stage === 'APPROVED'
+      ? function (then) {
+          appmdl.postJobVoucherMdl(data, function (vErr, posted) {
+            if (vErr) {
+              console.log('[changeJobSatus] voucher error:', vErr);
+              return res.status(400).send({ status: 400, msg: vErr.userMessage || ('Voucher could not be created: ' + (vErr.sqlMessage || vErr.message)) });
+            }
+            then(posted || []);
+          });
+        }
+      : function (then) { then([]); };
+    postFirst(function (voucherNumbers) {
     appmdl.changeJobSatusMdl(data, function (err, results) {
       if (err) {
         console.log('[changeJobSatus] DB error:', err);
@@ -6185,7 +6210,8 @@ exports.changeJobSatusCtrl = function (req, res) {
         return;
       }
       console.log('[changeJobSatus] affectedRows:', results && results.affectedRows);
-      res.send({ status: 200, data: results });
+      res.send({ status: 200, data: results, voucher_numbers: voucherNumbers });
+    });
     });
     });
   });

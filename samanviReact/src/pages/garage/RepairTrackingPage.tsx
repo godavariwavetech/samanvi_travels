@@ -749,9 +749,9 @@ export default function RepairTrackingPage() {
           toast.success('Job completed!')
           resetCompleteModal()
         }
-      } else toast.error('Failed to save')
+      } else toast.error(res?.msg || 'Failed to save')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e: any) => { if (e?.message !== 'Validation failed') toast.error(e?.response?.data?.msg || 'Server error') },
   })
 
   const { mutate: saveEdit, isPending: savingEdit } = useMutation({
@@ -904,14 +904,15 @@ export default function RepairTrackingPage() {
     },
     onSuccess: (res: any) => {
       if (res.status === 200) {
-        toast.success('Job approved!')
+        const vNums: string[] = res.voucher_numbers || []
+        toast.success(vNums.length ? `Job approved! Voucher ${vNums.join(', ')} created — see Voucher Approvals.` : 'Job approved!')
         setApproveModal({ open: false, job: null })
         setApproveRemarks('')
         setApproveVoucherBlocks([emptyVoucherBlock()])
         qc.invalidateQueries({ queryKey: ['repair-tracking'] })
       } else toast.error('Failed to approve job')
     },
-    onError: () => toast.error('Server error'),
+    onError: (e: any) => toast.error(e?.response?.data?.msg || e?.response?.data?.message || 'Server error'),
   })
 
 

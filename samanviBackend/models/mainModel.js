@@ -14190,7 +14190,29 @@ exports.editJobMdl = function (data, callback) {
     } else {
       console.log('[editJobMdl] DB SUCCESS for jobId:', jobId);
     }
-    callback(err, result);
+    if (err || !hasLedgers) return callback(err, result);
+    // The job's voucher is posted at approval: an edit of the Debit / Credit
+    // lines afterwards is carried onto that voucher while it is still pending
+    // in Voucher Approvals. An approved voucher is left alone (it is locked;
+    // revert it there first).
+    sqldb.query("SELECT c_number, status FROM mainvoucher_t WHERE source_type = 'job' AND job_card_number = ? AND d_in = 0 ORDER BY id", [data.job_card_number || ''], function (vErr, vRows) {
+      if (vErr || !vRows || vRows.length !== 1 || Number(vRows[0].status) !== 0) return callback(err, result);
+      var merged = { description: (blocks[0] && blocks[0].description) || '', debit: [], credit: [] };
+      blocks.forEach(function (b) {
+        merged.debit = merged.debit.concat((b.debit || []).filter(function (e) { return e.ledger_id && parseFloat(e.amount); }));
+        merged.credit = merged.credit.concat((b.credit || []).filter(function (e) { return e.ledger_id && parseFloat(e.amount); }));
+      });
+      var ids = merged.debit.concat(merged.credit).map(function (e) { return Number(e.ledger_id); });
+      sqldb.query('SELECT id, temple_name FROM mainmasterssubchildtwo WHERE id IN (?)', [ids.length ? ids : [0]], function (nErr, nRows) {
+        var names = {};
+        (nRows || []).forEach(function (r) { names[String(r.id)] = r.temple_name; });
+        merged.debit.concat(merged.credit).forEach(function (e) { e.ledger_name = names[String(e.ledger_id)] || e.ledger_name || ''; });
+        exports.updateJobVoucherMdl({ c_number: vRows[0].c_number, voucher_blocks: [merged], user_id: data.user_id, user_name: data.user_name }, function (uErr) {
+          if (uErr) console.log('[editJobMdl] voucher sync failed:', uErr.message);
+          callback(err, result);
+        });
+      });
+    });
   });
 };
 
@@ -14397,23 +14419,23 @@ exports.quickCompleteJobMdl = function (data, callback) {
 exports.createGarageVouchersMdl = function (data, callback) {
   const moment    = require('moment');
   const curDate   = moment().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
-  const vDate     = moment().utcOffset('+05:30').format('YYYY-MM-DD');
-  const datePart  = moment().utcOffset('+05:30').format('YYMMDD');
+  // A backfilled voucher carries the job's approval date; otherwise today.
+  const vDate     = data.voucher_date ? String(data.voucher_date).slice(0, 10) : moment().utcOffset('+05:30').format('YYYY-MM-DD');
+  const blocks    = data.voucher_blocks || [];
 
-  dbutil.execupdateQuery(sqldb,
-    `SELECT COUNT(*) as cnt FROM mainvoucher_t WHERE DATE(i_ts) = CURDATE()`,
-    [], 'garageVoucherCount',
-    function (err, countRes) {
+  // Numbers from the shared V<yymmdd><nnn> series (one past the highest used,
+  // deleted rows included). The old "count of today's vouchers + 1" reissued a
+  // number already taken whenever a voucher of the day had been deleted.
+  refnum.nextRefNumbers(sqldb, 'mainvoucher_t', 'V', vDate, blocks.length || 1,
+    function (err, numbers) {
       if (err) return callback(err, []);
-      let baseCount = countRes && countRes[0] ? (parseInt(countRes[0].cnt) || 0) : 0;
-      const blocks = data.voucher_blocks || [];
       const voucherNumbers = [];
 
       const insertBlock = function (idx) {
         if (idx >= blocks.length) return callback(null, voucherNumbers);
         const block    = blocks[idx];
-        const c_number = 'V' + datePart + String(baseCount + idx + 1).padStart(3, '0');
-        const c_id     = baseCount + idx + 1;
+        const c_number = numbers[idx];
+        const c_id     = parseInt(String(c_number).slice(-3), 10) || (idx + 1);
         const totalAmt = (block.debit || []).reduce(function (s, e) { return s + (parseFloat(e.amount) || 0); }, 0);
         const descText = ((block.description || '') + ' [Job: ' + (data.job_card_number || '') + ']').trim();
 
@@ -14465,6 +14487,105 @@ exports.createGarageVouchersMdl = function (data, callback) {
     }
   );
 };
+
+// Live garage vouchers already posted for a job card (source_type 'job').
+exports.jobVoucherNumbersMdl = function (jobCardNumber, callback) {
+  if (!jobCardNumber) return callback(null, []);
+  sqldb.query("SELECT c_number FROM mainvoucher_t WHERE source_type = 'job' AND job_card_number = ? AND d_in = 0 ORDER BY id",
+    [String(jobCardNumber)], function (err, rows) {
+      if (err) return callback(err);
+      callback(null, (rows || []).map(function (r) { return r.c_number; }));
+    });
+};
+
+// Posts a job's Journal voucher(s) when the job is approved, from the approved
+// Debit / Credit lines. Each block must balance. A job that already has a live
+// voucher is not posted again (re-approval after a revert keeps the one it
+// has; edit that voucher instead). No lines at all = nothing to post.
+// Ledger names and the vehicle / driver are read from the database rather than
+// trusted from the screen. Calls back (err, [voucher numbers posted]); an
+// err.userMessage is safe to show as is.
+exports.postJobVoucherMdl = function (data, callback) {
+  var blocks = (data.voucher_blocks || []).map(function (b) {
+    var lines = function (list) { return (list || []).filter(function (e) { return e && e.ledger_id && (parseFloat(e.amount) || 0) > 0; }); };
+    return { description: b.description || '', debit: lines(b.debit), credit: lines(b.credit) };
+  }).filter(function (b) { return b.debit.length || b.credit.length; });
+  if (!blocks.length) return callback(null, []);
+  for (var i = 0; i < blocks.length; i++) {
+    var sum = function (list) { return list.reduce(function (t, e) { return t + (parseFloat(e.amount) || 0); }, 0); };
+    var d = sum(blocks[i].debit), c = sum(blocks[i].credit);
+    if (!blocks[i].debit.length || !blocks[i].credit.length || Math.abs(d - c) > 0.005) {
+      var e = new Error('unbalanced'); e.userMessage = 'Voucher ' + (i + 1) + ' is not balanced (Debit ' + d.toFixed(2) + ' / Credit ' + c.toFixed(2) + '). Fix the Debit and Credit lines before approving.';
+      return callback(e);
+    }
+  }
+  exports.jobVoucherNumbersMdl(data.job_card_number, function (err, existing) {
+    if (err) return callback(err);
+    if (existing.length) return callback(null, []);
+    var ids = [];
+    blocks.forEach(function (b) { b.debit.concat(b.credit).forEach(function (e) { ids.push(Number(e.ledger_id)); }); });
+    sqldb.query("SELECT id, temple_name FROM mainmasterssubchildtwo WHERE id IN (?); SELECT vj.vehicle_number, COALESCE(NULLIF(dr.nickname, ''), dr.driver_name, '') AS driver_name FROM vehicle_jobs vj LEFT JOIN driver_register dr ON dr.id = vj.reported_driver_id WHERE vj.id = ? LIMIT 1",
+      [ids, String(data.id || '')], function (qErr, res) {
+        if (qErr) return callback(qErr);
+        var names = {};
+        ((res && res[0]) || []).forEach(function (r) { names[String(r.id)] = r.temple_name; });
+        var job = (res && res[1] && res[1][0]) || {};
+        blocks.forEach(function (b) { b.debit.concat(b.credit).forEach(function (e) { e.ledger_name = names[String(e.ledger_id)] || e.ledger_name || ''; }); });
+        exports.createGarageVouchersMdl({
+          voucher_blocks: blocks,
+          job_card_number: data.job_card_number,
+          vehicle_number: job.vehicle_number || data.vehicle_number || '',
+          driver_name: job.driver_name || '',
+          entry_by: data.user_name || data.usr_nm || '',
+          user_id: data.user_id || 0,
+          voucher_date: data.voucher_date,
+        }, callback);
+      });
+  });
+};
+
+// Jobs approved before approval posted vouchers have none: post one for each
+// from the lines saved at approval (job_ledger_entries), dated the day it was
+// approved. Runs once after boot; a job that has a voucher is skipped, so it
+// is safe to run again.
+exports.backfillApprovedJobVouchers = function (callback) {
+  callback = callback || function () {};
+  sqldb.query("SELECT vj.id, vj.job_card_number, vj.approval_remarks, vj.finish_remarks, " +
+    "(SELECT DATE_FORMAT(MAX(s.action_at), '%Y-%m-%d') FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved') AS approved_at, " +
+    "(SELECT s.action_by_name FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved' ORDER BY s.action_at DESC LIMIT 1) AS approved_by, " +
+    "(SELECT s.action_by_id FROM job_approval_stages s WHERE s.job_card_id = vj.id AND s.action = 'approved' ORDER BY s.action_at DESC LIMIT 1) AS approved_by_id " +
+    "FROM vehicle_jobs vj WHERE vj.state = 'APPROVED' AND COALESCE(vj.d_in, 0) = 0 " +
+    "AND NOT EXISTS (SELECT 1 FROM mainvoucher_t mv WHERE mv.source_type = 'job' AND mv.job_card_number = vj.job_card_number AND mv.d_in = 0) " +
+    "AND EXISTS (SELECT 1 FROM job_ledger_entries le WHERE le.job_card_id = vj.id)", function (err, jobs) {
+    if (err) return callback(err);
+    var posted = [], failed = [], i = 0;
+    var next = function () {
+      if (i >= (jobs || []).length) {
+        if (posted.length || failed.length) console.log('[job vouchers] backfill posted:', posted.join('; ') || 'none', failed.length ? '| not posted: ' + failed.join('; ') : '');
+        return callback(null, { posted: posted, failed: failed });
+      }
+      var j = jobs[i++];
+      sqldb.query("SELECT ledger_id, amount, entry_type FROM job_ledger_entries WHERE job_card_id = ? ORDER BY id", [String(j.id)], function (lErr, lines) {
+        if (lErr) { failed.push(j.job_card_number + ' (' + lErr.message + ')'); return next(); }
+        var pick = function (t) { return (lines || []).filter(function (l) { return l.entry_type === t; }).map(function (l) { return { ledger_id: l.ledger_id, amount: l.amount }; }); };
+        exports.postJobVoucherMdl({
+          id: j.id, job_card_number: j.job_card_number,
+          voucher_blocks: [{ description: j.approval_remarks || j.finish_remarks || '', debit: pick('debit'), credit: pick('credit') }],
+          user_name: j.approved_by || '', user_id: j.approved_by_id || 0,
+          voucher_date: j.approved_at ? String(j.approved_at).slice(0, 10) : undefined,
+        }, function (pErr, nums) {
+          if (pErr) failed.push(j.job_card_number + ' (' + (pErr.userMessage || pErr.message) + ')');
+          else if (nums && nums.length) posted.push(j.job_card_number + ' -> ' + nums.join(', '));
+          next();
+        });
+      });
+    };
+    next();
+  });
+};
+setTimeout(function () {
+  exports.backfillApprovedJobVouchers(function (err) { if (err) console.log('[job vouchers] backfill failed:', err.message); });
+}, 25000).unref();
 
 exports.updateJobVoucherMdl = function (data, callback) {
   var moment = require('moment');
