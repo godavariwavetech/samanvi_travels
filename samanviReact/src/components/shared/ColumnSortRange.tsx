@@ -31,8 +31,9 @@ export function RangeFilterDropdown({ kind, value, onChange, dir, onSort, unit, 
   kind: 'number' | 'date'
   value: RangeValue
   onChange: (v: RangeValue) => void
-  dir: SortDir
-  onSort: (d: SortDir) => void
+  /** Leave out dir / onSort for a range-only filter (no sort buttons). */
+  dir?: SortDir
+  onSort?: (d: SortDir) => void
   unit?: string
   variant?: 'light' | 'dark'
 }) {
@@ -76,7 +77,7 @@ export function RangeFilterDropdown({ kind, value, onChange, dir, onSort, unit, 
         <div id="range-filter-panel" onMouseDown={e => e.stopPropagation()}
           style={{ position: 'fixed', top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 268)), zIndex: 99998 }}
           className="w-64 rounded-xl border border-slate-200 bg-white shadow-2xl p-3 space-y-3 text-left font-normal">
-          <div>
+          {onSort && <div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Sort</div>
             <div className="grid grid-cols-2 gap-1.5">
               {(['asc', 'desc'] as const).map((d, i) => (
@@ -87,7 +88,7 @@ export function RangeFilterDropdown({ kind, value, onChange, dir, onSort, unit, 
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1.5">Range{unit ? ` (${unit})` : ''}</div>
             {kind === 'date' ? (

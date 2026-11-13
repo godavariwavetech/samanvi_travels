@@ -59,7 +59,7 @@ export default function RepairTrackingPage() {
   const [stageFilter, setStageFilter] = useState('OPEN')
   const [colFilters, setColFilters]   = useState<Record<string, string[]>>({})
   const [ranges, setRanges]           = useState<Record<string, RangeValue>>({})
-  const [sort, setSort]               = useState<{ key: string; dir: SortDir }>({ key: 'priority', dir: 'desc' }) // High priority first by default
+  const [sort, setSort]               = useState<{ key: string; dir: SortDir }>({ key: 'dueDays', dir: 'desc' }) // oldest jobs (most due days) first; only Due Days sorts
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate]     = useState('')
 
@@ -1047,21 +1047,21 @@ export default function RepairTrackingPage() {
               <tr>
                 {([
                   { label: 'Sl No' },
-                  { label: 'Job Card Number', fk: 'jobCard',     sk: 'jobCard' },
+                  { label: 'Job Card Number', fk: 'jobCard' },
                   { label: 'Created Date',                       sk: 'createdDate', range: 'date' },
-                  { label: 'Due Days',                           sk: 'dueDays',     range: 'number', unit: 'days' },
-                  { label: 'Bus No',          fk: 'busNo',       sk: 'busNo' },
-                  { label: 'Repair Category', fk: 'category',    sk: 'category' },
-                  { label: 'Description',     fk: 'description', sk: 'description' },
-                  { label: 'Priority',        fk: 'priority',    sk: 'priority' },
-                  { label: 'Driver',          fk: 'driver',      sk: 'driver' },
+                  { label: 'Due Days',                           sk: 'dueDays',     range: 'number', unit: 'days', sortable: true },
+                  { label: 'Bus No',          fk: 'busNo' },
+                  { label: 'Repair Category', fk: 'category' },
+                  { label: 'Description',     fk: 'description' },
+                  { label: 'Priority',        fk: 'priority' },
+                  { label: 'Driver',          fk: 'driver' },
                   { label: 'Odometer',                           sk: 'odometer',    range: 'number', unit: 'km' },
                   { label: 'Amount',                             sk: 'amount',      range: 'number', unit: '₹' },
-                  { label: 'Assigned To',     fk: 'assignedTo',  sk: 'assignedTo' },
-                  { label: 'Created By',      fk: 'createdBy',   sk: 'createdBy' },
-                  { label: 'Status',          fk: 'status',      sk: 'status' },
+                  { label: 'Assigned To',     fk: 'assignedTo' },
+                  { label: 'Created By',      fk: 'createdBy' },
+                  { label: 'Status',          fk: 'status' },
                   { label: 'Action' },
-                ] as { label: string; fk?: string; sk?: string; range?: 'number' | 'date'; unit?: string }[]).map(({ label, fk, sk, range, unit }) => (
+                ] as { label: string; fk?: string; sk?: string; range?: 'number' | 'date'; unit?: string; sortable?: boolean }[]).map(({ label, fk, sk, range, unit, sortable }) => (
                   <th key={label} className="sticky top-0 z-10 px-3 py-2.5 text-left text-xs font-bold text-white whitespace-nowrap bg-blue-600 border-r border-blue-500 last:border-0">
                     <div className="flex items-center gap-1.5">
                       <span>{label}</span>
@@ -1078,10 +1078,10 @@ export default function RepairTrackingPage() {
                         <RangeFilterDropdown kind={range} unit={unit}
                           value={ranges[sk] ?? { min: '', max: '' }}
                           onChange={v => setRanges(rg => ({ ...rg, [sk]: v }))}
-                          dir={sort.key === sk ? sort.dir : null}
-                          onSort={d => setSort({ key: sk, dir: d })} />
+                          dir={sortable ? (sort.key === sk ? sort.dir : null) : undefined}
+                          onSort={sortable ? (d => setSort({ key: sk, dir: d })) : undefined} />
                       )}
-                      {sk && (
+                      {sk && sortable && (
                         <SortToggle dir={sort.key === sk ? sort.dir : null} onChange={d => setSort({ key: sk, dir: d })} />
                       )}
                     </div>
