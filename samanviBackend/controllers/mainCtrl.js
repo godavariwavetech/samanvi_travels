@@ -3629,15 +3629,49 @@ exports.submitvoucherentrydataCtrl = function (req, res) {
   // });
 };
 
+// Deletes a voucher (soft: d_in = 1). Pending and rejected vouchers can be
+// deleted with the Delete right; an approved one only by an approved-voucher
+// editor (DSP / Super Admin), as with revert/edit. Refused when the voucher's
+// own lines were already paid in Payables, or when it belongs to a trip (it is
+// handled from the trip). A payment voucher hands back what it had settled.
 exports.deletevoucherentryCtrl = function (req, res) {
   const { encryptedPayload, signature } = req.body;
-  const data = decryptPayload(encryptedPayload);
-  appmdl.deletevouchertypebill2(data, function (err, results) {
-    if (err) {
-      res.send(500, "Server Error");
-      return;
-    }
-    res.send({ status: 200, data: results });
+  let data;
+  try {
+    validateSignature(encryptedPayload, signature);
+    data = decryptPayload(encryptedPayload);
+  } catch (e) {
+    return res.send({ status: 400, msg: 'Invalid request' });
+  }
+  const c_number = String((data && data.c_number) || '').trim();
+  if (!c_number) return res.send({ status: 400, msg: 'Voucher number missing' });
+  const db = require('../config/dbconnect');
+  guardApprovedVoucher(req.auth && req.auth.usid, c_number, function (denied) {
+    if (denied) return res.send({ status: denied.code, msg: 'Approved vouchers can only be deleted by DSP' });
+    db.query(
+      "SELECT COUNT(*) AS n FROM mainvoucher_subt WHERE c_number = ? AND d_in = 0 AND (COALESCE(payment, 0) > 0 OR COALESCE(payables_settled_by, '') <> '');" +
+      " SELECT c_number FROM trip_created WHERE voucher_number = ? AND d_in = 0 LIMIT 1;" +
+      " SELECT trip_c_number FROM mainvoucher_t WHERE c_number = ? AND d_in = 0 LIMIT 1",
+      [c_number, c_number, c_number], function (qErr, r) {
+        if (qErr) return res.send({ status: 500, msg: 'Could not check the voucher' });
+        if (Number(r[0][0] && r[0][0].n) > 0) return res.send({ status: 409, msg: 'This voucher is already paid in Payables. Undo that payment first.' });
+        const trip = (r[1][0] && r[1][0].c_number) || (r[2][0] && r[2][0].trip_c_number);
+        if (trip) return res.send({ status: 409, msg: 'This voucher belongs to trip ' + trip + '. Change it from the trip.' });
+        require('../utils/tripActionActor').tripActionData(db, req.auth, {}, function (aErr, actor) {
+          const byId = String((actor && (actor.user_id || actor.usid)) || (req.auth && req.auth.usid) || '');
+          const byName = String((actor && (actor.user_name || actor.named || actor.usr_nm)) || '');
+          appmdl.unsettlePayablesRowsMdl(c_number, byId, byName, function (uErr) {
+            if (uErr) { console.error('[deletevoucherentry] unsettle failed:', uErr); return res.send({ status: 500, msg: 'Could not undo the payments this voucher made' }); }
+            const now = require('moment')().utcOffset('+05:30').format('YYYY-MM-DD HH:mm:ss');
+            db.query("UPDATE mainvoucher_t SET d_in = 1, deleted_by_id = ?, deleted_by_name = ?, deleted_by_date = ? WHERE c_number = ? AND d_in = 0; UPDATE mainvoucher_subt SET d_in = 1 WHERE c_number = ? AND d_in = 0",
+              [byId, byName, now, c_number, c_number], function (dErr) {
+                if (dErr) { console.error('[deletevoucherentry]', dErr); return res.send({ status: 500, msg: 'Server error' }); }
+                appmdl.insertVoucherAuditMdl({ c_number: c_number, action: 'deleted', action_by_id: byId, action_by_name: byName, action_at: now, changes_note: data.reason || '' }, function () {});
+                res.send({ status: 200 });
+              });
+          });
+        });
+      });
   });
 };
 

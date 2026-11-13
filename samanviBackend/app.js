@@ -226,6 +226,10 @@ sqldb_init.query(`
 `, function(err) {
     if (err) console.error('Failed to create mainvoucher_audit table:', err.message);
     else console.log('mainvoucher_audit table ready');
+    // Deleting a voucher is recorded in its history too.
+    sqldb_init.query("ALTER TABLE mainvoucher_audit MODIFY action ENUM('created','edited','approved','rejected','deleted') NOT NULL", function (aErr) {
+        if (aErr) console.error('mainvoucher_audit action list:', aErr.message);
+    });
 });
 
 // Ensure rejection_reason column exists in mainvoucher_t

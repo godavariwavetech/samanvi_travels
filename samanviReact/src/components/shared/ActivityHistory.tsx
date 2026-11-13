@@ -1,4 +1,4 @@
-import { Clock, BookOpen, Pencil, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { Clock, BookOpen, Pencil, CheckCircle, XCircle, AlertCircle, Trash2 } from 'lucide-react'
 
 export interface HistoryEntry {
   action: string
@@ -94,6 +94,7 @@ export default function ActivityHistory({ data, initialCreator, initialDate }: A
             edited:   { dot: 'from-amber-400 to-amber-600',     bar: 'bg-amber-500',   badge: 'bg-amber-100 text-amber-700 border-amber-200',       label: 'Edited',   Icon: Pencil },
             approved: { dot: 'from-emerald-400 to-emerald-600', bar: 'bg-emerald-600', badge: 'bg-emerald-100 text-emerald-700 border-emerald-200', label: 'Approved', Icon: CheckCircle },
             rejected: { dot: 'from-red-400 to-red-600',         bar: 'bg-red-600',     badge: 'bg-red-100 text-red-700 border-red-200',             label: 'Rejected', Icon: XCircle },
+            deleted:  { dot: 'from-slate-500 to-slate-700',     bar: 'bg-slate-700',   badge: 'bg-slate-200 text-slate-700 border-slate-300',       label: 'Deleted',  Icon: Trash2 },
           }
           const c = cfg[entry.action] ?? {
             dot: 'from-slate-400 to-slate-500', bar: 'bg-slate-500',

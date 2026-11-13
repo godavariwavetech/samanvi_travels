@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { CheckCircle, XCircle, Eye, Search, CreditCard, Pencil, Save, X, BookOpen, Trash2, Clock, History, ChevronDown, Plus, Check, RefreshCw, Wrench, RotateCcw, BatteryCharging, CircleDot, Map } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DateRangePicker, DualScrollTable, LedgerGroupTag, useLedgerGroupOf, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, PageHeader, FYSelector, DateRangePicker, DualScrollTable, LedgerGroupTag, useLedgerGroupOf, DateField, askDelete } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { accountingService } from '@/services/accounting.service'
 import { mastersService } from '@/services/masters.service'
@@ -246,7 +246,9 @@ const buildCols = (
   onReopen: (row: any) => void,
   mode: string,
   fOpts: FilterOpts,
-  optCols: Set<string>
+  optCols: Set<string>,
+  onDelete?: (row: any) => void,
+  canDeleteRow?: (row: any) => boolean,
 ): Column[] => {
   // Required cols always show; optional cols depend on the picker
   const show = (id: string) => (REQUIRED_VOUCHER_COLS as readonly string[]).includes(id) || optCols.has(id)
@@ -423,6 +425,9 @@ const buildCols = (
             <button onClick={() => onReopen(row)} title="Reopen for review" className="p-1.5 text-amber-600 bg-amber-50 border border-amber-100 rounded-lg hover:bg-amber-100"><RotateCcw className="w-4 h-4" /></button>
             <button onClick={() => onApprove(row)} title="Approve directly" className="p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100"><CheckCircle className="w-4 h-4" /></button>
           </>
+        )}
+        {onDelete && canDeleteRow?.(row) && (
+          <button onClick={() => onDelete(row)} title="Delete voucher" className="p-1.5 text-slate-500 bg-slate-50 border border-slate-200 rounded-lg hover:bg-red-50 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
         )}
       </div>
     ),
@@ -636,7 +641,7 @@ import { useCanReviseApproved } from '@/lib/approvedEditors'
 // voucher. The list behind it stays hidden; `onViewClose` fires when the sheet closes.
 export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound }: { viewRef?: string; onViewClose?: () => void; onNotFound?: () => void } = {}) {
   const embedded = !!viewRef
-  const { canEdit, canApprove } = usePermissions(embedded ? '/accounting/voucher-approvals' : undefined)
+  const { canEdit, canApprove, canDelete } = usePermissions(embedded ? '/accounting/voucher-approvals' : undefined)
   const canReviseApproved = useCanReviseApproved()
   const canEditVoucher = canEdit || canReviseApproved
   const jobPermissions = usePermissions('/garage/tracking')
@@ -1106,6 +1111,24 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
     onError: () => toast.error('Server error'),
   })
 
+  // Delete: pending / rejected with the Delete right; approved ones only by
+  // DSP (the approved-voucher editor). The server checks the same and refuses
+  // a voucher already paid in Payables or one that belongs to a trip.
+  const canDeleteRow = (row: any) => canDelete && (Number(row.status) !== 1 || canReviseApproved)
+  const { mutate: deleteVoucher } = useMutation({
+    mutationFn: ({ row, reason }: { row: any; reason: string }) => accountingService.deleteVoucher({ c_number: row.c_number, reason }),
+    onSuccess: (res: any, { row }) => {
+      if (res?.status === 200) {
+        toast.success(`Voucher ${row.c_number} deleted`)
+        if (viewModal && String(viewModal.c_number) === String(row.c_number)) setViewModal(null)
+        qc.invalidateQueries({ queryKey: ['voucher-pending'] })
+        qc.invalidateQueries({ queryKey: ['voucher-search'] })
+      } else toast.error(res?.msg || 'Could not delete the voucher')
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.msg || 'Server error'),
+  })
+  const handleDelete = (row: any) => askDelete(`voucher ${row.c_number}`, (reason) => deleteVoucher({ row, reason }), row)
+
   const handleApprove = (row: any) => updateStatus({ row, status: 1 })
   const handleReopen = (row: any) => updateStatus({ row, status: 0 })
   const handleView = (row: any) => setViewModal(row)
@@ -1403,7 +1426,7 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
           staffOptions: staffFilterOpts,
           entryByOpts,
           ledgerGroupOf,
-        }, optionalCols) as any}
+        }, optionalCols, handleDelete, canDeleteRow) as any}
         data={tableData}
         paginated
         pageSize={50}
