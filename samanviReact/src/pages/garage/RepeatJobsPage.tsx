@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RepeatIcon, AlertCircle, CalendarDays, Clock, Zap, BellRing } from 'lucide-react'
 import { toast } from 'sonner'
-import { GlassCard, PageHeader, DataTable } from '@/components/shared'
+import { GlassCard, PageHeader, DataTable, PriorityBadge, PriorityOption, normPriority } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 
@@ -71,7 +71,7 @@ export default function RepeatJobsPage() {
   })
 
   const list: any[] = data?.data ?? []
-  const displayList = list.map((r) => ({ ...r, display_state: stateLabel(r.state) }))
+  const displayList = list.map((r) => ({ ...r, display_state: stateLabel(r.state), priority_label: normPriority(r.priority) }))
 
   const overdue   = list.filter(r => r.next_job_date && Number(r.days_until) < 0).length
   const dueToday  = list.filter(r => r.next_job_date && Number(r.days_until) === 0).length
@@ -97,6 +97,7 @@ export default function RepeatJobsPage() {
     ) },
     { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => <span className="font-medium text-slate-700 text-xs">{String(v ?? '—')}</span> },
     { label: 'Category', key: 'all_categories', filterable: true, render: (_v, row: any) => <span className="text-slate-600 text-xs">{row.all_categories || row.repair_category_name || '—'}</span> },
+    { label: 'Priority', key: 'priority_label', align: 'center', filterable: true, filterOptionRender: (v) => <PriorityOption value={v} />, render: (v) => <PriorityBadge value={v} /> },
     { label: 'Driver', key: 'driver_name', filterable: true, render: (v) => <span className="text-slate-600 text-xs">{String(v ?? '—')}</span> },
     { label: 'Technician', key: 'staff_name', filterable: true, render: (v) => <span className="text-slate-600 text-xs">{String(v ?? '—')}</span> },
     { label: 'Status', key: 'display_state', filterable: true, render: (v) => stateBadge(String(v)) },

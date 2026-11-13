@@ -3,7 +3,7 @@ import { motion } from 'motion/react'
 import { Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup, DateRangePicker } from '@/components/shared'
+import { GlassCard, Button, Input, Label, DataTable, Badge, PageHeader, SearchableSelect, LedgerNameWithGroup, DateRangePicker, PriorityBadge, PriorityOption, PrioritySelect, normPriority } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -47,6 +47,7 @@ const cols: Column[] = [
   { label: 'Job Card', key: 'job_card_number', filterable: true, render: (v) => <span className="font-bold text-blue-600">{String(v ?? '—')}</span> },
   { label: 'Bus', key: 'vehicle_number', filterable: true, render: (v) => <span>{String(v ?? '—')}</span> },
   { label: 'Category', key: 'display_category', filterable: true, render: (v) => v ? <Badge variant="warning">{String(v)}</Badge> : <span className="text-slate-300">—</span> },
+  { label: 'Priority', key: 'priority_label', align: 'center', filterable: true, filterOptionRender: (v) => <PriorityOption value={v} />, render: (v) => <PriorityBadge value={v} /> },
   { label: 'Parts Cost', key: 'parts_cost', align: 'right', render: (v) => <span className="font-medium">₹{Number(v ?? 0).toLocaleString('en-IN')}</span> },
   { label: 'Labour', key: 'labour_cost', align: 'right', render: (v) => <span className="font-medium">₹{Number(v ?? 0).toLocaleString('en-IN')}</span> },
   { label: 'Total', key: 'total_amount', align: 'right', render: (v) => <span className="font-bold text-slate-900">₹{Number(v ?? 0).toLocaleString('en-IN')}</span> },
@@ -58,7 +59,7 @@ const cols: Column[] = [
 const today = todayISO()
 
 export default function GarageReportsPage() {
-  const [filter, setFilter] = useState({ bus_no: '', from_date: '', to_date: '', category: '' })
+  const [filter, setFilter] = useState({ bus_no: '', from_date: '', to_date: '', category: '', priority: '' })
   const [applied, setApplied] = useState(filter)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
 
@@ -66,7 +67,7 @@ export default function GarageReportsPage() {
   const { data: buses, refetch: reloadBuses, isFetching: loadingBuses } = useQuery({ queryKey: ['buses'], queryFn: () => fuelService.getBusNumbers() })
   const { data: categories, refetch: reloadCats, isFetching: loadingCats } = useQuery({ queryKey: ['repair-cats'], queryFn: () => garageService.getCategories() })
 
-  const rawList: any[] = data?.data ?? []
+  const rawList: any[] = useMemo(() => (data?.data ?? []).map((r: any) => ({ ...r, priority_label: normPriority(r.priority) })), [data])
   const catList: any[] = categories?.data ?? []
   const busList: any[] = buses?.data ?? []
 
@@ -77,6 +78,7 @@ export default function GarageReportsPage() {
     return rawList
       .filter((r) => !applied.bus_no || r.vehicle_number === applied.bus_no)
       .filter((r) => !applied.category || categoryOf(r).split(',').map((s: string) => s.trim()).includes(applied.category))
+      .filter((r) => !applied.priority || normPriority(r.priority) === applied.priority)
       .filter((r) => {
         if (!from && !to) return true
         const d = new Date(r.job_date || r.created_at).getTime()
@@ -121,6 +123,8 @@ export default function GarageReportsPage() {
               onReload={() => reloadCats()}
               reloading={loadingCats}
             /></div>
+          <div className="w-40"><Label>Priority</Label>
+            <PrioritySelect allowEmpty placeholder="All Priorities" value={filter.priority} onChange={(v) => setFilter({ ...filter, priority: v })} /></div>
           <div>
             <Label>Date / Date range</Label>
             <DateRangePicker max={today} from={filter.from_date} to={filter.to_date}

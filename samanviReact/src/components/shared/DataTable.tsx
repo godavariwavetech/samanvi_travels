@@ -25,6 +25,8 @@ export interface Column<T = Record<string, unknown>> {
   filterable?: boolean
   filterType?: 'text' | 'select' | 'date'
   filterOptions?: { label: string; value: string }[]
+  /** Custom look for a value in the column's filter list. */
+  filterOptionRender?: (value: string) => ReactNode
   align?: 'left' | 'center' | 'right'
   /** Header background in place of the default blue, e.g. 'bg-emerald-600'. */
   headerClassName?: string
@@ -499,6 +501,7 @@ export function DataTable<T extends Record<string, unknown>>({
                         selected={columnFilters?.[col.key] ?? []}
                         onChange={vals => onColumnFilterChange?.(col.key, vals)}
                         variant="light"
+                        renderOption={col.filterOptionRender}
                       />
                     )}
                   </div>

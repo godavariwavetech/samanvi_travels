@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw, Clock, Wrench, CalendarDays, BellRing } from 'lucide-react'
-import { GlassCard, PageHeader, DataTable } from '@/components/shared'
+import { GlassCard, PageHeader, DataTable, PriorityBadge, PriorityOption, normPriority } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 
@@ -54,8 +54,8 @@ export default function ScheduledJobsPage() {
   const list: any[] = data?.data ?? []
 
   const { upcoming, autojobs } = useMemo(() => ({
-    upcoming: list.filter(r => r.insertion_type !== 'Automatic' && r.next_job_date).map(r => ({ ...r, display_state: stateLabel(r.state) })),
-    autojobs: list.filter(r => r.insertion_type === 'Automatic').map(r => ({ ...r, display_state: stateLabel(r.state) })),
+    upcoming: list.filter(r => r.insertion_type !== 'Automatic' && r.next_job_date).map(r => ({ ...r, display_state: stateLabel(r.state), priority_label: normPriority(r.priority) })),
+    autojobs: list.filter(r => r.insertion_type === 'Automatic').map(r => ({ ...r, display_state: stateLabel(r.state), priority_label: normPriority(r.priority) })),
   }), [list])
 
   const upcomingCols: Column[] = [
@@ -70,6 +70,7 @@ export default function ScheduledJobsPage() {
     ) },
     { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => <span className="text-slate-700">{String(v ?? '—')}</span> },
     { label: 'Category', key: 'all_categories', filterable: true, render: (_v, row: any) => <span className="text-slate-700">{row.all_categories || row.repair_category_name || '—'}</span> },
+    { label: 'Priority', key: 'priority_label', align: 'center', filterable: true, filterOptionRender: (v) => <PriorityOption value={v} />, render: (v) => <PriorityBadge value={v} /> },
     { label: 'Assigned To', key: 'staff_name', filterable: true, render: (v) => <span className="text-slate-600">{String(v ?? '—')}</span> },
     { label: 'Job Status', key: 'display_state', filterable: true, render: (v) => stateBadge(String(v)) },
     { label: 'Next Service Date', key: 'next_job_date', align: 'center', render: (v) => <span className="text-slate-700 font-medium">{fmtDate(v)}</span> },
@@ -95,6 +96,7 @@ export default function ScheduledJobsPage() {
     ) },
     { label: 'Vehicle', key: 'vehicle_number', filterable: true, render: (v) => <span className="text-slate-700">{String(v ?? '—')}</span> },
     { label: 'Category', key: 'all_categories', filterable: true, render: (_v, row: any) => <span className="text-slate-700">{row.all_categories || row.repair_category_name || '—'}</span> },
+    { label: 'Priority', key: 'priority_label', align: 'center', filterable: true, filterOptionRender: (v) => <PriorityOption value={v} />, render: (v) => <PriorityBadge value={v} /> },
     { label: 'Assigned To', key: 'staff_name', filterable: true, render: (v) => <span className="text-slate-600">{String(v ?? '—')}</span> },
     { label: 'Status', key: 'display_state', filterable: true, render: (v) => stateBadge(String(v)) },
     { label: 'Created Date', key: 'job_date', align: 'center', render: (_v, row: any) => <span className="text-slate-600">{fmtDate(row.job_date || row.created_at)}</span> },

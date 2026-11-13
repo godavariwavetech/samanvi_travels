@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ListFilter, Search, X } from 'lucide-react'
 
@@ -7,9 +7,11 @@ interface ColumnFilterDropdownProps {
   selected: string[]
   onChange: (next: string[]) => void
   variant?: 'light' | 'dark'
+  /** Custom look for an option in the list (e.g. a coloured priority dot). */
+  renderOption?: (value: string) => ReactNode
 }
 
-export function ColumnFilterDropdown({ options, selected, onChange, variant = 'dark' }: ColumnFilterDropdownProps) {
+export function ColumnFilterDropdown({ options, selected, onChange, variant = 'dark', renderOption }: ColumnFilterDropdownProps) {
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState<string[]>(selected)
   const [search, setSearch] = useState('')
@@ -114,7 +116,7 @@ export function ColumnFilterDropdown({ options, selected, onChange, variant = 'd
                 onChange={() => toggleOne(opt)}
                 className="w-3.5 h-3.5 rounded accent-blue-600 flex-shrink-0"
               />
-              <span className="truncate" title={opt}>{opt}</span>
+              <span className="truncate" title={opt}>{renderOption ? renderOption(opt) : opt}</span>
             </label>
           </li>
         ))}

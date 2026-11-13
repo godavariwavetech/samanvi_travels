@@ -18,6 +18,7 @@ import {
   LedgerGroupTag, useLedgerGroupOf,
   DateRangePicker,
   DateField,
+  PriorityBadge, PriorityOption, PrioritySelect, normPriority, priorityPdfCell,
 } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -36,7 +37,6 @@ const emptyJobRow = (): JobRow => ({ category: '', priority: 'Medium', technicia
 const emptyLedgerEntry = (): LedgerEntry => ({ ledger_id: '', amount: '', ledger_name: '' })
 const emptyVoucherBlock = (): VoucherBlock => ({ description: '', category_name: '', debit: [emptyLedgerEntry()], credit: [emptyLedgerEntry()], parts: [emptySimplePartRow()] })
 
-const PRIORITY_OPTIONS = ['Low', 'Medium', 'High']
 
 export default function RepairTrackingPage() {
   const { canEdit } = usePermissions()
@@ -312,11 +312,12 @@ export default function RepairTrackingPage() {
     if (key === 'category')   return r.all_categories || r.repair_category_name || ''
     if (key === 'assignedTo') return r.staff_name || ''
     if (key === 'createdBy')  return r.created_by || ''
+    if (key === 'priority')   return normPriority(r.priority)
     return ''
   }
 
   const filterColOptions = useMemo(() => {
-    const keys = ['busNo', 'category', 'assignedTo', 'createdBy']
+    const keys = ['busNo', 'category', 'priority', 'assignedTo', 'createdBy']
     const result: Record<string, string[]> = {}
     keys.forEach(k => {
       result[k] = Array.from(new Set(list.map(r => colValue(r, k)).filter(Boolean))).sort()
@@ -588,6 +589,7 @@ export default function RepairTrackingPage() {
       'Due Days':        dueDays(r.job_date || r.created_at),
       'Bus No':          r.vehicle_number,
       'Repair Category': r.all_categories || r.repair_category_name || '',
+      'Priority':        normPriority(r.priority),
       'Assigned To':     r.staff_name || '',
       'Created By':      r.created_by || '',
       'Status':          getJobState(r),
@@ -604,11 +606,12 @@ export default function RepairTrackingPage() {
     doc.text('Repair Tracking', 40, 40)
     autoTable(doc, {
       startY: 60,
-      head: [['Sl No', 'Job Card Number', 'Created Date', 'Due Days', 'Bus No', 'Repair Category', 'Assigned To', 'Created By', 'Status']],
+      head: [['Sl No', 'Job Card Number', 'Created Date', 'Due Days', 'Bus No', 'Repair Category', 'Priority', 'Assigned To', 'Created By', 'Status']],
+      didParseCell: priorityPdfCell(6),
       body: filteredList.map((r: any, i: number) => [
         i + 1, r.job_card_number, fmtDate(r.job_date || r.created_at),
         dueDays(r.job_date || r.created_at), r.vehicle_number,
-        r.all_categories || r.repair_category_name || '',
+        r.all_categories || r.repair_category_name || '', normPriority(r.priority),
         r.staff_name || '', r.created_by || '', getJobState(r),
       ]),
       styles: { fontSize: 8 },
@@ -1009,6 +1012,7 @@ export default function RepairTrackingPage() {
                   { label: 'Due Days' },
                   { label: 'Bus No',          fk: 'busNo' },
                   { label: 'Repair Category', fk: 'category' },
+                  { label: 'Priority',        fk: 'priority' },
                   { label: 'Assigned To',     fk: 'assignedTo' },
                   { label: 'Created By',       fk: 'createdBy' },
                   { label: 'Status' },
@@ -1023,6 +1027,7 @@ export default function RepairTrackingPage() {
                           options={filterColOptions[fk] ?? []}
                           selected={colFilters[fk] ?? []}
                           onChange={vals => setColFilters(f => ({ ...f, [fk]: vals }))}
+                          renderOption={fk === 'priority' ? (v) => <PriorityOption value={v} /> : undefined}
                         />
                       )}
                     </div>
@@ -1032,9 +1037,9 @@ export default function RepairTrackingPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
               ) : filteredList.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
               ) : filteredList.map((r: any, i: number) => {
                 const state = getJobState(r)
                 const isOpen     = state === 'OPEN'
@@ -1062,6 +1067,7 @@ export default function RepairTrackingPage() {
                     </td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700">{r.vehicle_number}</td>
                     <td className="px-3 py-3 border-b border-slate-100 text-slate-700">{r.all_categories || r.repair_category_name || '-'}</td>
+                    <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap"><PriorityBadge value={r.priority} /></td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.staff_name || '-'}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.created_by || '-'}</td>
                     <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">{statusBadge(state)}</td>
@@ -1383,7 +1389,7 @@ export default function RepairTrackingPage() {
                     </div>
                     <div className="flex justify-between text-sm mt-2">
                       <span className="text-slate-500">Priority</span>
-                      <span className="font-semibold">{viewModal.job.priority || '—'}</span>
+                      <PriorityBadge value={viewModal.job.priority} />
                     </div>
                     <div className="flex justify-between text-sm mt-2">
                       <span className="text-slate-500">Technician</span>
@@ -1415,9 +1421,7 @@ export default function RepairTrackingPage() {
                         <div className="flex items-center gap-2 mb-2">
                           <span className="px-2.5 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold">{idx + 1}</span>
                           <span className="font-bold text-slate-800">{cat.category_name}</span>
-                          <span className={`ml-auto px-2 py-0.5 rounded-full text-xs font-bold ${cat.priority === 'High' ? 'bg-red-100 text-red-700' : cat.priority === 'Medium' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
-                            {cat.priority}
-                          </span>
+                          <PriorityBadge value={cat.priority} className="ml-auto" />
                         </div>
                         <div className="text-xs text-slate-500 space-y-1">
                           {cat.technician_name && <div>Technician: <span className="font-semibold text-slate-700">{cat.technician_name}</span></div>}
@@ -1943,9 +1947,7 @@ export default function RepairTrackingPage() {
                       <SearchableSelect disabled={isEditLocked} value={r.category} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, category: v } : row))} options={catOptions} placeholder="Category" onReload={() => reloadCats()} reloading={loadingCats} />
                     </div>
                     <div className="flex-[1] min-w-0">
-                      <select disabled={isEditLocked} value={r.priority} onChange={(e) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, priority: e.target.value } : row))} className="w-full h-11 rounded-xl border border-slate-200 px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-slate-100">
-                        {PRIORITY_OPTIONS.map(p => <option key={p}>{p}</option>)}
-                      </select>
+                      <PrioritySelect disabled={isEditLocked} value={r.priority} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, priority: v } : row))} />
                     </div>
                     <div className="flex-[2] min-w-0">
                       <SearchableSelect disabled={isEditLocked} value={r.technician} onChange={(v) => setEditJobRows(prev => prev.map((row, idx) => idx === i ? { ...row, technician: v } : row))} options={staffOptions} placeholder="Technician" onReload={() => reloadStaff()} reloading={loadingStaff} />

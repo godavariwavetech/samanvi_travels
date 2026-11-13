@@ -4,7 +4,7 @@ import { motion } from 'motion/react'
 import { Wrench, Save, X, RefreshCw, CheckCircle, Plus, PackagePlus, History, Clock } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu, DateField } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, PageHeader, DynamicRows, SearchableSelect, ColumnFilterDropdown, DualScrollTable, ExportMenu, DateField, PriorityBadge, PriorityOption, PrioritySelect, normPriority, priorityPdfCell } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
 import { accountingService } from '@/services/accounting.service'
@@ -92,6 +92,7 @@ export default function RepairEntryPage() {
     if (key === 'category')   return r.repair_category_name || r.all_categories || ''
     if (key === 'assignedTo') return r.staff_name || ''
     if (key === 'createdBy')  return r.created_by || ''
+    if (key === 'priority')   return normPriority(r.priority)
     if (key === 'status') {
       const s = r.state || 'OPEN'
       if (s === 'CLOSED' || s === 'COMPLETED') return 'Completed'
@@ -103,7 +104,7 @@ export default function RepairEntryPage() {
   }
 
   const filterColOptions = useMemo(() => {
-    const keys = ['busNo', 'category', 'assignedTo', 'createdBy', 'status']
+    const keys = ['busNo', 'category', 'priority', 'assignedTo', 'createdBy', 'status']
     const result: Record<string, string[]> = {}
     keys.forEach(k => {
       result[k] = Array.from(new Set(entryList.map(r => colValue(r, k)).filter(Boolean))).sort()
@@ -135,6 +136,7 @@ export default function RepairEntryPage() {
       'Due Days':        dueDays(r.job_date || r.created_at),
       'Bus No':          r.vehicle_number,
       'Repair Category': r.repair_category_name || r.all_categories || '',
+      'Priority':        normPriority(r.priority),
       'Assigned To':     r.staff_name || '',
       'Created By':      r.created_by || '',
     }))
@@ -150,11 +152,12 @@ export default function RepairEntryPage() {
     doc.text('Active Job Cards', 40, 40)
     autoTable(doc, {
       startY: 60,
-      head: [['Sl No', 'Job Card Number', 'Created Date', 'Due Days', 'Bus No', 'Repair Category', 'Assigned To', 'Created By']],
+      head: [['Sl No', 'Job Card Number', 'Created Date', 'Due Days', 'Bus No', 'Repair Category', 'Priority', 'Assigned To', 'Created By']],
+      didParseCell: priorityPdfCell(6),
       body: filteredEntryList.map((r: any, i: number) => [
         i + 1, r.job_card_number, fmtDate(r.job_date || r.created_at),
         dueDays(r.job_date || r.created_at), r.vehicle_number,
-        r.repair_category_name || r.all_categories || '',
+        r.repair_category_name || r.all_categories || '', normPriority(r.priority),
         r.staff_name || '', r.created_by || '',
       ]),
       styles: { fontSize: 8 },
@@ -413,9 +416,7 @@ export default function RepairEntryPage() {
                     />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <Select value={r.priority} onChange={(e) => updateJobRow(i, 'priority')(e.target.value)} buttonClassName={r.priority === 'High' ? 'border-red-300 bg-red-50 text-red-700 font-semibold' : r.priority === 'Medium' ? 'border-amber-300 bg-amber-50 text-amber-700 font-semibold' : 'border-emerald-300 bg-emerald-50 text-emerald-700 font-semibold'}>
-                      <option>High</option><option>Medium</option><option>Low</option>
-                    </Select>
+                    <PrioritySelect value={r.priority} onChange={(v) => updateJobRow(i, 'priority')(v)} />
                   </div>
                   <div className="flex-[2] min-w-0">
                     <SearchableSelect
@@ -478,6 +479,7 @@ export default function RepairEntryPage() {
                       { label: 'Due Days' },
                       { label: 'Bus No',          fk: 'busNo' },
                       { label: 'Repair Category', fk: 'category' },
+                      { label: 'Priority',        fk: 'priority' },
                       { label: 'Assigned To',     fk: 'assignedTo' },
                       { label: 'Created By',       fk: 'createdBy' },
                       { label: 'Status',           fk: 'status' },
@@ -491,6 +493,7 @@ export default function RepairEntryPage() {
                               options={filterColOptions[fk] ?? []}
                               selected={colFilters[fk] ?? []}
                               onChange={vals => setColFilters(f => ({ ...f, [fk]: vals }))}
+                              renderOption={fk === 'priority' ? (v) => <PriorityOption value={v} /> : undefined}
                             />
                           )}
                         </div>
@@ -500,9 +503,9 @@ export default function RepairEntryPage() {
                 </thead>
                 <tbody>
                   {isLoading ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
                   ) : filteredEntryList.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No job cards found.</td></tr>
                   ) : filteredEntryList.map((r: any, i: number) => {
                     const state: string = r.state || 'OPEN'
                     const isFinished = state === 'FINISHED'
@@ -532,6 +535,7 @@ export default function RepairEntryPage() {
                           </td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-700">{r.vehicle_number}</td>
                           <td className="px-3 py-3 border-b border-slate-100 text-slate-700">{r.repair_category_name || r.all_categories || '-'}</td>
+                          <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap"><PriorityBadge value={r.priority} /></td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.staff_name || '-'}</td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap text-slate-600">{r.created_by || '-'}</td>
                           <td className="px-3 py-3 border-b border-slate-100 whitespace-nowrap">{statusBadge}</td>

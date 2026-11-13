@@ -9,6 +9,8 @@ export interface SearchableSelectOption {
   // Muted secondary text beside the label (e.g. a ledger's parent group).
   // Display only - it is searchable but never part of the picked value.
   hint?: string
+  // Colour class for a small dot before the label (e.g. 'bg-red-500' for High priority).
+  dot?: string
 }
 
 interface SearchableSelectProps {
@@ -182,6 +184,7 @@ export function SearchableSelect({
                 : value === o.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-800',
             )}
           >
+            {o.dot && <span className={cn('inline-block w-2 h-2 rounded-full mr-2 align-middle', o.dot)} />}
             {o.label}
             {o.hint && (
               <span className={cn('ml-2 text-xs font-normal', i === hi ? 'text-blue-100' : 'text-slate-400')}>— {o.hint}</span>

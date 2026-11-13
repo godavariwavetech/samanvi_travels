@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { BellRing, Save, Plus, X, Edit2, CheckCircle, ChevronDown, Sparkles, Wrench } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField, useEditReason } from '@/components/shared'
+import { GlassCard, Button, Input, Select, Label, DataTable, Badge, PageHeader, SearchableSelect, DateField, useEditReason, PrioritySelect } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { garageService } from '@/services/garage.service'
 import { fuelService } from '@/services/fuel.service'
@@ -112,7 +112,6 @@ type ScheduleRow = typeof EMPTY_SCHEDULE_ROW
 
 const today = todayISO()
 
-const JOB_PRIORITIES = ['High', 'Medium', 'Low']
 const EMPTY_JOB_CARD_FORM = { job_date: today, odometer: '', driver: '', category: '', priority: 'Medium', technician: '', description: '' }
 
 function isOverdue(row: any) {
@@ -710,9 +709,7 @@ export default function ServiceRemindersPage() {
                     reloading={loadingCats}
                   /></div>
                 <div><Label>Priority</Label>
-                  <Select value={jobCardForm.priority} onChange={(e) => setJobCardForm((s) => ({ ...s, priority: e.target.value }))}>
-                    {JOB_PRIORITIES.map((p) => <option key={p}>{p}</option>)}
-                  </Select></div>
+                  <PrioritySelect value={jobCardForm.priority} onChange={(v) => setJobCardForm((s) => ({ ...s, priority: v }))} /></div>
                 <div><Label>Technician <span className="text-red-500">*</span></Label>
                   <SearchableSelect
                     value={jobCardForm.technician}
