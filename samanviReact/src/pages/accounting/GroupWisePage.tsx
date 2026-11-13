@@ -156,6 +156,13 @@ export default function GroupWisePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fyMin, fyMax])
 
+  // The figures are loaded only once a section is picked (or a group is found
+  // with the search), and only for that section's ledgers. Equities &
+  // Liabilities also needs Income and Expenses for Reserve & Surplus (P&L).
+  const [selectedSection, setSelectedSection] = useState('')
+  const sectionIds = selectedSection === 'EQUITY_LIAB' ? ['2', '3', '4']
+    : [SECTIONS.find(sct => sct.key === selectedSection)?.district_id].filter(Boolean) as string[]
+
   // ── Data queries (same sources as Balance Sheet) ──────────────────────────
   const { data: mastersRes, isLoading: l1, isFetching: f1, refetch: r1 }   = useQuery({ queryKey: ['gw-masters'],   queryFn: () => accountingService.getMastersAdd(roleDistrictPayload) })
   const { data: groupsRes, isLoading: l2, isFetching: f2, refetch: r2 }    = useQuery({ queryKey: ['gw-groups'],    queryFn: () => accountingService.getMastersGroup(roleDistrictPayload) })
@@ -163,38 +170,45 @@ export default function GroupWisePage() {
   const { data: childrenRes, isLoading: l4, isFetching: f4, refetch: r4 }  = useQuery({ queryKey: ['gw-children'],  queryFn: () => accountingService.getMainMastersSubchild() })
   const { data: ledgersRes, isLoading: l5, isFetching: f5, refetch: r5 }   = useQuery({ queryKey: ['gw-ledgers'],   queryFn: () => accountingService.getLedgerData(roleDistrictPayload) })
   const { data: txRes, isLoading: l6, isFetching: f6, refetch: r6 }        = useQuery({
-    queryKey: ['gw-transactions', applied],
+    queryKey: ['gw-transactions', applied, sectionIds.join(',')],
     queryFn: () => accountingService.getTransactionsReport({
       fromdate: applied.fromdate,
       todate: applied.todate,
       ledger_name: '',
       ledger_id: null,
       user_id: userId,
+      district_ids: sectionIds,
     }),
+    enabled: sectionIds.length > 0,
     // A new date range keeps the current table on screen until its figures
     // arrive, so the selected group isn't torn down while it loads.
-    placeholderData: keepPreviousData,
+    // Same section, new dates: keep the table up while it loads. Another
+    // section: no stale figures from the last one.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === sectionIds.join(',') ? keepPreviousData(prev) : undefined),
   })
 
   // Everything posted before the From date, for the opening balance. Same
   // endpoint and sign rules as the period itself, so opening + period = closing
   // without any second convention.
   const { data: openRes, isLoading: l7, isFetching: f7, refetch: r7 } = useQuery({
-    queryKey: ['gw-opening', applied.fromdate],
+    queryKey: ['gw-opening', applied.fromdate, sectionIds.join(',')],
     queryFn: () => accountingService.getTransactionsReport({
       fromdate: EPOCH,
       todate: dayBefore(applied.fromdate),
       ledger_name: '',
       ledger_id: null,
       user_id: userId,
+      district_ids: sectionIds,
     }),
-    enabled: !!applied.fromdate,
-    placeholderData: keepPreviousData,
+    enabled: !!applied.fromdate && sectionIds.length > 0,
+    // Same section, new dates: keep the table up while it loads. Another
+    // section: no stale figures from the last one.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === sectionIds.join(',') ? keepPreviousData(prev) : undefined),
   })
 
   const isLoading = l1 || l2 || l3 || l4 || l5 || l6 || l7
   const isRefreshing = f1 || f2 || f3 || f4 || f5 || f6 || f7
-  const refreshAll = () => { r1(); r2(); r3(); r4(); r5(); r6(); r7() }
+  const refreshAll = () => { r1(); r2(); r3(); r4(); r5(); if (sectionIds.length) { r6(); r7() } }
 
   // ── Build ledger_id → figures map ────────────────────────────────────────
   type Figures = { opening: number; debit: number; credit: number; net: number }
@@ -410,7 +424,6 @@ export default function GroupWisePage() {
   }, [sectionMap])
 
   // ── UI state ─────────────────────────────────────────────────────────────
-  const [selectedSection, setSelectedSection] = useState('')
   const [rawDropdowns, setDropdowns] = useState<DropdownOption[][]>([])
   const [selections, setSelections] = useState<(string | number)[]>([])
   // The rows on the table are remembered as node keys (plus the parent group's

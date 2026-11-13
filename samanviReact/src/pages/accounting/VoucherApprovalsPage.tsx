@@ -1,5 +1,5 @@
 import { usePermissions } from '@/lib/usePermissions'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'motion/react'
@@ -382,10 +382,14 @@ const buildCols = (
     render: (v: any) => <span className="whitespace-nowrap">{v ? formatDate(v) : '—'}</span>,
   })
 
+  // The staff member's name (the voucher stores who in `name` and what kind in
+  // `staff_type`); the kind shows as a small tag. Showing staff_type alone
+  // printed just "driver" / "staff".
   if (show('Staff Name')) cols.push({
-    label: 'Staff Name', key: 'staff_type', filterable: true, filterType: 'select',
-    filterOptions: fOpts.staffOptions,
-    render: (v: any) => <span>{String(v ?? '—')}</span>,
+    label: 'Staff Name', key: 'staff_name_display', filterable: true,
+    render: (v: any, row: any) => v
+      ? <span className="whitespace-nowrap text-slate-700">{String(v)}{row.staff_type && <span className="ml-1.5 text-[10px] font-semibold uppercase text-slate-400">{String(row.staff_type)}</span>}</span>
+      : <span className="text-slate-300">—</span>,
   })
 
   if (show('Description')) cols.push({
@@ -669,19 +673,6 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   const [optionalCols, setOptionalCols] = useState<Set<string>>(new Set(DEFAULT_VISIBLE_OPTIONAL))
   const qc = useQueryClient()
 
-  const { data: pendingRes, isLoading: loadPending } = useQuery({
-    queryKey: ['voucher-pending'],
-    queryFn: () => accountingService.getVoucherEntries(),
-  })
-  const { data: approvedRes, isLoading: loadApproved } = useQuery({
-    queryKey: ['voucher-approved-all'],
-    queryFn: () => accountingService.getVoucherApproved(),
-  })
-  const { data: rejectedRes, isLoading: loadRejected } = useQuery({
-    queryKey: ['voucher-rejected-all'],
-    queryFn: () => accountingService.getVoucherSearch({ fromdate: '', todate: '', type: '2' }),
-  })
-
   const { data: ledgersRes, refetch: refetchLedgers, isFetching: ledgersFetching } = useQuery({
     queryKey: ['ledger-names'],
     queryFn: () => accountingService.getLedgerName(),
@@ -731,8 +722,10 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
     (employeesRes?.data ?? []).flat().map((s: any) => s.type).filter(Boolean)
   )].map((t: any) => ({ label: String(t), value: String(t) }))
 
-  const allRows = [...(pendingRes?.data ?? []), ...(approvedRes?.data ?? []), ...(rejectedRes?.data ?? [])]
-  const entryByOpts = [...new Set(allRows.map((r: any) => r.entry_by).filter(Boolean))]
+  // Entry By choices come from the vouchers already loaded for the table (this
+  // used to fetch every pending, approved and rejected voucher again just for
+  // this list - three extra full loads on each visit).
+  const entryByOpts = [...new Set(((searched?.data ?? []) as any[]).map((r: any) => r.entry_by).filter(Boolean))]
     .map((name: any) => ({ label: String(name), value: String(name) }))
 
   // ── Edit-mode derived values ──────────────────────────────────────────────
@@ -1173,10 +1166,14 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
     qc.invalidateQueries({ queryKey: ['voucher-search'] })
   }
 
-  const searchList: any[] = searched?.data ?? []
-  const pending: any[]      = groupVoucherRows(searchList.filter(r => !r.status || r.status == 0))
-  const approvedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 1))
-  const rejectedList: any[] = groupVoucherRows(searchList.filter(r => r.status == 2))
+  const { pending, approvedList, rejectedList } = useMemo(() => {
+    const searchList: any[] = searched?.data ?? []
+    return {
+      pending:      groupVoucherRows(searchList.filter(r => !r.status || r.status == 0)) as any[],
+      approvedList: groupVoucherRows(searchList.filter(r => r.status == 1)) as any[],
+      rejectedList: groupVoucherRows(searchList.filter(r => r.status == 2)) as any[],
+    }
+  }, [searched])
 
   // Embedded: open the requested voucher straight away from its own header (looked
   // up by number, so it never waits for the year's full voucher list), fill in the
@@ -1213,6 +1210,13 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
   }, [viewModal])
 
   const getList = () => tab === 'Pending Approval' ? pending : tab === 'Approved' ? approvedList : rejectedList
+  // Built once per data / tab change rather than on every keystroke or tick.
+  const tableData = useMemo(() => getList().map((r: any) => ({
+    ...r,
+    source_label: voucherSource(r),
+    staff_name_display: (r.staff_type || r.staff_type_id) ? String(r.name ?? '').trim() : '',
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  })), [tab, pending, approvedList, rejectedList])
   const getMode = () => tab === 'Pending Approval' ? 'pending' : tab === 'Rejected' ? 'rejected' : canReviseApproved ? 'approved' : 'view'
 
   // Column filters are scoped to whichever tab is open — carrying them over
@@ -1400,7 +1404,9 @@ export default function VoucherApprovalsPage({ viewRef, onViewClose, onNotFound 
           entryByOpts,
           ledgerGroupOf,
         }, optionalCols) as any}
-        data={getList().map((r: any) => ({ ...r, source_label: voucherSource(r) }))}
+        data={tableData}
+        paginated
+        pageSize={50}
         loading={loadSearch}
         onAction={() => {}}
         actions={[]}

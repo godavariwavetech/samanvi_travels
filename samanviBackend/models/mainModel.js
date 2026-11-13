@@ -6620,26 +6620,31 @@ exports.SelectdatagetfinaltranscationsreportMdl = function (data, callback) {
     jobCondition += ` AND ${between('j.voucherdate', 'j.i_ts')}` + ledgerMatch('j.expensives', 'j.ledger_id');
   }
 
+  // Optional: only ledgers of the given sections (mm.district_id 1-4), so a
+  // report showing one section (Group Wise) doesn't pull every line.
+  const sectionIds = Array.isArray(data.district_ids) ? data.district_ids.map(String).filter(d => /^[1-4]$/.test(d)) : [];
+  const sectionFilter = sectionIds.length ? ` AND mm.district_id IN (${sectionIds.map(d => `'${d}'`).join(',')})` : '';
+
   const QRY_TO_EXEC = `
         SELECT ed.*, mm.district_id FROM expensive_details AS ed
         JOIN mainmasterssubchildtwo AS mm ON mm.id = ed.ledger_id
-        WHERE mm.d_in = '0' AND ${tripRowsWithoutVoucher('ed')} AND ${expenseCondition};
+        WHERE mm.d_in = '0' AND ${tripRowsWithoutVoucher('ed')} AND ${expenseCondition}${sectionFilter};
 
         SELECT mv.*, mm.district_id FROM mainvoucher_subt AS mv
         JOIN mainmasterssubchildtwo AS mm ON mm.id = mv.ledger_id
-        WHERE mm.d_in = '0' AND ${voucherCondition};
+        WHERE mm.d_in = '0' AND ${voucherCondition}${sectionFilter};
 
         SELECT f.*, mm.district_id FROM fuelentry_subt AS f
         JOIN mainmasterssubchildtwo AS mm ON mm.id = f.ledger_id
-        WHERE mm.d_in = '0' AND ${fuelCondition};
+        WHERE mm.d_in = '0' AND ${fuelCondition}${sectionFilter};
 
         SELECT l.*, mm.district_id FROM laundrybill_subt AS l
         JOIN mainmasterssubchildtwo AS mm ON mm.id = l.ledger_id
-        WHERE mm.d_in = '0' AND ${laundryCondition};
+        WHERE mm.d_in = '0' AND ${laundryCondition}${sectionFilter};
 
         SELECT j.*, mm.district_id FROM jobsheet_subt AS j
         JOIN mainmasterssubchildtwo AS mm ON mm.id = j.ledger_id
-        WHERE mm.d_in = '0' AND ${jobCondition};
+        WHERE mm.d_in = '0' AND ${jobCondition}${sectionFilter};
     `;
 
   console.log(QRY_TO_EXEC, 3360);
