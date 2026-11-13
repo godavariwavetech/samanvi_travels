@@ -12,6 +12,11 @@ interface DateRangePickerProps {
   /** One date only: a click picks it and closes, no second click for a range. */
   single?: boolean
   className?: string
+  /** Year dropdown bounds when no min/max narrows them (e.g. 1940 for dates of birth). */
+  yearFrom?: number
+  yearTo?: number
+  /** 'icon': just a calendar icon, for use inside a typed date box (DateSelect). */
+  trigger?: 'button' | 'icon'
 }
 
 // Weeks run Monday to Sunday.
@@ -27,7 +32,7 @@ const show = (iso: string) => { if (!iso) return ''; const { y, m, d } = parts(i
 // date (from = to, applied straight away), a second click on another day
 // stretches it into a From–To range. Dates stay plain yyyy-mm-dd strings so
 // nothing passes through a Date's timezone.
-export function DateRangePicker({ from, to, onChange, min, max, single, className }: DateRangePickerProps) {
+export function DateRangePicker({ from, to, onChange, min, max, single, className, yearFrom, yearTo, trigger = 'button' }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [view, setView] = useState({ y: 0, m: 0 })
@@ -115,8 +120,8 @@ export function DateRangePicker({ from, to, onChange, min, max, single, classNam
 
   // Year dropdown spans min..max when set, otherwise a wide window around now.
   const nowY = Number(today.slice(0, 4))
-  const yLo = Math.min(min ? Number(min.slice(0, 4)) : nowY - 30, view.y)
-  const yHi = Math.max(max ? Number(max.slice(0, 4)) : nowY + 10, view.y)
+  const yLo = Math.min(min ? Number(min.slice(0, 4)) : yearFrom ?? nowY - 30, view.y)
+  const yHi = Math.max(max ? Number(max.slice(0, 4)) : yearTo ?? nowY + 10, view.y)
   const years = Array.from({ length: yHi - yLo + 1 }, (_, i) => yHi - i)
   const monthOff = (y: number, m: number) =>
     (!!min && toISO(y, m, lastDay(y, m)) < min) || (!!max && toISO(y, m, 1) > max)
@@ -248,6 +253,16 @@ export function DateRangePicker({ from, to, onChange, min, max, single, classNam
       </div>
     </div>,
     document.body
+  )
+
+  if (trigger === 'icon') return (
+    <>
+      <button ref={btnRef} type="button" onClick={openPicker} title="Pick from calendar"
+        className={cn('flex-none p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors', className)}>
+        <CalendarDays className="w-4 h-4" />
+      </button>
+      {panel}
+    </>
   )
 
   return (
