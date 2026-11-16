@@ -1717,14 +1717,17 @@ export default function TripExpensesPage() {
     // Betas + parking of non-directly-paid seats
     const betaShare = seats.filter(([, , present, , direct]) => present && !Number(direct))
       .reduce((sum, [beta, opt, , opting]) => sum + num(beta) + (opting ? num(opt) : 0), 0)
-    // Free debit rows (Wheel Alignment, Parking if posted, etc.) — sum amounts
-    // from exp_other_items which reflects what's actually in the ledger.
-    // Falls back to grantotal - salary_beta_tot_amount for older rows.
+    // Free debit rows (Wheel Alignment, etc.) — sum amounts from exp_other_items
+    // which reflects what's actually in the ledger. Falls back to grantotal -
+    // salary_beta_tot_amount for older rows. Parking is added separately: the
+    // backend subquery leaves it out (it is the snapshot in exp_parking), and it
+    // always rides along with Paid To.
     const freeDebits = filed
       ? (() => {
           const fromItems = String(r.exp_other_items ?? '').split('|').filter(Boolean)
             .reduce((s, seg) => { const idx = seg.lastIndexOf(':'); return s + num(seg.slice(idx + 1)) }, 0)
-          return fromItems > 0 ? fromItems : Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
+          const otherDebits = fromItems > 0 ? fromItems : Math.max(0, num(r.grantotal) - num(r.salary_beta_tot_amount))
+          return otherDebits + num(r.exp_parking)
         })()
       : num(r.rt_parking)
     const share = betaShare + freeDebits
@@ -1773,7 +1776,9 @@ export default function TripExpensesPage() {
     { label: 'Conductor', key: 'conductor_name', filterable: true, render: (v, r: any) => personCell(v, r.exp_conductor_beta, 0, false, !!r.exp_row_id, true) },
     // Others: actual debit ledger entries that aren't salary or betas — matches
     // exactly what the view modal shows. Source is exp_other_items (subquery from
-    // expensive_details). For unfiled trips: rt_parking as the expected amount.
+    // expensive_details), plus exp_parking, which that subquery deliberately
+    // leaves out (parking is stored as its own snapshot on the expense row). For
+    // unfiled trips: rt_parking as the expected amount.
     {
       label: 'Others', key: 'salary_beta_tot_amount',
       render: (_v, r: any) => {
@@ -1796,11 +1801,16 @@ export default function TripExpensesPage() {
           })
           .filter((x) => x.name && x.amount > 0)
 
-        if (otherItems.length === 0) return <span className="text-slate-300">—</span>
+        // Parking never appears in exp_other_items, so add it back from the
+        // expense row's own snapshot - otherwise a filed parking amount is lost.
+        const parking = num(r.exp_parking)
+        const items = parking > 0 ? [{ name: 'Parking', amount: parking }, ...otherItems] : otherItems
+
+        if (items.length === 0) return <span className="text-slate-300">—</span>
 
         return (
           <div className="space-y-0.5">
-            {otherItems.map((item, i) => (
+            {items.map((item, i) => (
               <div key={i} className="text-sm font-semibold text-slate-700">{item.name}: ₹{item.amount.toLocaleString('en-IN')}</div>
             ))}
           </div>
