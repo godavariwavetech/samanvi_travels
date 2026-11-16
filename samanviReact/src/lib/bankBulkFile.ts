@@ -97,7 +97,14 @@ export function fillBankTemplate(template: Uint8Array, rows: (string | number)[]
       return `<c r="${col}${n}" s="${style}" t="inlineStr"><is><t>${xmlEscape(String(v))}</t></is></c>`
     }).join('')
     const row = `${open}>${cells}</row>`
-    xml = existing ? xml.replace(existing, row) : xml.replace('</sheetData>', `${row}</sheetData>`)
+    // String.replace interprets $ specially in the replacement (e.g. $& → matched
+    // text, $1 → capture group).  A beneficiary name or narration containing a $
+    // would corrupt the row.  Use a replacer function to treat the replacement as
+    // a literal string.
+    const literal = (s: string) => s.replace(/\$/g, '$$$$')
+    xml = existing
+      ? xml.replace(existing, literal(row))
+      : xml.replace('</sheetData>', `${literal(row)}</sheetData>`)
   })
   entry.content = new TextEncoder().encode(xml) as any
   const out = XLSX.CFB.write(zip, { fileType: 'zip', type: 'array', compression: true }) as ArrayBuffer | Uint8Array
