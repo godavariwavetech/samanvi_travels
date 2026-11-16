@@ -3108,7 +3108,18 @@ exports.getexpensesMdl = function (data, callback) {
   te.driver1Beta AS exp_driver1_beta, te.driveronesalary AS exp_driver1_opt,
   te.driver2Beta AS exp_driver2_beta, te.drivertwosalary AS exp_driver2_opt,
   te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
-  te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
+  te.ConductorsudBeta AS exp_conductor_beta,
+  -- parking_amt is a snapshot column added after initial launch; older filed
+  -- expenses have NULL there even though the Parking debit row is correctly
+  -- stored in expensive_details.  Fall back to that row's amount so the
+  -- Others column and Paid To share on the list never drop parking.
+  COALESCE(
+    te.parking_amt,
+    (SELECT SUM(ed_p.amount) FROM expensive_details ed_p
+     WHERE ed_p.c_number = t.c_number AND ed_p.d_in = 0
+       AND ed_p.amount_type = 'Debit Account'
+       AND LOWER(REPLACE(ed_p.expensives, ' ', '')) REGEXP '^parking')
+  ) AS exp_parking,
   te.id AS exp_row_id,
   -- Extra debit line items (e.g. Wheel Alignment) — everything except the
   -- standard Betas, Salaries and Parking rows, returned as "Name:amount|..." so
@@ -3599,7 +3610,18 @@ exports.getexpensesfiltere = function (data, callback) {
   te.driver1Beta AS exp_driver1_beta, te.driveronesalary AS exp_driver1_opt,
   te.driver2Beta AS exp_driver2_beta, te.drivertwosalary AS exp_driver2_opt,
   te.helpersudBeta AS exp_helper_beta, te.helpersalary AS exp_helper_opt,
-  te.ConductorsudBeta AS exp_conductor_beta, te.parking_amt AS exp_parking,
+  te.ConductorsudBeta AS exp_conductor_beta,
+  -- parking_amt is a snapshot column added after initial launch; older filed
+  -- expenses have NULL there even though the Parking debit row is correctly
+  -- stored in expensive_details.  Fall back to that row's amount so the
+  -- Others column and Paid To share on the list never drop parking.
+  COALESCE(
+    te.parking_amt,
+    (SELECT SUM(ed_p.amount) FROM expensive_details ed_p
+     WHERE ed_p.c_number = t.c_number AND ed_p.d_in = 0
+       AND ed_p.amount_type = 'Debit Account'
+       AND LOWER(REPLACE(ed_p.expensives, ' ', '')) REGEXP '^parking')
+  ) AS exp_parking,
   te.id AS exp_row_id,
   -- Extra debit line items (e.g. Wheel Alignment) — everything except the
   -- standard Betas, Salaries and Parking rows, returned as "Name:amount|..." so
