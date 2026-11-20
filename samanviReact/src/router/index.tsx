@@ -32,6 +32,7 @@ import AdminApprovalsPage from '@/pages/trips/AdminApprovalsPage'
 import TripExpensesPage from '@/pages/trips/TripExpensesPage'
 import TripReportsPage from '@/pages/trips/TripReportsPage'
 import DeletedRecordsPage from '@/pages/deleted/DeletedRecordsPage'
+import DbBackupsPage from '@/pages/backups/DbBackupsPage'
 import TripLogsPage from '@/pages/trips/TripLogsPage'
 
 // Booking
@@ -154,6 +155,7 @@ export const router = createBrowserRouter([
       // Deleted Trips now lives in the one Deleted Records list.
       { path: 'trips/deleted', element: <DeletedRecordsPage /> },
       { path: 'deleted-records', element: <DeletedRecordsPage /> },
+      { path: 'db-backups', element: <DbBackupsPage /> },
       { path: 'trips/logs', element: <TripLogsPage /> },
 
       // Booking

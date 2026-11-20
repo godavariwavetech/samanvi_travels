@@ -958,6 +958,9 @@ ensureColumn('mainvoucher_t', 'tyre_code', '`tyre_code` varchar(50) DEFAULT NULL
 //   timezone: "Asia/Kolkata"
 // });
 
+// Database backups at 6:00 AM and 11:30 PM IST (see utils/dbBackup.js).
+require('./utils/dbBackup').scheduleBackups(cron);
+
 cron.schedule("26 7 * * *", () => {
   console.log("7:26 AM Cron Started");
   routcontroller.handleRepeatedJobs();

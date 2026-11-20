@@ -291,6 +291,36 @@ router.post('/getdeletedrecords', verifyToken, function (req, res) {
     res.send({ status: 200, data: rows })
   })
 });
+// DB Backups (6:00 AM / 11:30 PM IST, scheduled in app.js): Super Admins and DSP only.
+function requireBackupAdmin(req, res, next) {
+  require('../utils/approvedVouchers').isApprovedEditor(req.auth && req.auth.usid, function (ok) {
+    if (!ok) return res.status(403).send({ status: 403, msg: 'Only a Super Admin can manage database backups' });
+    next();
+  });
+}
+router.post('/getdbbackups', verifyToken, requireBackupAdmin, function (req, res) {
+  const backup = require('../utils/dbBackup');
+  try {
+    res.send({ status: 200, data: backup.listBackups(), retention_days: backup.RETENTION_DAYS });
+  } catch (e) {
+    console.error('[getdbbackups]', e.message);
+    res.send({ status: 500, msg: 'Could not read the backup folder' });
+  }
+});
+router.post('/rundbbackup', verifyToken, requireBackupAdmin, function (req, res) {
+  require('../utils/dbBackup').runBackup('manual')
+    .then(function (info) { res.send({ status: 200, data: info }) })
+    .catch(function (e) {
+      if (e.code === 'BUSY') return res.send({ status: 409, msg: e.message });
+      console.error('[rundbbackup]', e.message);
+      res.send({ status: 500, msg: 'Backup failed: ' + e.message });
+    });
+});
+router.get('/downloaddbbackup/:name', verifyToken, requireBackupAdmin, function (req, res) {
+  const full = require('../utils/dbBackup').backupPath(req.params.name);
+  if (!full) return res.status(404).send({ status: 404, msg: 'Backup not found' });
+  res.download(full, req.params.name);
+});
 router.post("/submitlaundrytypemainmasters",verifyToken,routcontroller.submitlaundrytypemainmastersCtrl);
 router.post('/getlaundrytypemainmasters', verifyToken, laundrycontroller.getlaundrytypemainmastersCtrl);
 router.post('/submitlaundrydata', verifyToken, laundrycontroller.submitlaundrydataCtrl);

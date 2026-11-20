@@ -5,11 +5,12 @@ import { NavLink, useLocation } from 'react-router'
 import {
   LayoutDashboard, Users, Map, Building2, Briefcase,
   CreditCard, Shirt, Settings, LogOut,
-  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck, Trash2,
+  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck, Trash2, DatabaseBackup,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
 import { buildAccess, canAccess, type Access } from '@/lib/access'
+import { useCanReviseApproved } from '@/lib/approvedEditors'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface NavLeaf {
@@ -38,6 +39,8 @@ interface NavItem {
   icon: ElementType
   path?: string
   children?: NavChild[]
+  /** Super Admins (and DSP) only, e.g. DB Backups. */
+  superAdminOnly?: boolean
 }
 
 // ── Nav data ──────────────────────────────────────────────────────────────────
@@ -189,6 +192,7 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { id: 'deleted', label: 'Deleted Records', icon: Trash2, path: '/deleted-records' },
+  { id: 'backups', label: 'DB Backups', icon: DatabaseBackup, path: '/db-backups', superAdminOnly: true },
 ]
 
 // ── What this user may open ────────────────────────────────────────────────────
@@ -204,8 +208,9 @@ function filterChildren(children: NavChild[], access: Access): NavChild[] {
   })
 }
 
-export function visibleNav(access: Access): NavItem[] {
+export function visibleNav(access: Access, superAdmin = false): NavItem[] {
   return NAV_ITEMS.flatMap((item): NavItem[] => {
+    if (item.superAdminOnly && !superAdmin) return []
     if (item.children) {
       const kids = filterChildren(item.children, access)
       return kids.length ? [{ ...item, children: kids }] : []
@@ -357,7 +362,8 @@ interface SidebarProps {
 export function Sidebar({ isOpen, onClose, collapsed = false, onExpand }: SidebarProps) {
   const { user, logout, menu } = useAuthStore()
   const location = useLocation()
-  const navItems = useMemo(() => visibleNav(buildAccess(menu)), [menu])
+  const superAdmin = useCanReviseApproved()
+  const navItems = useMemo(() => visibleNav(buildAccess(menu), superAdmin), [menu, superAdmin])
 
   useEffect(() => {
     onClose()

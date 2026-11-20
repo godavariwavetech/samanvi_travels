@@ -10,6 +10,7 @@ const ROUTE_LABELS: Record<string, string> = {
   '/helpdesk': 'Help Desk',
   '/trips/approvals': 'Admin Approvals',
   '/deleted-records': 'Deleted Records',
+  '/db-backups': 'DB Backups',
   '/booking/collection-agent': 'Collection Agent',
   '/booking/accountant': 'Accountant Dashboard',
   '/accounting/voucher-approvals': 'Voucher Approvals',
