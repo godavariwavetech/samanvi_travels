@@ -5,7 +5,7 @@ import { NavLink, useLocation } from 'react-router'
 import {
   LayoutDashboard, Users, Map, Building2, Briefcase,
   CreditCard, Shirt, Settings, LogOut,
-  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck, Trash2, DatabaseBackup,
+  Fuel, ChevronDown, ChevronRight, X, Wrench, ShieldCheck, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/auth.store'
@@ -192,7 +192,8 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { id: 'deleted', label: 'Deleted Records', icon: Trash2, path: '/deleted-records' },
-  { id: 'backups', label: 'DB Backups', icon: DatabaseBackup, path: '/db-backups', superAdminOnly: true },
+  // Hidden for now (2026-11-20); the scheduled backups still run on the server.
+  // { id: 'backups', label: 'DB Backups', icon: DatabaseBackup, path: '/db-backups', superAdminOnly: true },
 ]
 
 // ── What this user may open ────────────────────────────────────────────────────
