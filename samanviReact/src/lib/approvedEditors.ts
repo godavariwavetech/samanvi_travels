@@ -17,3 +17,12 @@ export function useCanReviseApproved(): boolean {
   if (isSuperAdmin) return true
   return !!user.number && APPROVED_EDITOR_NUMBERS.includes(String(user.number).trim())
 }
+
+// DB Backups open only for these login mobile numbers. Mirrors DB_BACKUP_NUMBERS
+// in samanviBackend/routes/routes.js, which enforces it.
+const DB_BACKUP_NUMBERS = ['7997753587']
+
+export function useCanManageBackups(): boolean {
+  const user = useAuthStore(s => s.user)
+  return !!user?.number && DB_BACKUP_NUMBERS.includes(String(user.number).trim())
+}

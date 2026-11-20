@@ -6,12 +6,13 @@ import { DatabaseBackup, Download, Loader2 } from 'lucide-react'
 import { GlassCard, DataTable, Badge, PageHeader, Button } from '@/components/shared'
 import type { Column } from '@/components/shared'
 import { backupService, type DbBackup } from '@/services/backup.service'
-import { useCanReviseApproved } from '@/lib/approvedEditors'
+import { useCanManageBackups } from '@/lib/approvedEditors'
 import { formatDateTime } from '@/lib/utils'
 
 // Database backups saved on the server: every day at 6:00 AM (Morning) and
 // 11:30 PM (End of Day) IST, plus any taken here with "Backup now". Each file
-// is a gzipped SQL dump of the whole database; Super Admins only.
+// is a gzipped SQL dump of the whole database; only the accounts in
+// useCanManageBackups may open it.
 
 const KIND_LABEL: Record<DbBackup['kind'], string> = { morning: 'Morning', evening: 'End of Day', manual: 'Manual' }
 const KIND_VARIANT: Record<DbBackup['kind'], 'info' | 'warning' | 'slate'> = { morning: 'info', evening: 'warning', manual: 'slate' }
@@ -23,7 +24,7 @@ function formatSize(bytes: number): string {
 }
 
 export default function DbBackupsPage() {
-  const allowed = useCanReviseApproved()
+  const allowed = useCanManageBackups()
   const qc = useQueryClient()
   const [downloading, setDownloading] = useState<string | null>(null)
   const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({})
@@ -75,7 +76,7 @@ export default function DbBackupsPage() {
     return (
       <div className="space-y-6">
         <PageHeader title="DB Backups" subtitle="Daily database backups" />
-        <GlassCard className="p-6"><p className="text-sm text-slate-600">Only a Super Admin can view and download database backups.</p></GlassCard>
+        <GlassCard className="p-6"><p className="text-sm text-slate-600">You are not allowed to view or download database backups.</p></GlassCard>
       </div>
     )
   }

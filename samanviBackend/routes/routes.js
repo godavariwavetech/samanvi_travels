@@ -291,10 +291,13 @@ router.post('/getdeletedrecords', verifyToken, function (req, res) {
     res.send({ status: 200, data: rows })
   })
 });
-// DB Backups (6:00 AM / 11:30 PM IST, scheduled in app.js): Super Admins and DSP only.
+// DB Backups (6:00 AM / 11:30 PM IST, scheduled in app.js): only the login
+// mobile numbers below may list, run or download them.
+const DB_BACKUP_NUMBERS = ['7997753587'];
 function requireBackupAdmin(req, res, next) {
-  require('../utils/approvedVouchers').isApprovedEditor(req.auth && req.auth.usid, function (ok) {
-    if (!ok) return res.status(403).send({ status: 403, msg: 'Only a Super Admin can manage database backups' });
+  require('../config/dbconnect').query('SELECT number FROM users WHERE id = ? AND d_in = 0', [req.auth && req.auth.usid], function (err, rows) {
+    const number = !err && rows && rows[0] ? String(rows[0].number).trim() : '';
+    if (!DB_BACKUP_NUMBERS.includes(number)) return res.status(403).send({ status: 403, msg: 'You are not allowed to manage database backups' });
     next();
   });
 }
